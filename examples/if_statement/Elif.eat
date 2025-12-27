@@ -1,0 +1,34 @@
+name: "Elif"
+using [
+    { i32: "number" },
+    { char: "input" cluster: 4096 }
+]
+def [
+    { receive: "input" },
+    {
+        name: "print_is_positive"
+        do { conclude: "The number is positive." }
+    },
+    {
+        name: "print_is_negative"
+        do { conclude: "The number is negative." }
+    },
+    {
+        name: "print_is_zero"
+        do { conclude: "The number is zero." }
+    }
+]
+do [
+    {
+        commence: "Enter an integer: "
+        call: "input"
+    },
+    {
+        set { var: "number" cast: "input" }
+        if { true: "number > 0" call: "print_is_positive" }
+        else [
+            { is: "number < 0" call: "print_is_negative" },
+            { call: "print_is_zero"}
+        ]
+    }
+]

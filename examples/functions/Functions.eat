@@ -1,0 +1,21 @@
+name: "Functions"
+using [
+    { i32: "max" },
+    { i32: "a" },
+    { i32: "b" }
+]
+def {
+    calling: "max"
+    do {
+        if { true: "a > b" ret: "a" }
+        else { ret: "b" }
+    }
+}
+do {
+    set [
+        { var: "a" i32: 10 },
+        { var: "b" i32: 20 }
+    ]
+    call: "max"
+    conclude: "The maximum is {max}"
+}

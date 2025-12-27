@@ -1,0 +1,85 @@
+name: "Struct"
+struct {
+    name: "Point"
+    contain [
+        { i32: "x" },
+        { i32: "y" }
+    ]
+    summary: { name: "Point_summary" shape: "Point" }
+    subtract: { name: "Point_subtract" shape: "Point" }
+    multiply: { name: "Point_mutiply" shape: "Point" }
+    divide: { name: "Point_divide" shape: "Point" }
+    unitary: { name: "Point_unitary" shape: "Point" }
+    repr: { char: "Point_repr" cluster: 1024 }
+    util [
+        { name: "_Point" shape: "Point" },
+        { ui32: "Distance" },
+        { name: "_Point_1" shape: "Point" }
+    ]
+}
+def [
+    {
+        calling: "Distance"
+        do {
+            set { var: "&" eval: "((_Point->x - _Point_1->x)^2 + (_Point->y - _Point_1->y)^2)^0.5" }
+            ret: "&"
+        }
+    },
+    {
+        calling: "Point_summary"
+        do {
+            set [
+                { var: "&x" eval: "&x + _Point->x" },
+                { var: "&y" eval: "&y + _Point->y" }
+            ]
+            ret: "&"
+        }
+    },
+    {
+        calling: "Point_subtract"
+        do {
+            set [
+                { var: "&x" eval: "&x - _Point->x" },
+                { var: "&y" eval: "&y - _Point->y" }
+            ]
+            ret: "&"
+        }
+    },
+    {
+        calling: "Point_mutiply"
+        do {
+            set [
+                { var: "&x" eval: "&x * _Point->x" },
+                { var: "&y" eval: "&y * _Point->y" }
+            ]
+            ret: "&"
+        }
+    },
+    {
+        calling: "Point_divide"
+        do {
+            set [
+                { var: "&x" eval: "&x / _Point->x" },
+                { var: "&y" eval: "&y / _Point->y" }
+            ]
+            ret: "&"
+        }
+    },
+    {
+        calling: "Point_repr"
+        do {
+            set { var: "&" format: "Point({&x}, {&y})" }
+            ret: "&"
+        }
+    },
+    {
+        calling: "Point_unitary"
+        do {
+            set [
+                { var: "&x" eval: "-&x" },
+                { var: "&y" eval: "-&y" }
+            ]
+            ret: "&"
+        }
+    }
+]

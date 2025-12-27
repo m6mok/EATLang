@@ -1,0 +1,2 @@
+name: "HelloWorld"
+do { conclude: "Hello, world!" }

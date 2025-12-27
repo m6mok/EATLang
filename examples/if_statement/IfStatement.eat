@@ -1,0 +1,17 @@
+name: "IfStatement"
+using { i32: "number" }
+def [
+    {
+        name: "print_is_even"
+        do { conclude: "{number} is even" }
+    },
+    {
+        name: "print_is_odd"
+        do { conclude: "{number} is odd" }
+    }
+]
+do {
+    set { var: "number" i32: 8 }
+    if { true: "number % 2 == 0" call: "print_is_even" }
+    else { call: "print_is_odd" }
+}

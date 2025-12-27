@@ -1,0 +1,48 @@
+name: "Implementing i32"
+struct {
+    name: "i32"
+    contain { i32: "value" }
+    summary: { i32: "i32_summary" }
+    subtract: { i32: "i32_subtract" }
+    multiply: { i32: "i32_mutiply" }
+    divide: { i32: "i32_divide" }
+    unitary: { i32: "i32_unitary" }
+    util { i32: "_i32" }
+}
+def [
+    {
+        calling: "i32_summary"
+        do {
+            set { var: "&value" eval: "&value + _i32->value" }
+            ret: "&value"
+        }
+    },
+    {
+        calling: "i32_subtract"
+        do {
+            set { var: "&value" eval: "&value - _i32->value" }
+            ret: "&value"
+        }
+    },
+    {
+        calling: "i32_mutiply"
+        do {
+            set { var: "&value" eval: "&value * _i32->value" }
+            ret: "&value"
+        }
+    },
+    {
+        calling: "i32_divide"
+        do {
+            set { var: "&value" eval: "&value / _i32->value" }
+            ret: "&value"
+        }
+    },
+    {
+        calling: "i32_unitary"
+        do {
+            set { var: "&value" eval: "-&value" }
+            ret: "&value"
+        }
+    }
+]

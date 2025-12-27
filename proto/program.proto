@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+//
+message Struct {
+    string name                 = 1;
+    repeated Using contain      = 2;
+    optional Using summary      = 3;
+    optional Using subtract     = 4;
+    optional Using multiply     = 5;
+    optional Using divide       = 6;
+    optional Using unitary      = 7;
+    optional Using repr         = 8;
+    repeated Using util         = 9;
+}
+
+//
+message Using {
+    oneof type {
+        string name         = 1;
+        string i32          = 2;
+        string ui32         = 3;
+        string char         = 4;
+    }
+    optional string shape   = 5;
+    optional uint32 cluster = 6;
+}
+
+//
+message Def {
+    oneof label {
+        string name     = 1;
+        string calling  = 2;
+        string receive  = 3;
+    }
+    repeated FuncDo do  = 4;
+}
+
+//
+message LoopCondition {
+    oneof result {
+        string true     = 1;
+        string false    = 2;
+    }
+    string call         = 3;
+}
+
+//
+message IfCondition {
+    oneof result {
+        string true     = 1;
+        string false    = 2;
+    }
+    oneof action {
+        string call     = 3;
+        string ret      = 4;
+        string alias    = 5;
+    }
+}
+
+//
+message Else {
+    oneof action {
+        string call     = 3;
+        string ret      = 4;
+        string alias    = 5;
+    }
+}
+
+//
+message FuncDo {
+    optional string commence    = 1;
+    repeated Set set            = 2;
+    oneof action {
+        IfCondition if          = 3;
+        LoopCondition while     = 4;
+        LoopCondition until     = 5;
+        string call             = 6;
+
+        string ret              = 7;
+        string alias            = 8;
+    }
+    repeated Else else          = 9;
+    optional string conclude    = 10;
+}
+
+//
+message Do {
+    optional string commence    = 1;
+    repeated Set set            = 2;
+    oneof action {
+        IfCondition if          = 3;
+        LoopCondition while     = 4;
+        LoopCondition until     = 5;
+        string call             = 6;
+    }
+    repeated Else else          = 7;
+    optional string conclude    = 8;
+}
+
+//
+message Set {
+    string var              = 1;
+    oneof value {
+        string eval         = 2;
+        string cast         = 3;
+        string format       = 4;
+        int32 i32           = 5;
+        uint32 ui32         = 6;
+        string char         = 7;
+    }
+}
+
+//
+message Program {
+    optional string name    = 1;
+    optional string version = 2;
+    repeated Struct struct  = 3;
+    repeated Using using    = 4;
+    repeated Def def        = 5;
+    repeated Do do          = 6;
+}

@@ -1,0 +1,14 @@
+name: "Math"
+using [
+    { i32: "a" },
+    { i32: "b" },
+    { i32: "result" }
+]
+do {
+    set [
+        { var: "a" i32: 10 },
+        { var: "b" i32: 5 },
+        { var: "result" eval: "(a + b) * 2" }
+    ]
+    conclude: "Result is: {result}"
+}

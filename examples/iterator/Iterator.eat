@@ -1,0 +1,14 @@
+name: "Iterator"
+using { ui32: "count" }
+def {
+    name: "dec_count"
+    do {
+        commence: "Countdown: {count}"
+        set { var: "count" eval: "count - 1" }
+    }
+}
+do {
+    set { var: "count" ui32: 3 }
+    while { true: "count > 0" call: "dec_count" }
+    conclude: "Go!"
+}

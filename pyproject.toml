@@ -1,0 +1,10 @@
+[project]
+name = "eatlang"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "protobuf>=6.33.2",
+    "prototxt-parser>=1.0",
+]
