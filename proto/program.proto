@@ -60,9 +60,10 @@ message IfCondition {
 //
 message Else {
     oneof action {
-        string call     = 3;
-        string ret      = 4;
-        string alias    = 5;
+        IfCondition if  = 1;
+        string call     = 2;
+        string ret      = 3;
+        string alias    = 4;
     }
 }
 

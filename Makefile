@@ -14,3 +14,6 @@ run_hello_world:
 
 run_if_statement:
 	uv run src/run.py --log-level=3 examples/if_statement/IfStatement.eat
+
+run_elif:
+	uv run src/run.py --log-level=3 examples/if_statement/Elif.eat

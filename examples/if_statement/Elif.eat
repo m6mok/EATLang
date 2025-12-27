@@ -27,7 +27,7 @@ do [
         set { var: "number" cast: "input" }
         if { true: "number > 0" call: "print_is_positive" }
         else [
-            { is: "number < 0" call: "print_is_negative" },
+            { if { true: "number < 0" call: "print_is_negative" } },
             { call: "print_is_zero"}
         ]
     }
