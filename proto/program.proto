@@ -37,23 +37,17 @@ message Def {
 
 //
 message LoopCondition {
-    oneof result {
-        string true     = 1;
-        string false    = 2;
-    }
-    string call         = 3;
+    string true = 1;
+    string call = 2;
 }
 
 //
 message IfCondition {
-    oneof result {
-        string true     = 1;
-        string false    = 2;
-    }
+    string true         = 1;
     oneof action {
-        string call     = 3;
-        string ret      = 4;
-        string alias    = 5;
+        string call     = 2;
+        string ret      = 3;
+        string alias    = 4;
     }
 }
 
