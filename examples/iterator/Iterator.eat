@@ -1,7 +1,7 @@
 name: "Iterator"
 using { ui32: "count" }
 def {
-    name: "dec_count"
+    named: "dec_count"
     do {
         commence: "Countdown: {count}"
         set { var: "count" eval: "count - 1" }

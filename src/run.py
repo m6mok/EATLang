@@ -1,6 +1,7 @@
 from argparse import ArgumentParser, Namespace
 from collections.abc import Iterable
-from ast import parse
+from enum import Enum
+from typing import Optional
 
 from google.protobuf.text_format import Parse, ParseError
 
@@ -9,6 +10,7 @@ from proto.program_pb2 import (
     Do,
     FuncDo,
     Def,
+    Elif,
     Set,
     Using,
     LoopCondition,
@@ -17,43 +19,98 @@ from proto.program_pb2 import (
 )
 
 
-PARSER = "PARS"
-LINTER = "LINT"
-PROGRAM = "PROG"
-DEBUG = "DEBG"
+class LogLevel(Enum):
+    NONE = 0
+    ERROR = 1
+    INFO = 2
+    DEBUG = 3
+
+
+class Logger:
+    def __init__(self, log_level: LogLevel = LogLevel.NONE):
+        self.log_level = log_level
+        self._indent_level = 0
+        self._indent_count = 1
+        self._indent_string = "│ "
+        self._buffer = []
+        self._should_buffer = False
+
+    def set_level(self, log_level: LogLevel) -> None:
+        self.log_level = log_level
+
+    @property
+    def indent_level(self) -> int:
+        return self._indent_level
+
+    def indent(self) -> None:
+        self._indent_level += 1
+
+    def dedent(self) -> None:
+        if self._indent_level > 0:
+            self._indent_level -= 1
+
+    def start_buffering(self) -> None:
+        self._should_buffer = True
+        self._buffer.clear()
+
+    def stop_buffering(self) -> None:
+        if self._buffer:
+            print("\n".join(self._buffer))
+        self._should_buffer = False
+        self._buffer.clear()
+
+    def _format_message(self, prefix: str, message: str, indent_offset: int = 0) -> str:
+        indent = self._indent_level + indent_offset
+        return f"[{prefix}] {self._indent_string * self._indent_count * indent}{message}"
+
+    def _log(self, prefix: str, message: str, min_level: LogLevel, indent_offset: int = 0) -> None:
+        if self.log_level.value < min_level.value:
+            return
+
+        formatted = self._format_message(prefix, message, indent_offset)
+
+        if self._should_buffer:
+            self._buffer.append(formatted)
+        else:
+            print(formatted)
+
+    def error(self, message: str, indent_offset: int = 0) -> None:
+        self._log("ERR", message, LogLevel.ERROR, indent_offset)
+
+    def parser(self, message: str, indent_offset: int = 0) -> None:
+        self._log("PRS", message, LogLevel.INFO, indent_offset)
+
+    def linter(self, message: str, indent_offset: int = 0) -> None:
+        self._log("LNT", message, LogLevel.INFO, indent_offset)
+
+    def program(self, message: str, indent_offset: int = 0) -> None:
+        self._log("PRG", message, LogLevel.INFO, indent_offset)
+
+    def debug(self, message: str, indent_offset: int = 0) -> None:
+        self._log("DBG", message, LogLevel.DEBUG, indent_offset)
+
+    def connection(self) -> str:
+        return "".join((
+            "├",
+            "─" * (self._indent_count * len(self._indent_string) - 1),
+        ))
+
+    def line(self) -> str:
+        return "".join((
+            "└",
+            "─" * (self._indent_count * len(self._indent_string) - 1),
+        ))
+
+    def section(self, title: str, min_level: LogLevel = LogLevel.INFO) -> None:
+        if self.log_level.value >= min_level.value:
+            print(f"\n{'='*60}")
+            print(f"{title.upper():^60}")
+            print(f"{'='*60}\n")
 
 
 class LintState:
     def __init__(self) -> None:
         self.vars = {}
-
-
-def pprint(
-    prefix: str = "",
-    message=None,
-    log_level: int = 0,
-    indent: int = 0,
-    *,
-    do_print: bool = True,
-    indent_size: int = 1,
-    indent_string: str = "| ",
-    stack: list[str] = [],
-    release_stack: bool = False,
-) -> str | None:
-    if release_stack and len(stack) > 0:
-        print("\n".join(stack))
-        stack.clear()
-
-    line = f"[{prefix}] {indent_string * indent_size * indent}{message}"
-    if do_print:
-        if (
-            prefix == PARSER and log_level > 1 or
-            prefix == LINTER and log_level > 1 or
-            prefix == DEBUG and log_level > 2
-        ):
-            stack.append(line)
-    else:
-        return line
 
 
 def get_args() -> Namespace:
@@ -65,8 +122,9 @@ def get_args() -> Namespace:
         "--log-level",
         type=int,
         default=0,
+        choices=[0, 1, 2, 3],
         help=(
-            "Уровень логирования."
+            "Уровень логирования. "
             "0 - ничего, 1 - ошибки, "
             "2 - информативное, 3 - дебаг"
         )
@@ -82,32 +140,32 @@ def get_args() -> Namespace:
 def parse_program(
     program: Program,
     filepath: str,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
+    logger: Logger,
+) -> Optional[str]:
+    logger.section("Parsing Program")
+    logger.parser(f"Reading file: {filepath}")
+
     with open(filepath, "r", encoding="utf-8") as f:
         try:
             Parse(f.read(), program)
+            logger.parser("Program parsed successfully")
+            return None
         except ParseError as pe:
-            return "\n" + pprint(
-                PARSER,
-                str(pe),
-                log_level,
-                indent + 1,
-                do_print=False,
-            )
+            error_msg = f"Parse error: {pe}"
+            logger.error(error_msg)
+            return error_msg
 
 
 def lint_using(
     using: Iterable[Using],
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    pprint(LINTER, "using", log_level, indent)
+    logger: Logger,
+) -> None:
+    logger.linter("using")
+    logger.indent()
 
     for el in using:
-        shape: str | None = None
+        shape: Optional[str] = None
         msg: str
 
         if el.HasField("i32"):
@@ -122,257 +180,309 @@ def lint_using(
         elif el.HasField("name"):
             msg = el.name
         else:
-            pprint(LINTER, "Name is not defined", log_level, indent + 1)
+            logger.debug("Name is not defined")
             continue
+
         if el.HasField("shape"):
             if shape is None:
                 shape = el.shape
             else:
-                pprint(
-                    LINTER,
-                    f"Shape already defined: `{shape}`, found `{el.shape}`",
-                    log_level,
-                    indent + 1,
-                )
+                logger.debug(f"Shape already defined: `{shape}`, found `{el.shape}`")
                 continue
         elif shape is None:
-            pprint(
-                LINTER,
-                f"Shape is not defined for: `{el.name}`",
-                log_level,
-                indent + 1,
-            )
+            logger.debug(f"Shape is not defined for: `{el.name}`")
             continue
+
         msg += ": " + shape
         if el.HasField("cluster"):
             msg += f"[{el.cluster}]"
-        pprint(LINTER, msg, log_level, indent + 1)
+
+        logger.linter(msg)
+
+    logger.dedent()
+    logger.linter(logger.line())
 
 
 def lint_set(
-    set: Iterable[Set],
+    set_cmd: Iterable[Set],
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    pprint(LINTER, "set", log_level, indent)
-    for line in set:
+    logger: Logger,
+) -> None:
+    logger.linter("set")
+    logger.indent()
+
+    for line in set_cmd:
         msg = ""
         if line.HasField("eval"):
-            msg += f"`{line.var}` eval `{line.eval}`"
+            msg = f"`{line.var}` eval `{line.eval}`"
         elif line.HasField("cast"):
-            msg += f"`{line.var}` cast from `{line.cast}`"
+            msg = f"`{line.var}` cast from `{line.cast}`"
         elif line.HasField("format"):
-            msg += f"`{line.var}` format by `{line.format}`"
+            msg = f"`{line.var}` format by `{line.format}`"
         elif line.HasField("i32"):
             state.vars[line.var] = int(line.i32)
-            msg += f"{line.var}: i32 = {line.i32}"
+            msg = f"{line.var}: i32 = {line.i32}"
         elif line.HasField("ui32"):
             state.vars[line.var] = int(line.ui32)
-            msg += f"{line.var}: ui32 = {line.ui32}"
+            msg = f"{line.var}: ui32 = {line.ui32}"
         elif line.HasField("char"):
             state.vars[line.var] = line.char
-            msg += f"{line.var}: char = {line.char}"
-        pprint(LINTER, msg, log_level, indent + 1)
+            msg = f"{line.var}: char = {line.char}"
+
+        logger.linter(msg)
+
+    logger.dedent()
 
 
 def lint_if(
     _if: IfCondition,
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    pprint(LINTER, "if", log_level, indent)
-    pprint(LINTER, f"true: {_if.true}", log_level, indent + 1)
+    logger: Logger,
+) -> None:
+    msg = f"if `{_if.true}` "
+
     if _if.HasField("call"):
-        pprint(LINTER, f"call: {_if.call}", log_level, indent + 1)
+        logger.linter(msg + f"call {_if.call}")
     elif _if.HasField("ret"):
-        pprint(LINTER, f"ret: {_if.ret}", log_level, indent + 1)
+        logger.linter(msg + f"ret {_if.ret}")
     elif _if.HasField("alias"):
-        pprint(LINTER, f"alias: {_if.alias}", log_level, indent + 1)
+        logger.linter(msg + f"alias {_if.alias}")
+    if len(_elif := getattr(_if, "elif")) > 0:
+        lint_elif(_elif, state, logger)
 
 
 def lint_while(
     _while: LoopCondition,
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    pprint(LINTER, "while", log_level, indent)
-    pprint(LINTER, f"true: {_while.true}", log_level, indent + 1)
-    pprint(LINTER, f"call: {_while.call}", log_level, indent + 1)
+    logger: Logger,
+) -> None:
+    logger.linter(f"while {_while.true}")
+    logger.indent()
+    logger.linter(f"call {_while.call}")
+    logger.dedent()
 
 
 def lint_until(
     _until: LoopCondition,
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    pprint(LINTER, "until", log_level, indent)
-    if _until.HasField("true"):
-        pprint(LINTER, f"true: {_until.true}", log_level, indent + 1)
-    elif _until.HasField("false"):
-        pprint(LINTER, f"false: {_until.false}", log_level, indent + 1)
-    if _until.HasField("call"):
-        pprint(LINTER, f"call: {_until.call}", log_level, indent + 1)
+    logger: Logger,
+) -> None:
+    logger.linter(f"until {_until.true}")
+    logger.indent()
+    logger.linter(f"call {_until.call}")
+    logger.dedent()
+
+
+def lint_elif(
+    _elif: Iterable[Elif],
+    state: LintState,
+    logger: Logger,
+) -> None:
+    for line in _elif:
+        msg = f"elif `{line.true}` "
+
+        if line.HasField("call"):
+            logger.linter(msg + f"call {line.call}")
+        elif line.HasField("ret"):
+            logger.linter(msg + f"ret {line.ret}")
+        elif line.HasField("alias"):
+            logger.linter(msg + f"alias {line.alias}")
 
 
 def lint_else(
-    _else: Iterable[Else],
+    _else: Else,
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    pprint(LINTER, "else", log_level, indent)
-    for line in _else:
-        if line.HasField("call"):
-            pprint(LINTER, f"call: {line.call}", log_level, indent + 1)
-        elif line.HasField("ret"):
-            pprint(LINTER, f"ret: {line.ret}", log_level, indent + 1)
-        elif line.HasField("alias"):
-            pprint(LINTER, f"alias: {line.alias}", log_level, indent + 1)
+    logger: Logger,
+) -> None:
+    if _else.HasField("call"):
+        logger.linter(f"else call {_else.call}")
+    elif _else.HasField("ret"):
+        logger.linter(f"else ret {_else.ret}")
+    elif _else.HasField("alias"):
+        logger.linter(f"else alias {_else.alias}")
 
 
 def lint_do(
     do: Iterable[Do],
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    pprint(LINTER, "do", log_level, indent)
-
-    do_size = len(do)
+    logger: Logger,
+) -> None:
+    logger.linter("do")
+    logger.indent()
 
     for i, el in enumerate(do):
         if el.HasField("commence"):
-            pprint(LINTER, f"commence `{el.commence}`", log_level, indent + 1)
+            logger.linter(f"commence `{el.commence}`")
+
         if len(el.set) > 0:
-            lint_set(el.set, state, log_level, indent + 1)
+            lint_set(el.set, state, logger)
+
         if (_if := getattr(el, "if")).true != "":
-            lint_if(_if, state, log_level, indent + 1)
+            lint_if(_if, state, logger)
         elif (_while := getattr(el, "while")).true != "":
-            lint_while(_while, state, log_level, indent + 1)
+            lint_while(_while, state, logger)
         elif el.HasField("until"):
-            lint_until(el.until, state, log_level, indent + 1)
+            lint_until(el.until, state, logger)
         elif el.HasField("call"):
-            pprint(LINTER, f"call: {el.call}", log_level, indent + 1)
-        if len(_else := getattr(el, "else")) > 0:
-            lint_else(_else, state, log_level, indent + 1)
+            logger.linter(f"call: {el.call}")
+
+        if (_else := getattr(el, "else")) is not None:
+            lint_else(_else, state, logger)
+
         if el.HasField("conclude"):
-            pprint(LINTER, f"conclude `{el.conclude}`", log_level, indent + 1)
-        if i + 1 < do_size:
-            pprint(LINTER, "|-", log_level, indent)
+            logger.linter(f"conclude `{el.conclude}`")
+
+        if i == len(do) - 1:
+            logger.linter(logger.line())
+        else:
+            logger.linter(logger.connection())
+
+    logger.dedent()
+    logger.linter(logger.line())
 
 
 def lint_func_do(
     func_do: Iterable[FuncDo],
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    func_do_size = len(func_do)
+    logger: Logger,
+) -> None:
+    logger.indent()
 
     for i, el in enumerate(func_do):
         if el.HasField("commence"):
-            pprint(LINTER, f"commence: `{el.commence}`", log_level, indent + 1)
+            logger.linter(f"commence `{el.commence}`")
+
         if len(el.set) > 0:
-            lint_set(el.set, state, log_level, indent + 1)
+            lint_set(el.set, state, logger)
+
         if (_if := getattr(el, "if")).true != "":
-            lint_if(_if, state, log_level, indent + 1)
+            lint_if(_if, state, logger)
         elif (_while := getattr(el, "while")).true != "":
-            lint_while(_while, state, log_level, indent + 1)
+            lint_while(_while, state, logger)
         elif el.HasField("until"):
-            lint_until(el.until, state, log_level, indent + 1)
+            lint_until(el.until, state, logger)
         elif el.HasField("call"):
-            pprint(LINTER, el.call, log_level, indent + 1)
-        if len(_else := getattr(el, "else")) > 0:
-            lint_else(_else, state, log_level, indent + 1)
+            logger.linter(f"Call: {el.call}")
+
+        if (_else := getattr(el, "else")) is not None:
+            lint_else(_else, state, logger)
+
         if el.HasField("conclude"):
-            pprint(LINTER, f"conclude: `{el.conclude}`", log_level, indent + 1)
-        if i + 1 < func_do_size:
-            pprint(LINTER, "|-", log_level, indent)
+            logger.linter(f"conclude `{el.conclude}`")
+
+        if i == len(func_do) - 1:
+            logger.linter(logger.line())
+        else:
+            logger.linter(logger.connection())
+
+    logger.dedent()
 
 
 def lint_def(
     _def: Iterable[Def],
     state: LintState,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
-    pprint(LINTER, "def", log_level, indent)
-    for el in _def:
-        if el.HasField("name"):
-            pprint(LINTER, f"void `{el.name}`", log_level, indent + 1)
+    logger: Logger,
+) -> None:
+    logger.linter("def")
+    logger.indent()
+
+    for i, el in enumerate(_def):
+        if el.HasField("named"):
+            logger.linter(f"named `{el.named}`")
+
         if el.HasField("calling"):
-            pprint(LINTER, f"calling `{el.calling}`", log_level, indent + 1)
-        if el.HasField("receive"):
-            pprint(LINTER, f"receive `{el.receive}`", log_level, indent + 1)
+            logger.linter(f"calling `{el.calling}`")
+
+        if el.HasField("receiving"):
+            logger.linter(f"reveiving `{el.receiving}`")
+
         if len(func_do := el.do) > 0:
-            lint_func_do(func_do, state, log_level, indent + 1)
+            lint_func_do(func_do, state, logger)
+
+        if i == len(_def) - 1:
+            logger.linter(logger.line())
+        else:
+            logger.linter(logger.connection())
+
+    logger.dedent()
+    logger.linter(logger.line())
 
 
 def lint_program(
     p: Program,
-    log_level: int = 0,
-    indent: int = 0,
-) -> str | None:
+    logger: Logger,
+) -> Optional[str]:
+    logger.section("Linting Program")
     state = LintState()
 
-    if p.HasField("name"):
-        pprint(LINTER, f"name: `{p.name}`", log_level, indent)
+    try:
+        if p.HasField("name"):
+            logger.linter(f"name `{p.name}`")
 
-    if p.HasField("version"):
-        pprint(LINTER, f"version: `{p.version}`", log_level, indent)
+        if p.HasField("version"):
+            logger.linter(f"version `{p.version}`")
 
-    if len(using := p.using) > 0:
-        lint_using(using, state, log_level, indent)
+        if len(using := p.using) > 0:
+            lint_using(using, state, logger)
 
-    if len(_def := getattr(p, "def")) > 0:
-        lint_def(_def, state, log_level, indent)
+        if len(_def := getattr(p, "def")) > 0:
+            lint_def(_def, state, logger)
 
-    if len(do := p.do) > 0:
-        lint_do(do, state, log_level, indent)
+        if len(do := p.do) > 0:
+            lint_do(do, state, logger)
+
+        logger.linter("Linting completed successfully")
+        return None
+
+    except Exception as e:
+        error_msg = f"Linting error: {e}"
+        logger.error(error_msg)
+        return error_msg
 
 
-def process_program(p: Program, debug: bool = False) -> str | None:
-    pass
+def process_program(p: Program, logger: Logger) -> Optional[str]:
+    logger.section("Processing Program")
+    logger.program("Program processing completed")
+    return None
 
 
 def main(args: Namespace) -> None:
-    ll: int = args.log_level
-    indent: int = 0
+    log_level = LogLevel(args.log_level)
+    logger = Logger(log_level)
 
-    pprint(DEBUG, f"Program filepath: `{args.filepath}`", ll, indent)
-    pprint(release_stack=True)
+    logger.debug(f"Program filepath: `{args.filepath}`")
 
     program = Program()
 
-    result = parse_program(program, args.filepath, ll)
-    if result is None:
-        pprint(PARSER, "Program parsed successfully", ll, indent)
-        pprint(release_stack=True)
-    else:
-        pprint(DEBUG, f"Program parsed with error: {result}", ll, indent)
+    # Parse program with buffered output
+    logger.start_buffering()
+    result = parse_program(program, args.filepath, logger)
+    logger.stop_buffering()
+
+    if result is not None:
+        logger.error(f"Program parsing failed: {result}")
         return
 
-    result = lint_program(program, ll)
-    if result is None:
-        pprint(LINTER, "Program linted successfully")
-        pprint(release_stack=True)
-    else:
-        pprint(DEBUG, f"Program linted with error: {result}", ll, indent)
+    # Lint program with buffered output
+    logger.start_buffering()
+    result = lint_program(program, logger)
+    logger.stop_buffering()
+
+    if result is not None:
+        logger.error(f"Program linting failed: {result}")
         return
 
-    result = process_program(program, ll)
-    if result is None:
-        pprint(DEBUG, "Program ended successfully", ll, indent)
-        pprint(release_stack=True)
-    else:
-        pprint(DEBUG, f"Program ended with error: {result}", ll, indent)
+    # Process program with buffered output
+    logger.start_buffering()
+    result = process_program(program, logger)
+    logger.stop_buffering()
+
+    if result is not None:
+        logger.error(f"Program processing failed: {result}")
         return
+
+    logger.program("Program execution completed successfully")
 
 
 if __name__ == "__main__":
     main(get_args())
-    pprint(release_stack=True)

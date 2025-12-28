@@ -28,17 +28,27 @@ message Using {
 //
 message Def {
     oneof label {
-        string name     = 1;
-        string calling  = 2;
-        string receive  = 3;
+        string named        = 1;
+        string calling      = 2;
+        string receiving    = 3;
     }
-    repeated FuncDo do  = 4;
+    repeated FuncDo do      = 4;
 }
 
 //
 message LoopCondition {
     string true = 1;
     string call = 2;
+}
+
+//
+message Elif {
+    string true                 = 1;
+    oneof action {
+        string call             = 2;
+        string ret              = 3;
+        string alias            = 4;
+    }
 }
 
 //
@@ -49,15 +59,15 @@ message IfCondition {
         string ret      = 3;
         string alias    = 4;
     }
+    repeated Elif elif  = 5;
 }
 
 //
 message Else {
     oneof action {
-        IfCondition if  = 1;
-        string call     = 2;
-        string ret      = 3;
-        string alias    = 4;
+        string call     = 1;
+        string ret      = 2;
+        string alias    = 3;
     }
 }
 
@@ -74,7 +84,7 @@ message FuncDo {
         string ret              = 7;
         string alias            = 8;
     }
-    repeated Else else          = 9;
+    optional Else else          = 9;
     optional string conclude    = 10;
 }
 
@@ -88,7 +98,7 @@ message Do {
         LoopCondition until     = 5;
         string call             = 6;
     }
-    repeated Else else          = 7;
+    optional Else else          = 7;
     optional string conclude    = 8;
 }
 

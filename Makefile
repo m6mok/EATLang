@@ -23,3 +23,9 @@ run_iterator:
 
 run_functions:
 	uv run src/run.py --log-level=3 examples/functions/Functions.eat
+
+run_all:
+	uv run src/run.py --log-level=3 examples/all/All.eat
+
+run_math:
+	uv run src/run.py --log-level=3 examples/math/Math.eat

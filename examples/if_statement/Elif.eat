@@ -4,17 +4,17 @@ using [
     { char: "input" cluster: 4096 }
 ]
 def [
-    { receive: "input" },
+    { receiving: "input" },
     {
-        name: "print_is_positive"
+        named: "print_is_positive"
         do { conclude: "The number is positive." }
     },
     {
-        name: "print_is_negative"
+        named: "print_is_negative"
         do { conclude: "The number is negative." }
     },
     {
-        name: "print_is_zero"
+        named: "print_is_zero"
         do { conclude: "The number is zero." }
     }
 ]
@@ -25,10 +25,10 @@ do [
     },
     {
         set { var: "number" cast: "input" }
-        if { true: "number > 0" call: "print_is_positive" }
-        else [
-            { if { true: "number < 0" call: "print_is_negative" } },
-            { call: "print_is_zero"}
-        ]
+        if {
+            true: "number > 0" call: "print_is_positive"
+            elif { true: "number < 0" call: "print_is_negative" }
+        }
+        else { call: "print_is_zero"}
     }
 ]
