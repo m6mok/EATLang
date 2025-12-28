@@ -320,19 +320,19 @@ def lint_program(
     state = LintState()
 
     if p.HasField("name"):
-        pprint(LINTER, f"name: `{p.name}`", log_level, indent + 1)
+        pprint(LINTER, f"name: `{p.name}`", log_level, indent)
 
     if p.HasField("version"):
-        pprint(LINTER, f"version: `{p.version}`", log_level, indent + 1)
+        pprint(LINTER, f"version: `{p.version}`", log_level, indent)
 
     if len(using := p.using) > 0:
-        lint_using(using, state, log_level, indent + 1)
+        lint_using(using, state, log_level, indent)
 
     if len(_def := getattr(p, "def")) > 0:
-        lint_def(_def, state, log_level, indent + 1)
+        lint_def(_def, state, log_level, indent)
 
     if len(do := p.do) > 0:
-        lint_do(do, state, log_level, indent + 1)
+        lint_do(do, state, log_level, indent)
 
 
 def process_program(p: Program, debug: bool = False) -> str | None:

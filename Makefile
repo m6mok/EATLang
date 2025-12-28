@@ -20,3 +20,6 @@ run_elif:
 
 run_iterator:
 	uv run src/run.py --log-level=3 examples/iterator/Iterator.eat
+
+run_functions:
+	uv run src/run.py --log-level=3 examples/functions/Functions.eat
