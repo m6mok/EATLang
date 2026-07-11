@@ -52,6 +52,7 @@ class FuncSig:
     params: list  # [(имя, Type)]
     ret: Type | None
     node: ast.FuncDecl | None = None
+    var_self: bool = False  # метод с var self — мутирует получателя
 
 
 @dataclass
@@ -262,7 +263,12 @@ class TypeChecker:
             if p.name != "self":
                 params.append((p.name, self.resolve(p.type)))
         ret = self.resolve(func.ret) if func.ret is not None else None
-        return FuncSig(func.name, params, ret, func)
+        var_self = bool(
+            func.params
+            and func.params[0].name == "self"
+            and func.params[0].mutable
+        )
+        return FuncSig(func.name, params, ret, func, var_self)
 
     def _check_type_cycles(self) -> None:
         """Значения вкладываются по значению (указателей нет): цикл
@@ -387,7 +393,7 @@ class TypeChecker:
         self.push_scope()
         if self.self_type is not None:
             self.scopes[-1]["self"] = VarInfo(
-                self.self_type, False, func.line, func.col
+                self.self_type, sig.var_self, func.line, func.col
             )
         for pname, ptype in sig.params:
             pnode = next(p for p in func.params if p.name == pname)
@@ -509,9 +515,16 @@ class TypeChecker:
         while isinstance(base, (ast.FieldAccess, ast.Index)):
             base = base.obj
         if isinstance(base, ast.SelfExpr):
-            raise self.err(
-                stmt, "self неизменяем: параметры передаются by-value"
-            )
+            sinfo = self.lookup(base, "self")
+            if sinfo is None or not sinfo.mutable:
+                raise self.err(
+                    stmt,
+                    "self неизменяем: мутирующий метод объявляется "
+                    "как func имя(var self, ...)",
+                )
+            value = self.expr(stmt.value, expected=target_type)
+            self._require_compatible(stmt, target_type, value)
+            return
         if not isinstance(base, ast.Name):
             raise self.err(stmt, "некорректная цель присваивания")
         info = self.lookup(base, base.ident)
@@ -874,10 +887,41 @@ class TypeChecker:
         sig = info.methods.get(node.name)
         if sig is None:
             raise self.err(node, f"у struct {obj.name} нет метода {node.name}")
+        if sig.var_self:
+            self._check_mutable_receiver(node)
         self._check_args(node, sig)
         node.struct = obj.name  # для кодогенерации
         self.edges.add((self.current_key, f"{obj.name}.{node.name}"))
         return sig.ret if sig.ret is not None else VOID
+
+    def _check_mutable_receiver(self, node: ast.MethodCall) -> None:
+        """Метод с var self мутирует получателя — получатель обязан
+        быть изменяемым lvalue."""
+        base = node.obj
+        while isinstance(base, (ast.FieldAccess, ast.Index)):
+            base = base.obj
+        if isinstance(base, ast.SelfExpr):
+            sinfo = self.lookup(base, "self")
+            if sinfo is not None and sinfo.mutable:
+                return
+            raise self.err(
+                node,
+                f"{node.name}(var self) внутри немутирующего метода",
+            )
+        if isinstance(base, ast.Name):
+            info = self.lookup(base, base.ident)
+            if info is not None and info.mutable:
+                return
+            raise self.err(
+                node,
+                f"{node.name} объявлен с var self, а получатель "
+                f"{base.ident} — let (неизменяем)",
+            )
+        raise self.err(
+            node,
+            f"{node.name} объявлен с var self: получатель обязан быть "
+            "изменяемой переменной, а не временным значением",
+        )
 
     def _enum_ctor(self, node: ast.MethodCall) -> Type:
         ename = node.obj.ident

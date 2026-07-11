@@ -377,7 +377,11 @@ class Interpreter:
             assert isinstance(obj, StructValue)
             method = self.structs[obj.name].methods[node.name]
             args = [self.eval(a) for a in node.args]
-            return self.call_func(method, args, deepcopy(obj), node)
+            # var self: метод мутирует получателя — передаём сам объект
+            var_self = bool(method.params) and method.params[0].mutable
+            return self.call_func(
+                method, args, obj if var_self else deepcopy(obj), node
+            )
         if isinstance(node, ast.FieldAccess):
             if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
                 return EnumValue(node.obj.ident, node.name)

@@ -546,6 +546,20 @@ class Verifier:
             return env
         if isinstance(stmt, (ast.ExprStmt, ast.DiscardStmt)):
             self._iv(stmt.expr, env)
+            # модульный контракт мутирующего метода: ensures о self.поле
+            # становится фактом о получателе (после kill в _iv_method)
+            if isinstance(stmt.expr, ast.MethodCall) and (
+                getattr(stmt.expr, "enum_ctor", None) is None
+            ):
+                sig = self.checker.structs[stmt.expr.struct].methods[
+                    stmt.expr.name
+                ]
+                func, _ = self._func_by_key(
+                    f"{stmt.expr.struct}.{stmt.expr.name}"
+                )
+                self._assume_ensures(
+                    env, func, sig, stmt.expr, None, _path_of(stmt.expr.obj)
+                )
             return env
         return env
 
@@ -1399,7 +1413,8 @@ class Verifier:
             return ("iv", (e.value, e.value))
         if isinstance(e, ast.Name):
             if e.ident == "result":
-                return ("off", bind, 0)
+                # bind is None — вызов без связывания результата
+                return ("off", bind, 0) if bind is not None else None
             if e.ident in self.checker.consts:
                 v = self.checker.consts[e.ident][1]
                 return ("iv", (v, v))
@@ -1459,6 +1474,8 @@ class Verifier:
     def _refine_path_iv(self, env: State, path: str, op: str, oiv: Iv) -> None:
         cur = env.ivs.get(path)
         if cur is None:
+            if op == "==":  # точный факт восстанавливает интервал
+                env.ivs[path] = oiv
             return
         if op == "<":
             new = _inter(cur, (cur[0], oiv[1] - 1))
@@ -1542,6 +1559,11 @@ class Verifier:
         self._check_requires(
             key, func, sig, node, env, obj_path=_path_of(node.obj)
         )
+        if sig.var_self:
+            # метод мутирует получателя — факты о нём устаревают
+            p = _path_of(node.obj)
+            if p is not None:
+                env.kill(p)
         return self._apply_summary(key, sig, node, env)
 
 

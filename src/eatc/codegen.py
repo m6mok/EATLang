@@ -278,9 +278,14 @@ class Codegen:
             self.ret_slot = None
         if struct is not None:
             self_ty = StructType(struct)
-            self.bind(
-                "self", self_ty, self.materialize(self_ty, fn.args[arg_i])
-            )
+            if sig.var_self:
+                # var self мутирует получателя — работаем по указателю
+                # вызывающего, без локальной копии
+                self.bind("self", self_ty, fn.args[arg_i])
+            else:
+                self.bind(
+                    "self", self_ty, self.materialize(self_ty, fn.args[arg_i])
+                )
             arg_i += 1
         for pname, pty in sig.params:
             arg = fn.args[arg_i]
@@ -524,6 +529,9 @@ class Codegen:
     def lvalue(self, node: ast.Expr):
         if isinstance(node, ast.Name):
             _, ptr = self.find(node.ident)
+            return ptr
+        if isinstance(node, ast.SelfExpr):
+            _, ptr = self.find("self")
             return ptr
         if isinstance(node, ast.FieldAccess):
             base = self.lvalue(node.obj)

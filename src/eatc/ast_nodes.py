@@ -225,6 +225,7 @@ class DiscardStmt(Stmt):
 class Param(Node):
     name: str  # "self" у методов
     type: Node | None  # None только у self
+    mutable: bool = False  # var self — мутирующий метод
 
 
 @dataclass

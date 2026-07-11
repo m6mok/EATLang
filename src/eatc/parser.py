@@ -211,14 +211,18 @@ class Parser:
                     "параметров функции",
                     MAX_PARAMS,
                 )
-            if self.at(T.SELF):
-                tok = self.advance()
+            if self.at(T.SELF) or self.at(T.VAR):
+                mutable = bool(self.accept(T.VAR))  # var self
+                tok = self.expect(T.SELF, "self (var в параметрах — "
+                                          "только у self)")
                 if not in_struct or params:
                     raise self.error(
                         "self допустим только первым параметром метода struct",
                         tok,
                     )
-                params.append(ast.Param(tok.line, tok.col, "self", None))
+                params.append(
+                    ast.Param(tok.line, tok.col, "self", None, mutable)
+                )
             else:
                 tok = self.expect(T.IDENT, "имя параметра")
                 self.expect(T.COLON, "':'")
