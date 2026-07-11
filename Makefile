@@ -174,6 +174,64 @@ verify_bootstrap:
 		&& echo "BOOT OK (fixpoint: stage2 эмитит байт-в-байт тот же IR)" \
 		|| { echo "BOOT DIFF fixpoint"; exit 1; }
 
+# ==== Сборка языка и программ ===========================================
+# Компилятор EATLang — фильтр stdin → stdout: получает конкатенацию
+# модулей программы (рантайм-модуль $(RT) — первым) и печатает LLVM IR.
+#
+#   make eatc                                # язык из Python-бутстрапа
+#   make eatc_self                           # язык, собранный самим собой
+#   make compile SRC="Mod.eat Main.eat"      # .eat → build/Main.ll
+#   make link    SRC="Mod.eat Main.eat"      # build/Main.ll → build/Main
+#   make run     SRC="Mod.eat Main.eat"      # запустить build/Main
+#   make binary  SRC="Mod.eat Main.eat"      # компиляция + линковка
+#
+# Имена артефактов — по последнему модулю (главному); переопределяются
+# через LL=... и BIN=... Компилятор для compile — COMPILER=build/eatc
+# (поменяйте на build/eatc-self, чтобы собирать компилятором,
+# собранным самим собой — IR байт-в-байт тот же).
+
+EATC_SOURCES = $(SELFHOST_IR) $(wildcard src/eatc/*.py) src/eatc/runtime.c
+
+# Язык из Python: бутстрап собирает self-hosted компилятор
+build/eatc: $(EATC_SOURCES)
+	$(EATC) build $(SELFHOST_IR) -o build/eatc
+
+eatc: build/eatc
+
+# Язык из EAT: компилятор компилирует сам себя, clang линкует
+build/eatc-self: build/eatc
+	cat $(SELFHOST_IR) | ./build/eatc > build/eatc-self.ll
+	clang build/eatc-self.ll src/eatc/runtime.c -o build/eatc-self \
+		-Wno-override-module $(STACK_FLAGS)
+
+eatc_self: build/eatc-self
+
+COMPILER ?= build/eatc
+PROG = $(basename $(notdir $(lastword $(SRC))))
+LL ?= build/$(PROG).ll
+BIN ?= build/$(PROG)
+
+# Компиляция: модули программы → текстовый LLVM IR
+compile: $(COMPILER)
+	@test -n "$(SRC)" || { echo 'использование: make compile SRC="Мод1.eat Main.eat"'; exit 1; }
+	@cat $(RT) $(SRC) | ./$(COMPILER) > $(LL)
+	@if head -1 $(LL) | grep -q '^err:'; then cat $(LL); rm -f $(LL); exit 1; fi
+	@echo "$(LL)"
+
+# Линковка: IR + шим аксиом ОС (runtime.c) → нативный бинарник
+link:
+	@test -f "$(LL)" || { echo "нет $(LL) — сначала make compile SRC=..."; exit 1; }
+	@clang $(LL) src/eatc/runtime.c -o $(BIN) -Wno-override-module $(STACK_FLAGS)
+	@echo "$(BIN)"
+
+# Запуск слинкованной программы (stdin проходит насквозь)
+run:
+	@test -x "$(BIN)" || { echo "нет $(BIN) — сначала make binary SRC=..."; exit 1; }
+	@./$(BIN)
+
+# Бинарник из файлов: компиляция + линковка
+binary: compile link
+
 run_hello_world:
 	$(EATC) run examples/hello_world/HelloWorld.eat
 
