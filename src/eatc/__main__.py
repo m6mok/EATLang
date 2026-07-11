@@ -130,6 +130,20 @@ def cmd_sig(path: str) -> int:
     return 0
 
 
+def cmd_typed(path: str) -> int:
+    from .typeddump import dump_typed
+
+    try:
+        program = parse_file(path)
+        lines = dump_typed(program, path)
+    except (OSError, EatError) as err:
+        print(err, file=sys.stderr)
+        return 1
+    for line in lines:
+        print(line)
+    return 0
+
+
 _KIND_LABEL = {
     "overflow": "переполнение",
     "div": "деление",
@@ -190,6 +204,8 @@ def main(argv: list[str]) -> int:
         return cmd_parse(argv[1])
     if len(argv) == 2 and argv[0] == "sig":
         return cmd_sig(argv[1])
+    if len(argv) == 2 and argv[0] == "typed":
+        return cmd_typed(argv[1])
     if len(argv) >= 2 and argv[0] == "build":
         args = argv[1:]
         out = None

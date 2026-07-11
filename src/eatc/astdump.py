@@ -30,6 +30,10 @@ class Dumper:
     def emit(self, depth: int, text: str) -> None:
         self.lines.append("  " * depth + text)
 
+    def ann(self, node) -> str:
+        """Хук аннотаций (типизированный дамп переопределяет)."""
+        return ""
+
     # --- программа и объявления ------------------------------------------
 
     def program(self, node: ast.Program) -> list[str]:
@@ -119,7 +123,7 @@ class Dumper:
         pos = f"{node.line}:{node.col}"
         if isinstance(node, ast.LetStmt):
             mut = 1 if node.mutable else 0
-            self.emit(d, f"let {pos} name={node.name} mut={mut}")
+            self.emit(d, f"let {pos} name={node.name} mut={mut}{self.ann(node)}")
             self.type_(d + 1, node.type)
             self.expr(d + 1, node.value)
         elif isinstance(node, ast.AssignStmt):
@@ -138,7 +142,7 @@ class Dumper:
                 self.emit(d + 1, "else")
                 self.block(d + 2, node.els)
         elif isinstance(node, ast.ForStmt):
-            self.emit(d, f"for {pos} name={node.target}")
+            self.emit(d, f"for {pos} name={node.target}{self.ann(node)}")
             self.expr(d + 1, node.iterable)
             self.block(d + 1, node.body)
         elif isinstance(node, ast.LoopStmt):
@@ -151,7 +155,8 @@ class Dumper:
                 bind = "" if arm.binding is None else f" bind={arm.binding}"
                 self.emit(
                     d + 1,
-                    f"arm {arm.line}:{arm.col} name={arm.pattern}{bind}",
+                    f"arm {arm.line}:{arm.col} name={arm.pattern}{bind}"
+                    + self.ann(arm),
                 )
                 self.block(d + 2, arm.body)
         elif isinstance(node, ast.ReturnStmt):

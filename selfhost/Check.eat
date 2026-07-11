@@ -73,6 +73,70 @@ struct Check {
     dep_found: u32
     # статистика (правило 4)
     total_stmts: u32
+    # --- фаза 3b: тайпчекер тел -----------------------------------------
+    # аннотации узлов: тип выражения и «возвращает» (достижимость)
+    nty: [u32; 32768]
+    nrt: [u32; 32768]
+    # границы for-диапазонов: узел, старт (sign, mag), конец (sign, mag)
+    rb_n: [u32; 128]
+    rb_ss: [u32; 128]
+    rb_sm: [u32; 128]
+    rb_es: [u32; 128]
+    rb_em: [u32; 128]
+    nrb: u32
+    # узлы параметров (позиции для правила 10)
+    pnd: [u32; 1024]
+    # переменные областей видимости (sv_s = NONE — это self)
+    sv_s: [u32; 256]
+    sv_l: [u32; 256]
+    sv_t: [u32; 256]
+    sv_m: [u32; 256]
+    sv_u: [u32; 256]
+    sv_ln: [u32; 256]
+    sv_cl: [u32; 256]
+    nsv: u32
+    scp: [u32; 64]
+    nsc: u32
+    # текущий контекст: fi | 1024+тест; main; self; result; loop
+    cur_key: u32
+    main_fi: u32
+    self_ty2: u32
+    self_mu: u32
+    res_ty2: u32
+    loopd: u32
+    # рёбра графа вызовов (код вызывающего, fi вызываемого)
+    eg_c: [u32; 1024]
+    eg_d: [u32; 1024]
+    neg: u32
+    # тесты
+    tt_s: [u32; 64]
+    tt_l: [u32; 64]
+    ttn: u32
+    # машина выражений: кадры (узел, фаза, ожидаемый тип, aux)
+    xn: [u32; 64]
+    xp: [u32; 64]
+    xe: [u32; 64]
+    xa: [u32; 64]
+    xb: [u32; 64]
+    nxq: u32
+    tres: u32
+    xvoid: u32
+    # машина инструкций: кадры (вид, узел, курсор, aux, последняя инструкция)
+    qk2: [u32; 128]
+    qn: [u32; 128]
+    qp: [u32; 128]
+    qx: [u32; 128]
+    qy: [u32; 128]
+    nq: u32
+    # встроенные типы и имена (дописаны в sbuf при инициализации)
+    ty_sq: u32
+    ty_rl: u32
+    ty_rb: u32
+    ty_pi: u32
+    bn_io: u32
+    bn_pe: u32
+    # глубина стека (правило 1)
+    sdep: u32
 
     # --- инфраструктура ---------------------------------------------------
 
@@ -800,6 +864,7 @@ struct Check {
                             self.pn_s[pi] = self.p.nss[c]
                             self.pn_l[pi] = self.p.nsl[c]
                             self.pty[pi] = self.resolve(self.p.nfc[c])
+                            self.pnd[pi] = c
                             self.npar = pi + 1
                             self.fpc[i] = self.fpc[i] + 1
                         }
@@ -1164,6 +1229,7 @@ struct Check {
             self.fail_at(1, 1, "нет функции main — точки входа")
             return
         }
+        self.main_fi = mi
         if self.fpc[mi] != 0 or self.fret[mi] != 4294967295 {
             self.fail_node(self.fnd[mi], "main не принимает параметров и ничего не возвращает")
         }
@@ -1414,6 +1480,2263 @@ struct Check {
                     self.write_type(self.wpl[ws + w])
                 }
                 write("\n")
+            }
+        }
+    }
+
+    # ==== фаза 3b: тайпчекер тел =========================================
+
+    # Имена встроенных enum дописываются в пул байтов лексера — спаны
+    # нужны интернированным типам (IoError/ParseError) и дампу.
+    func init_builtins(var self)
+        requires true
+        ensures true
+    {
+        let io: str<16> = "IoError"
+        let pe: str<16> = "ParseError"
+        self.bn_io = self.p.lex.sblen
+        for i in 0..7 {
+            self.p.lex.sbuf[self.bn_io + i] = u8(io[i])
+        }
+        self.bn_pe = self.bn_io + 7
+        for i in 0..10 {
+            self.p.lex.sbuf[self.bn_pe + i] = u8(pe[i])
+        }
+        self.p.lex.sblen = self.bn_pe + 10
+        self.ty_sq = self.intern(6, 4294967295, 4294967295, 4294967295, 0)
+        let t_io: u32 = self.intern(9, 4294967295, 4294967295, self.bn_io, 7)
+        let t_pe: u32 = self.intern(9, 4294967295, 4294967295, self.bn_pe, 10)
+        let t_s256: u32 = self.intern(6, 256, 4294967295, 4294967295, 0)
+        self.ty_rl = self.intern(10, t_s256, t_io, 4294967295, 0)
+        self.ty_rb = self.intern(10, 2, t_io, 4294967295, 0)
+        self.ty_pi = self.intern(10, 0, t_pe, 4294967295, 0)
+        self.cur_key = 4294967295
+        self.self_ty2 = 4294967295
+        self.res_ty2 = 4294967295
+        for n in 0..32768 {
+            self.nty[n] = 4294967295
+        }
+    }
+
+    # Совместимость: интернированные типы равны по индексу; строки
+    # совместимы при любой ёмкости (проверка — в рантайме).
+    func compat(var self, e: u32, a: u32) -> bool
+        requires e < 512 and a < 512
+        ensures true
+    {
+        if self.yk[e] == 6 and self.yk[a] == 6 {
+            return true
+        }
+        return e == a
+    }
+
+    # --- области видимости (правила 6 и 10) --------------------------------
+
+    func push_scope(var self)
+        requires true
+        ensures true
+    {
+        if self.nsc >= 64 {
+            self.fail_at(1, 1, "слишком глубокие области видимости")
+            return
+        }
+        self.scp[self.nsc] = self.nsv
+        self.nsc = self.nsc + 1
+    }
+
+    func pop_scope(var self)
+        requires self.nsc >= 1
+        ensures true
+    {
+        let base: u32 = self.scp[self.nsc - 1]
+        for i in 0..256 {
+            if i >= base and i < self.nsv and not self.failed {
+                if self.sv_u[i] == 0 and self.sv_s[i] != 4294967295 {
+                    self.fail_at(self.sv_ln[i], self.sv_cl[i], "переменная не используется (правило 10)")
+                }
+            }
+        }
+        self.nsv = base
+        self.nsc = self.nsc - 1
+    }
+
+    # Объявить переменную (sv_s = NONE — self). «_» не заносится.
+    func declare(var self, nd: u32, a: u32, l: u32, ty: u32, mut: u32)
+        requires nd < 32768 and ty < 512
+        ensures true
+    {
+        if self.span_is(a, l, "_") {
+            return
+        }
+        for i in 0..256 {
+            if i < self.nsv {
+                if self.sv_s[i] != 4294967295 {
+                    if self.span_eq(self.sv_s[i], self.sv_l[i], a, l) {
+                        self.fail_node(nd, "имя уже объявлено: shadowing запрещён (правило 6)")
+                    }
+                }
+            }
+        }
+        if self.find_const(a, l) != 4294967295 or self.find_func(a, l) != 4294967295 {
+            self.fail_node(nd, "имя затеняет объявление верхнего уровня (правило 6)")
+        }
+        if self.io_builtin(a, l) {
+            self.fail_node(nd, "имя затеняет объявление верхнего уровня (правило 6)")
+        }
+        if self.nsv >= 256 {
+            self.fail_node(nd, "слишком много переменных")
+            return
+        }
+        let v: u32 = self.nsv
+        self.sv_s[v] = a
+        self.sv_l[v] = l
+        self.sv_t[v] = ty
+        self.sv_m[v] = mut
+        self.sv_u[v] = 0
+        self.sv_ln[v] = self.p.nl[nd]
+        self.sv_cl[v] = self.p.nc[nd]
+        self.nsv = v + 1
+    }
+
+    func io_builtin(var self, a: u32, l: u32) -> bool
+        requires true
+        ensures true
+    {
+        if self.span_is(a, l, "print") or self.span_is(a, l, "write") {
+            return true
+        }
+        if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
+            return true
+        }
+        return self.span_is(a, l, "parse_i32")
+    }
+
+    func decl_self(var self, ty: u32, mut: u32)
+        requires ty < 512
+        ensures true
+    {
+        let v: u32 = self.nsv
+        self.sv_s[v] = 4294967295
+        self.sv_l[v] = 0
+        self.sv_t[v] = ty
+        self.sv_m[v] = mut
+        self.sv_u[v] = 1
+        self.sv_ln[v] = 0
+        self.sv_cl[v] = 0
+        self.nsv = v + 1
+    }
+
+    # Поиск переменной; пометка «использована». NONE — нет.
+    func lookup(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        var found: u32 = 4294967295
+        for i in 0..256 {
+            if i < self.nsv and found == 4294967295 {
+                if self.sv_s[i] != 4294967295 {
+                    if self.span_eq(self.sv_s[i], self.sv_l[i], a, l) {
+                        found = i
+                    }
+                }
+            }
+        }
+        if found != 4294967295 {
+            self.sv_u[found] = 1
+        }
+        return found
+    }
+
+    func lookup_self(var self) -> u32
+        requires true
+        ensures true
+    {
+        var found: u32 = 4294967295
+        for i in 0..256 {
+            if i < self.nsv and found == 4294967295 {
+                if self.sv_s[i] == 4294967295 {
+                    found = i
+                }
+            }
+        }
+        return found
+    }
+
+    # --- рёбра графа вызовов ------------------------------------------------
+
+    func add_edge(var self, c: u32, d: u32)
+        requires true
+        ensures true
+    {
+        var dup: bool = false
+        for i in 0..1024 {
+            if i < self.neg {
+                if self.eg_c[i] == c and self.eg_d[i] == d {
+                    dup = true
+                }
+            }
+        }
+        if dup {
+            return
+        }
+        if self.neg >= 1024 {
+            self.fail_at(1, 1, "слишком много рёбер графа вызовов")
+            return
+        }
+        self.eg_c[self.neg] = c
+        self.eg_d[self.neg] = d
+        self.neg = self.neg + 1
+    }
+
+    # --- машина выражений ---------------------------------------------------
+    # Кадр: узел, фаза, ожидаемый тип (NONE — нет), aux xa/xb.
+    # Результат кадра — self.tres; аннотация nty ставится при завершении.
+
+    func nth_child(var self, n: u32, i: u32) -> u32
+        requires n < 32768
+        ensures true
+    {
+        var c: u32 = self.p.nfc[n]
+        for k in 0..64 {
+            if k < i and c != 4294967295 {
+                c = self.p.nns[c]
+            }
+        }
+        return c
+    }
+
+    func nchildren(var self, n: u32) -> u32
+        requires n < 32768
+        ensures true
+    {
+        var c: u32 = self.p.nfc[n]
+        var cnt: u32 = 0
+        for _ in 0..64 {
+            if c != 4294967295 {
+                cnt = cnt + 1
+                c = self.p.nns[c]
+            }
+        }
+        return cnt
+    }
+
+    func xpush(var self, n: u32, exp: u32)
+        requires n < 32768
+        ensures true
+    {
+        if self.nxq >= 64 {
+            self.fail_node(n, "слишком глубокое выражение")
+            return
+        }
+        self.xn[self.nxq] = n
+        self.xp[self.nxq] = 0
+        self.xe[self.nxq] = exp
+        self.xa[self.nxq] = 0
+        self.xb[self.nxq] = 0
+        self.nxq = self.nxq + 1
+    }
+
+    # Завершение кадра: аннотация, проверка void, pop.
+    func xdone(var self)
+        requires self.nxq >= 1
+        ensures true
+    {
+        let f: u32 = self.nxq - 1
+        let n: u32 = self.xn[f]
+        self.nty[n] = self.tres
+        if self.tres == 5 {
+            if f != 0 or self.xvoid == 0 {
+                self.fail_node(n, "функция ничего не возвращает — это не значение")
+            }
+        }
+        self.nxq = f
+    }
+
+    # Типизировать выражение root; результат в tres (и nty[root]).
+    func expr_check(var self, root: u32, exp: u32, voidok: u32)
+        requires root < 32768
+        ensures true
+    {
+        self.xvoid = voidok
+        self.nxq = 0
+        self.xpush(root, exp)
+        for _ in 0..2048 {
+            if self.nxq > 0 and not self.failed {
+                self.xstep()
+            }
+        }
+        if self.nxq > 0 and not self.failed {
+            self.fail_node(root, "выражение слишком велико для self-host")
+        }
+    }
+
+    func expect_bool(var self, n: u32)
+        requires n < 32768
+        ensures true
+    {
+        self.expr_check(n, 3, 0)
+        if not self.failed and self.tres != 3 {
+            self.fail_node(n, "ожидается bool")
+        }
+    }
+
+    func xstep(var self)
+        requires self.nxq >= 1
+        ensures true
+    {
+        let f: u32 = self.nxq - 1
+        let n: u32 = self.xn[f]
+        let k: u32 = self.p.nk[n]
+        if k == 32 or k == 33 or k == 34 or k == 37 or k == 38 {
+            self.xs_leaf(n, k)
+        } elif k == 35 {
+            self.xs_str(f, n)
+        } elif k == 40 {
+            self.xs_unary(f, n)
+        } elif k == 39 {
+            self.xs_binop(f, n)
+        } elif k == 41 {
+            self.xs_call(f, n)
+        } elif k == 42 {
+            self.xs_method(f, n)
+        } elif k == 43 {
+            self.xs_member(f, n)
+        } elif k == 44 {
+            self.xs_index(f, n)
+        } elif k == 45 {
+            self.xs_slit(f, n)
+        } elif k == 47 {
+            self.xs_alit(f, n)
+        } elif k == 48 {
+            self.xs_afill(f, n)
+        } else {
+            self.fail_node(n, "диапазон допустим только в for")
+        }
+    }
+
+    func xs_leaf(var self, n: u32, k: u32)
+        requires n < 32768
+        ensures true
+    {
+        if k == 32 {
+            let exp: u32 = self.xe[self.nxq - 1]
+            var t: u32 = 0
+            if exp != 4294967295 and self.yk[exp] <= 2 {
+                t = exp
+            }
+            if not self.int_fits(t, self.p.ny[n], self.p.nx[n]) {
+                self.fail_node(n, "литерал не помещается в тип")
+            }
+            self.tres = t
+        } elif k == 33 {
+            self.tres = 3
+        } elif k == 34 {
+            self.tres = 4
+        } elif k == 38 {
+            if self.self_ty2 == 4294967295 {
+                self.fail_node(n, "self доступен только в методе struct")
+                self.tres = 0
+            } else {
+                self.tres = self.self_ty2
+                let v: u32 = self.lookup_self()
+                if v != 4294967295 {
+                    self.sv_u[v] = 1
+                }
+            }
+        } else {
+            self.xs_name(n)
+        }
+        self.xdone()
+    }
+
+    func xs_name(var self, n: u32)
+        requires n < 32768
+        ensures true
+    {
+        let a: u32 = self.p.nss[n]
+        let l: u32 = self.p.nsl[n]
+        if self.res_ty2 != 4294967295 and self.span_is(a, l, "result") {
+            self.tres = self.res_ty2
+            return
+        }
+        let v: u32 = self.lookup(a, l)
+        if v != 4294967295 {
+            self.tres = self.sv_t[v]
+            return
+        }
+        let ci: u32 = self.find_const(a, l)
+        if ci != 4294967295 {
+            self.tres = self.cty[ci]
+            return
+        }
+        if self.find_func(a, l) != 4294967295 or self.io_builtin(a, l) {
+            self.fail_node(n, "функция, а не значение (правило 9)")
+            self.tres = 0
+            return
+        }
+        self.fail_node(n, "неизвестное имя")
+        self.tres = 0
+    }
+
+    func xs_str(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        if self.xp[f] == 0 {
+            self.xa[f] = self.p.nfc[n]
+            self.xb[f] = 0
+            self.xp[f] = 1
+        } elif self.xp[f] == 2 {
+            # выражение-сегмент готово: интерполируемый тип?
+            let tk: u32 = self.yk[self.tres]
+            if tk > 4 and tk != 6 {
+                self.fail_node(n, "нельзя интерполировать в строку (нет текстового представления)")
+            }
+            self.xb[f] = self.xb[f] % 2147483648 + 2147483648
+            self.xp[f] = 1
+        } else {
+            let c: u32 = self.xa[f]
+            if c == 4294967295 {
+                if self.xb[f] >= 2147483648 {
+                    self.tres = self.ty_sq
+                } else {
+                    self.tres = self.intern(6, self.xb[f], 4294967295, 4294967295, 0)
+                }
+                self.xdone()
+            } elif self.p.nk[c] == 36 {
+                self.xb[f] = self.xb[f] + self.p.nsl[c]
+                self.xa[f] = self.p.nns[c]
+            } else {
+                self.xa[f] = self.p.nns[c]
+                self.xp[f] = 2
+                self.xpush(c, 4294967295)
+            }
+        }
+    }
+
+    func xs_unary(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let op: u32 = self.p.nx[n]
+        if self.xp[f] == 0 {
+            self.xp[f] = 1
+            if op == 3 {
+                self.xpush(self.p.nfc[n], 3)
+            } else {
+                self.xpush(self.p.nfc[n], self.xe[f])
+            }
+        } else {
+            if op == 3 {
+                if self.tres != 3 {
+                    self.fail_node(n, "операнд not: ожидается bool")
+                }
+                self.tres = 3
+            } else {
+                if self.tres != 0 {
+                    self.fail_node(n, "унарный минус применим к i32")
+                }
+                self.tres = 0
+            }
+            self.xdone()
+        }
+    }
+
+    func xs_binop(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let op: u32 = self.p.nx[n]
+        let ph: u32 = self.xp[f]
+        if op <= 2 { # or, and
+            if ph == 0 {
+                self.xp[f] = 1
+                self.xpush(self.p.nfc[n], 3)
+            } elif ph == 1 {
+                if self.tres != 3 {
+                    self.fail_node(n, "операнд and/or: ожидается bool")
+                }
+                self.xp[f] = 2
+                self.xpush(self.p.nns[self.p.nfc[n]], 3)
+            } else {
+                if self.tres != 3 {
+                    self.fail_node(n, "операнд and/or: ожидается bool")
+                }
+                self.tres = 3
+                self.xdone()
+            }
+            return
+        }
+        if ph == 0 {
+            var hint: u32 = 4294967295
+            if op >= 10 {
+                if self.xe[f] != 4294967295 and self.yk[self.xe[f]] <= 2 {
+                    hint = self.xe[f]
+                }
+            }
+            self.xp[f] = 1
+            self.xpush(self.p.nfc[n], hint)
+        } elif ph == 1 {
+            self.xa[f] = self.tres
+            self.xp[f] = 2
+            self.xpush(self.p.nns[self.p.nfc[n]], self.tres)
+        } else {
+            self.xs_binop_fin(n, op, self.xa[f])
+        }
+    }
+
+    func xs_binop_fin(var self, n: u32, op: u32, left: u32)
+        requires n < 32768 and left < 512
+        ensures true
+    {
+        if not self.compat(left, self.tres) {
+            self.fail_node(n, "разные типы (неявных преобразований нет)")
+        }
+        if op >= 10 { # арифметика
+            if self.yk[left] > 2 {
+                self.fail_node(n, "арифметика применима к целым")
+            }
+            self.tres = left
+            self.xdone()
+            return
+        }
+        if op >= 6 { # < <= > >=
+            if self.yk[left] > 2 {
+                self.fail_node(n, "порядок определён для целых")
+            }
+        } else { # == !=
+            let tk: u32 = self.yk[left]
+            if tk > 4 and tk != 6 and tk != 9 {
+                self.fail_node(n, "== не определено для этого типа")
+            }
+            if tk == 9 {
+                if self.enum_has_payload(self.ys[left], self.yl[left]) {
+                    self.fail_node(n, "== не определено для enum с нагрузкой — используйте match")
+                }
+            }
+        }
+        self.tres = 3
+        self.xdone()
+    }
+
+    func enum_has_payload(var self, a: u32, l: u32) -> bool
+        requires true
+        ensures true
+    {
+        let ei: u32 = self.find_enum(a, l)
+        if ei == 4294967295 {
+            return false
+        }
+        var has: bool = false
+        for w in 0..256 {
+            if w >= self.evs[ei] and w < self.evs[ei] + self.evc[ei] {
+                if self.wpl[w] != 4294967295 {
+                    has = true
+                }
+            }
+        }
+        return has
+    }
+
+    # Вызов: коды xa — 100+каст(0/1/2), 104 char, 105 len, 106 print/write,
+    # 107 parse_i32, иначе fi пользовательской функции.
+    func xs_call(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        if self.xp[f] == 0 {
+            self.xs_call_start(f, n)
+        } else {
+            self.xs_call_next(f, n)
+        }
+    }
+
+    func xs_call_start(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let a: u32 = self.p.nss[n]
+        let l: u32 = self.p.nsl[n]
+        let argc: u32 = self.nchildren(n)
+        self.xp[f] = 1
+        if self.span_is(a, l, "i32") or self.span_is(a, l, "u32") or self.span_is(a, l, "u8") {
+            if argc != 1 {
+                self.fail_node(n, "каст: ровно один аргумент")
+                return
+            }
+            var code: u32 = 100
+            if self.span_is(a, l, "u32") {
+                code = 101
+            } elif self.span_is(a, l, "u8") {
+                code = 102
+            }
+            self.xa[f] = code
+            self.xpush(self.p.nfc[n], 4294967295)
+            return
+        }
+        if self.span_is(a, l, "char") {
+            if argc != 1 {
+                self.fail_node(n, "char(): ровно один аргумент")
+                return
+            }
+            self.xa[f] = 104
+            self.xpush(self.p.nfc[n], 2)
+            return
+        }
+        if self.span_is(a, l, "len") {
+            if argc != 1 {
+                self.fail_node(n, "len(): ровно один аргумент")
+                return
+            }
+            self.xa[f] = 105
+            self.xpush(self.p.nfc[n], 4294967295)
+            return
+        }
+        self.xs_call_start2(f, n, argc)
+    }
+
+    func xs_call_start2(var self, f: u32, n: u32, argc: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let a: u32 = self.p.nss[n]
+        let l: u32 = self.p.nsl[n]
+        if self.span_is(a, l, "print") or self.span_is(a, l, "write") {
+            if argc != 1 {
+                self.fail_node(n, "ожидается 1 аргумент")
+                return
+            }
+            self.xa[f] = 106
+            self.xpush(self.p.nfc[n], self.ty_sq)
+            return
+        }
+        if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
+            if argc != 0 {
+                self.fail_node(n, "ожидается 0 аргументов")
+                return
+            }
+            if self.span_is(a, l, "read_line") {
+                self.tres = self.ty_rl
+            } else {
+                self.tres = self.ty_rb
+            }
+            self.xdone()
+            return
+        }
+        if self.span_is(a, l, "parse_i32") {
+            if argc != 1 {
+                self.fail_node(n, "ожидается 1 аргумент")
+                return
+            }
+            self.xa[f] = 107
+            self.xpush(self.p.nfc[n], self.ty_sq)
+            return
+        }
+        let fi: u32 = self.find_func(a, l)
+        if fi == 4294967295 {
+            self.fail_node(n, "неизвестная функция")
+            return
+        }
+        if argc != self.fpc[fi] {
+            self.fail_node(n, "неверное число аргументов")
+            return
+        }
+        self.xa[f] = fi
+        self.xb[f] = 0
+        if argc == 0 {
+            self.xs_user_fin(fi)
+        } else {
+            self.xpush(self.p.nfc[n], self.pty[self.fps[fi]])
+        }
+    }
+
+    func xs_call_next(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let code: u32 = self.xa[f]
+        if code == 100 or code == 101 or code == 102 {
+            let sk: u32 = self.yk[self.tres]
+            if sk == 4 {
+                if code != 102 {
+                    self.fail_node(n, "каст не применим к char — код символа даёт u8(c)")
+                }
+                self.tres = 2
+            } elif sk <= 2 {
+                self.tres = code - 100
+            } else {
+                self.fail_node(n, "каст преобразует целые")
+                self.tres = 0
+            }
+            self.xdone()
+        } elif code == 104 {
+            if self.tres != 2 {
+                self.fail_node(n, "char() принимает u8 (сузьте явно через u8())")
+            }
+            self.tres = 4
+            self.xdone()
+        } elif code == 105 {
+            let sk2: u32 = self.yk[self.tres]
+            if sk2 != 6 and sk2 != 7 {
+                self.fail_node(n, "len() применим к массиву или строке")
+            }
+            self.tres = 1
+            self.xdone()
+        } elif code == 106 or code == 107 {
+            if not self.compat(self.ty_sq, self.tres) {
+                self.fail_node(n, "ожидается строка")
+            }
+            if code == 106 {
+                self.tres = 5
+            } else {
+                self.tres = self.ty_pi
+            }
+            self.xdone()
+        } else {
+            self.xs_user_arg(f, n, code)
+        }
+    }
+
+    # Очередной аргумент пользовательской функции готов.
+    func xs_user_arg(var self, f: u32, n: u32, fi: u32)
+        requires f < 64 and n < 32768 and fi < 512
+        ensures true
+    {
+        let i: u32 = self.xb[f]
+        if not self.compat(self.pty[self.fps[fi] + i], self.tres) {
+            self.fail_node(n, "тип аргумента не совпадает с параметром")
+        }
+        let nx2: u32 = i + 1
+        if nx2 >= self.fpc[fi] {
+            self.xs_user_fin(fi)
+            return
+        }
+        self.xb[f] = nx2
+        self.xpush(self.nth_child(n, nx2), self.pty[self.fps[fi] + nx2])
+    }
+
+    func xs_user_fin(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        self.add_edge(self.cur_key, fi)
+        if self.fret[fi] == 4294967295 {
+            self.tres = 5
+        } else {
+            self.tres = self.fret[fi]
+        }
+        self.xdone()
+    }
+
+    # Имя — enum (пользовательский или встроенный)?
+    func is_enum_name(var self, a: u32, l: u32) -> bool
+        requires true
+        ensures true
+    {
+        if self.find_enum(a, l) != 4294967295 {
+            return true
+        }
+        return self.span_is(a, l, "IoError") or self.span_is(a, l, "ParseError")
+    }
+
+    # Вариант enum по имени; NONE если нет. Встроенные — без нагрузки.
+    func variant_of(var self, ea: u32, el: u32, va: u32, vl: u32) -> u32
+        requires true
+        ensures true
+    {
+        let ei: u32 = self.find_enum(ea, el)
+        if ei == 4294967295 {
+            # встроенные: вариант «существует без нагрузки» → 999
+            if self.builtin_variant(ea, el, va, vl) {
+                return 999
+            }
+            return 4294967295
+        }
+        var found: u32 = 4294967295
+        for w in 0..256 {
+            if w >= self.evs[ei] and w < self.evs[ei] + self.evc[ei] and found == 4294967295 {
+                if self.span_eq(self.wn_s[w], self.wn_l[w], va, vl) {
+                    found = w
+                }
+            }
+        }
+        return found
+    }
+
+    func builtin_variant(var self, ea: u32, el: u32, va: u32, vl: u32) -> bool
+        requires true
+        ensures true
+    {
+        if self.span_is(ea, el, "IoError") {
+            return self.span_is(va, vl, "Eof") or self.span_is(va, vl, "Fail")
+        }
+        if self.span_is(va, vl, "Empty") or self.span_is(va, vl, "BadChar") {
+            return true
+        }
+        return self.span_is(va, vl, "Overflow")
+    }
+
+    # Метод / конструктор варианта enum. Фазы: 0 старт; 1 объект готов;
+    # 2+ аргументы; 9 аргумент конструктора готов.
+    func xs_method(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp[f]
+        let obj: u32 = self.p.nfc[n]
+        if ph == 0 {
+            if self.p.nk[obj] == 37 {
+                if self.is_enum_name(self.p.nss[obj], self.p.nsl[obj]) {
+                    self.xs_enum_ctor(f, n, obj)
+                    return
+                }
+            }
+            self.xp[f] = 1
+            self.xpush(obj, 4294967295)
+        } elif ph == 1 {
+            self.xs_method_obj(f, n)
+        } elif ph == 9 {
+            if not self.compat(self.xa[f], self.tres) {
+                self.fail_node(n, "нагрузка варианта другого типа")
+            }
+            self.tres = self.xb[f]
+            self.xdone()
+        } else {
+            self.xs_marg(f, n, self.xa[f])
+        }
+    }
+
+    func xs_enum_ctor(var self, f: u32, n: u32, obj: u32)
+        requires f < 64 and n < 32768 and obj < 32768
+        ensures true
+    {
+        let w: u32 = self.variant_of(self.p.nss[obj], self.p.nsl[obj], self.p.nss[n], self.p.nsl[n])
+        if w == 4294967295 {
+            self.fail_node(n, "у enum нет такого варианта")
+            return
+        }
+        if w == 999 or self.wpl[w] == 4294967295 {
+            self.fail_node(n, "вариант не несёт значения — литерал пишется без скобок")
+            return
+        }
+        if self.nchildren(n) != 2 {
+            self.fail_node(n, "конструктор варианта: ровно один аргумент")
+            return
+        }
+        self.xa[f] = self.wpl[w]
+        self.xb[f] = self.intern(9, 4294967295, 4294967295, self.p.nss[obj], self.p.nsl[obj])
+        self.xp[f] = 9
+        self.xpush(self.p.nns[obj], self.wpl[w])
+    }
+
+    func xs_method_obj(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        if self.yk[self.tres] != 8 {
+            self.fail_node(n, "метод вызван не у struct")
+            return
+        }
+        let si: u32 = self.find_struct(self.ys[self.tres], self.yl[self.tres])
+        var mfi: u32 = 4294967295
+        for i in 0..512 {
+            if i < self.nfun and mfi == 4294967295 {
+                if self.fown[i] == si {
+                    if self.span_eq(self.fn_s[i], self.fn_l[i], self.p.nss[n], self.p.nsl[n]) {
+                        mfi = i
+                    }
+                }
+            }
+        }
+        if mfi == 4294967295 {
+            self.fail_node(n, "у struct нет такого метода")
+            return
+        }
+        if self.fvs[mfi] == 1 {
+            self.check_receiver(n)
+        }
+        if self.nchildren(n) != self.fpc[mfi] + 1 {
+            self.fail_node(n, "неверное число аргументов")
+            return
+        }
+        self.xa[f] = mfi
+        self.xb[f] = 0
+        if self.fpc[mfi] == 0 {
+            self.xs_user_fin(mfi)
+        } else {
+            self.xp[f] = 2
+            self.xpush(self.nth_child(n, 1), self.pty[self.fps[mfi]])
+        }
+    }
+
+    func xs_marg(var self, f: u32, n: u32, mfi: u32)
+        requires f < 64 and n < 32768 and mfi < 512
+        ensures true
+    {
+        let i: u32 = self.xb[f]
+        if not self.compat(self.pty[self.fps[mfi] + i], self.tres) {
+            self.fail_node(n, "тип аргумента не совпадает с параметром")
+        }
+        let nx2: u32 = i + 1
+        if nx2 >= self.fpc[mfi] {
+            self.xs_user_fin(mfi)
+            return
+        }
+        self.xb[f] = nx2
+        self.xpush(self.nth_child(n, nx2 + 1), self.pty[self.fps[mfi] + nx2])
+    }
+
+    # Метод с var self: получатель обязан быть изменяемым lvalue.
+    func check_receiver(var self, n: u32)
+        requires n < 32768
+        ensures true
+    {
+        var base: u32 = self.p.nfc[n]
+        for _ in 0..32 {
+            if self.p.nk[base] == 43 or self.p.nk[base] == 44 {
+                base = self.p.nfc[base]
+            }
+        }
+        let bk: u32 = self.p.nk[base]
+        if bk == 38 {
+            if self.self_mu != 1 {
+                self.fail_node(n, "метод с var self внутри немутирующего метода")
+            }
+            return
+        }
+        if bk == 37 {
+            let v: u32 = self.lookup(self.p.nss[base], self.p.nsl[base])
+            if v == 4294967295 or self.sv_m[v] != 1 {
+                self.fail_node(n, "метод с var self: получатель — let (неизменяем)")
+            }
+            return
+        }
+        self.fail_node(n, "метод с var self: получатель обязан быть изменяемой переменной")
+    }
+
+    func xs_member(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let obj: u32 = self.p.nfc[n]
+        if self.xp[f] == 0 {
+            if self.p.nk[obj] == 37 {
+                if self.is_enum_name(self.p.nss[obj], self.p.nsl[obj]) {
+                    let w: u32 = self.variant_of(self.p.nss[obj], self.p.nsl[obj], self.p.nss[n], self.p.nsl[n])
+                    if w == 4294967295 {
+                        self.fail_node(n, "у enum нет такого варианта")
+                        return
+                    }
+                    self.tres = self.intern(9, 4294967295, 4294967295, self.p.nss[obj], self.p.nsl[obj])
+                    self.xdone()
+                    return
+                }
+            }
+            self.xp[f] = 1
+            self.xpush(obj, 4294967295)
+        } else {
+            if self.yk[self.tres] != 8 {
+                self.fail_node(n, "у этого типа нет полей (это не struct)")
+                return
+            }
+            let si: u32 = self.find_struct(self.ys[self.tres], self.yl[self.tres])
+            let g: u32 = self.field_of(si, self.p.nss[n], self.p.nsl[n])
+            if g == 4294967295 {
+                self.fail_node(n, "у struct нет такого поля")
+                return
+            }
+            self.tres = self.gty[g]
+            self.xdone()
+        }
+    }
+
+    func field_of(var self, si: u32, a: u32, l: u32) -> u32
+        requires si < 128
+        ensures true
+    {
+        var found: u32 = 4294967295
+        for g in 0..512 {
+            if g >= self.sgs[si] and g < self.sgs[si] + self.sgc[si] and found == 4294967295 {
+                if self.span_eq(self.gn_s[g], self.gn_l[g], a, l) {
+                    found = g
+                }
+            }
+        }
+        return found
+    }
+
+    func xs_index(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp[f]
+        if ph == 0 {
+            self.xp[f] = 1
+            self.xpush(self.p.nfc[n], 4294967295)
+        } elif ph == 1 {
+            self.xa[f] = self.tres
+            self.xp[f] = 2
+            self.xpush(self.p.nns[self.p.nfc[n]], 1)
+        } else {
+            if self.yk[self.tres] > 2 {
+                self.fail_node(n, "индекс — целое")
+            }
+            let ok2: u32 = self.xa[f]
+            if self.yk[ok2] == 7 {
+                self.tres = self.ya[ok2]
+            } elif self.yk[ok2] == 6 {
+                self.tres = 4
+            } else {
+                self.fail_node(n, "индексирование применимо к массиву или строке")
+                self.tres = 0
+            }
+            self.xdone()
+        }
+    }
+
+    # Struct-литерал: xa — текущий fld-ребёнок, xb — тип текущего поля.
+    func xs_slit(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp[f]
+        if ph == 0 {
+            let si: u32 = self.find_struct(self.p.nss[n], self.p.nsl[n])
+            if si == 4294967295 {
+                self.fail_node(n, "неизвестный struct")
+                return
+            }
+            self.slit_fields_ok(n, si)
+            if self.failed {
+                return
+            }
+            self.xa[f] = self.p.nfc[n]
+            self.xp[f] = 1
+        } elif ph == 2 {
+            if not self.compat(self.xb[f], self.tres) {
+                self.fail_node(n, "поле другого типа")
+            }
+            self.xp[f] = 1
+        } else {
+            let c: u32 = self.xa[f]
+            if c == 4294967295 {
+                self.tres = self.intern(8, 4294967295, 4294967295, self.p.nss[n], self.p.nsl[n])
+                self.xdone()
+                return
+            }
+            let si2: u32 = self.find_struct(self.p.nss[n], self.p.nsl[n])
+            let g: u32 = self.field_of(si2, self.p.nss[c], self.p.nsl[c])
+            self.xa[f] = self.p.nns[c]
+            self.xb[f] = self.gty[g]
+            self.xp[f] = 2
+            self.xpush(self.p.nfc[c], self.gty[g])
+        }
+    }
+
+    # Литерал: без повторов, без лишних, все поля struct на месте.
+    func slit_fields_ok(var self, n: u32, si: u32)
+        requires n < 32768 and si < 128
+        ensures true
+    {
+        var c: u32 = self.p.nfc[n]
+        var cnt: u32 = 0
+        for _ in 0..128 {
+            if c != 4294967295 and not self.failed {
+                var w: u32 = self.p.nns[c]
+                for _ in 0..128 {
+                    if w != 4294967295 {
+                        if self.span_eq(self.p.nss[c], self.p.nsl[c], self.p.nss[w], self.p.nsl[w]) {
+                            self.fail_node(n, "поле повторяется в литерале")
+                        }
+                        w = self.p.nns[w]
+                    }
+                }
+                if self.field_of(si, self.p.nss[c], self.p.nsl[c]) == 4294967295 {
+                    self.fail_node(n, "лишнее поле в литерале")
+                }
+                cnt = cnt + 1
+                c = self.p.nns[c]
+            }
+        }
+        if cnt != self.sgc[si] and not self.failed {
+            self.fail_node(n, "в литерале не хватает полей")
+        }
+    }
+
+    # Массив-литерал: xa — текущий ребёнок, xb — тип первого элемента.
+    func xs_alit(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp[f]
+        let exp: u32 = self.xe[f]
+        if ph == 0 {
+            var hint: u32 = 4294967295
+            if exp != 4294967295 and self.yk[exp] == 7 {
+                hint = self.ya[exp]
+            }
+            self.xa[f] = self.p.nfc[n]
+            self.xp[f] = 1
+            self.xpush(self.p.nfc[n], hint)
+        } elif ph == 1 {
+            self.xb[f] = self.tres
+            self.xa[f] = self.p.nns[self.xa[f]]
+            self.xp[f] = 2
+        } elif ph == 3 {
+            if not self.compat(self.xb[f], self.tres) {
+                self.fail_node(n, "элементы массива разных типов")
+            }
+            self.xa[f] = self.p.nns[self.xa[f]]
+            self.xp[f] = 2
+        } else {
+            let c: u32 = self.xa[f]
+            if c == 4294967295 {
+                let cnt: u32 = self.nchildren(n)
+                if exp != 4294967295 and self.yk[exp] == 7 {
+                    if self.yb[exp] != cnt {
+                        self.fail_node(n, "число элементов массива не совпадает с типом")
+                    }
+                }
+                self.tres = self.intern(7, self.xb[f], cnt, 4294967295, 0)
+                self.xdone()
+            } else {
+                self.xp[f] = 3
+                self.xpush(c, self.xb[f])
+            }
+        }
+    }
+
+    func xs_afill(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let exp: u32 = self.xe[f]
+        if self.xp[f] == 0 {
+            self.const_eval(self.p.nns[self.p.nfc[n]])
+            if self.failed {
+                return
+            }
+            if self.ces == 1 or self.cem == 0 or self.cem > 65536 {
+                self.fail_node(n, "размер массива вне (0, 65536]")
+                return
+            }
+            self.xb[f] = self.cem
+            var hint: u32 = 4294967295
+            if exp != 4294967295 and self.yk[exp] == 7 {
+                hint = self.ya[exp]
+            }
+            self.xp[f] = 1
+            self.xpush(self.p.nfc[n], hint)
+        } else {
+            if exp != 4294967295 and self.yk[exp] == 7 {
+                if self.yb[exp] != self.xb[f] {
+                    self.fail_node(n, "число элементов массива не совпадает с типом")
+                }
+            }
+            self.tres = self.intern(7, self.tres, self.xb[f], 4294967295, 0)
+            self.xdone()
+        }
+    }
+
+    # --- машина инструкций ---------------------------------------------------
+    # Кадры (qk2): 0 блок, 1 if, 2 for, 3 match, 4 loop.
+    # Биты aux блока: 1 своя область, 2 finished, 4 «возвращает».
+
+    func qpush(var self, k: u32, node: u32, cursor: u32, aux: u32)
+        requires k <= 4 and node < 32768
+        ensures true
+    {
+        if self.nq >= 128 {
+            self.fail_node(node, "слишком глубокая вложенность")
+            return
+        }
+        self.qk2[self.nq] = k
+        self.qn[self.nq] = node
+        self.qp[self.nq] = cursor
+        self.qx[self.nq] = aux
+        self.qy[self.nq] = 4294967295
+        self.nq = self.nq + 1
+    }
+
+    func start_block_frame(var self, body: u32, ns: u32)
+        requires body < 32768 and ns <= 1
+        ensures true
+    {
+        if ns == 1 {
+            self.push_scope()
+        }
+        self.qpush(0, body, self.p.nfc[body], ns)
+    }
+
+    func run_block_machine(var self, body: u32, ns: u32)
+        requires body < 32768 and ns <= 1
+        ensures true
+    {
+        self.nq = 0
+        self.start_block_frame(body, ns)
+        for _ in 0..4096 {
+            if self.nq > 0 and not self.failed {
+                self.qstep()
+            }
+        }
+        if self.nq > 0 and not self.failed {
+            self.fail_node(body, "тело функции слишком велико для self-host")
+        }
+    }
+
+    func qstep(var self)
+        requires self.nq >= 1
+        ensures true
+    {
+        let k: u32 = self.qk2[self.nq - 1]
+        if k == 0 {
+            self.q_block()
+        } elif k == 1 {
+            self.q_if()
+        } elif k == 2 {
+            self.q_for_end()
+        } elif k == 3 {
+            self.q_match()
+        } else {
+            self.q_loop_end()
+        }
+    }
+
+    func q_block(var self)
+        requires self.nq >= 1
+        ensures true
+    {
+        let f: u32 = self.nq - 1
+        let last: u32 = self.qy[f]
+        if last != 4294967295 {
+            if self.nrt[last] == 1 or self.p.nk[last] == 23 {
+                if self.qx[f] / 2 % 2 == 0 {
+                    self.qx[f] = self.qx[f] + 2
+                }
+            }
+            if self.nrt[last] == 1 {
+                if self.qx[f] / 4 % 2 == 0 {
+                    self.qx[f] = self.qx[f] + 4
+                }
+            }
+            self.qy[f] = 4294967295
+        }
+        let cur: u32 = self.qp[f]
+        if cur == 4294967295 {
+            self.nrt[self.qn[f]] = self.qx[f] / 4 % 2
+            if self.qx[f] % 2 == 1 {
+                self.pop_scope()
+            }
+            self.nq = f
+            return
+        }
+        if self.qx[f] / 2 % 2 == 1 {
+            self.fail_node(cur, "недостижимый код после return/break (правило 10)")
+            return
+        }
+        self.qp[f] = self.p.nns[cur]
+        self.qy[f] = cur
+        self.check_stmt(cur)
+    }
+
+    func check_stmt(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let k: u32 = self.p.nk[cur]
+        if k == 13 {
+            self.q_let(cur)
+        } elif k == 14 {
+            self.q_assign(cur)
+        } elif k == 15 {
+            self.expect_bool(self.p.nfc[cur])
+            if not self.failed {
+                self.qpush(1, cur, self.p.nns[self.p.nfc[cur]], 0)
+            }
+        } elif k == 18 {
+            self.q_for_start(cur)
+        } elif k == 19 {
+            if self.cur_key != self.main_fi {
+                self.fail_node(cur, "loop допустим только в main (правило 2)")
+                return
+            }
+            self.loopd = self.loopd + 1
+            self.qpush(4, cur, 4294967295, 0)
+            self.start_block_frame(self.p.nfc[cur], 1)
+        } elif k == 20 {
+            self.q_match_start(cur)
+        } elif k == 22 {
+            self.q_return(cur)
+        } elif k == 23 {
+            if self.loopd == 0 {
+                self.fail_node(cur, "break вне loop")
+            }
+        } elif k == 24 {
+            self.expect_bool(self.p.nfc[cur])
+        } elif k == 25 {
+            self.expr_check(self.p.nfc[cur], 4294967295, 1)
+            if not self.failed and self.tres != 5 {
+                self.fail_node(cur, "результат отброшен молча; используйте значение или discard (правило 7)")
+            }
+        } else {
+            self.expr_check(self.p.nfc[cur], 4294967295, 1)
+            if not self.failed and self.tres == 5 {
+                self.fail_node(cur, "discard бессмыслен: функция ничего не возвращает")
+            }
+        }
+    }
+
+    func q_let(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let ty: u32 = self.resolve(self.p.nfc[cur])
+        if self.failed {
+            return
+        }
+        self.nty[cur] = ty
+        self.expr_check(self.p.nns[self.p.nfc[cur]], ty, 0)
+        if self.failed {
+            return
+        }
+        if not self.compat(ty, self.tres) {
+            self.fail_node(cur, "тип значения не совпадает (неявных преобразований нет)")
+            return
+        }
+        self.declare(cur, self.p.nss[cur], self.p.nsl[cur], ty, self.p.nx[cur])
+    }
+
+    func q_assign(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let tgt: u32 = self.p.nfc[cur]
+        self.expr_check(tgt, 4294967295, 0)
+        if self.failed {
+            return
+        }
+        let tt: u32 = self.tres
+        var base: u32 = tgt
+        for _ in 0..32 {
+            if self.p.nk[base] == 43 or self.p.nk[base] == 44 {
+                base = self.p.nfc[base]
+            }
+        }
+        let bk: u32 = self.p.nk[base]
+        if bk == 38 {
+            let v: u32 = self.lookup_self()
+            if v == 4294967295 or self.sv_m[v] != 1 {
+                self.fail_node(cur, "self неизменяем: мутирующий метод — func имя(var self, ...)")
+                return
+            }
+        } elif bk == 37 {
+            let v2: u32 = self.lookup(self.p.nss[base], self.p.nsl[base])
+            if v2 == 4294967295 {
+                self.fail_node(base, "неизвестное имя")
+                return
+            }
+            if self.sv_m[v2] != 1 {
+                self.fail_node(cur, "объявлена как let — неизменяема (мутабельность — это var)")
+                return
+            }
+        } else {
+            self.fail_node(cur, "некорректная цель присваивания")
+            return
+        }
+        self.expr_check(self.p.nns[tgt], tt, 0)
+        if not self.failed and not self.compat(tt, self.tres) {
+            self.fail_node(cur, "тип значения не совпадает (неявных преобразований нет)")
+        }
+    }
+
+    func q_if(var self)
+        requires self.nq >= 1
+        ensures true
+    {
+        let f: u32 = self.nq - 1
+        let cur: u32 = self.qp[f]
+        if cur == 4294967295 {
+            self.nrt[self.qn[f]] = self.if_returns(self.qn[f])
+            self.nq = f
+            return
+        }
+        self.qp[f] = self.p.nns[cur]
+        let k: u32 = self.p.nk[cur]
+        if k == 12 {
+            self.start_block_frame(cur, 1)
+        } elif k == 16 {
+            self.expect_bool(self.p.nfc[cur])
+            if not self.failed {
+                self.start_block_frame(self.p.nns[self.p.nfc[cur]], 1)
+            }
+        } elif k == 17 {
+            self.start_block_frame(self.p.nfc[cur], 1)
+        }
+    }
+
+    func if_returns(var self, n: u32) -> u32
+        requires n < 32768
+        ensures result <= 1
+    {
+        var has_else: bool = false
+        var all: u32 = 1
+        var c: u32 = self.p.nfc[n]
+        for _ in 0..64 {
+            if c != 4294967295 {
+                let k: u32 = self.p.nk[c]
+                if k == 12 {
+                    all = all * self.nrt[c]
+                } elif k == 16 {
+                    all = all * self.nrt[self.p.nns[self.p.nfc[c]]]
+                } elif k == 17 {
+                    has_else = true
+                    all = all * self.nrt[self.p.nfc[c]]
+                }
+                c = self.p.nns[c]
+            }
+        }
+        if has_else {
+            return all
+        }
+        return 0
+    }
+
+    # Знаковое сравнение (s1,m1) < (s2,m2).
+    func slt(var self, s1: u32, m1: u32, s2: u32, m2: u32) -> bool
+        requires true
+        ensures true
+    {
+        if s1 == 1 and s2 == 0 {
+            return true
+        }
+        if s1 == 0 and s2 == 1 {
+            return false
+        }
+        if s1 == 0 {
+            return m1 < m2
+        }
+        return m1 > m2
+    }
+
+    func q_for_start(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let it: u32 = self.p.nfc[cur]
+        var elem: u32 = 1
+        if self.p.nk[it] == 49 {
+            self.const_eval(self.p.nfc[it])
+            let s1: u32 = self.ces
+            let m1: u32 = self.cem
+            self.const_eval(self.p.nns[self.p.nfc[it]])
+            if self.failed {
+                return
+            }
+            if self.slt(self.ces, self.cem, s1, m1) {
+                self.fail_node(it, "пустой диапазон")
+                return
+            }
+            if s1 == 1 and m1 != 0 {
+                elem = 0
+            }
+            if not self.int_fits(elem, s1, m1) or not self.int_fits(elem, self.ces, self.cem) {
+                self.fail_node(it, "граница диапазона не помещается в тип")
+                return
+            }
+            if self.nrb >= 128 {
+                self.fail_node(cur, "слишком много for-диапазонов")
+                return
+            }
+            self.rb_n[self.nrb] = cur
+            self.rb_ss[self.nrb] = s1
+            self.rb_sm[self.nrb] = m1
+            self.rb_es[self.nrb] = self.ces
+            self.rb_em[self.nrb] = self.cem
+            self.nrb = self.nrb + 1
+        } else {
+            self.expr_check(it, 4294967295, 0)
+            if self.failed {
+                return
+            }
+            if self.yk[self.tres] == 7 {
+                elem = self.ya[self.tres]
+            } elif self.yk[self.tres] == 6 {
+                elem = 4
+            } else {
+                self.fail_node(it, "итерация возможна по диапазону, массиву или строке")
+                return
+            }
+        }
+        self.nty[cur] = elem
+        self.push_scope()
+        self.declare(cur, self.p.nss[cur], self.p.nsl[cur], elem, 0)
+        self.qpush(2, cur, 4294967295, 0)
+        self.start_block_frame(self.p.nns[it], 0)
+    }
+
+    func q_for_end(var self)
+        requires self.nq >= 1
+        ensures true
+    {
+        self.pop_scope()
+        self.nq = self.nq - 1
+    }
+
+    func q_loop_end(var self)
+        requires self.nq >= 1
+        ensures true
+    {
+        self.loopd = self.loopd - 1
+        self.nq = self.nq - 1
+    }
+
+    func q_return(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        var ret: u32 = 4294967295
+        if self.cur_key < 1024 {
+            ret = self.fret[self.cur_key]
+        }
+        let value: u32 = self.p.nfc[cur]
+        if ret == 4294967295 {
+            if value != 4294967295 {
+                self.fail_node(cur, "функция ничего не возвращает")
+            }
+        } elif value == 4294967295 {
+            self.fail_node(cur, "функция обязана вернуть значение")
+        } else {
+            self.expr_check(value, ret, 0)
+            if not self.failed and not self.compat(ret, self.tres) {
+                self.fail_node(cur, "тип возврата не совпадает")
+            }
+        }
+        self.nrt[cur] = 1
+    }
+
+    # --- match ------------------------------------------------------------
+
+    func q_match_start(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let subj: u32 = self.p.nfc[cur]
+        self.expr_check(subj, 4294967295, 0)
+        if self.failed {
+            return
+        }
+        let dk: u32 = self.yk[self.tres]
+        if dk != 9 and dk != 10 and dk != 11 {
+            self.fail_node(subj, "match возможен по Result, Option или enum")
+            return
+        }
+        self.qpush(3, cur, self.p.nns[subj], self.tres)
+    }
+
+    func q_match(var self)
+        requires self.nq >= 1
+        ensures true
+    {
+        let f: u32 = self.nq - 1
+        if self.qy[f] == 1 {
+            self.pop_scope()
+            self.qy[f] = 4294967295
+            self.qp[f] = self.p.nns[self.qp[f]]
+            return
+        }
+        let cur: u32 = self.qp[f]
+        if cur == 4294967295 {
+            self.exhaust_check(self.qn[f], self.qx[f])
+            self.nrt[self.qn[f]] = self.arms_return(self.qn[f])
+            self.nq = f
+            return
+        }
+        self.q_arm(f, cur)
+    }
+
+    func q_arm(var self, f: u32, arm: u32)
+        requires f < 128 and arm < 32768
+        ensures true
+    {
+        let dom: u32 = self.qx[f]
+        # повтор варианта
+        var w: u32 = self.p.nns[self.p.nfc[self.qn[f]]]
+        for _ in 0..64 {
+            if w != 4294967295 and w != arm {
+                if self.span_eq(self.p.nss[w], self.p.nsl[w], self.p.nss[arm], self.p.nsl[arm]) {
+                    self.fail_node(arm, "вариант повторяется")
+                }
+                w = self.p.nns[w]
+            } elif w == arm {
+                w = 4294967295
+            }
+        }
+        let payload: u32 = self.arm_payload(dom, arm)
+        if self.failed {
+            return
+        }
+        self.nty[arm] = payload
+        let bind: u32 = self.p.nx[arm]
+        if payload == 4294967295 and bind != 4294967295 {
+            self.fail_node(arm, "вариант не несёт значения")
+            return
+        }
+        if payload != 4294967295 and bind == 4294967295 {
+            self.fail_node(arm, "вариант несёт значение: назовите его или используйте _")
+            return
+        }
+        self.push_scope()
+        if payload != 4294967295 {
+            self.declare(arm, bind, self.p.ny[arm], payload, 0)
+        }
+        self.qy[f] = 1
+        self.start_block_frame(self.p.nfc[arm], 0)
+    }
+
+    # Тип нагрузки варианта арма в домене dom; ошибка — не вариант.
+    func arm_payload(var self, dom: u32, arm: u32) -> u32
+        requires dom < 512 and arm < 32768
+        ensures true
+    {
+        let va: u32 = self.p.nss[arm]
+        let vl: u32 = self.p.nsl[arm]
+        let dk: u32 = self.yk[dom]
+        if dk == 10 {
+            if self.span_is(va, vl, "Ok") {
+                return self.ya[dom]
+            }
+            if self.span_is(va, vl, "Err") {
+                return self.yb[dom]
+            }
+            self.fail_node(arm, "не вариант типа match")
+            return 4294967295
+        }
+        if dk == 11 {
+            if self.span_is(va, vl, "Some") {
+                return self.ya[dom]
+            }
+            if self.span_is(va, vl, "None") {
+                return 4294967295
+            }
+            self.fail_node(arm, "не вариант типа match")
+            return 4294967295
+        }
+        let w: u32 = self.variant_of(self.ys[dom], self.yl[dom], va, vl)
+        if w == 4294967295 {
+            self.fail_node(arm, "не вариант типа match")
+            return 4294967295
+        }
+        if w == 999 {
+            return 4294967295
+        }
+        return self.wpl[w]
+    }
+
+    func has_arm16(var self, m: u32, kw: str<16>) -> bool
+        requires m < 32768
+        ensures true
+    {
+        var a: u32 = self.p.nns[self.p.nfc[m]]
+        var found: bool = false
+        for _ in 0..64 {
+            if a != 4294967295 {
+                if self.span_is(self.p.nss[a], self.p.nsl[a], kw) {
+                    found = true
+                }
+                a = self.p.nns[a]
+            }
+        }
+        return found
+    }
+
+    func exhaust_check(var self, m: u32, dom: u32)
+        requires m < 32768 and dom < 512
+        ensures true
+    {
+        let dk: u32 = self.yk[dom]
+        if dk == 10 {
+            if not self.has_arm16(m, "Ok") or not self.has_arm16(m, "Err") {
+                self.fail_node(m, "match не исчерпывающий (правило 7)")
+            }
+            return
+        }
+        if dk == 11 {
+            if not self.has_arm16(m, "Some") or not self.has_arm16(m, "None") {
+                self.fail_node(m, "match не исчерпывающий (правило 7)")
+            }
+            return
+        }
+        let ei: u32 = self.find_enum(self.ys[dom], self.yl[dom])
+        if ei == 4294967295 {
+            self.exhaust_builtin(m, dom)
+            return
+        }
+        for w in 0..256 {
+            if w >= self.evs[ei] and w < self.evs[ei] + self.evc[ei] and not self.failed {
+                if not self.has_arm_span(m, self.wn_s[w], self.wn_l[w]) {
+                    self.fail_node(m, "match не исчерпывающий (правило 7)")
+                }
+            }
+        }
+    }
+
+    func exhaust_builtin(var self, m: u32, dom: u32)
+        requires m < 32768 and dom < 512
+        ensures true
+    {
+        if self.span_is(self.ys[dom], self.yl[dom], "IoError") {
+            if not self.has_arm16(m, "Eof") or not self.has_arm16(m, "Fail") {
+                self.fail_node(m, "match не исчерпывающий (правило 7)")
+            }
+            return
+        }
+        if not self.has_arm16(m, "Empty") or not self.has_arm16(m, "BadChar") {
+            self.fail_node(m, "match не исчерпывающий (правило 7)")
+            return
+        }
+        if not self.has_arm16(m, "Overflow") {
+            self.fail_node(m, "match не исчерпывающий (правило 7)")
+        }
+    }
+
+    func has_arm_span(var self, m: u32, a: u32, l: u32) -> bool
+        requires m < 32768
+        ensures true
+    {
+        var c: u32 = self.p.nns[self.p.nfc[m]]
+        var found: bool = false
+        for _ in 0..64 {
+            if c != 4294967295 {
+                if self.span_eq(self.p.nss[c], self.p.nsl[c], a, l) {
+                    found = true
+                }
+                c = self.p.nns[c]
+            }
+        }
+        return found
+    }
+
+    func arms_return(var self, m: u32) -> u32
+        requires m < 32768
+        ensures result <= 1
+    {
+        var all: u32 = 1
+        var c: u32 = self.p.nns[self.p.nfc[m]]
+        for _ in 0..64 {
+            if c != 4294967295 {
+                all = all * self.nrt[self.p.nfc[c]]
+                c = self.p.nns[c]
+            }
+        }
+        return all
+    }
+
+    # --- проверка тел -----------------------------------------------------
+
+    func check_func_body(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        self.cur_key = fi
+        self.self_ty2 = 4294967295
+        self.self_mu = 0
+        self.push_scope()
+        let d: u32 = self.fnd[fi]
+        if self.fown[fi] != 4294967295 {
+            let si: u32 = self.fown[fi]
+            self.self_ty2 = self.intern(8, 4294967295, 4294967295, self.sn_s[si], self.sn_l[si])
+            self.self_mu = self.fvs[fi]
+            self.decl_self(self.self_ty2, self.fvs[fi])
+        }
+        for k in 0..8 {
+            if k < self.fpc[fi] and not self.failed {
+                let pi: u32 = self.fps[fi] + k
+                self.declare(self.pnd[pi], self.pn_s[pi], self.pn_l[pi], self.pty[pi], 0)
+            }
+        }
+        var body: u32 = 4294967295
+        var c: u32 = self.p.nfc[d]
+        for _ in 0..64 {
+            if c != 4294967295 and not self.failed {
+                let ck: u32 = self.p.nk[c]
+                if ck == 9 {
+                    self.expect_bool(self.p.nfc[c])
+                } elif ck == 10 {
+                    self.res_ty2 = self.fret[fi]
+                    self.expect_bool(self.p.nfc[c])
+                    self.res_ty2 = 4294967295
+                } elif ck == 12 {
+                    body = c
+                }
+                c = self.p.nns[c]
+            }
+        }
+        if self.failed {
+            return
+        }
+        self.run_block_machine(body, 0)
+        if self.failed {
+            return
+        }
+        if self.fret[fi] != 4294967295 and self.nrt[body] == 0 {
+            self.fail_node(d, "не все пути возвращают значение")
+            return
+        }
+        self.pop_scope()
+        self.self_ty2 = 4294967295
+    }
+
+    func run_bodies(var self)
+        requires true
+        ensures true
+    {
+        var d: u32 = self.p.nfc[0]
+        for _ in 0..32768 {
+            if d != 4294967295 and not self.failed {
+                let k: u32 = self.p.nk[d]
+                if k == 6 {
+                    self.check_func_body(self.func_by_node(d))
+                } elif k == 4 {
+                    var m: u32 = self.p.nfc[d]
+                    for _ in 0..512 {
+                        if m != 4294967295 and not self.failed {
+                            if self.p.nk[m] == 6 {
+                                self.check_func_body(self.func_by_node(m))
+                            }
+                            m = self.p.nns[m]
+                        }
+                    }
+                } elif k == 11 {
+                    self.check_test_body(d)
+                }
+                d = self.p.nns[d]
+            }
+        }
+    }
+
+    func check_test_body(var self, d: u32)
+        requires d < 32768
+        ensures true
+    {
+        if self.ttn >= 64 {
+            self.fail_node(d, "слишком много тестов")
+            return
+        }
+        let ti: u32 = self.ttn
+        self.tt_s[ti] = self.p.nss[d]
+        self.tt_l[ti] = self.p.nsl[d]
+        self.ttn = ti + 1
+        self.cur_key = 1024 + ti
+        self.self_ty2 = 4294967295
+        self.res_ty2 = 4294967295
+        self.run_block_machine(self.p.nfc[d], 1)
+    }
+
+    # --- правило 1: DAG вызовов и глубина стека ------------------------------
+    # Идентификаторы: fi < 512; тест — 512 + ti (код ребра 1024 + ti).
+
+    func cg_code(var self, idx: u32) -> u32
+        requires idx < 576
+        ensures true
+    {
+        if idx < 512 {
+            return idx
+        }
+        return 1024 + idx - 512
+    }
+
+    # k-й вызываемый из idx; NONE.
+    func cg_callee(var self, idx: u32, k: u32) -> u32
+        requires idx < 576
+        ensures true
+    {
+        let code: u32 = self.cg_code(idx)
+        var cnt: u32 = 0
+        var found: u32 = 4294967295
+        for i in 0..1024 {
+            if i < self.neg and found == 4294967295 {
+                if self.eg_c[i] == code {
+                    if cnt == k {
+                        found = self.eg_d[i]
+                    }
+                    cnt = cnt + 1
+                }
+            }
+        }
+        return found
+    }
+
+    func callgraph(var self)
+        requires true
+        ensures true
+    {
+        var col: [u32; 576] = [0; 576]
+        var dep: [u32; 576] = [0; 576]
+        var st: [u32; 128] = [0; 128]
+        var sp2: [u32; 128] = [0; 128]
+        for r in 0..576 {
+            if self.cg_valid(r) and col[r] == 0 and not self.failed {
+                var sp: u32 = 1
+                st[0] = r
+                sp2[0] = 0
+                col[r] = 1
+                for _ in 0..8192 {
+                    if sp > 0 and not self.failed {
+                        let f: u32 = sp - 1
+                        let id: u32 = st[f]
+                        let cal: u32 = self.cg_callee(id, sp2[f])
+                        sp2[f] = sp2[f] + 1
+                        if cal == 4294967295 {
+                            col[id] = 2
+                            dep[id] = self.cg_maxdep(id, dep) + 1
+                            sp = f
+                        } elif col[cal] == 1 {
+                            self.fail_node(self.fnd[cal], "рекурсия запрещена (правило 1): цикл вызовов")
+                        } elif col[cal] == 0 {
+                            if sp >= 128 {
+                                self.fail_at(1, 1, "слишком глубокий граф вызовов")
+                            } else {
+                                col[cal] = 1
+                                st[sp] = cal
+                                sp2[sp] = 0
+                                sp = sp + 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if self.main_fi != 4294967295 {
+            self.sdep = dep[self.main_fi]
+        }
+    }
+
+    func cg_valid(var self, idx: u32) -> bool
+        requires idx < 576
+        ensures true
+    {
+        if idx < 512 {
+            return idx < self.nfun
+        }
+        return idx - 512 < self.ttn
+    }
+
+    func cg_maxdep(var self, idx: u32, dep: [u32; 576]) -> u32
+        requires idx < 576
+        ensures true
+    {
+        var best: u32 = 0
+        for k in 0..64 {
+            let cal: u32 = self.cg_callee(idx, k)
+            if cal != 4294967295 {
+                if dep[cal] > best {
+                    best = dep[cal]
+                }
+            }
+        }
+        return best
+    }
+
+    # --- типизированный дамп (`eatc typed`) --------------------------------
+
+    func run_typed(var self)
+        requires true
+        ensures true
+    {
+        self.run()
+        if self.failed {
+            return
+        }
+        self.init_builtins()
+        self.run_bodies()
+        if self.failed {
+            return
+        }
+        self.callgraph()
+    }
+
+    func range_of(var self, n: u32) -> u32
+        requires true
+        ensures true
+    {
+        var found: u32 = 4294967295
+        for i in 0..128 {
+            if i < self.nrb and found == 4294967295 {
+                if self.rb_n[i] == n {
+                    found = i
+                }
+            }
+        }
+        return found
+    }
+
+    func tprint(var self, n: u32, d: u32)
+        requires n < 32768
+        ensures true
+    {
+        for i in 0..64 {
+            if i < d {
+                write("  ")
+            }
+        }
+        let k: u32 = self.p.nk[n]
+        write_nkind(k)
+        if has_pos(k) {
+            write(" {self.p.nl[n]}:{self.p.nc[n]}")
+        }
+        self.textras(n, k)
+        if self.nty[n] != 4294967295 {
+            write(" :: ")
+            self.write_type(self.nty[n])
+            if k == 18 {
+                let r: u32 = self.range_of(n)
+                if r != 4294967295 {
+                    write(" bounds=")
+                    if self.rb_ss[r] == 1 {
+                        write("-")
+                    }
+                    write("{self.rb_sm[r]}..")
+                    if self.rb_es[r] == 1 {
+                        write("-")
+                    }
+                    write("{self.rb_em[r]}")
+                }
+            }
+        }
+        write("\n")
+    }
+
+    func textras(var self, n: u32, k: u32)
+        requires n < 32768
+        ensures true
+    {
+        if k == 6 {
+            write(" name=")
+            self.write_span2(self.p.nss[n], self.p.nsl[n])
+            write(" method={self.p.nx[n]}")
+        } elif k == 7 {
+            write(" name=")
+            if self.p.nss[n] == 4294967295 {
+                write("self")
+            } else {
+                self.write_span2(self.p.nss[n], self.p.nsl[n])
+            }
+            write(" mut={self.p.nx[n]}")
+        } elif k == 13 {
+            write(" name=")
+            self.write_span2(self.p.nss[n], self.p.nsl[n])
+            write(" mut={self.p.nx[n]}")
+        } elif k == 21 {
+            write(" name=")
+            self.write_span2(self.p.nss[n], self.p.nsl[n])
+            if self.p.nx[n] != 4294967295 {
+                write(" bind=")
+                self.write_span2(self.p.nx[n], self.p.ny[n])
+            }
+        } elif k == 32 {
+            write(" val=")
+            if self.p.ny[n] == 1 {
+                write("-")
+            }
+            write("{self.p.nx[n]}")
+        } elif k == 33 {
+            if self.p.nx[n] == 1 {
+                write(" val=true")
+            } else {
+                write(" val=false")
+            }
+        } elif k == 34 or k == 36 {
+            write(" val=")
+            self.wesc_span(self.p.nss[n], self.p.nsl[n])
+        } elif k == 37 {
+            write(" val=")
+            self.write_span2(self.p.nss[n], self.p.nsl[n])
+        } elif k == 39 or k == 40 {
+            write(" op=")
+            write_opname(self.p.nx[n])
+        } elif has_name(k) {
+            write(" name=")
+            self.write_span2(self.p.nss[n], self.p.nsl[n])
+        }
+    }
+
+    func wesc_span(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if i < l {
+                write_esc(self.p.lex.sbuf[a + i])
+            }
+        }
+    }
+
+    func tdump(var self)
+        requires true
+        ensures true
+    {
+        var st: [u32; 64] = [0; 64]
+        var sp: u32 = 0
+        var cur: u32 = 0
+        var dpt: u32 = 0
+        var done: bool = false
+        for _ in 0..65536 {
+            if not done {
+                self.tprint(cur, dpt)
+                if self.p.nfc[cur] != 4294967295 and sp < 64 {
+                    st[sp] = cur
+                    sp = sp + 1
+                    dpt = dpt + 1
+                    cur = self.p.nfc[cur]
+                } else {
+                    var moved: bool = false
+                    for _ in 0..64 {
+                        if not moved {
+                            if sp == 0 {
+                                done = true
+                                moved = true
+                            } elif self.p.nns[cur] != 4294967295 {
+                                cur = self.p.nns[cur]
+                                moved = true
+                            } else {
+                                sp = sp - 1
+                                cur = st[sp]
+                                dpt = dpt - 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        write("stack {self.sdep}\n")
+        self.dump_edges()
+    }
+
+    # --- сортировка и печать рёбер ------------------------------------------
+
+    # i-й байт ключа вызывающего/вызываемого; 999 — конец.
+    func key_byte(var self, code: u32, i: u32) -> u32
+        requires true
+        ensures true
+    {
+        if code >= 1024 {
+            let pre: str<8> = "test:"
+            if i < 5 {
+                return u32(u8(pre[i]))
+            }
+            let ti: u32 = code - 1024
+            if i - 5 < self.tt_l[ti] {
+                return u32(self.p.lex.sbuf[self.tt_s[ti] + i - 5])
+            }
+            return 999
+        }
+        var off: u32 = 0
+        let own: u32 = self.fown[code]
+        if own != 4294967295 {
+            if i < self.sn_l[own] {
+                return u32(self.p.lex.sbuf[self.sn_s[own] + i])
+            }
+            if i == self.sn_l[own] {
+                return 46
+            }
+            off = self.sn_l[own] + 1
+        }
+        if i - off < self.fn_l[code] {
+            return u32(self.p.lex.sbuf[self.fn_s[code] + i - off])
+        }
+        return 999
+    }
+
+    # 0: a < b, 1: равны, 2: a > b.
+    func cmp_key(var self, a: u32, b: u32) -> u32
+        requires true
+        ensures result <= 2
+    {
+        var r: u32 = 1
+        var stop: bool = false
+        for i in 0..300 {
+            if not stop {
+                let ba: u32 = self.key_byte(a, i)
+                let bb: u32 = self.key_byte(b, i)
+                if ba == 999 and bb == 999 {
+                    stop = true
+                } elif ba == 999 {
+                    r = 0
+                    stop = true
+                } elif bb == 999 {
+                    r = 2
+                    stop = true
+                } elif ba < bb {
+                    r = 0
+                    stop = true
+                } elif ba > bb {
+                    r = 2
+                    stop = true
+                }
+            }
+        }
+        return r
+    }
+
+    # Ребро i больше ребра j (по ключам вызывающего, затем вызываемого)?
+    func edge_gt(var self, i: u32, j: u32) -> bool
+        requires i < 1024 and j < 1024
+        ensures true
+    {
+        let c: u32 = self.cmp_key(self.eg_c[i], self.eg_c[j])
+        if c == 2 {
+            return true
+        }
+        if c == 0 {
+            return false
+        }
+        return self.cmp_key(self.eg_d[i], self.eg_d[j]) == 2
+    }
+
+    func dump_edges(var self)
+        requires true
+        ensures true
+    {
+        # сортировка выбором
+        for i in 0..1024 {
+            if i < self.neg {
+                var best: u32 = i
+                for j in 0..1024 {
+                    if j > i and j < self.neg {
+                        if self.edge_gt(best, j) {
+                            best = j
+                        }
+                    }
+                }
+                if best != i {
+                    let tc: u32 = self.eg_c[i]
+                    let td: u32 = self.eg_d[i]
+                    self.eg_c[i] = self.eg_c[best]
+                    self.eg_d[i] = self.eg_d[best]
+                    self.eg_c[best] = tc
+                    self.eg_d[best] = td
+                }
+            }
+        }
+        for i in 0..1024 {
+            if i < self.neg {
+                write("edge ")
+                self.write_key(self.eg_c[i])
+                write(" -> ")
+                self.write_key(self.eg_d[i])
+                write("\n")
+            }
+        }
+    }
+
+    func write_key(var self, code: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..300 {
+            let b: u32 = self.key_byte(code, i)
+            if b != 999 {
+                write("{char(u8(b))}")
             }
         }
     }

@@ -11,7 +11,7 @@
 # Колонки считаются в символах, как у эталона: continuation-байты
 # UTF-8 (0x80..0xBF) колонку не двигают.
 #
-# Пределы пулов: 32768 токенов, 65536 байт значений, 2048 сегментов
+# Пределы пулов: 65536 токенов, 65536 байт значений, 2048 сегментов
 # интерполяции. NONE = 4294967295.
 
 func is_digit(b: u8) -> bool
@@ -99,13 +99,13 @@ struct Lexer {
     failed: bool
     ch: u8
     # пул токенов
-    tk: [u32; 32768]
-    tl: [u32; 32768]
-    tc: [u32; 32768]
-    tvs: [u32; 32768]
-    tvl: [u32; 32768]
-    tsg: [u32; 32768]
-    tns: [u32; 32768]
+    tk: [u32; 65536]
+    tl: [u32; 65536]
+    tc: [u32; 65536]
+    tvs: [u32; 65536]
+    tvl: [u32; 65536]
+    tsg: [u32; 65536]
+    tns: [u32; 65536]
     ntok: u32
     # пул байтов значений
     sbuf: [u8; 65536]
@@ -123,8 +123,8 @@ struct Lexer {
         requires k <= 55
         ensures true
     {
-        if self.ntok >= 32768 {
-            self.fail("слишком много токенов (предел 32768)")
+        if self.ntok >= 65536 {
+            self.fail("слишком много токенов (предел 65536)")
             return
         }
         self.tk[self.ntok] = k
@@ -569,7 +569,7 @@ struct Lexer {
         requires true
         ensures true
     {
-        for ti in 0..32768 {
+        for ti in 0..65536 {
             if ti < self.ntok and not self.failed {
                 if self.tk[ti] == 1 {
                     if self.has_brace(ti) {
@@ -581,7 +581,7 @@ struct Lexer {
     }
 
     func has_brace(var self, ti: u32) -> bool
-        requires ti < 32768
+        requires ti < 65536
         ensures true
     {
         let vs: u32 = self.tvs[ti]
@@ -657,7 +657,7 @@ struct Lexer {
 
     # Разбить значение STRING-токена ti на сегменты.
     func split_string(var self, ti: u32)
-        requires ti < 32768
+        requires ti < 65536
         ensures true
     {
         let vs: u32 = self.tvs[ti]
@@ -748,7 +748,7 @@ struct Lexer {
         requires true
         ensures true
     {
-        for ti in 0..32768 {
+        for ti in 0..65536 {
             if ti < self.ntok {
                 let k: u32 = self.tk[ti]
                 write("{self.tl[ti]}:{self.tc[ti]} ")

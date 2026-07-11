@@ -42,6 +42,8 @@ SELFHOST_PARSER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/ParseMain.eat
 SELFHOST_SIG = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/Check.eat selfhost/SigMain.eat
+SELFHOST_TYPED = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
+	selfhost/Parser.eat selfhost/Check.eat selfhost/TypedMain.eat
 
 run_selfhost_lexer:
 	cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER)
@@ -56,6 +58,7 @@ verify_selfhost:
 	@$(EATC) build $(SELFHOST_LEXER) -o build/SelfLex > /dev/null
 	@$(EATC) build $(SELFHOST_PARSER) -o build/SelfParse > /dev/null
 	@$(EATC) build $(SELFHOST_SIG) -o build/SelfSig > /dev/null
+	@$(EATC) build $(SELFHOST_TYPED) -o build/SelfTyped > /dev/null
 	@for f in $$(find examples selfhost tests -name '*.eat' | sort); do \
 		$(EATC) lex $$f > /tmp/eat_lex_ref.txt; \
 		./build/SelfLex < $$f > /tmp/eat_lex_self.txt; \
@@ -74,12 +77,23 @@ verify_selfhost:
 				&& echo "SIG OK $$f" \
 				|| { echo "SIG DIFF $$f"; exit 1; }; \
 		fi; \
+		if $(EATC) typed $$f > /tmp/eat_typed_ref.txt 2>/dev/null; then \
+			./build/SelfTyped < $$f > /tmp/eat_typed_self.txt; \
+			diff /tmp/eat_typed_ref.txt /tmp/eat_typed_self.txt > /dev/null \
+				&& echo "TYPED OK $$f" \
+				|| { echo "TYPED DIFF $$f"; exit 1; }; \
+		fi; \
 	done
 	@cat $(SELFHOST_SIG) > /tmp/eat_sig_all.eat
 	@$(EATC) sig /tmp/eat_sig_all.eat > /tmp/eat_sig_ref.txt
 	@./build/SelfSig < /tmp/eat_sig_all.eat > /tmp/eat_sig_self.txt
 	@diff /tmp/eat_sig_ref.txt /tmp/eat_sig_self.txt > /dev/null \
 		&& echo "SIG OK (конкатенация собственных исходников)" || exit 1
+	@cat $(SELFHOST_TYPED) > /tmp/eat_typed_all.eat
+	@$(EATC) typed /tmp/eat_typed_all.eat > /tmp/eat_typed_ref.txt
+	@./build/SelfTyped < /tmp/eat_typed_all.eat > /tmp/eat_typed_self.txt
+	@diff /tmp/eat_typed_ref.txt /tmp/eat_typed_self.txt > /dev/null \
+		&& echo "TYPED OK (тайпчекер типизирует сам себя)" || exit 1
 	@cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER) > /tmp/eat_lex_interp.txt
 	@cat $(SELFHOST_LEXER) | ./build/SelfLex > /tmp/eat_lex_native.txt
 	@diff /tmp/eat_lex_interp.txt /tmp/eat_lex_native.txt \
@@ -92,6 +106,11 @@ verify_selfhost:
 	@cat $(SELFHOST_SIG) | ./build/SelfSig > /tmp/eat_sig_native.txt
 	@diff /tmp/eat_sig_interp.txt /tmp/eat_sig_native.txt \
 		&& echo "VERIFIED SelfSig (interp == native == эталон)" || exit 1
+	@cat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat > /tmp/eat_typed_probe.eat
+	@cat /tmp/eat_typed_probe.eat | $(EATC) run $(SELFHOST_TYPED) > /tmp/eat_typed_interp.txt
+	@cat /tmp/eat_typed_probe.eat | ./build/SelfTyped > /tmp/eat_typed_native.txt
+	@diff /tmp/eat_typed_interp.txt /tmp/eat_typed_native.txt \
+		&& echo "VERIFIED SelfTyped (interp == native, проба лексера)" || exit 1
 
 run_hello_world:
 	$(EATC) run examples/hello_world/HelloWorld.eat

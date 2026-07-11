@@ -1,6 +1,6 @@
-# Self-hosted проверки (фаза 3a): точка входа. Фильтр stdin → stdout:
-# дамп деклараций и сигнатур, построчно совпадающий с эталоном `eatc sig`
-# (сверка в make verify_selfhost).
+# Self-hosted тайпчекер (фаза 3b): точка входа. Фильтр stdin → stdout:
+# типизированный дамп AST + граф вызовов, построчно совпадающий
+# с эталоном `eatc typed` (сверка в make verify_selfhost).
 
 func main() {
     var lex: Lexer = Lexer { state: 0, line: 1, col: 1, tline: 1, tcol: 1, val: [0; 256], vlen: 0, depth: 0, failed: false, ch: 0, tk: [0; 65536], tl: [0; 65536], tc: [0; 65536], tvs: [0; 65536], tvl: [0; 65536], tsg: [0; 65536], tns: [0; 65536], ntok: 0, sbuf: [0; 65536], sblen: 0, sgk: [0; 2048], sga: [0; 2048], sgb: [0; 2048], nseg: 0 }
@@ -26,9 +26,9 @@ func main() {
         p.parse()
         if not p.failed {
             var c: Check = Check { p: p, failed: false, yk: [0; 512], ya: [0; 512], yb: [0; 512], ys: [0; 512], yl: [0; 512], ntype: 0, cn_s: [0; 128], cn_l: [0; 128], cty: [0; 128], cvs: [0; 128], cvm: [0; 128], ncon: 0, fn_s: [0; 512], fn_l: [0; 512], fown: [0; 512], fps: [0; 512], fpc: [0; 512], fret: [0; 512], fvs: [0; 512], fnd: [0; 512], nfun: 0, pn_s: [0; 1024], pn_l: [0; 1024], pty: [0; 1024], npar: 0, sn_s: [0; 128], sn_l: [0; 128], sgs: [0; 128], sgc: [0; 128], snd: [0; 128], nstr: 0, gn_s: [0; 512], gn_l: [0; 512], gty: [0; 512], ngld: 0, en_s: [0; 64], en_l: [0; 64], evs: [0; 64], evc: [0; 64], nenu: 0, wn_s: [0; 256], wn_l: [0; 256], wpl: [0; 256], nvar: 0, ces: 0, cem: 0, dep_k: 0, dep_cnt: 0, dep_found: 0, total_stmts: 0, nty: [0; 32768], nrt: [0; 32768], rb_n: [0; 128], rb_ss: [0; 128], rb_sm: [0; 128], rb_es: [0; 128], rb_em: [0; 128], nrb: 0, pnd: [0; 1024], sv_s: [0; 256], sv_l: [0; 256], sv_t: [0; 256], sv_m: [0; 256], sv_u: [0; 256], sv_ln: [0; 256], sv_cl: [0; 256], nsv: 0, scp: [0; 64], nsc: 0, cur_key: 0, main_fi: 0, self_ty2: 0, self_mu: 0, res_ty2: 0, loopd: 0, eg_c: [0; 1024], eg_d: [0; 1024], neg: 0, tt_s: [0; 64], tt_l: [0; 64], ttn: 0, xn: [0; 64], xp: [0; 64], xe: [0; 64], xa: [0; 64], xb: [0; 64], nxq: 0, tres: 0, xvoid: 0, qk2: [0; 128], qn: [0; 128], qp: [0; 128], qx: [0; 128], qy: [0; 128], nq: 0, ty_sq: 0, ty_rl: 0, ty_rb: 0, ty_pi: 0, bn_io: 0, bn_pe: 0, sdep: 0 }
-            c.run()
+            c.run_typed()
             if not c.failed {
-                c.dump_sig()
+                c.tdump()
             }
         }
     }
