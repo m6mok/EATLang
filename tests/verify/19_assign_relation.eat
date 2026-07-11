@@ -1,0 +1,20 @@
+#! expect: assert=2/3 overflow=2/2 requires=1/1
+# Отношение через присваивание выражения: let j = i + 1 (и j = i + 1)
+# даёт факт j == i + 1, из которого вместе с i < n следует j <= n.
+# Третий assert (j < n) недоказуем — и не должен доказываться:
+# при i == n - 1 он ложен.
+
+func check(i: u32, n: u32)
+    requires i < n
+{
+    let j: u32 = i + 1
+    assert j <= n
+    var k: u32 = 0
+    k = i + 1
+    assert k <= n
+    assert j < n
+}
+
+func main() {
+    check(2, 5)
+}

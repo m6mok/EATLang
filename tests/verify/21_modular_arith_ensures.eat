@@ -1,0 +1,27 @@
+#! expect: ensures=2/2 assert=2/3 requires=2/2 overflow=4/4
+# Арифметика в модульных ensures: result <= pos + width становится
+# фактом вызывающего next <= p + 5 (реляционно, не только интервалом).
+# Assert next >= p + 5 истинен для этой реализации, но из контракта
+# не следует — обязан остаться runtime-проверкой.
+
+func advance(pos: u32, width: u32) -> u32
+    requires pos <= 1000 and width <= 10
+    ensures result <= pos + width
+{
+    return pos + width
+}
+
+func caller(p: u32) -> u32
+    requires p <= 900
+    ensures true
+{
+    let next: u32 = advance(p, 5)
+    assert next <= p + 5
+    assert next <= 905
+    assert next >= p + 5
+    return next
+}
+
+func main() {
+    print("{caller(100)}")
+}

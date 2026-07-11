@@ -1,0 +1,27 @@
+#! expect: assert=4/5 overflow=5/5 div=1/1
+# Инвариант связи счётчиков в одном цикле: безусловный счётчик
+# с шагом +1 идёт в ногу с переменной цикла (count == i), условный —
+# не обгоняет её (kept <= i). Assert kept + kept >= i истинен, но
+# недоказуем (нужна индукция) — обязан остаться runtime-проверкой.
+
+func main() {
+    var count: u32 = 0
+    var total: u32 = 3
+    for i in 0..8 {
+        assert count == i
+        assert total == count + 3
+        count = count + 1
+        total = total + 1
+    }
+    assert count == 8
+
+    var kept: u32 = 0
+    for i in 0..100 {
+        assert kept <= i
+        assert kept + kept >= i
+        if i % 2 == 0 {
+            kept = kept + 1
+        }
+    }
+    print("{count} {total} {kept}")
+}

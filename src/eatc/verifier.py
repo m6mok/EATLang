@@ -20,9 +20,11 @@
      итерацию ускоряется (значение на итерации k равно v0 + k*d —
      точный интервал в теле и после цикла); остальные присваивания
      в цикле расширяются до диапазона типа (грубо, но корректно).
-  2. Отношения: факты (p, "<"|"<=", q) между путями из условий ветвей
-     и requires, с транзитивным замыканием. На return `result`
-     символически связывается с возвращаемым путём — так доказывается
+  2. Отношения: разностные ограничения p <= q + d между путями
+     (условия ветвей, requires, присваивания `let j = i + 1`,
+     счётчики в ногу с переменной цикла) с транзитивным замыканием
+     Флойда–Уоршелла. На return `result` символически связывается
+     с возвращаемым выражением — так доказывается
      `ensures result >= a` у max.
   3. Структурное равенство выражений (с точностью до коммутативности):
      `result` раскрывается в выражение return — так доказывается
@@ -132,14 +134,15 @@ def _block_returns(block) -> bool:
 
 
 class State:
-    """Абстрактное состояние: интервалы путей + отношения путей
-    + пути, известные как ненулевые."""
+    """Абстрактное состояние: интервалы путей + разностные ограничения
+    путей + пути, известные как ненулевые."""
 
     __slots__ = ("ivs", "rels", "nz")
 
     def __init__(self, ivs=None, rels=None, nz=None):
         self.ivs: dict[str, Iv] = dict(ivs or {})
-        self.rels: set[tuple] = set(rels or ())  # (p, "<"|"<=", q)
+        # (p, q) -> d: факт p <= q + d (минимальное известное d)
+        self.rels: dict[tuple[str, str], int] = dict(rels or {})
         self.nz: set[str] = set(nz or ())  # пути со значением != 0
 
     def copy(self) -> "State":
@@ -153,35 +156,56 @@ class State:
         def dead(p: str) -> bool:
             return p == path or p.startswith(path + ".")
 
-        self.rels = {r for r in self.rels if not dead(r[0]) and not dead(r[2])}
+        self.rels = {
+            k: d
+            for k, d in self.rels.items()
+            if not dead(k[0]) and not dead(k[1])
+        }
         self.nz = {p for p in self.nz if not dead(p)}
 
-    def relate(self, lhs: str, op: str, rhs: str) -> None:
-        if op == "<":
-            self.rels.add((lhs, "<", rhs))
-        elif op == "<=":
-            self.rels.add((lhs, "<=", rhs))
-        elif op == ">":
-            self.rels.add((rhs, "<", lhs))
-        elif op == ">=":
-            self.rels.add((rhs, "<=", lhs))
-        elif op == "==":
-            self.rels.add((lhs, "<=", rhs))
-            self.rels.add((rhs, "<=", lhs))
+    def add(self, p: str, q: str, d: int) -> None:
+        """Факт p <= q + d."""
+        if p == q:
+            return
+        cur = self.rels.get((p, q))
+        if cur is None or d < cur:
+            self.rels[(p, q)] = d
 
-    def closure(self) -> set:
-        cl = set(self.rels)
-        changed = True
-        while changed:
-            changed = False
-            for a, op1, b in list(cl):
-                for b2, op2, c in list(cl):
-                    if b != b2:
+    def relate(self, lhs: str, op: str, rhs: str) -> None:
+        self.relate_offset(lhs, op, rhs, 0)
+
+    def relate_offset(self, lhs: str, op: str, rhs: str, delta: int) -> None:
+        """Факт lhs op rhs + delta."""
+        if op == "<":
+            self.add(lhs, rhs, delta - 1)
+        elif op == "<=":
+            self.add(lhs, rhs, delta)
+        elif op == ">":
+            self.add(rhs, lhs, -delta - 1)
+        elif op == ">=":
+            self.add(rhs, lhs, -delta)
+        elif op == "==":
+            self.add(lhs, rhs, delta)
+            self.add(rhs, lhs, -delta)
+
+    def closure(self) -> dict:
+        """Транзитивное замыкание (Флойд–Уоршелл): кратчайшие d."""
+        cl = dict(self.rels)
+        nodes = {p for p, _ in cl} | {q for _, q in cl}
+        for k in nodes:
+            for i in nodes:
+                dik = cl.get((i, k))
+                if dik is None or i == k:
+                    continue
+                for j in nodes:
+                    if j == i or j == k:
                         continue
-                    op = "<" if "<" in (op1, op2) else "<="
-                    if a != c and (a, op, c) not in cl:
-                        cl.add((a, op, c))
-                        changed = True
+                    dkj = cl.get((k, j))
+                    if dkj is None:
+                        continue
+                    nd = dik + dkj
+                    if nd < cl.get((i, j), nd + 1):
+                        cl[(i, j)] = nd
         return cl
 
 
@@ -381,9 +405,11 @@ class Verifier:
                     if value is not None
                     else clamp
                 )
-                vpath = _path_of(stmt.value)
-                if vpath is not None:
-                    env.relate(stmt.name, "==", vpath)
+                # отношение через присваивание выражения:
+                # let j = i + 1 даёт факт j == i + 1
+                vdec = self._decompose(stmt.value)
+                if vdec is not None:
+                    env.relate_offset(stmt.name, "==", vdec[0], vdec[1])
             if isinstance(stmt.value, ast.StructLit):
                 for fname, fexpr in stmt.value.fields:
                     fiv = self._iv(fexpr, env)
@@ -427,10 +453,16 @@ class Verifier:
             if path is not None:
                 env.kill(path)
                 tty = stmt.target.ty
-                if isinstance(tty, IntType) and value is not None:
-                    clamped = _inter(value, _range(tty.kind))
-                    if clamped is not None:
-                        env.ivs[path] = clamped
+                if isinstance(tty, IntType):
+                    if value is not None:
+                        clamped = _inter(value, _range(tty.kind))
+                        if clamped is not None:
+                            env.ivs[path] = clamped
+                    # x = y + 1 даёт факт x == y + 1 (сам путь в правой
+                    # части — старое значение, факт не записываем)
+                    vdec = self._decompose(stmt.value)
+                    if vdec is not None and vdec[0] != path:
+                        env.relate_offset(path, "==", vdec[0], vdec[1])
             return env
         if isinstance(stmt, ast.IfStmt):
             return self._flow_if(stmt, env)
@@ -455,11 +487,13 @@ class Verifier:
                 env_r = env.copy()
                 if riv is not None:
                     env_r.ivs["result"] = riv
-                rpath = (
-                    _path_of(stmt.value) if stmt.value is not None else None
+                rdec = (
+                    self._decompose(stmt.value)
+                    if stmt.value is not None
+                    else None
                 )
-                if rpath is not None:
-                    env_r.relate("result", "==", rpath)
+                if rdec is not None:
+                    env_r.relate_offset("result", "==", rdec[0], rdec[1])
                 self.ret_expr = stmt.value  # result ≡ выражение return
                 ok = self._eval_bool(func.ensures, env_r)
                 self.ret_expr = None
@@ -539,6 +573,8 @@ class Verifier:
         if stmt.bounds is not None:
             if n > 0:
                 body_env.ivs[stmt.target] = (start, end - 1)
+                if stmt.target != "_":
+                    self._lockstep(stmt, accel, env, body_env, start)
         elif isinstance(stmt.elem_ty, IntType):
             body_env.ivs[stmt.target] = _range(stmt.elem_ty.kind)
         self._flow_block(stmt.body, body_env)
@@ -548,6 +584,25 @@ class Verifier:
             out.kill(p)
             out.ivs[p] = iv
         return out
+
+    def _lockstep(
+        self, stmt, accel: dict, env: State, body_env: State, start: int
+    ) -> None:
+        """Инвариант связи счётчиков: путь с единственным обновлением
+        `p = p + 1` идёт в ногу с переменной цикла. На входе итерации k
+        target == start + k, а p == v0 + (число сработавших обновлений):
+        безусловное обновление даёт p <= target + (v0_hi - start) и
+        p >= target + (v0_lo - start) (при точном v0 — равенство),
+        условное — только верхнюю границу. Обновление внутри тела
+        убивает факт через kill(p)."""
+        for p, info in accel.items():
+            d, cond, _kind, _glo, _ghi = info
+            v0 = env.ivs.get(p)
+            if d != 1 or v0 is None:
+                continue
+            body_env.relate_offset(p, "<=", stmt.target, v0[1] - start)
+            if not cond:
+                body_env.relate_offset(p, ">=", stmt.target, v0[0] - start)
 
     def _accelerate(self, block: ast.Block) -> dict:
         """Пути с единственным обновлением `p = p ± const` за итерацию:
@@ -671,10 +726,12 @@ class Verifier:
         if not envs:
             return State()
         keys = set(envs[0].ivs)
-        rels = set(envs[0].rels)
+        rkeys = set(envs[0].rels)
         for e in envs[1:]:
             keys &= set(e.ivs)
-            rels &= e.rels
+            rkeys &= set(e.rels)
+        # общий факт — слабейшая из границ (максимальное d)
+        rels = {k: max(e.rels[k] for e in envs) for k in rkeys}
         nz = set(envs[0].nz)
         for e in envs[1:]:
             nz &= e.nz
@@ -721,15 +778,18 @@ class Verifier:
         self._refine_cmp(env, cond.left, op, cond.right)
         mirror = {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "==": "=="}
         self._refine_cmp(env, cond.right, mirror[op], cond.left)
-        # отношения между путями
-        lp, rp = _path_of(cond.left), _path_of(cond.right)
+        # отношения между путями (с учётом смещения p ± c:
+        # из `i + 1 < n` следует факт i < n - 1)
+        dl = self._decompose(cond.left)
+        dr = self._decompose(cond.right)
         if (
-            lp is not None
-            and rp is not None
+            dl is not None
+            and dr is not None
+            and dl[0] != dr[0]
             and isinstance(getattr(cond.left, "ty", None), IntType)
             and isinstance(getattr(cond.right, "ty", None), IntType)
         ):
-            env.relate(lp, op, rp)
+            env.relate_offset(dl[0], op, dr[0], dr[1] - dl[1])
 
     def _refine_cmp(self, env: State, target, op: str, other) -> None:
         path = _path_of(target)
@@ -834,10 +894,8 @@ class Verifier:
                     return res
             # структурное равенство: обе стороны — одно выражение,
             # вычисленное в одном состоянии (result ≡ выражению return)
-            if node.op in ("==", "!=") and self._expr_equal(
-                node.left, node.right
-            ):
-                return node.op == "=="
+            if self._expr_equal(node.left, node.right):
+                return node.op in ("==", "<=", ">=")
             return None
         # прочее (str/enum сравнения, вызовы) — неизвестно
         self._iv(node, env, annotate)
@@ -942,7 +1000,7 @@ class Verifier:
         return None
 
     def _decide_offset(self, env: State, dl, op: str, dr):
-        """Решить p + a op q + b через отношения путей.
+        """Решить p + a op q + b через разностные ограничения.
         Эквивалентно p + delta op q, где delta = a - b."""
         (p, a), (q, b) = dl, dr
         delta = a - b
@@ -956,28 +1014,23 @@ class Verifier:
                 "!=": delta != 0,
             }[op]
         cl = env.closure()
-
-        def le(x, y):
-            return (x, "<=", y) in cl or (x, "<", y) in cl
-
-        def lt(x, y):
-            return (x, "<", y) in cl
-
+        dpq = cl.get((p, q))  # p <= q + dpq
+        dqp = cl.get((q, p))  # q <= p + dqp
         # только доказательства (True); опровержения оставляем интервалам
-        if op == "<=" and (
-            (delta <= 0 and le(p, q)) or (delta <= 1 and lt(p, q))
-        ):
+        if op == "<=" and dpq is not None and dpq <= -delta:
             return True
-        if op == "<" and (
-            (delta <= -1 and le(p, q)) or (delta <= 0 and lt(p, q))
-        ):
+        if op == "<" and dpq is not None and dpq <= -delta - 1:
             return True
-        if op == ">=" and (
-            (delta >= 0 and le(q, p)) or (delta >= -1 and lt(q, p))
-        ):
+        if op == ">=" and dqp is not None and dqp <= delta:
             return True
-        if op == ">" and (
-            (delta >= 1 and le(q, p)) or (delta >= 0 and lt(q, p))
+        if op == ">" and dqp is not None and dqp <= delta - 1:
+            return True
+        if (
+            op == "=="
+            and dpq is not None
+            and dqp is not None
+            and dpq <= -delta
+            and dqp <= delta
         ):
             return True
         return None
@@ -986,10 +1039,10 @@ class Verifier:
         cl = env.closure()
 
         def le(x, y):
-            return x == y or (x, "<=", y) in cl or (x, "<", y) in cl
+            return x == y or cl.get((x, y), 1) <= 0
 
         def lt(x, y):
-            return (x, "<", y) in cl
+            return cl.get((x, y), 1) <= -1
 
         if op == "<":
             if lt(lp, rp):
@@ -1076,9 +1129,8 @@ class Verifier:
                 # a - b при известном b <= a не уходит ниже нуля
                 floor_zero = False
                 if node.op == "-" and lp is not None and rp is not None:
-                    cl = env.closure()
                     floor_zero = (
-                        lp == rp or (rp, "<=", lp) in cl or (rp, "<", lp) in cl
+                        lp == rp or env.closure().get((rp, lp), 1) <= 0
                     )
                 return self._arith(
                     node,
@@ -1248,8 +1300,11 @@ class Verifier:
     ) -> None:
         """Модульный контракт: после вызова ensures функции истинен —
         либо доказан статически, либо проверен trap'ом внутри неё.
-        Конъюнкты вида «result/параметр op константа/путь» становятся
-        фактами вызывающего (bind — имя связываемой переменной)."""
+        Конъюнкты-сравнения переводятся в термины вызывающего: сторона —
+        путь со смещением (result, параметр, p ± c, в том числе
+        арифметика вида `pos + width`) либо интервал. Путь-путь даёт
+        разностный факт, путь-интервал — подрезку границ (bind — имя
+        связываемой переменной)."""
         if func is None or func.ensures is None:
             return
         subst = {p: a for (p, _), a in zip(sig.params, call.args)}
@@ -1257,45 +1312,103 @@ class Verifier:
         for conj in _conjuncts(func.ensures):
             if not isinstance(conj, ast.BinOp) or conj.op not in mirror:
                 continue
-            left = self._map_fact(conj.left, subst, bind, obj_path, env)
-            right = self._map_fact(conj.right, subst, bind, obj_path, env)
+            left = self._map_side(conj.left, subst, bind, obj_path, env)
+            right = self._map_side(conj.right, subst, bind, obj_path, env)
             if left is None or right is None:
                 continue
-            lk, lv = left
-            rk, rv = right
-            if lk == "path" and rk == "path":
-                env.relate(lv, conj.op, rv)
-            elif lk == "path" and rk == "iv":
-                self._refine_path_iv(env, lv, conj.op, rv)
-            elif lk == "iv" and rk == "path":
-                self._refine_path_iv(env, rv, mirror[conj.op], lv)
+            op = conj.op
+            if left[0] == "off" and right[0] == "off":
+                _, lp, lc = left
+                _, rp, rc = right
+                if lp != rp:
+                    env.relate_offset(lp, op, rp, rc - lc)
+                riv = env.ivs.get(rp)
+                if riv is not None:
+                    self._refine_path_iv(
+                        env, lp, op, (riv[0] + rc - lc, riv[1] + rc - lc)
+                    )
+                liv = env.ivs.get(lp)
+                if liv is not None:
+                    self._refine_path_iv(
+                        env,
+                        rp,
+                        mirror[op],
+                        (liv[0] + lc - rc, liv[1] + lc - rc),
+                    )
+            elif left[0] == "off" and right[0] == "iv":
+                _, lp, lc = left
+                iv = right[1]
+                self._refine_path_iv(env, lp, op, (iv[0] - lc, iv[1] - lc))
+            elif left[0] == "iv" and right[0] == "off":
+                iv = left[1]
+                _, rp, rc = right
+                self._refine_path_iv(
+                    env, rp, mirror[op], (iv[0] - rc, iv[1] - rc)
+                )
 
-    def _map_fact(self, e, subst: dict, bind: str, obj_path, env: State):
+    def _map_side(self, e, subst: dict, bind: str, obj_path, env: State):
         """Сторона конъюнкта ensures в терминах вызывающего:
-        ("path", путь) | ("iv", интервал) | None."""
+        ("off", путь, c) — путь + c | ("iv", интервал) | None."""
         if isinstance(e, ast.IntLit):
             return ("iv", (e.value, e.value))
         if isinstance(e, ast.Name):
             if e.ident == "result":
-                return ("path", bind)
+                return ("off", bind, 0)
             if e.ident in self.checker.consts:
                 v = self.checker.consts[e.ident][1]
                 return ("iv", (v, v))
             if e.ident in subst:
                 arg = subst[e.ident]
-                p = _path_of(arg)
-                if p is not None:
-                    return ("path", p)
+                d = self._decompose(arg)
+                if d is not None:
+                    return ("off", d[0], d[1])
                 iv = self._iv(arg, env, annotate=False)
                 return ("iv", iv) if iv is not None else None
             return None
+        if isinstance(e, ast.BinOp) and e.op in ("+", "-"):
+            left = self._map_side(e.left, subst, bind, obj_path, env)
+            right = self._map_side(e.right, subst, bind, obj_path, env)
+            if left is None or right is None:
+                return None
+            return self._combine_sides(e.op, left, right, env)
         p = _path_of(e)  # self.поле в ensures метода
         if p is not None and obj_path is not None:
             if p == "self":
-                return ("path", obj_path)
+                return ("off", obj_path, 0)
             if p.startswith("self."):
-                return ("path", obj_path + p[len("self") :])
+                return ("off", obj_path + p[len("self") :], 0)
         return None
+
+    def _combine_sides(self, op: str, left, right, env: State):
+        """Сумма/разность сторон: путь ± константа остаётся путём со
+        смещением (реляционно), иначе — интервальная арифметика."""
+        if (
+            left[0] == "off"
+            and right[0] == "iv"
+            and right[1][0] == right[1][1]
+        ):
+            c = right[1][0]
+            return ("off", left[1], left[2] + (c if op == "+" else -c))
+        if (
+            op == "+"
+            and left[0] == "iv"
+            and left[1][0] == left[1][1]
+            and right[0] == "off"
+        ):
+            return ("off", right[1], right[2] + left[1][0])
+        liv = self._side_iv(left, env)
+        riv = self._side_iv(right, env)
+        if liv is None or riv is None:
+            return None
+        if op == "+":
+            return ("iv", (liv[0] + riv[0], liv[1] + riv[1]))
+        return ("iv", (liv[0] - riv[1], liv[1] - riv[0]))
+
+    def _side_iv(self, side, env: State) -> Iv | None:
+        if side[0] == "iv":
+            return side[1]
+        iv = env.ivs.get(side[1])
+        return (iv[0] + side[2], iv[1] + side[2]) if iv is not None else None
 
     def _refine_path_iv(self, env: State, path: str, op: str, oiv: Iv) -> None:
         cur = env.ivs.get(path)
