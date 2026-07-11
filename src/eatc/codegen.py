@@ -75,6 +75,14 @@ class Codegen:
             for name, ftype in _RUNTIME.items()
         }
         self.cstr_cache: dict[bytes, ir.GlobalVariable] = {}
+        # enum с нагрузкой: {i32 tag, слот на каждый вариант с нагрузкой}
+        self.payload_enums: set = {
+            name
+            for name, ps in checker.enum_payloads.items()
+            if any(t is not None for t in ps.values())
+        }
+        self.enum_ll_cache: dict[str, ir.Type] = {}
+        self.enum_slot: dict[str, dict] = {}
         self.frame_types: dict[str, list] = {}  # кадры для отчёта §8
         self.cur_key = ""
         self.struct_ll: dict[str, ir.Type] = {}
@@ -98,6 +106,8 @@ class Codegen:
         if isinstance(t, CharType):
             return I8L
         if isinstance(t, EnumType):
+            if t.name in self.payload_enums:
+                return self.enum_ll_of(t.name)
             return I32L
         if isinstance(t, StrType):
             return STR_LL
@@ -110,6 +120,27 @@ class Codegen:
         if isinstance(t, OptionType):
             return ir.LiteralStructType([I32L, self.ll(t.inner)])
         raise AssertionError(f"нет lowering для {t}")
+
+    def is_agg(self, t: Type) -> bool:
+        if isinstance(t, EnumType):
+            return t.name in self.payload_enums
+        return _is_agg(t)
+
+    def enum_ll_of(self, name: str) -> ir.Type:
+        """Лейаут enum с нагрузкой. Циклов нет — тайпчекер отклоняет
+        типы, содержащие себя по значению."""
+        if name not in self.enum_ll_cache:
+            payloads = self.checker.enum_payloads[name]
+            slots: list = [I32L]
+            slot_idx: dict = {}
+            for v in self.checker.enums[name]:
+                t = payloads[v]
+                if t is not None:
+                    slot_idx[v] = len(slots)
+                    slots.append(self.ll(t))
+            self.enum_slot[name] = slot_idx
+            self.enum_ll_cache[name] = ir.LiteralStructType(slots)
+        return self.enum_ll_cache[name]
 
     # --- инфраструктура ---------------------------------------------------
 
@@ -159,7 +190,7 @@ class Codegen:
 
     def copy_into(self, ty: Type, dst_ptr, src) -> None:
         """src: значение (скаляр) или указатель (агрегат)."""
-        if _is_agg(ty):
+        if self.is_agg(ty):
             self.b.store(self.b.load(src), dst_ptr)
         else:
             self.b.store(src, dst_ptr)
@@ -211,14 +242,14 @@ class Codegen:
 
     def declare_func(self, key: str, sig, struct: str | None):
         args: list[ir.Type] = []
-        agg_ret = sig.ret is not None and _is_agg(sig.ret)
+        agg_ret = sig.ret is not None and self.is_agg(sig.ret)
         if agg_ret:
             args.append(ir.PointerType(self.ll(sig.ret)))
         if struct is not None:
             args.append(ir.PointerType(self.struct_ll[struct]))
         for _, pty in sig.params:
             llt = self.ll(pty)
-            args.append(ir.PointerType(llt) if _is_agg(pty) else llt)
+            args.append(ir.PointerType(llt) if self.is_agg(pty) else llt)
         if sig.ret is None or agg_ret:
             ret_ll: ir.Type = ir.VoidType()
         else:
@@ -234,7 +265,7 @@ class Codegen:
         self.env = [{}]
         self.loop_exits = []
         self.ret_ty = sig.ret
-        agg_ret = sig.ret is not None and _is_agg(sig.ret)
+        agg_ret = sig.ret is not None and self.is_agg(sig.ret)
 
         arg_i = 0
         if agg_ret:
@@ -253,7 +284,7 @@ class Codegen:
         for pname, pty in sig.params:
             arg = fn.args[arg_i]
             arg_i += 1
-            if _is_agg(pty):
+            if self.is_agg(pty):
                 self.bind(pname, pty, self.materialize(pty, arg))
             else:
                 slot = self.alloca(self.ll(pty), name=pname)
@@ -420,7 +451,7 @@ class Codegen:
                     stmt.elem_ty,
                     slot,
                     elem_ptr
-                    if _is_agg(stmt.elem_ty)
+                    if self.is_agg(stmt.elem_ty)
                     else self.b.load(elem_ptr),
                 )
             self.bind(stmt.target, stmt.elem_ty, slot)
@@ -436,10 +467,17 @@ class Codegen:
         subject_ty = stmt.subject.ty
         subject = self.expr(stmt.subject)
         if isinstance(subject_ty, EnumType):
-            tag = subject
             variants = self.checker.enums[subject_ty.name]
             index = {v: i for i, v in enumerate(variants)}
-            payload_field = {}
+            if subject_ty.name in self.payload_enums:
+                self.enum_ll_of(subject_ty.name)  # заполняет enum_slot
+                tag = self.b.load(
+                    self.b.gep(subject, [I32L(0), I32L(0)], inbounds=True)
+                )
+                payload_field = self.enum_slot[subject_ty.name]
+            else:
+                tag = subject
+                payload_field = {}
         elif isinstance(subject_ty, ResultType):
             tag = self.b.load(
                 self.b.gep(subject, [I32L(0), I32L(0)], inbounds=True)
@@ -473,7 +511,7 @@ class Codegen:
                     subject, [I32L(0), I32L(fidx)], inbounds=True
                 )
                 pty = arm.payload_ty
-                src = pptr if _is_agg(pty) else self.b.load(pptr)
+                src = pptr if self.is_agg(pty) else self.b.load(pptr)
                 self.bind(arm.binding, pty, self.materialize(pty, src))
             self.gen_block(arm.body)
             self.pop()
@@ -550,7 +588,7 @@ class Codegen:
         if isinstance(node, ast.Index):
             base = self.expr(node.obj)
             ptr = self.indexed_ptr(node, base)
-            return ptr if _is_agg(node.ty) else self.b.load(ptr)
+            return ptr if self.is_agg(node.ty) else self.b.load(ptr)
         if isinstance(node, ast.StructLit):
             return self.gen_struct_lit(node)
         if isinstance(node, ast.ArrayLit):
@@ -561,7 +599,7 @@ class Codegen:
         found = self.find(node.ident)
         if found is not None:
             ty, ptr = found
-            return ptr if _is_agg(ty) else self.b.load(ptr)
+            return ptr if self.is_agg(ty) else self.b.load(ptr)
         cty, cval = self.checker.consts[node.ident]
         return self.ll(cty)(cval)
 
@@ -706,13 +744,28 @@ class Codegen:
         return self.emit_call(node, self.funcs[name], sig, [])
 
     def gen_method_call(self, node: ast.MethodCall):
+        if getattr(node, "enum_ctor", None) is not None:
+            return self.gen_enum_ctor(node)
         sig = self.checker.structs[node.struct].methods[node.name]
         fn = self.funcs[f"{node.struct}.{node.name}"]
         return self.emit_call(node, fn, sig, [self.expr(node.obj)])
 
+    def gen_enum_ctor(self, node: ast.MethodCall):
+        ename = node.enum_ctor
+        out = self.alloca(
+            self.enum_ll_of(ename), name=f"{ename}.{node.name}"
+        )
+        tag = I32L(self.checker.enums[ename].index(node.name))
+        self.b.store(tag, self.b.gep(out, [I32L(0), I32L(0)], inbounds=True))
+        pty = self.checker.enum_payloads[ename][node.name]
+        slot = self.enum_slot[ename][node.name]
+        dst = self.b.gep(out, [I32L(0), I32L(slot)], inbounds=True)
+        self.copy_into(pty, dst, self.expr(node.args[0]))
+        return out
+
     def emit_call(self, node, fn, sig, prefix_args: list):
         args = list(prefix_args)
-        agg_ret = sig.ret is not None and _is_agg(sig.ret)
+        agg_ret = sig.ret is not None and self.is_agg(sig.ret)
         out = None
         if agg_ret:
             out = self.alloca(self.ll(sig.ret), name="call.ret")
@@ -811,13 +864,24 @@ class Codegen:
             isinstance(node.obj, ast.Name)
             and node.obj.ident in self.checker.enums
         ):
-            variants = self.checker.enums[node.obj.ident]
-            return I32L(variants.index(node.name))
+            ename = node.obj.ident
+            tag = I32L(self.checker.enums[ename].index(node.name))
+            if ename in self.payload_enums:
+                # вариант без нагрузки внутри enum с нагрузкой —
+                # агрегат с одним лишь тегом
+                out = self.alloca(
+                    self.enum_ll_of(ename), name=f"{ename}.{node.name}"
+                )
+                self.b.store(
+                    tag, self.b.gep(out, [I32L(0), I32L(0)], inbounds=True)
+                )
+                return out
+            return tag
         base = self.expr(node.obj)
         sname = node.obj.ty.name
         fidx = self.field_index[sname][node.name]
         ptr = self.b.gep(base, [I32L(0), I32L(fidx)], inbounds=True)
-        return ptr if _is_agg(node.ty) else self.b.load(ptr)
+        return ptr if self.is_agg(node.ty) else self.b.load(ptr)
 
     def gen_struct_lit(self, node: ast.StructLit):
         out = self.alloca(self.struct_ll[node.name], name=node.name)

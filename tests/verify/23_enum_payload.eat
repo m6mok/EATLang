@@ -1,0 +1,42 @@
+#! expect: bounds=1/1 requires=2/2 ensures=2/2
+# enum с полезной нагрузкой: match связывает значение, тип нагрузки
+# даёт интервал (u8 → [0,255]), охрана уточняет — индексация доказуема.
+
+enum Cmd {
+    Set(u8),
+    Clear,
+    Nop,
+}
+
+func apply(cells: [u32; 4], cmd: Cmd) -> u32
+    requires true
+    ensures true
+{
+    match cmd {
+        Set(b) {
+            if b < 4 {
+                return cells[b]
+            }
+            return 0
+        }
+        Clear { return 0 }
+        Nop { return 1 }
+    }
+}
+
+func pick(cmd: Cmd) -> u32
+    requires true
+    ensures true
+{
+    match cmd {
+        Set(b) { return u32(b) }
+        Clear { return 100 }
+        Nop { return 200 }
+    }
+}
+
+func main() {
+    let cells: [u32; 4] = [10, 20, 30, 40]
+    print("{apply(cells, Cmd.Set(2))} {apply(cells, Cmd.Clear)}")
+    print("{pick(Cmd.Set(7))} {pick(Cmd.Nop)}")
+}

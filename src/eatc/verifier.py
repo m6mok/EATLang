@@ -464,7 +464,9 @@ class Verifier:
                         stmt.name,
                         None,
                     )
-            elif isinstance(stmt.value, ast.MethodCall):
+            elif isinstance(stmt.value, ast.MethodCall) and (
+                getattr(stmt.value, "enum_ctor", None) is None
+            ):
                 key = f"{stmt.value.struct}.{stmt.value.name}"
                 func, _ = self._func_by_key(key)
                 sig = self.checker.structs[stmt.value.struct].methods[
@@ -1532,6 +1534,8 @@ class Verifier:
         self._iv(node.obj, env, annotate)
         for arg in node.args:
             self._iv(arg, env, annotate)
+        if getattr(node, "enum_ctor", None) is not None:
+            return None  # конструктор enum — не вызов
         key = f"{node.struct}.{node.name}"
         func, _ = self._func_by_key(key)
         sig = self.checker.structs[node.struct].methods[node.name]

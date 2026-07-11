@@ -254,7 +254,7 @@ class StructDecl(Node):
 @dataclass
 class EnumDecl(Node):
     name: str
-    variants: list
+    variants: list  # [(имя, узел типа нагрузки | None)]
 
 
 @dataclass

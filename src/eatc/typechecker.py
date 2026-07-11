@@ -101,6 +101,10 @@ class TypeChecker:
         self.funcs: dict[str, FuncSig] = {}
         self.structs: dict[str, StructInfo] = {}
         self.enums: dict[str, list] = dict(BUILTIN_ENUMS)
+        # enum -> {вариант: Type нагрузки | None}
+        self.enum_payloads: dict[str, dict] = {
+            n: {v: None for v in vs} for n, vs in BUILTIN_ENUMS.items()
+        }
         self.scopes: list[dict] = []
         self.current: FuncSig | None = None
         self.current_key = ""
@@ -156,6 +160,7 @@ class TypeChecker:
 
     def run(self) -> CheckResult:
         self.collect_decls()
+        self._check_type_cycles()
         if "main" not in self.funcs:
             raise EatError(
                 self.filename, 1, 1, "нет функции main — точки входа"
@@ -196,9 +201,10 @@ class TypeChecker:
                 self.structs[decl.name] = StructInfo(decl.name, {}, {})
             elif isinstance(decl, ast.EnumDecl):
                 self._declare_top(decl, decl.name)
-                if len(set(decl.variants)) != len(decl.variants):
+                names = [v for v, _ in decl.variants]
+                if len(set(names)) != len(names):
                     raise self.err(decl, f"enum {decl.name}: повтор варианта")
-                self.enums[decl.name] = decl.variants
+                self.enums[decl.name] = names
         # проход 2: сигнатуры, поля, константы
         for decl in self.program.decls:
             if isinstance(decl, ast.ConstDecl):
@@ -210,6 +216,11 @@ class TypeChecker:
             elif isinstance(decl, ast.FuncDecl):
                 self._declare_top(decl, decl.name)
                 self.funcs[decl.name] = self._signature(decl)
+            elif isinstance(decl, ast.EnumDecl):
+                self.enum_payloads[decl.name] = {
+                    v: (self.resolve(t) if t is not None else None)
+                    for v, t in decl.variants
+                }
             elif isinstance(decl, ast.StructDecl):
                 info = self.structs[decl.name]
                 for fdecl in decl.fields:
@@ -247,6 +258,48 @@ class TypeChecker:
                 params.append((p.name, self.resolve(p.type)))
         ret = self.resolve(func.ret) if func.ret is not None else None
         return FuncSig(func.name, params, ret, func)
+
+    def _check_type_cycles(self) -> None:
+        """Значения вкладываются по значению (указателей нет): цикл
+        struct/enum через поля или нагрузку — бесконечный размер."""
+
+        def deps(t):
+            if isinstance(t, (StructType, EnumType)):
+                yield t.name
+            elif isinstance(t, ArrayType):
+                yield from deps(t.elem)
+            elif isinstance(t, ResultType):
+                yield from deps(t.ok)
+                yield from deps(t.err)
+            elif isinstance(t, OptionType):
+                yield from deps(t.inner)
+
+        def members(name):
+            if name in self.structs:
+                return list(self.structs[name].fields.values())
+            payloads = self.enum_payloads.get(name, {})
+            return [t for t in payloads.values() if t is not None]
+
+        state: dict[str, int] = {}  # 1 — в обходе, 2 — готов
+
+        def visit(name, node):
+            if state.get(name) == 2:
+                return
+            if state.get(name) == 1:
+                raise self.err(
+                    node,
+                    f"тип {name} содержит сам себя по значению — "
+                    "бесконечный размер (указателей нет)",
+                )
+            state[name] = 1
+            for t in members(name):
+                for dep in deps(t):
+                    visit(dep, node)
+            state[name] = 2
+
+        for decl in self.program.decls:
+            if isinstance(decl, (ast.StructDecl, ast.EnumDecl)):
+                visit(decl.name, decl)
 
     # --- разрешение типов ----------------------------------------------------
 
@@ -509,7 +562,8 @@ class TypeChecker:
         elif isinstance(subject, OptionType):
             expected = {"Some": subject.inner, "None": None}
         elif isinstance(subject, EnumType):
-            expected = {v: None for v in self.enums[subject.name]}
+            payloads = self.enum_payloads[subject.name]
+            expected = {v: payloads[v] for v in self.enums[subject.name]}
         else:
             raise self.err(
                 stmt.subject,
@@ -724,6 +778,14 @@ class TypeChecker:
             )
             if not isinstance(left, comparable):
                 raise self.err(node, f"== не определено для {show(left)}")
+            if isinstance(left, EnumType) and any(
+                self.enum_payloads[left.name].values()
+            ):
+                raise self.err(
+                    node,
+                    f"{op} не определено для enum с нагрузкой — "
+                    "используйте match",
+                )
         return BOOL
 
     def _require_same(
@@ -795,6 +857,9 @@ class TypeChecker:
         return U32
 
     def _method_call(self, node: ast.MethodCall) -> Type:
+        # Enum.Variant(x) — конструктор варианта с нагрузкой
+        if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
+            return self._enum_ctor(node)
         obj = self.expr(node.obj)
         if not isinstance(obj, StructType):
             raise self.err(
@@ -808,6 +873,33 @@ class TypeChecker:
         node.struct = obj.name  # для кодогенерации
         self.edges.add((self.current_key, f"{obj.name}.{node.name}"))
         return sig.ret if sig.ret is not None else VOID
+
+    def _enum_ctor(self, node: ast.MethodCall) -> Type:
+        ename = node.obj.ident
+        if node.name not in self.enums[ename]:
+            raise self.err(node, f"у enum {ename} нет варианта {node.name}")
+        payload = self.enum_payloads[ename][node.name]
+        if payload is None:
+            raise self.err(
+                node,
+                f"вариант {ename}.{node.name} не несёт значения — "
+                "литерал пишется без скобок",
+            )
+        if len(node.args) != 1:
+            raise self.err(
+                node,
+                f"{ename}.{node.name}: ровно один аргумент "
+                "(несколько значений — заверните в struct)",
+            )
+        actual = self.expr(node.args[0], expected=payload)
+        if not compatible(payload, actual):
+            raise self.err(
+                node.args[0],
+                f"{ename}.{node.name} несёт {show(payload)}, "
+                f"передан {show(actual)}",
+            )
+        node.enum_ctor = ename  # для кодогенерации
+        return EnumType(ename)
 
     def _check_args(self, node, sig: FuncSig) -> None:
         if len(node.args) != len(sig.params):

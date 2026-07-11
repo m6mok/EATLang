@@ -40,6 +40,7 @@ class Slot:
 class EnumValue:
     enum: str
     variant: str
+    payload: object = None
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,7 @@ class Interpreter:
     def _collect(self) -> None:
         for decl in self.program.decls:
             if isinstance(decl, ast.EnumDecl):
-                self.enums[decl.name] = decl.variants
+                self.enums[decl.name] = [v for v, _ in decl.variants]
             elif isinstance(decl, ast.StructDecl):
                 fields = {
                     f.name: (self._kind(f.type), self._cap(f.type))
@@ -331,7 +332,7 @@ class Interpreter:
             tag, payload = subject.tag, subject.payload
         else:
             assert isinstance(subject, EnumValue)
-            tag, payload = subject.variant, None
+            tag, payload = subject.variant, subject.payload
         for arm in stmt.arms:
             if arm.pattern != tag:
                 continue
@@ -367,6 +368,10 @@ class Interpreter:
         if isinstance(node, ast.Call):
             return self._eval_call(node)
         if isinstance(node, ast.MethodCall):
+            # Enum.Variant(x) — конструктор варианта с нагрузкой
+            if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
+                payload = deepcopy(self.eval(node.args[0]))
+                return EnumValue(node.obj.ident, node.name, payload)
             obj = self.eval(node.obj)
             assert isinstance(obj, StructValue)
             method = self.structs[obj.name].methods[node.name]

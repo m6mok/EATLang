@@ -120,9 +120,14 @@ class Parser:
         name = self.expect(T.IDENT, "имя enum")
         self.expect(T.LBRACE, "'{'")
         self.skip_newlines()
-        variants: list[str] = []
+        variants: list[tuple] = []  # (имя, узел типа нагрузки | None)
         while not self.at(T.RBRACE):
-            variants.append(self.expect(T.IDENT, "вариант enum").value)
+            vname = self.expect(T.IDENT, "вариант enum").value
+            payload = None
+            if self.accept(T.LPAREN):
+                payload = self.parse_type()
+                self.expect(T.RPAREN, "')'")
+            variants.append((vname, payload))
             self.skip_newlines()
             if self.accept(T.COMMA):
                 self.skip_newlines()
