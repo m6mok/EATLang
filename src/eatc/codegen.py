@@ -10,6 +10,7 @@
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 import llvmlite.binding as llvm
@@ -190,11 +191,33 @@ class Codegen:
         return None
 
     def copy_into(self, ty: Type, dst_ptr, src) -> None:
-        """src: значение (скаляр) или указатель (агрегат)."""
-        if self.is_agg(ty):
-            self.b.store(self.b.load(src), dst_ptr)
-        else:
+        """src: значение (скаляр) или указатель (агрегат).
+
+        Агрегаты копируются memcpy: load/store целого массива создаёт
+        SSA-значение на все элементы, и на пулах в десятки тысяч
+        элементов LLVM SelectionDAG падает (NumValues — 16 бит).
+        """
+        if not self.is_agg(ty):
             self.b.store(src, dst_ptr)
+            return
+        i8p = I8L.as_pointer()
+        i64 = ir.IntType(64)
+        memcpy = self.module.declare_intrinsic(
+            "llvm.memcpy", [i8p, i8p, i64]
+        )
+        # sizeof через gep(null, 1): без обращения к target data
+        null = ir.Constant(dst_ptr.type, None)
+        one = ir.Constant(ir.IntType(32), 1)
+        size = self.b.ptrtoint(self.b.gep(null, [one]), i64)
+        self.b.call(
+            memcpy,
+            [
+                self.b.bitcast(dst_ptr, i8p),
+                self.b.bitcast(src, i8p),
+                size,
+                ir.Constant(ir.IntType(1), 0),
+            ],
+        )
 
     def alloca(self, llty: ir.Type, name: str = ""):
         """Единственная точка аллокации: учитывает кадр функции
@@ -1010,8 +1033,15 @@ def compile_binary(
     obj_path = out.with_suffix(".o")
     obj_path.write_bytes(machine.emit_object(ref))
     runtime = Path(__file__).parent / "runtime.c"
+    # стек 64 МБ: у программ без кучи пулы живут в кадре main,
+    # и кадры компилятора (§8) выходят за умолчание ОС (8 МБ)
+    if sys.platform == "darwin":
+        stack_flags = ["-Wl,-stack_size,0x4000000"]
+    else:
+        stack_flags = ["-Wl,-z,stacksize=67108864"]
     proc = subprocess.run(
-        ["clang", str(obj_path), str(runtime), "-o", str(out)],
+        ["clang", str(obj_path), str(runtime), "-o", str(out)]
+        + stack_flags,
         capture_output=True,
         text=True,
     )

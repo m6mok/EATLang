@@ -1,6 +1,6 @@
 # Self-hosted лексер EATLang: стриминговый конечный автомат.
-# Байты приходят по одному (read_byte в main), токены печатаются
-# в формате эталона `eatc lex`: "СТРОКА:КОЛОНКА ВИД [значение]".
+# Байты приходят по одному (read_byte в main), токены копятся в пулах
+# (парсер читает их оттуда; print_tokens печатает дамп формата `eatc lex`).
 #
 # Состояния:
 #  0 старт        1 слово        2 число        3 строка
@@ -10,6 +10,9 @@
 #
 # Колонки считаются в символах, как у эталона: continuation-байты
 # UTF-8 (0x80..0xBF) колонку не двигают.
+#
+# Пределы пулов: 32768 токенов, 65536 байт значений, 2048 сегментов
+# интерполяции. NONE = 4294967295.
 
 func is_digit(b: u8) -> bool
     requires true
@@ -35,6 +38,14 @@ func is_word_byte(b: u8) -> bool
         return true
     }
     return b == 95 or b >= 128
+}
+
+# Пробельный байт (как str.strip Python: пустая интерполяция).
+func is_ws(b: u8) -> bool
+    requires true
+    ensures true
+{
+    return b == 32 or b == 9 or b == 10 or b == 13 or b == 11 or b == 12
 }
 
 # Код escape-последовательности: \n \t \\ \" \' \0; 256 — неизвестная.
@@ -68,6 +79,14 @@ func write_esc(b: u8)
     if b == 92 { write("\\\\") } elif b == 10 { write("\\n") } elif b == 9 { write("\\t") } elif b == 13 { write("\\r") } elif b == 0 { write("\\0") } else { write("{char(b)}") }
 }
 
+# Хранит ли токен данного вида значение (INT, STRING, CHAR, IDENT).
+func is_valued(k: u32) -> bool
+    requires true
+    ensures true
+{
+    return k <= 3
+}
+
 struct Lexer {
     state: u32
     line: u32
@@ -77,49 +96,71 @@ struct Lexer {
     val: [u8; 256]
     vlen: u32
     depth: u32
-    last_nl: bool
-    any: bool
     failed: bool
     ch: u8
+    # пул токенов
+    tk: [u32; 32768]
+    tl: [u32; 32768]
+    tc: [u32; 32768]
+    tvs: [u32; 32768]
+    tvl: [u32; 32768]
+    tsg: [u32; 32768]
+    tns: [u32; 32768]
+    ntok: u32
+    # пул байтов значений
+    sbuf: [u8; 65536]
+    sblen: u32
+    # сегменты интерполяции: 0 — литерал (старт/длина в sbuf),
+    # 1 — выражение (первый токен/число токенов)
+    sgk: [u32; 2048]
+    sga: [u32; 2048]
+    sgb: [u32; 2048]
+    nseg: u32
 
-    # --- вывод токенов --------------------------------------------------
-
-    func write_val(self)
-        requires true
-        ensures true
-    {
-        for i in 0..256 {
-            if i < self.vlen {
-                write_esc(self.val[i])
-            }
-        }
-    }
+    # --- запись токенов в пул -------------------------------------------
 
     func emit_plain(var self, k: u32)
         requires k <= 55
         ensures true
     {
-        write("{self.tline}:{self.tcol} ")
-        write_kind(k)
-        write("\n")
-        self.last_nl = false
-        self.any = true
+        if self.ntok >= 32768 {
+            self.fail("слишком много токенов (предел 32768)")
+            return
+        }
+        self.tk[self.ntok] = k
+        self.tl[self.ntok] = self.tline
+        self.tc[self.ntok] = self.tcol
+        self.tvs[self.ntok] = 0
+        self.tvl[self.ntok] = 0
+        self.tsg[self.ntok] = 4294967295
+        self.tns[self.ntok] = 0
+        self.ntok = self.ntok + 1
     }
 
+    # Токен со значением: байты val[0..vlen] копируются в sbuf.
     func emit_value(var self, k: u32)
         requires k <= 55
         ensures true
     {
-        write("{self.tline}:{self.tcol} ")
-        write_kind(k)
-        write(" ")
-        self.write_val()
-        write("\n")
-        self.last_nl = false
-        self.any = true
+        if self.sblen >= 65280 {
+            self.fail("пул значений токенов переполнен")
+            return
+        }
+        let start: u32 = self.sblen
+        for i in 0..256 {
+            if i < self.vlen {
+                self.sbuf[start + i] = self.val[i]
+            }
+        }
+        self.sblen = start + self.vlen
+        self.emit_plain(k)
+        if not self.failed {
+            self.tvs[self.ntok - 1] = start
+            self.tvl[self.ntok - 1] = self.vlen
+        }
     }
 
-    # NEWLINE подавляется внутри ( ) [ ], в начале файла и после NEWLINE.
+    # NEWLINE подавляется внутри ( ) [ ], в начале потока и после NEWLINE.
     func emit_newline(var self)
         requires true
         ensures true
@@ -127,16 +168,15 @@ struct Lexer {
         if self.depth > 0 {
             return
         }
-        if not self.any {
+        if self.ntok == 0 {
             return
         }
-        if self.last_nl {
+        if self.tk[self.ntok - 1] == 54 {
             return
         }
-        write("{self.line}:{self.col} ")
-        write_kind(54)
-        write("\n")
-        self.last_nl = true
+        self.tline = self.line
+        self.tcol = self.col
+        self.emit_plain(54)
     }
 
     func emit_word(var self)
@@ -509,11 +549,221 @@ struct Lexer {
         } elif self.state == 14 {
             self.emit_plain(37)
         }
+        self.state = 0
         if self.failed {
             return
         }
         self.emit_newline()
         self.begin_tok()
         self.emit_plain(55)
+    }
+
+    # --- проход интерполяции ---------------------------------------------
+    # Для каждого STRING-токена со скобками { } значение разбивается на
+    # сегменты: литералы (байты в sbuf) и выражения (под-лексинг в пул
+    # токенов, позиции — от начала STRING-токена, как у эталона).
+    # Токены, добавленные под-лексингом, тоже проходят обработку —
+    # вложенная интерполяция работает без рекурсии.
+
+    func sublex_pass(var self)
+        requires true
+        ensures true
+    {
+        for ti in 0..32768 {
+            if ti < self.ntok and not self.failed {
+                if self.tk[ti] == 1 {
+                    if self.has_brace(ti) {
+                        self.split_string(ti)
+                    }
+                }
+            }
+        }
+    }
+
+    func has_brace(var self, ti: u32) -> bool
+        requires ti < 32768
+        ensures true
+    {
+        let vs: u32 = self.tvs[ti]
+        let vl: u32 = self.tvl[ti]
+        var found: bool = false
+        for i in 0..256 {
+            if i < vl {
+                let b: u8 = self.sbuf[vs + i]
+                if b == 123 or b == 125 {
+                    found = true
+                }
+            }
+        }
+        return found
+    }
+
+    # Дописать байт литерального сегмента в sbuf.
+    func push_seg_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.sblen >= 65536 {
+            self.fail("пул значений токенов переполнен")
+            return
+        }
+        self.sbuf[self.sblen] = b
+        self.sblen = self.sblen + 1
+    }
+
+    func add_segment(var self, kind: u32, a: u32, b: u32)
+        requires true
+        ensures true
+    {
+        if self.nseg >= 2048 {
+            self.fail("слишком много сегментов интерполяции")
+            return
+        }
+        self.sgk[self.nseg] = kind
+        self.sga[self.nseg] = a
+        self.sgb[self.nseg] = b
+        self.nseg = self.nseg + 1
+    }
+
+    # Под-лексинг выражения интерполяции: байты sbuf[a..a+n) через тот же
+    # автомат; позиции от (line0, col0); токены добавляются в пул.
+    func sublex_expr(var self, a: u32, n: u32, line0: u32, col0: u32)
+        requires true
+        ensures true
+    {
+        let sv_line: u32 = self.line
+        let sv_col: u32 = self.col
+        let sv_depth: u32 = self.depth
+        self.line = line0
+        self.col = col0
+        self.depth = 0
+        self.state = 0
+        let first: u32 = self.ntok
+        for i in 0..256 {
+            if i < n and not self.failed {
+                self.step(self.sbuf[a + i])
+            }
+        }
+        # финал под-потока: как у эталона — NEWLINE (если последний
+        # под-токен не NEWLINE) и EOF; подавление «в начале потока»
+        # неприменимо: выражение непустое, токены есть
+        self.finish()
+        self.add_segment(1, first, self.ntok - first)
+        self.line = sv_line
+        self.col = sv_col
+        self.depth = sv_depth
+        self.state = 0
+    }
+
+    # Разбить значение STRING-токена ti на сегменты.
+    func split_string(var self, ti: u32)
+        requires ti < 32768
+        ensures true
+    {
+        let vs: u32 = self.tvs[ti]
+        let vl: u32 = self.tvl[ti]
+        let tln: u32 = self.tl[ti]
+        let tcl: u32 = self.tc[ti]
+        let seg_first: u32 = self.nseg
+        var lit_start: u32 = self.sblen
+        var i: u32 = 0
+        for _ in 0..256 {
+            if i < vl and not self.failed {
+                let b: u8 = self.sbuf[vs + i]
+                if b == 123 { # {
+                    if i + 1 < vl and self.sbuf[vs + i + 1] == 123 {
+                        self.push_seg_byte(123)
+                        i = i + 2
+                    } else {
+                        let e: u32 = self.find_close(vs, vl, i + 1)
+                        if e == 4294967295 {
+                            self.fail("незакрытая '{{' в интерполяции строки")
+                        } else {
+                            if self.sblen > lit_start {
+                                self.add_segment(0, lit_start, self.sblen - lit_start)
+                            }
+                            if self.all_ws(vs + i + 1, e - i - 1) {
+                                self.fail("пустая интерполяция {{}} в строке")
+                            } else {
+                                self.sublex_expr(vs + i + 1, e - i - 1, tln, tcl)
+                            }
+                            lit_start = self.sblen
+                            i = e + 1
+                        }
+                    }
+                } elif b == 125 { # }
+                    if i + 1 < vl and self.sbuf[vs + i + 1] == 125 {
+                        self.push_seg_byte(125)
+                        i = i + 2
+                    } else {
+                        self.fail("одиночная '}}' в строке (экранируйте: }}}})")
+                    }
+                } else {
+                    self.push_seg_byte(b)
+                    i = i + 1
+                }
+            }
+        }
+        if self.sblen > lit_start {
+            self.add_segment(0, lit_start, self.sblen - lit_start)
+        }
+        self.tsg[ti] = seg_first
+        self.tns[ti] = self.nseg - seg_first
+    }
+
+    # Индекс закрывающей '}' от позиции from; NONE если нет.
+    func find_close(var self, vs: u32, vl: u32, from: u32) -> u32
+        requires true
+        ensures true
+    {
+        var found: u32 = 4294967295
+        for k in 0..256 {
+            if from + k < vl and found == 4294967295 {
+                if self.sbuf[vs + from + k] == 125 {
+                    found = from + k
+                }
+            }
+        }
+        return found
+    }
+
+    func all_ws(var self, a: u32, n: u32) -> bool
+        requires true
+        ensures true
+    {
+        var ws: bool = true
+        for k in 0..256 {
+            if k < n {
+                if not is_ws(self.sbuf[a + k]) {
+                    ws = false
+                }
+            }
+        }
+        return ws
+    }
+
+    # --- дамп токенов (формат `eatc lex`, сверка фазы 1) -------------------
+
+    func print_tokens(var self)
+        requires true
+        ensures true
+    {
+        for ti in 0..32768 {
+            if ti < self.ntok {
+                let k: u32 = self.tk[ti]
+                write("{self.tl[ti]}:{self.tc[ti]} ")
+                write_kind(k)
+                if is_valued(k) {
+                    write(" ")
+                    let vs: u32 = self.tvs[ti]
+                    for i in 0..256 {
+                        if i < self.tvl[ti] {
+                            write_esc(self.sbuf[vs + i])
+                        }
+                    }
+                }
+                write("\n")
+            }
+        }
     }
 }

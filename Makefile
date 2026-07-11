@@ -34,26 +34,43 @@ run_lexer_probe:
 verify_suite:
 	uv run python tests/verify_suite.py
 
-# Self-hosted лексер (selfhost/): дифференциальная сверка с эталоном
-# `eatc lex` на каждом .eat репозитория + интерпретатор == бинарник.
-SELFHOST_LEXER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Main.eat
+# Self-hosted компилятор (selfhost/, docs/SELFHOST.md): дифференциальная
+# сверка с эталоном на каждом .eat репозитория + интерпретатор == бинарник.
+# Фаза 1 — лексер (`eatc lex`), фаза 2 — парсер (`eatc parse`).
+SELFHOST_LEXER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/LexMain.eat
+SELFHOST_PARSER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
+	selfhost/Parser.eat selfhost/ParseMain.eat
 
 run_selfhost_lexer:
 	cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER)
 
+run_selfhost_parser:
+	cat $(SELFHOST_PARSER) | $(EATC) run $(SELFHOST_PARSER)
+
 verify_selfhost:
 	@$(EATC) build $(SELFHOST_LEXER) -o build/SelfLex > /dev/null
+	@$(EATC) build $(SELFHOST_PARSER) -o build/SelfParse > /dev/null
 	@for f in $$(find examples selfhost tests -name '*.eat' | sort); do \
 		$(EATC) lex $$f > /tmp/eat_lex_ref.txt; \
 		./build/SelfLex < $$f > /tmp/eat_lex_self.txt; \
 		diff /tmp/eat_lex_ref.txt /tmp/eat_lex_self.txt > /dev/null \
 			&& echo "LEX OK $$f" \
 			|| { echo "LEX DIFF $$f"; exit 1; }; \
+		if $(EATC) parse $$f > /tmp/eat_parse_ref.txt 2>/dev/null; then \
+			./build/SelfParse < $$f > /tmp/eat_parse_self.txt; \
+			diff /tmp/eat_parse_ref.txt /tmp/eat_parse_self.txt > /dev/null \
+				&& echo "PARSE OK $$f" \
+				|| { echo "PARSE DIFF $$f"; exit 1; }; \
+		fi; \
 	done
 	@cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER) > /tmp/eat_lex_interp.txt
 	@cat $(SELFHOST_LEXER) | ./build/SelfLex > /tmp/eat_lex_native.txt
 	@diff /tmp/eat_lex_interp.txt /tmp/eat_lex_native.txt \
 		&& echo "VERIFIED SelfLex (interp == native == эталон)" || exit 1
+	@cat $(SELFHOST_PARSER) | $(EATC) run $(SELFHOST_PARSER) > /tmp/eat_parse_interp.txt
+	@cat $(SELFHOST_PARSER) | ./build/SelfParse > /tmp/eat_parse_native.txt
+	@diff /tmp/eat_parse_interp.txt /tmp/eat_parse_native.txt \
+		&& echo "VERIFIED SelfParse (interp == native == эталон)" || exit 1
 
 run_hello_world:
 	$(EATC) run examples/hello_world/HelloWorld.eat
