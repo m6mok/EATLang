@@ -14,14 +14,20 @@
   - ensures на каждом return;
   - assert.
 
-Два домена, работающих вместе:
+Три механизма, работающих вместе:
   1. Интервалы: путь (имя, self.поле, переменная.поле) → [lo, hi].
-     Присваивание в цикле расширяет интервал до диапазона типа
-     (widening без фиксированной точки — грубо, но корректно).
+     Циклы: путь с единственным обновлением `p = p ± const` за
+     итерацию ускоряется (значение на итерации k равно v0 + k*d —
+     точный интервал в теле и после цикла); остальные присваивания
+     в цикле расширяются до диапазона типа (грубо, но корректно).
   2. Отношения: факты (p, "<"|"<=", q) между путями из условий ветвей
      и requires, с транзитивным замыканием. На return `result`
      символически связывается с возвращаемым путём — так доказывается
      `ensures result >= a` у max.
+  3. Структурное равенство выражений (с точностью до коммутативности):
+     `result` раскрывается в выражение return — так доказывается
+     `ensures result == x * 2`. Корректно, потому что обе стороны
+     вычисляются в одном состоянии, а параметры неизменяемы.
 
 Summary функции — интервал результата либо тождество параметру
 (функция возвращает свой параметр, возможно через cast): во втором
@@ -182,6 +188,7 @@ class Verifier:
         self.returns: list = []
         self.ret_syms: list = []
         self.ensures_ok: list = []
+        self.ret_expr = None  # выражение текущего return для ensures
 
     # --- отметки и статистика ---------------------------------------------
 
@@ -410,7 +417,9 @@ class Verifier:
                 )
                 if rpath is not None:
                     env_r.relate("result", "==", rpath)
+                self.ret_expr = stmt.value  # result ≡ выражение return
                 ok = self._eval_bool(func.ensures, env_r)
+                self.ret_expr = None
                 self.ensures_ok.append(ok is True)
             return env
         if isinstance(stmt, ast.AssertStmt):
@@ -448,20 +457,103 @@ class Verifier:
         return self._join(branches)
 
     def _flow_for(self, stmt: ast.ForStmt, env: State) -> State:
-        body_env = env.copy()
-        for p in _assigned_paths(stmt.body):
-            body_env.kill(p)
         if stmt.bounds is not None:
             start, end = stmt.bounds
-            body_env.ivs[stmt.target] = (start, end - 1)
+            n = end - start
         else:
-            self._iv(stmt.iterable, body_env)
-            if isinstance(stmt.elem_ty, IntType):
-                body_env.ivs[stmt.target] = _range(stmt.elem_ty.kind)
+            self._iv(stmt.iterable, env)
+            ity = stmt.iterable.ty
+            n = ity.size if isinstance(ity, ArrayType) else None
+        accel = self._accelerate(stmt.body) if n is not None else {}
+        body_env = env.copy()
+        after: dict[str, Iv] = {}
+        for p in _assigned_paths(stmt.body):
+            v0 = env.ivs.get(p)
+            body_env.kill(p)
+            info = accel.get(p)
+            if info is None or v0 is None:
+                continue
+            # ускорение: p меняется на d за итерацию, значение на входе
+            # итерации k — v0 + k*d, k ∈ [0, n-1]
+            d, cond, kind = info
+            clamp = _range(kind)
+            biv = (
+                v0[0] + min(0, (n - 1) * d),
+                v0[1] + max(0, (n - 1) * d),
+            )
+            body_env.ivs[p] = _inter(biv, clamp) or clamp
+            if cond:
+                aft = (v0[0] + min(0, n * d), v0[1] + max(0, n * d))
+            else:
+                aft = (v0[0] + n * d, v0[1] + n * d)
+            after[p] = _inter(aft, clamp) or clamp
+        if stmt.bounds is not None:
+            if n > 0:
+                body_env.ivs[stmt.target] = (start, end - 1)
+        elif isinstance(stmt.elem_ty, IntType):
+            body_env.ivs[stmt.target] = _range(stmt.elem_ty.kind)
         self._flow_block(stmt.body, body_env)
         out = body_env.copy()
         out.kill(stmt.target)
+        for p, iv in after.items():
+            out.kill(p)
+            out.ivs[p] = iv
         return out
+
+    def _accelerate(self, block: ast.Block) -> dict:
+        """Пути с единственным обновлением `p = p ± const` за итерацию:
+        p -> (дельта, условное ли обновление, вид целого)."""
+        updates: dict = {}
+        self._collect_updates(block, False, updates)
+        return {
+            p: recs[0]
+            for p, recs in updates.items()
+            if recs != "invalid" and len(recs) == 1
+        }
+
+    def _collect_updates(
+        self, block: ast.Block, conditional: bool, updates: dict
+    ) -> None:
+        for stmt in block.stmts:
+            if isinstance(stmt, ast.AssignStmt):
+                p = _path_of(stmt.target)
+                if p is None:
+                    continue
+                if updates.get(p) == "invalid":
+                    continue
+                d = self._delta_of(stmt.value, p)
+                tty = stmt.target.ty
+                if d is None or not isinstance(tty, IntType):
+                    updates[p] = "invalid"
+                else:
+                    updates.setdefault(p, []).append(
+                        (d, conditional, tty.kind)
+                    )
+                continue
+            if isinstance(stmt, (ast.ForStmt, ast.LoopStmt)):
+                # вложенный цикл: кратность обновлений неизвестна
+                for p in _assigned_paths(stmt.body):
+                    updates[p] = "invalid"
+                continue
+            for blk in _sub_blocks(stmt):
+                self._collect_updates(blk, True, updates)
+
+    def _delta_of(self, value, path: str) -> int | None:
+        if not isinstance(value, ast.BinOp) or value.op not in ("+", "-"):
+            return None
+        if _path_of(value.left) == path:
+            step = value.right
+        elif value.op == "+" and _path_of(value.right) == path:
+            step = value.left
+        else:
+            return None
+        if isinstance(step, ast.IntLit):
+            c = step.value
+        elif isinstance(step, ast.Name) and step.ident in self.checker.consts:
+            c = self.checker.consts[step.ident][1]
+        else:
+            return None
+        return c if value.op == "+" else -c
 
     def _flow_match(self, stmt: ast.MatchStmt, env: State) -> State:
         self._iv(stmt.subject, env)
@@ -597,7 +689,15 @@ class Verifier:
                 and isinstance(getattr(node.left, "ty", None), IntType)
                 and isinstance(getattr(node.right, "ty", None), IntType)
             ):
-                return self._decide_rel(env, lp, node.op, rp)
+                res = self._decide_rel(env, lp, node.op, rp)
+                if res is not None:
+                    return res
+            # структурное равенство: обе стороны — одно выражение,
+            # вычисленное в одном состоянии (result ≡ выражению return)
+            if node.op in ("==", "!=") and self._expr_equal(
+                node.left, node.right
+            ):
+                return node.op == "=="
             return None
         # прочее (str/enum сравнения, вызовы) — неизвестно
         self._iv(node, env, annotate)
@@ -636,6 +736,51 @@ class Verifier:
             if a == b and a[0] == a[1]:
                 return False
         return None
+
+    def _expr_equal(self, a, b) -> bool:
+        """Синтаксическое равенство выражений (с точностью до
+        коммутативности + и *). Name('result') раскрывается в выражение
+        return. Корректно: обе стороны вычисляются в одном состоянии,
+        параметры неизменяемы, вызовы не сравниваются."""
+        if (
+            isinstance(a, ast.Name)
+            and a.ident == "result"
+            and self.ret_expr is not None
+        ):
+            return self._expr_equal(self.ret_expr, b)
+        if (
+            isinstance(b, ast.Name)
+            and b.ident == "result"
+            and self.ret_expr is not None
+        ):
+            return self._expr_equal(a, self.ret_expr)
+        if type(a) is not type(b):
+            return False
+        if isinstance(a, ast.IntLit):
+            return a.value == b.value
+        if isinstance(a, ast.BoolLit):
+            return a.value == b.value
+        if isinstance(a, ast.Name):
+            return a.ident == b.ident
+        if isinstance(a, ast.SelfExpr):
+            return True
+        if isinstance(a, ast.FieldAccess):
+            return a.name == b.name and self._expr_equal(a.obj, b.obj)
+        if isinstance(a, ast.UnaryOp):
+            return a.op == b.op and self._expr_equal(a.operand, b.operand)
+        if isinstance(a, ast.BinOp):
+            if a.op != b.op:
+                return False
+            if self._expr_equal(a.left, b.left) and self._expr_equal(
+                a.right, b.right
+            ):
+                return True
+            if a.op in ("+", "*"):
+                return self._expr_equal(a.left, b.right) and self._expr_equal(
+                    a.right, b.left
+                )
+            return False
+        return False
 
     def _decide_rel(self, env: State, lp: str, op: str, rp: str):
         cl = env.closure()
