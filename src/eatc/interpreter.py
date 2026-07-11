@@ -129,7 +129,8 @@ class Interpreter:
     # --- ошибки и хранение ---------------------------------------------
 
     def trap(self, node: ast.Node, message: str) -> Trap:
-        return Trap(self.filename, node.line, node.col, message)
+        fname = getattr(node, "src_file", None) or self.filename
+        return Trap(fname, node.line, node.col, message)
 
     def _fit(self, node, kind: str | None, value) -> None:
         if kind is None:
@@ -179,7 +180,7 @@ class Interpreter:
                 self.exec_block(decl.body)
             except EatError as err:
                 raise EatError(
-                    self.filename,
+                    getattr(decl, "src_file", None) or self.filename,
                     decl.line,
                     decl.col,
                     f"test {decl.name} провален: {err.message}",

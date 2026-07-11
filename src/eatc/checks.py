@@ -57,7 +57,7 @@ def check_program(program: ast.Program, filename: str) -> dict:
         total_stmts += n
         if n > MAX_STMTS_PER_FUNC:
             raise EatError(
-                filename,
+                getattr(func, "src_file", None) or filename,
                 func.line,
                 func.col,
                 f"функция {func.name}: {n} statements — длиннее "
@@ -68,7 +68,7 @@ def check_program(program: ast.Program, filename: str) -> dict:
         )
         if has_params and func.requires is None:
             raise EatError(
-                filename,
+                getattr(func, "src_file", None) or filename,
                 func.line,
                 func.col,
                 f"функция {func.name} с параметрами обязана иметь requires; "
@@ -76,7 +76,7 @@ def check_program(program: ast.Program, filename: str) -> dict:
             )
         if func.ret is not None and func.ensures is None:
             raise EatError(
-                filename,
+                getattr(func, "src_file", None) or filename,
                 func.line,
                 func.col,
                 f"функция {func.name} с возвращаемым значением обязана иметь "

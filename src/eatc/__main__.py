@@ -1,9 +1,13 @@
 """CLI компилятора.
 
-python -m eatc check <файлы...>  — компиляция: парсинг, проверки,
-                                   типы, исполнение test-блоков
-python -m eatc run <файл>        — check + запуск main интерпретатором
-python -m eatc build <файл> [out] — check + LLVM → нативный бинарник
+python -m eatc check <файлы...>   — каждый файл отдельно: парсинг,
+                                    проверки, типы, test-блоки
+python -m eatc run <файлы...>     — check + запуск main интерпретатором
+python -m eatc build <файлы...> [-o out] — check + LLVM → бинарник
+
+Модули: run/build принимают несколько файлов — одна программа с
+единым пространством имён; последний файл — главный (даёт имя
+бинарника). Эквивалент для self-host: cat файлов в stdin.
 """
 
 import sys
@@ -12,7 +16,7 @@ from pathlib import Path
 from .checks import check_program
 from .errors import EatError
 from .interpreter import Interpreter
-from .parser import parse_file
+from .parser import parse_file, parse_files
 from .typechecker import typecheck
 
 
@@ -21,6 +25,14 @@ def _compile(path: str):
     stats = check_program(program, path)
     typed = typecheck(program, path)
     return program, stats, typed
+
+
+def _compile_many(paths: list):
+    main = paths[-1]
+    program = parse_files(paths)
+    stats = check_program(program, main)
+    typed = typecheck(program, main)
+    return program, stats, typed, main
 
 
 def cmd_check(paths: list[str]) -> int:
@@ -45,10 +57,10 @@ def cmd_check(paths: list[str]) -> int:
     return 0
 
 
-def cmd_run(path: str) -> int:
+def cmd_run(paths: list) -> int:
     try:
-        program, _, _ = _compile(path)
-        interp = Interpreter(program, path)
+        program, _, _, main = _compile_many(paths)
+        interp = Interpreter(program, main)
         interp.run_tests()
         interp.run_main()
     except EatError as err:
@@ -68,17 +80,17 @@ _KIND_LABEL = {
 }
 
 
-def cmd_build(path: str, out: str | None) -> int:
+def cmd_build(paths: list, out: str | None) -> int:
     from .codegen import compile_binary
     from .verifier import verify
 
     if out is None:
-        out = str(Path("build") / Path(path).stem)
+        out = str(Path("build") / Path(paths[-1]).stem)
     try:
-        program, _, typed = _compile(path)
-        tests = Interpreter(program, path).run_tests()
+        program, _, typed, main = _compile_many(paths)
+        tests = Interpreter(program, main).run_tests()
         proofs = verify(program, typed.checker)
-        binary, report = compile_binary(program, typed.checker, path, out)
+        binary, report = compile_binary(program, typed.checker, main, out)
     except EatError as err:
         print(err, file=sys.stderr)
         return 1
@@ -109,13 +121,24 @@ def cmd_build(path: str, out: str | None) -> int:
 def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "check":
         return cmd_check(argv[1:])
-    if len(argv) == 2 and argv[0] == "run":
-        return cmd_run(argv[1])
-    if len(argv) in (2, 3) and argv[0] == "build":
-        return cmd_build(argv[1], argv[2] if len(argv) == 3 else None)
+    if len(argv) >= 2 and argv[0] == "run":
+        return cmd_run(argv[1:])
+    if len(argv) >= 2 and argv[0] == "build":
+        args = argv[1:]
+        out = None
+        if "-o" in args:
+            i = args.index("-o")
+            if i + 1 >= len(args) or i + 1 != len(args) - 1:
+                print("после -o ожидается имя бинарника", file=sys.stderr)
+                return 2
+            out = args[i + 1]
+            args = args[:i]
+        if args:
+            return cmd_build(args, out)
     print(
         "использование: python -m eatc "
-        "(check <файлы.eat...> | run <файл> | build <файл> [out])",
+        "(check <файлы.eat...> | run <файлы...> | "
+        "build <файлы...> [-o out])",
         file=sys.stderr,
     )
     return 2

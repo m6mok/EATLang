@@ -4,6 +4,8 @@
 правилам, которые язык навязывает программам.
 """
 
+from dataclasses import fields
+
 from . import ast_nodes as ast
 from .errors import CapacityError, EatError
 from .limits import (
@@ -671,3 +673,27 @@ def parse_file(path: str) -> ast.Program:
         source = f.read()
     tokens = Lexer(source, path).tokenize()
     return Parser(tokens, path).parse_program()
+
+
+def _stamp_src(obj, fname: str) -> None:
+    """Пометить каждый узел файлом-источником: программа из нескольких
+    модулей сохраняет атрибуцию ошибок."""
+    if isinstance(obj, ast.Node):
+        if getattr(obj, "src_file", None) is None:
+            obj.src_file = fname
+        for field in fields(obj):
+            _stamp_src(getattr(obj, field.name), fname)
+    elif isinstance(obj, (list, tuple)):
+        for item in obj:
+            _stamp_src(item, fname)
+
+
+def parse_files(paths: list) -> ast.Program:
+    """Модули: программа — упорядоченный список файлов с единым
+    глобальным пространством имён (повторы имён ловит тайпчекер).
+    Эквивалент для self-host компилятора: cat файлов в stdin."""
+    programs = [parse_file(p) for p in paths]
+    for prog, p in zip(programs, paths):
+        _stamp_src(prog, p)
+    decls = [d for prog in programs for d in prog.decls]
+    return ast.Program(programs[0].line, programs[0].col, decls)

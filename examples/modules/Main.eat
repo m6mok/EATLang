@@ -1,0 +1,16 @@
+# Главный модуль: использует функции из ByteUtil.eat.
+# Программа = упорядоченный список файлов, пространство имён единое.
+
+func main() {
+    let c: char = '7'
+    if is_digit(c) {
+        print("цифра {c} = {digit_value(c)}")
+    } else {
+        print("{c} — не цифра")
+    }
+}
+
+test digit_value_bounds {
+    assert digit_value('0') == 0
+    assert digit_value('9') == 9
+}

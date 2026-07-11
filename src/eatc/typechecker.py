@@ -120,7 +120,8 @@ class TypeChecker:
     # --- инфраструктура -------------------------------------------------
 
     def err(self, node: ast.Node, message: str) -> EatError:
-        return EatError(self.filename, node.line, node.col, message)
+        fname = getattr(node, "src_file", None) or self.filename
+        return EatError(fname, node.line, node.col, message)
 
     def push_scope(self) -> None:
         self.scopes.append({})

@@ -162,9 +162,8 @@ class Codegen:
 
     def trap_if(self, bad, node: ast.Node, message: str) -> None:
         """bad — i1: если истина, аварийная остановка."""
-        full = (
-            f"{self.filename}:{node.line}:{node.col}: error: trap: {message}"
-        )
+        fname = getattr(node, "src_file", None) or self.filename
+        full = f"{fname}:{node.line}:{node.col}: error: trap: {message}"
         bad_bb = self.fn.append_basic_block("trap")
         ok_bb = self.fn.append_basic_block("ok")
         self.b.cbranch(bad, bad_bb, ok_bb)

@@ -18,6 +18,12 @@ EXAMPLES = \
 check:
 	$(EATC) check $(EXAMPLES)
 
+# Модульная программа: несколько файлов, последний — главный
+MODULES_EXAMPLE = examples/modules/ByteUtil.eat examples/modules/Main.eat
+
+run_modules:
+	$(EATC) run $(MODULES_EXAMPLE)
+
 # Регрессионный набор верификатора (tests/verify/, docs/VERIFICATION_PLAN.md)
 verify_suite:
 	uv run python tests/verify_suite.py
@@ -60,3 +66,8 @@ verify: build_all_examples
 		diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 			&& echo "VERIFIED $$name" || exit 1; \
 	done
+	@$(EATC) build $(MODULES_EXAMPLE) -o build/Modules > /dev/null
+	@$(EATC) run $(MODULES_EXAMPLE) > /tmp/eat_interp.txt
+	@./build/Modules > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED Modules" || exit 1
