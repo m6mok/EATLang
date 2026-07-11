@@ -700,7 +700,7 @@ class Codegen:
             return self.gen_parse_i32(node)
         if name == "len":
             return self.gen_len(node)
-        if name in ("i32", "u32", "u8"):
+        if name in ("i32", "u32", "u8", "char"):
             return self.gen_cast(node)
         sig = self.checker.funcs[name]
         return self.emit_call(node, self.funcs[name], sig, [])
@@ -773,6 +773,9 @@ class Codegen:
         target = node.name
         source_ty = node.args[0].ty
         value = self.expr(node.args[0])
+        if target == "char" or isinstance(source_ty, CharType):
+            # char ↔ u8: оба lowering'уются в i8, тот же байт
+            return value
         src = source_ty.kind
         proven = getattr(node, "cast_ok", False)
         if src == "u8":

@@ -41,14 +41,46 @@ Summary функции — интервал результата либо тож
 """
 
 from . import ast_nodes as ast
-from .types import INT_RANGES, ArrayType, IntType, StrType
+from .types import INT_RANGES, ArrayType, CharType, IntType, StrType
 
 Iv = tuple[int, int]
 _CASTS = ("i32", "u32", "u8")
+_CHAR_IV: Iv = (0, 255)  # char — ровно один байт
 
 
 def _range(kind: str) -> Iv:
     return INT_RANGES[kind]
+
+
+def _uncast(node):
+    """u8(char) и char(u8) тотальны и сохраняют байт — для путей,
+    разложений и структурного равенства каст прозрачен."""
+    while (
+        isinstance(node, ast.Call)
+        and len(node.args) == 1
+        and (
+            node.name == "char"
+            or (
+                node.name == "u8"
+                and isinstance(getattr(node.args[0], "ty", None), CharType)
+            )
+        )
+    ):
+        node = node.args[0]
+    return node
+
+
+def _bytelike(ty) -> bool:
+    """Типы с числовой байтовой/целой интерпретацией значения."""
+    return isinstance(ty, (IntType, CharType))
+
+
+def _ty_iv(ty) -> Iv | None:
+    if isinstance(ty, IntType):
+        return _range(ty.kind)
+    if isinstance(ty, CharType):
+        return _CHAR_IV
+    return None
 
 
 def _inter(a: Iv, b: Iv) -> Iv | None:
@@ -61,6 +93,7 @@ def _hull(a: Iv, b: Iv) -> Iv:
 
 
 def _path_of(node) -> str | None:
+    node = _uncast(node)
     if isinstance(node, ast.Name):
         return node.ident
     if isinstance(node, ast.SelfExpr):
@@ -81,6 +114,7 @@ def _conjuncts(expr):
 
 
 def _has_call(node) -> bool:
+    node = _uncast(node)  # прозрачные касты — не вызовы
     if isinstance(node, (ast.Call, ast.MethodCall)):
         return True
     for attr in ("left", "right", "operand", "obj", "index"):
@@ -338,8 +372,9 @@ class Verifier:
         self.ensures_ok = []
         env = State()
         for pname, ptype in sig.params:
-            if isinstance(ptype, IntType):
-                env.ivs[pname] = _range(ptype.kind)
+            piv = _ty_iv(ptype)
+            if piv is not None:
+                env.ivs[pname] = piv
         if func.requires is not None:
             self._eval_bool(func.requires, env)  # аннотации внутри requires
             self._refine(env, func.requires, True)
@@ -398,8 +433,8 @@ class Verifier:
     def _flow_stmt(self, stmt, env: State) -> State:
         if isinstance(stmt, ast.LetStmt):
             value = self._iv(stmt.value, env)
-            if isinstance(stmt.var_ty, IntType):
-                clamp = _range(stmt.var_ty.kind)
+            clamp = _ty_iv(stmt.var_ty)
+            if clamp is not None:
                 env.ivs[stmt.name] = (
                     (_inter(value, clamp) or clamp)
                     if value is not None
@@ -452,10 +487,10 @@ class Verifier:
             path = _path_of(stmt.target)
             if path is not None:
                 env.kill(path)
-                tty = stmt.target.ty
-                if isinstance(tty, IntType):
+                clamp = _ty_iv(stmt.target.ty)
+                if clamp is not None:
                     if value is not None:
-                        clamped = _inter(value, _range(tty.kind))
+                        clamped = _inter(value, clamp)
                         if clamped is not None:
                             env.ivs[path] = clamped
                     # x = y + 1 даёт факт x == y + 1 (сам путь в правой
@@ -575,8 +610,10 @@ class Verifier:
                 body_env.ivs[stmt.target] = (start, end - 1)
                 if stmt.target != "_":
                     self._lockstep(stmt, accel, env, body_env, start)
-        elif isinstance(stmt.elem_ty, IntType):
-            body_env.ivs[stmt.target] = _range(stmt.elem_ty.kind)
+        else:
+            eiv = _ty_iv(stmt.elem_ty)
+            if eiv is not None:
+                body_env.ivs[stmt.target] = eiv
         self._flow_block(stmt.body, body_env)
         out = body_env.copy()
         out.kill(stmt.target)
@@ -715,8 +752,10 @@ class Verifier:
         branches = []
         for arm in stmt.arms:
             a_env = env.copy()
-            if arm.binding is not None and isinstance(arm.payload_ty, IntType):
-                a_env.ivs[arm.binding] = _range(arm.payload_ty.kind)
+            if arm.binding is not None:
+                biv = _ty_iv(arm.payload_ty)
+                if biv is not None:
+                    a_env.ivs[arm.binding] = biv
             out = self._flow_block(arm.body, a_env)
             if not _block_returns(arm.body):
                 branches.append(out)
@@ -786,21 +825,20 @@ class Verifier:
             dl is not None
             and dr is not None
             and dl[0] != dr[0]
-            and isinstance(getattr(cond.left, "ty", None), IntType)
-            and isinstance(getattr(cond.right, "ty", None), IntType)
+            and _bytelike(getattr(cond.left, "ty", None))
+            and _bytelike(getattr(cond.right, "ty", None))
         ):
             env.relate_offset(dl[0], op, dr[0], dr[1] - dl[1])
 
     def _refine_cmp(self, env: State, target, op: str, other) -> None:
         path = _path_of(target)
-        if path is None or not isinstance(
-            getattr(target, "ty", None), IntType
-        ):
+        default = _ty_iv(getattr(target, "ty", None))
+        if path is None or default is None:
             return
         oiv = self._iv(other, env, annotate=False)
         if oiv is None:
             return
-        cur = env.ivs.get(path, _range(target.ty.kind))
+        cur = env.ivs.get(path, default)
         if op == "<":
             new = _inter(cur, (cur[0], oiv[1] - 1))
         elif op == "<=":
@@ -816,9 +854,8 @@ class Verifier:
 
     def _refine_neq(self, env: State, target, other) -> None:
         path = _path_of(target)
-        if path is None or not isinstance(
-            getattr(target, "ty", None), IntType
-        ):
+        default = _ty_iv(getattr(target, "ty", None))
+        if path is None or default is None:
             return
         oiv = self._iv(other, env, annotate=False)
         if oiv is None or oiv[0] != oiv[1]:
@@ -826,7 +863,7 @@ class Verifier:
         c = oiv[0]
         if c == 0:
             env.nz.add(path)
-        cur = env.ivs.get(path, _range(target.ty.kind))
+        cur = env.ivs.get(path, default)
         if cur[0] == c:
             cur = (c + 1, cur[1])
         if cur[1] == c:
@@ -874,8 +911,8 @@ class Verifier:
             if (
                 lp is not None
                 and rp is not None
-                and isinstance(getattr(node.left, "ty", None), IntType)
-                and isinstance(getattr(node.right, "ty", None), IntType)
+                and _bytelike(getattr(node.left, "ty", None))
+                and _bytelike(getattr(node.right, "ty", None))
             ):
                 res = self._decide_rel(env, lp, node.op, rp)
                 if res is not None:
@@ -886,8 +923,8 @@ class Verifier:
             if (
                 dl is not None
                 and dr is not None
-                and isinstance(getattr(node.left, "ty", None), IntType)
-                and isinstance(getattr(node.right, "ty", None), IntType)
+                and _bytelike(getattr(node.left, "ty", None))
+                and _bytelike(getattr(node.right, "ty", None))
             ):
                 res = self._decide_offset(env, dl, node.op, dr)
                 if res is not None:
@@ -939,7 +976,9 @@ class Verifier:
         """Синтаксическое равенство выражений (с точностью до
         коммутативности + и *). Name('result') раскрывается в выражение
         return. Корректно: обе стороны вычисляются в одном состоянии,
-        параметры неизменяемы, вызовы не сравниваются."""
+        параметры неизменяемы, вызовы не сравниваются (прозрачные
+        касты char ↔ u8 разворачиваются)."""
+        a, b = _uncast(a), _uncast(b)
         if (
             isinstance(a, ast.Name)
             and a.ident == "result"
@@ -957,6 +996,8 @@ class Verifier:
         if isinstance(a, ast.IntLit):
             return a.value == b.value
         if isinstance(a, ast.BoolLit):
+            return a.value == b.value
+        if isinstance(a, ast.CharLit):
             return a.value == b.value
         if isinstance(a, ast.Name):
             return a.ident == b.ident
@@ -1082,6 +1123,9 @@ class Verifier:
         ty = getattr(node, "ty", None)
         if isinstance(node, ast.IntLit):
             return (node.value, node.value)
+        if isinstance(node, ast.CharLit):
+            b = ord(node.value)  # лексер гарантирует один байт
+            return (b, b)
         if isinstance(node, (ast.Name, ast.FieldAccess, ast.SelfExpr)):
             if isinstance(node, ast.Name) and node.ident == "result":
                 return env.ivs.get("result") or self._ty_range(ty)
@@ -1176,7 +1220,7 @@ class Verifier:
         return self._ty_range(ty)
 
     def _ty_range(self, ty) -> Iv | None:
-        return _range(ty.kind) if isinstance(ty, IntType) else None
+        return _ty_iv(ty)
 
     def _square(self, node, iv: Iv, kind: str, annotate: bool) -> Iv:
         clamp = _range(kind)
@@ -1449,6 +1493,16 @@ class Verifier:
         for arg in node.args:
             self._iv(arg, env, annotate)
         name = node.name
+        if name == "char" or (
+            name == "u8"
+            and isinstance(getattr(node.args[0], "ty", None), CharType)
+        ):
+            # char ↔ u8 тотален (тот же байт) — обязательства нет,
+            # интервал аргумента проходит сквозь каст
+            src = self._iv(node.args[0], env, annotate=False)
+            if src is None:
+                return _CHAR_IV
+            return _inter(src, _CHAR_IV) or _CHAR_IV
         if name in _CASTS:
             src = self._iv(node.args[0], env, annotate=False)
             clamp = _range(name)

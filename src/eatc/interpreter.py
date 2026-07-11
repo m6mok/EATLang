@@ -485,7 +485,11 @@ class Interpreter:
             return self._parse_i32(args[0])
         if name == "len":
             return len(args[0])
+        if name == "char":
+            return chr(args[0])
         if name in INT_RANGES:
+            if isinstance(args[0], str):  # u8(char): код байта
+                return ord(args[0])
             self._fit(node, name, args[0])
             return args[0]
         return self.call_func(self.funcs[name], args, None, node)

@@ -1,0 +1,28 @@
+#! expect: overflow=1/1 requires=3/3 ensures=3/3
+# char ↔ u8: касты тотальны (один и тот же байт), поэтому u8(c)
+# прозрачен для requires-уточнения — классификация символов лексером.
+
+func digit_value(c: char) -> u8
+    requires u8(c) >= 48 and u8(c) <= 57
+    ensures result <= 9
+{
+    return u8(c) - 48
+}
+
+func to_code(c: char) -> u8
+    requires true
+    ensures result <= 255
+{
+    return u8(c)
+}
+
+func roundtrip(b: u8) -> u8
+    requires true
+    ensures result == b
+{
+    return u8(char(b))
+}
+
+func main() {
+    print("{digit_value('7')} {to_code('a')} {roundtrip(200)}")
+}

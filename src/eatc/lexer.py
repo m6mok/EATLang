@@ -172,6 +172,10 @@ class Lexer:
             ch = _ESCAPES[esc]
         if self.pos >= len(self.src) or self._advance() != "'":
             raise self.error("ожидался закрывающий апостроф")
+        if len(ch.encode("utf-8")) != 1:
+            raise self.error(
+                f"символ {ch!r} не помещается в один байт (char — байт)"
+            )
         self._emit(T.CHAR, ch, line, col)
 
     def _lex_int(self, line: int, col: int) -> None:

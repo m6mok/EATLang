@@ -235,7 +235,7 @@ class TypeChecker:
             or name in self.consts
             or name in BUILTINS
             or name in _INT_CASTS
-            or name in ("len", "str", "Result", "Option")
+            or name in ("len", "str", "char", "Result", "Option")
         )
         if taken:
             raise self.err(node, f"имя {name} уже занято")
@@ -739,6 +739,8 @@ class TypeChecker:
     def _call(self, node: ast.Call) -> Type:
         if node.name in _INT_CASTS:
             return self._cast(node)
+        if node.name == "char":
+            return self._char_cast(node)
         if node.name == "len":
             return self._len(node)
         sig = BUILTINS.get(node.name) or self.funcs.get(node.name)
@@ -753,12 +755,33 @@ class TypeChecker:
         if len(node.args) != 1:
             raise self.err(node, f"{node.name}(): ровно один аргумент")
         source = self.expr(node.args[0])
+        if isinstance(source, CharType):
+            # char — ровно один байт: код символа читается только как u8
+            if node.name != "u8":
+                raise self.err(
+                    node,
+                    f"{node.name}() не применим к char — код символа "
+                    "даёт u8(c), расширяйте дальше явно",
+                )
+            return U8
         if not isinstance(source, IntType):
             raise self.err(
                 node,
                 f"{node.name}() преобразует целые, не {show(source)}",
             )
         return _INT_CASTS[node.name]
+
+    def _char_cast(self, node: ast.Call) -> Type:
+        if len(node.args) != 1:
+            raise self.err(node, "char(): ровно один аргумент")
+        source = self.expr(node.args[0], expected=U8)
+        if source != U8:
+            raise self.err(
+                node,
+                f"char() принимает u8, не {show(source)} "
+                "(сузьте явно через u8())",
+            )
+        return CHAR
 
     def _len(self, node: ast.Call) -> Type:
         if len(node.args) != 1:
