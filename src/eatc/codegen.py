@@ -602,6 +602,8 @@ class Codegen:
             return self.gen_struct_lit(node)
         if isinstance(node, ast.ArrayLit):
             return self.gen_array_lit(node)
+        if isinstance(node, ast.ArrayFill):
+            return self.gen_array_fill(node)
         raise AssertionError("неизвестное выражение")
 
     def gen_name(self, node: ast.Name):
@@ -926,6 +928,31 @@ class Codegen:
         for i, elem in enumerate(node.elems):
             ptr = self.b.gep(out, [I32L(0), I32L(i)], inbounds=True)
             self.copy_into(aty.elem, ptr, self.expr(elem))
+        return out
+
+    def gen_array_fill(self, node: ast.ArrayFill):
+        """[значение; N]: значение вычисляется один раз, заполнение —
+        циклом (N бывает большим, разворачивать нельзя)."""
+        aty = node.ty
+        out = self.alloca(self.ll(aty), name="arr.fill")
+        value = self.expr(node.value)
+        idx = self.alloca(I32L, name="fill.i")
+        self.b.store(I32L(0), idx)
+        cond_bb = self.fn.append_basic_block("fill.cond")
+        body_bb = self.fn.append_basic_block("fill.body")
+        end_bb = self.fn.append_basic_block("fill.end")
+        self.b.branch(cond_bb)
+        self.b.position_at_end(cond_bb)
+        cur = self.b.load(idx)
+        self.b.cbranch(
+            self.b.icmp_signed("<", cur, I32L(aty.size)), body_bb, end_bb
+        )
+        self.b.position_at_end(body_bb)
+        ptr = self.b.gep(out, [I32L(0), cur], inbounds=True)
+        self.copy_into(aty.elem, ptr, value)
+        self.b.store(self.b.add(cur, I32L(1)), idx)
+        self.b.branch(cond_bb)
+        self.b.position_at_end(end_bb)
         return out
 
 

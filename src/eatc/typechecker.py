@@ -712,6 +712,8 @@ class TypeChecker:
             return self._struct_lit(node)
         if isinstance(node, ast.ArrayLit):
             return self._array_lit(node, expected)
+        if isinstance(node, ast.ArrayFill):
+            return self._array_fill(node, expected)
         if isinstance(node, ast.RangeExpr):
             raise self.err(node, "диапазон допустим только в for")
         raise self.err(node, "неизвестное выражение")
@@ -1043,6 +1045,22 @@ class TypeChecker:
                     f"требует {expected.size}",
                 )
         return ArrayType(first, len(node.elems))
+
+    def _array_fill(self, node: ast.ArrayFill, expected: Type | None) -> Type:
+        n = self.const_eval(node.count)
+        if not 0 < n <= MAX_ARRAY_ELEMS:
+            raise self.err(
+                node, f"размер массива {n} вне (0, {MAX_ARRAY_ELEMS}]"
+            )
+        elem_hint = expected.elem if isinstance(expected, ArrayType) else None
+        elem = self.expr(node.value, expected=elem_hint)
+        if isinstance(expected, ArrayType) and expected.size != n:
+            raise self.err(
+                node,
+                f"массив из {n} элементов, а тип требует {expected.size}",
+            )
+        node.size = n  # для интерпретатора и кодогенерации
+        return ArrayType(elem, n)
 
     # --- вспомогательное -----------------------------------------------------
 

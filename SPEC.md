@@ -127,7 +127,8 @@ primary        = INT | CHAR_LIT | STRING | "true" | "false"
 call_expr      = IDENT "(" [ args ] ")" ;
 args           = expr { "," expr } ;
 struct_lit     = IDENT "{" IDENT ":" expr { "," IDENT ":" expr } "}" ;
-array_lit      = "[" expr { "," expr } "]" ;    (* длина обязана совпадать с типом *)
+array_lit      = "[" expr { "," expr } "]"      (* длина обязана совпадать с типом *)
+               | "[" expr ";" const_expr "]" ;  (* заполнение: [0; 4096] — пулы *)
 enum_lit       = IDENT "." IDENT [ "(" expr ")" ] ;
                  (* Sign.Positive | Node.Num(42) — конструктор нагрузки *)
 ```

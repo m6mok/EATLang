@@ -1233,6 +1233,9 @@ class Verifier:
             for e in node.elems:
                 self._iv(e, env, annotate)
             return None
+        if isinstance(node, ast.ArrayFill):
+            self._iv(node.value, env, annotate)
+            return None
         return self._ty_range(ty)
 
     def _ty_range(self, ty) -> Iv | None:

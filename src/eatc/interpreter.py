@@ -405,6 +405,9 @@ class Interpreter:
             return StructValue(node.name, fields)
         if isinstance(node, ast.ArrayLit):
             return [deepcopy(self.eval(e)) for e in node.elems]
+        if isinstance(node, ast.ArrayFill):
+            value = self.eval(node.value)
+            return [deepcopy(value) for _ in range(node.size)]
         raise self.trap(node, "неизвестное выражение")
 
     def _eval_str(self, node: ast.StrLit) -> str:

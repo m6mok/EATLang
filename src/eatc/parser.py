@@ -589,11 +589,16 @@ class Parser:
             return ast.Name(tok.line, tok.col, tok.value)
         raise self.error(f"ожидалось выражение, найдено {tok.value!r}", tok)
 
-    def parse_array_lit(self) -> ast.ArrayLit:
+    def parse_array_lit(self) -> ast.Expr:
         tok = self.expect(T.LBRACKET, "'['")
         elems: list[ast.Expr] = []
         while not self.at(T.RBRACKET):
             elems.append(self.parse_expr())
+            # [значение; N] — литерал заполнения (пулы)
+            if len(elems) == 1 and self.accept(T.SEMI):
+                count = self.parse_const_expr()
+                self.expect(T.RBRACKET, "']'")
+                return ast.ArrayFill(tok.line, tok.col, elems[0], count)
             if not self.accept(T.COMMA):
                 break
         self.expect(T.RBRACKET, "']'")

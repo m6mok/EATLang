@@ -128,6 +128,12 @@ class ArrayLit(Expr):
 
 
 @dataclass
+class ArrayFill(Expr):
+    value: Expr  # [значение; N] — N элементов-копий
+    count: Node  # константное выражение
+
+
+@dataclass
 class RangeExpr(Expr):
     start: Expr
     end: Expr  # полуинтервал [start, end)
