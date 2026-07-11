@@ -1,0 +1,11 @@
+#! expect: overflow=1/1 assert=1/1
+# Точный интервал аккумулятора после цикла.
+
+func main() {
+    var sum: i32 = 0
+    for _ in 0..100 {
+        sum = sum + 7
+    }
+    assert sum == 700
+    print("{sum}")
+}

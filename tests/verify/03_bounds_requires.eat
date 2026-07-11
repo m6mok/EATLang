@@ -1,0 +1,14 @@
+#! expect: bounds=1/1 requires=1/1
+# Индексация под контрактом: requires ограничивает индекс.
+
+func data_at(j: u32) -> i32
+    requires j < 3
+    ensures true
+{
+    let data: [i32; 3] = [7, 8, 9]
+    return data[j]
+}
+
+func main() {
+    print("{data_at(1)}")
+}

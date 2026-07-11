@@ -1,0 +1,16 @@
+#! expect: ensures=1/1 requires=1/1
+# Реляционный ensures: result связан с веткой возврата.
+
+func max(a: i32, b: i32) -> i32
+    requires true
+    ensures result >= a and result >= b
+{
+    if a > b {
+        return a
+    }
+    return b
+}
+
+func main() {
+    print("{max(3, 4)}")
+}

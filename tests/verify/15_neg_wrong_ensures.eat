@@ -1,0 +1,17 @@
+#! expect: ensures=0/1
+# ОТРИЦАТЕЛЬНЫЙ: ложный контракт (минимум, написанный как максимум)
+# не должен доказываться — проверка обязана остаться в рантайме.
+
+func wrongmin(a: i32, b: i32) -> i32
+    requires true
+    ensures result <= a and result <= b
+{
+    if a > b {
+        return a
+    }
+    return b
+}
+
+func main() {
+    print("{wrongmin(1, 2)}")
+}

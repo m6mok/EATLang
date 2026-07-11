@@ -1,0 +1,12 @@
+#! expect: assert=1/1 overflow=1/1 requires=1/1
+# Классика индексного кода: из i < n следует i + 1 <= n.
+
+func check(i: u32, n: u32)
+    requires i < n
+{
+    assert i + 1 <= n
+}
+
+func main() {
+    check(2, 5)
+}

@@ -1,0 +1,13 @@
+#! expect: assert=1/1 requires=1/1
+# Длина строки ограничена ёмкостью типа.
+
+func take(s: str<8>)
+    requires true
+{
+    let n: u32 = len(s)
+    assert n <= 8
+}
+
+func main() {
+    take("hello")
+}

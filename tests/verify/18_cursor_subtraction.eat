@@ -1,0 +1,20 @@
+#! expect: overflow=2/2 ensures=1/1 requires=1/1
+# Паттерн self-host: курсор лексера. Из self.pos <= self.total
+# следует, что вычитание не уходит ниже нуля.
+
+struct Cursor {
+    pos: u32
+    total: u32
+
+    func rest(self) -> u32
+        requires self.pos <= self.total
+        ensures result == self.total - self.pos
+    {
+        return self.total - self.pos
+    }
+}
+
+func main() {
+    let c: Cursor = Cursor { pos: 2, total: 10 }
+    print("{c.rest()}")
+}

@@ -39,7 +39,7 @@ Summary функции — интервал результата либо тож
 """
 
 from . import ast_nodes as ast
-from .types import INT_RANGES, ArrayType, IntType
+from .types import INT_RANGES, ArrayType, IntType, StrType
 
 Iv = tuple[int, int]
 _CASTS = ("i32", "u32", "u8")
@@ -67,6 +67,15 @@ def _path_of(node) -> str | None:
         base = _path_of(node.obj)
         return f"{base}.{node.name}" if base is not None else None
     return None
+
+
+def _conjuncts(expr):
+    """Развернуть цепочку and в список конъюнктов."""
+    if isinstance(expr, ast.BinOp) and expr.op == "and":
+        yield from _conjuncts(expr.left)
+        yield from _conjuncts(expr.right)
+    else:
+        yield expr
 
 
 def _has_call(node) -> bool:
@@ -123,16 +132,18 @@ def _block_returns(block) -> bool:
 
 
 class State:
-    """Абстрактное состояние: интервалы путей + отношения путей."""
+    """Абстрактное состояние: интервалы путей + отношения путей
+    + пути, известные как ненулевые."""
 
-    __slots__ = ("ivs", "rels")
+    __slots__ = ("ivs", "rels", "nz")
 
-    def __init__(self, ivs=None, rels=None):
+    def __init__(self, ivs=None, rels=None, nz=None):
         self.ivs: dict[str, Iv] = dict(ivs or {})
         self.rels: set[tuple] = set(rels or ())  # (p, "<"|"<=", q)
+        self.nz: set[str] = set(nz or ())  # пути со значением != 0
 
     def copy(self) -> "State":
-        return State(self.ivs, self.rels)
+        return State(self.ivs, self.rels, self.nz)
 
     def kill(self, path: str) -> None:
         for k in list(self.ivs):
@@ -143,6 +154,7 @@ class State:
             return p == path or p.startswith(path + ".")
 
         self.rels = {r for r in self.rels if not dead(r[0]) and not dead(r[2])}
+        self.nz = {p for p in self.nz if not dead(p)}
 
     def relate(self, lhs: str, op: str, rhs: str) -> None:
         if op == "<":
@@ -377,9 +389,40 @@ class Verifier:
                     fiv = self._iv(fexpr, env)
                     if fiv is not None:
                         env.ivs[f"{stmt.name}.{fname}"] = fiv
+            # модульный контракт: ensures вызванной функции гарантирован
+            # рантаймом (доказан или проверен trap'ом) — предполагаем
+            if isinstance(stmt.value, ast.Call):
+                fname2 = stmt.value.name
+                if fname2 in self.checker.funcs:
+                    func, _ = self._func_by_key(fname2)
+                    self._assume_ensures(
+                        env,
+                        func,
+                        self.checker.funcs[fname2],
+                        stmt.value,
+                        stmt.name,
+                        None,
+                    )
+            elif isinstance(stmt.value, ast.MethodCall):
+                key = f"{stmt.value.struct}.{stmt.value.name}"
+                func, _ = self._func_by_key(key)
+                sig = self.checker.structs[stmt.value.struct].methods[
+                    stmt.value.name
+                ]
+                self._assume_ensures(
+                    env,
+                    func,
+                    sig,
+                    stmt.value,
+                    stmt.name,
+                    _path_of(stmt.value.obj),
+                )
             return env
         if isinstance(stmt, ast.AssignStmt):
             value = self._iv(stmt.value, env)
+            if isinstance(stmt.target, ast.Index):
+                # границы цели присваивания тоже проверяются
+                self._iv(stmt.target, env)
             path = _path_of(stmt.target)
             if path is not None:
                 env.kill(path)
@@ -475,18 +518,24 @@ class Verifier:
                 continue
             # ускорение: p меняется на d за итерацию, значение на входе
             # итерации k — v0 + k*d, k ∈ [0, n-1]
-            d, cond, kind = info
+            d, cond, kind, glo, ghi = info
             clamp = _range(kind)
-            biv = (
-                v0[0] + min(0, (n - 1) * d),
-                v0[1] + max(0, (n - 1) * d),
-            )
-            body_env.ivs[p] = _inter(biv, clamp) or clamp
-            if cond:
-                aft = (v0[0] + min(0, n * d), v0[1] + max(0, n * d))
-            else:
-                aft = (v0[0] + n * d, v0[1] + n * d)
-            after[p] = _inter(aft, clamp) or clamp
+            b_lo = v0[0] + min(0, (n - 1) * d)
+            b_hi = v0[1] + max(0, (n - 1) * d)
+            a_lo = v0[0] + (min(0, n * d) if cond else n * d)
+            a_hi = v0[1] + (max(0, n * d) if cond else n * d)
+            # охрана: обновление срабатывает только при p ≤ ghi
+            # (p ≥ glo), значит значения не превышают max(v0, ghi + d)
+            if d > 0 and ghi is not None:
+                cap = max(v0[1], ghi + d)
+                b_hi = min(b_hi, cap)
+                a_hi = min(a_hi, cap)
+            if d < 0 and glo is not None:
+                floor = min(v0[0], glo + d)
+                b_lo = max(b_lo, floor)
+                a_lo = max(a_lo, floor)
+            body_env.ivs[p] = _inter((b_lo, b_hi), clamp) or clamp
+            after[p] = _inter((a_lo, a_hi), clamp) or clamp
         if stmt.bounds is not None:
             if n > 0:
                 body_env.ivs[stmt.target] = (start, end - 1)
@@ -502,9 +551,9 @@ class Verifier:
 
     def _accelerate(self, block: ast.Block) -> dict:
         """Пути с единственным обновлением `p = p ± const` за итерацию:
-        p -> (дельта, условное ли обновление, вид целого)."""
+        p -> (дельта, условное ли, вид целого, охрана снизу/сверху)."""
         updates: dict = {}
-        self._collect_updates(block, False, updates)
+        self._collect_updates(block, False, updates, [])
         return {
             p: recs[0]
             for p, recs in updates.items()
@@ -512,7 +561,11 @@ class Verifier:
         }
 
     def _collect_updates(
-        self, block: ast.Block, conditional: bool, updates: dict
+        self,
+        block: ast.Block,
+        conditional: bool,
+        updates: dict,
+        guards: list,
     ) -> None:
         for stmt in block.stmts:
             if isinstance(stmt, ast.AssignStmt):
@@ -526,8 +579,9 @@ class Verifier:
                 if d is None or not isinstance(tty, IntType):
                     updates[p] = "invalid"
                 else:
+                    glo, ghi = self._guard_bounds(guards, p)
                     updates.setdefault(p, []).append(
-                        (d, conditional, tty.kind)
+                        (d, conditional, tty.kind, glo, ghi)
                     )
                 continue
             if isinstance(stmt, (ast.ForStmt, ast.LoopStmt)):
@@ -535,8 +589,57 @@ class Verifier:
                 for p in _assigned_paths(stmt.body):
                     updates[p] = "invalid"
                 continue
+            if isinstance(stmt, ast.IfStmt):
+                conds = [stmt.cond] + [c for c, _ in stmt.elifs]
+                blocks = [stmt.then] + [b for _, b in stmt.elifs]
+                for cond, blk in zip(conds, blocks):
+                    self._collect_updates(blk, True, updates, guards + [cond])
+                if stmt.els is not None:
+                    self._collect_updates(stmt.els, True, updates, guards)
+                continue
             for blk in _sub_blocks(stmt):
-                self._collect_updates(blk, True, updates)
+                self._collect_updates(blk, True, updates, guards)
+
+    def _guard_bounds(self, guards: list, path: str):
+        """Границы path из охраняющих условий: `path < C` даёт верх,
+        `path > C` — низ (C — литерал или const)."""
+        lo = None
+        hi = None
+        for guard in guards:
+            for conj in _conjuncts(guard):
+                if not isinstance(conj, ast.BinOp):
+                    continue
+                for target, op, other in (
+                    (conj.left, conj.op, conj.right),
+                    (
+                        conj.right,
+                        {"<": ">", "<=": ">=", ">": "<", ">=": "<="}.get(
+                            conj.op, ""
+                        ),
+                        conj.left,
+                    ),
+                ):
+                    if _path_of(target) != path:
+                        continue
+                    c = self._const_of(other)
+                    if c is None:
+                        continue
+                    if op == "<":
+                        hi = c - 1 if hi is None else min(hi, c - 1)
+                    elif op == "<=":
+                        hi = c if hi is None else min(hi, c)
+                    elif op == ">":
+                        lo = c + 1 if lo is None else max(lo, c + 1)
+                    elif op == ">=":
+                        lo = c if lo is None else max(lo, c)
+        return lo, hi
+
+    def _const_of(self, node) -> int | None:
+        if isinstance(node, ast.IntLit):
+            return node.value
+        if isinstance(node, ast.Name) and node.ident in self.checker.consts:
+            return self.checker.consts[node.ident][1]
+        return None
 
     def _delta_of(self, value, path: str) -> int | None:
         if not isinstance(value, ast.BinOp) or value.op not in ("+", "-"):
@@ -547,11 +650,8 @@ class Verifier:
             step = value.left
         else:
             return None
-        if isinstance(step, ast.IntLit):
-            c = step.value
-        elif isinstance(step, ast.Name) and step.ident in self.checker.consts:
-            c = self.checker.consts[step.ident][1]
-        else:
+        c = self._const_of(step)
+        if c is None:
             return None
         return c if value.op == "+" else -c
 
@@ -575,7 +675,10 @@ class Verifier:
         for e in envs[1:]:
             keys &= set(e.ivs)
             rels &= e.rels
-        joined = State(rels=rels)
+        nz = set(envs[0].nz)
+        for e in envs[1:]:
+            nz &= e.nz
+        joined = State(rels=rels, nz=nz)
         for k in keys:
             iv = envs[0].ivs[k]
             for e in envs[1:]:
@@ -608,6 +711,11 @@ class Verifier:
             "!=": "==",
         }
         op = cond.op if assume else neg.get(cond.op)
+        if op == "!=":
+            # неравенство константе: подрезка границ + метка «не ноль»
+            self._refine_neq(env, cond.left, cond.right)
+            self._refine_neq(env, cond.right, cond.left)
+            return
         if op is None or op not in ("<", "<=", ">", ">=", "=="):
             return
         self._refine_cmp(env, cond.left, op, cond.right)
@@ -645,6 +753,26 @@ class Verifier:
             new = _inter(cur, oiv)
         if new is not None:
             env.ivs[path] = new
+
+    def _refine_neq(self, env: State, target, other) -> None:
+        path = _path_of(target)
+        if path is None or not isinstance(
+            getattr(target, "ty", None), IntType
+        ):
+            return
+        oiv = self._iv(other, env, annotate=False)
+        if oiv is None or oiv[0] != oiv[1]:
+            return
+        c = oiv[0]
+        if c == 0:
+            env.nz.add(path)
+        cur = env.ivs.get(path, _range(target.ty.kind))
+        if cur[0] == c:
+            cur = (c + 1, cur[1])
+        if cur[1] == c:
+            cur = (cur[0], c - 1)
+        if cur[0] <= cur[1]:
+            env.ivs[path] = cur
 
     # --- трёхзначная логика --------------------------------------------------
 
@@ -690,6 +818,18 @@ class Verifier:
                 and isinstance(getattr(node.right, "ty", None), IntType)
             ):
                 res = self._decide_rel(env, lp, node.op, rp)
+                if res is not None:
+                    return res
+            # разложение p ± c: из i < n следует i + 1 <= n
+            dl = self._decompose(node.left)
+            dr = self._decompose(node.right)
+            if (
+                dl is not None
+                and dr is not None
+                and isinstance(getattr(node.left, "ty", None), IntType)
+                and isinstance(getattr(node.right, "ty", None), IntType)
+            ):
+                res = self._decide_offset(env, dl, node.op, dr)
                 if res is not None:
                     return res
             # структурное равенство: обе стороны — одно выражение,
@@ -782,6 +922,66 @@ class Verifier:
             return False
         return False
 
+    def _decompose(self, node):
+        """Выражение как (путь, смещение): p, p + c, p - c, c + p."""
+        p = _path_of(node)
+        if p is not None:
+            return (p, 0)
+        if isinstance(node, ast.BinOp) and node.op in ("+", "-"):
+            base = _path_of(node.left)
+            step = node.right
+            if base is None and node.op == "+":
+                base = _path_of(node.right)
+                step = node.left
+            if base is None:
+                return None
+            c = self._const_of(step)
+            if c is None:
+                return None
+            return (base, c if node.op == "+" else -c)
+        return None
+
+    def _decide_offset(self, env: State, dl, op: str, dr):
+        """Решить p + a op q + b через отношения путей.
+        Эквивалентно p + delta op q, где delta = a - b."""
+        (p, a), (q, b) = dl, dr
+        delta = a - b
+        if p == q:  # p + delta op p — решается точно
+            return {
+                "<": delta < 0,
+                "<=": delta <= 0,
+                ">": delta > 0,
+                ">=": delta >= 0,
+                "==": delta == 0,
+                "!=": delta != 0,
+            }[op]
+        cl = env.closure()
+
+        def le(x, y):
+            return (x, "<=", y) in cl or (x, "<", y) in cl
+
+        def lt(x, y):
+            return (x, "<", y) in cl
+
+        # только доказательства (True); опровержения оставляем интервалам
+        if op == "<=" and (
+            (delta <= 0 and le(p, q)) or (delta <= 1 and lt(p, q))
+        ):
+            return True
+        if op == "<" and (
+            (delta <= -1 and le(p, q)) or (delta <= 0 and lt(p, q))
+        ):
+            return True
+        if op == ">=" and (
+            (delta >= 0 and le(q, p)) or (delta >= -1 and lt(q, p))
+        ):
+            return True
+        if op == ">" and (
+            (delta >= 1 and le(q, p)) or (delta >= 0 and lt(q, p))
+        ):
+            return True
+        return None
+
     def _decide_rel(self, env: State, lp: str, op: str, rp: str):
         cl = env.closure()
 
@@ -873,7 +1073,23 @@ class Verifier:
                 ):
                     m = max(abs(left[0]), abs(left[1]))
                     return self._square(node, (0, m * m), kind, annotate)
-                return self._arith(node, node.op, left, right, kind, annotate)
+                # a - b при известном b <= a не уходит ниже нуля
+                floor_zero = False
+                if node.op == "-" and lp is not None and rp is not None:
+                    cl = env.closure()
+                    floor_zero = (
+                        lp == rp or (rp, "<=", lp) in cl or (rp, "<", lp) in cl
+                    )
+                return self._arith(
+                    node,
+                    node.op,
+                    left,
+                    right,
+                    kind,
+                    annotate,
+                    env=env,
+                    floor_zero=floor_zero,
+                )
             return None  # сравнение в числовом контексте не встречается
         if isinstance(node, ast.Call):
             return self._iv_call(node, env, annotate)
@@ -917,7 +1133,15 @@ class Verifier:
         return _inter(iv, clamp) or clamp
 
     def _arith(
-        self, node, op: str, left, right, kind: str, annotate: bool
+        self,
+        node,
+        op: str,
+        left,
+        right,
+        kind: str,
+        annotate: bool,
+        env: State | None = None,
+        floor_zero: bool = False,
     ) -> Iv | None:
         clamp = _range(kind)
         if left is None or right is None:
@@ -930,6 +1154,8 @@ class Verifier:
             raw: Iv = (left[0] + right[0], left[1] + right[1])
         elif op == "-":
             raw = (left[0] - right[1], left[1] - right[0])
+            if floor_zero:
+                raw = (max(raw[0], 0), max(raw[1], 0))
         elif op == "*":
             products = [
                 left[0] * right[0],
@@ -939,16 +1165,24 @@ class Verifier:
             ]
             raw = (min(products), max(products))
         elif op == "/":
-            return self._div(node, left, right, clamp, annotate)
+            return self._div(node, left, right, clamp, annotate, env)
         else:  # %
-            return self._mod(node, left, right, clamp, annotate)
+            return self._mod(node, left, right, clamp, annotate, env)
         if annotate:
             ok = clamp[0] <= raw[0] and raw[1] <= clamp[1]
             self._mark("overflow", node, ok)
         return _inter(raw, clamp) or clamp
 
-    def _div_ok(self, left: Iv, right: Iv, kind: str) -> bool:
-        if right[0] <= 0 <= right[1]:
+    def _div_ok(
+        self, node, left: Iv, right: Iv, kind: str, env: State | None
+    ) -> bool:
+        zero_free = right[0] > 0 or right[1] < 0
+        if not zero_free and env is not None:
+            # путь делителя известен как ненулевой (например, из
+            # requires b != 0)
+            rpath = _path_of(node.right)
+            zero_free = rpath is not None and rpath in env.nz
+        if not zero_free:
             return False
         if kind == "i32":
             lo, _ = _range("i32")
@@ -956,11 +1190,13 @@ class Verifier:
                 return False
         return True
 
-    def _div(self, node, left: Iv, right: Iv, clamp, annotate) -> Iv:
-        safe = self._div_ok(left, right, node.left.ty.kind)
+    def _div(self, node, left: Iv, right: Iv, clamp, annotate, env) -> Iv:
+        safe = self._div_ok(node, left, right, node.left.ty.kind, env)
         if annotate:
             self._mark("div", node, safe)
-        if not safe:
+        if not safe or (right[0] <= 0 <= right[1]):
+            # интервал делителя содержит 0 (безопасность доказана
+            # через nz) — точные частные не вычислить
             return clamp
         quotients = [
             int(left[0] / right[0]),
@@ -971,11 +1207,11 @@ class Verifier:
         raw = (min(quotients + [0]), max(quotients + [0]))
         return _inter(raw, clamp) or clamp
 
-    def _mod(self, node, left: Iv, right: Iv, clamp, annotate) -> Iv:
-        safe = self._div_ok(left, right, node.left.ty.kind)
+    def _mod(self, node, left: Iv, right: Iv, clamp, annotate, env) -> Iv:
+        safe = self._div_ok(node, left, right, node.left.ty.kind, env)
         if annotate:
             self._mark("div", node, safe)
-        if not safe:
+        if not safe or (right[0] <= 0 <= right[1]):
             return clamp
         bound = max(abs(right[0]), abs(right[1])) - 1
         lo = 0 if left[0] >= 0 else -bound
@@ -1006,6 +1242,77 @@ class Verifier:
         entry = self.req_sites.setdefault(key, [0, 0])
         entry[1] += 1
         entry[0] += 1 if ok is True else 0
+
+    def _assume_ensures(
+        self, env: State, func, sig, call, bind: str, obj_path
+    ) -> None:
+        """Модульный контракт: после вызова ensures функции истинен —
+        либо доказан статически, либо проверен trap'ом внутри неё.
+        Конъюнкты вида «result/параметр op константа/путь» становятся
+        фактами вызывающего (bind — имя связываемой переменной)."""
+        if func is None or func.ensures is None:
+            return
+        subst = {p: a for (p, _), a in zip(sig.params, call.args)}
+        mirror = {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "==": "=="}
+        for conj in _conjuncts(func.ensures):
+            if not isinstance(conj, ast.BinOp) or conj.op not in mirror:
+                continue
+            left = self._map_fact(conj.left, subst, bind, obj_path, env)
+            right = self._map_fact(conj.right, subst, bind, obj_path, env)
+            if left is None or right is None:
+                continue
+            lk, lv = left
+            rk, rv = right
+            if lk == "path" and rk == "path":
+                env.relate(lv, conj.op, rv)
+            elif lk == "path" and rk == "iv":
+                self._refine_path_iv(env, lv, conj.op, rv)
+            elif lk == "iv" and rk == "path":
+                self._refine_path_iv(env, rv, mirror[conj.op], lv)
+
+    def _map_fact(self, e, subst: dict, bind: str, obj_path, env: State):
+        """Сторона конъюнкта ensures в терминах вызывающего:
+        ("path", путь) | ("iv", интервал) | None."""
+        if isinstance(e, ast.IntLit):
+            return ("iv", (e.value, e.value))
+        if isinstance(e, ast.Name):
+            if e.ident == "result":
+                return ("path", bind)
+            if e.ident in self.checker.consts:
+                v = self.checker.consts[e.ident][1]
+                return ("iv", (v, v))
+            if e.ident in subst:
+                arg = subst[e.ident]
+                p = _path_of(arg)
+                if p is not None:
+                    return ("path", p)
+                iv = self._iv(arg, env, annotate=False)
+                return ("iv", iv) if iv is not None else None
+            return None
+        p = _path_of(e)  # self.поле в ensures метода
+        if p is not None and obj_path is not None:
+            if p == "self":
+                return ("path", obj_path)
+            if p.startswith("self."):
+                return ("path", obj_path + p[len("self") :])
+        return None
+
+    def _refine_path_iv(self, env: State, path: str, op: str, oiv: Iv) -> None:
+        cur = env.ivs.get(path)
+        if cur is None:
+            return
+        if op == "<":
+            new = _inter(cur, (cur[0], oiv[1] - 1))
+        elif op == "<=":
+            new = _inter(cur, (cur[0], oiv[1]))
+        elif op == ">":
+            new = _inter(cur, (oiv[0] + 1, cur[1]))
+        elif op == ">=":
+            new = _inter(cur, (oiv[0], cur[1]))
+        else:  # ==
+            new = _inter(cur, oiv)
+        if new is not None:
+            env.ivs[path] = new
 
     def _apply_summary(self, key: str, sig, node, env: State):
         summary = self.summaries.get(key)
@@ -1044,6 +1351,8 @@ class Verifier:
             aty = node.args[0].ty
             if isinstance(aty, ArrayType):
                 return (aty.size, aty.size)
+            if isinstance(aty, StrType) and aty.capacity is not None:
+                return (0, aty.capacity)
             return (0, 4096)
         if name in self.checker.funcs:
             func, _ = self._func_by_key(name)

@@ -1,0 +1,19 @@
+#! expect: bounds=2/2 overflow=1/1 assert=1/1 cast=1/1
+# Паттерн self-host: пул фиксированной ёмкости + курсор с охраной.
+# Охрана count < CAP должна доказывать и границы записи, и
+# инвариант count <= CAP после цикла.
+
+const CAP: u32 = 8
+
+func main() {
+    var pool: [i32; 8] = [0, 0, 0, 0, 0, 0, 0, 0]
+    var count: u32 = 0
+    for i in 0..20 {
+        if count < CAP {
+            pool[count] = i32(i)
+            count = count + 1
+        }
+    }
+    assert count <= CAP
+    print("{pool[0]} of {count}")
+}

@@ -1,0 +1,13 @@
+#! expect: div=1/1 requires=1/1
+# Деление под контрактом b != 0 (беззнаковое — краевого случая нет).
+
+func safe_div(a: u32, b: u32) -> u32
+    requires b != 0
+    ensures true
+{
+    return a / b
+}
+
+func main() {
+    print("{safe_div(10, 3)}")
+}

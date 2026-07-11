@@ -1,0 +1,10 @@
+#! expect: overflow=1/1
+# Ускорение цикла: count = 3 - k, underflow невозможен.
+
+func main() {
+    var count: u32 = 3
+    for _ in 0..3 {
+        print("{count}")
+        count = count - 1
+    }
+}

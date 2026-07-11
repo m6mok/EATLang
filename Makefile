@@ -18,6 +18,10 @@ EXAMPLES = \
 check:
 	$(EATC) check $(EXAMPLES)
 
+# Регрессионный набор верификатора (tests/verify/, docs/VERIFICATION_PLAN.md)
+verify_suite:
+	uv run python tests/verify_suite.py
+
 run_hello_world:
 	$(EATC) run examples/hello_world/HelloWorld.eat
 
