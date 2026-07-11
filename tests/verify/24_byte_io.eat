@@ -1,0 +1,30 @@
+#! expect: requires=1/1 ensures=1/1
+# Байтовый I/O: read_byte() -> Result<u8, IoError>, write(s) без '\n'.
+# Нагрузка Ok — u8: интервал [0,255] из типа, классификация доказуема.
+
+func classify(b: u8) -> u32
+    requires true
+    ensures result <= 2
+{
+    if b == 10 {
+        return 0
+    }
+    if b < 32 {
+        return 1
+    }
+    return 2
+}
+
+func main() {
+    loop {
+        match read_byte() {
+            Ok(b) {
+                if classify(b) == 2 {
+                    write("{char(b)}")
+                }
+            }
+            Err(_) { break }
+        }
+    }
+    write("\n")
+}

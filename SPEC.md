@@ -209,7 +209,9 @@ self-hosting компилятор без динамической памяти.
 | Сигнатура | Описание |
 | --- | --- |
 | `print(s: str)` | вывод строки (с интерполяцией) в stdout, с переводом строки |
+| `write(s: str)` | вывод строки в stdout без перевода строки |
 | `read_line() -> Result<str<256>, IoError>` | чтение строки из stdin |
+| `read_byte() -> Result<u8, IoError>` | байт из stdin; `Err(Eof)` в конце потока |
 | `parse_i32(s: str) -> Result<i32, ParseError>` | разбор целого |
 | `len(x) -> u32` | текущая длина строки / размер массива |
 

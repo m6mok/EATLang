@@ -69,6 +69,18 @@ int32_t eat_str_eq(const eat_str *a, const eat_str *b) {
            memcmp(a->buf, b->buf, (size_t)a->len) == 0;
 }
 
+/* Байт из stdin: 0..255, при конце потока -1 (Err(Eof)). */
+int32_t eat_read_byte(void) {
+    int c = getchar();
+    return c == EOF ? -1 : (c & 0xff);
+}
+
+/* Вывод без перевода строки (print добавляет '\n'). */
+void eat_write(const eat_str *s) {
+    fwrite(s->buf, 1, (size_t)s->len, stdout);
+    fflush(stdout);
+}
+
 /* 0 — Ok, 1 — Eof */
 int32_t eat_read_line(eat_str *out) {
     char tmp[EAT_STR_CAP + 8];

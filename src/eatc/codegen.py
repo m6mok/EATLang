@@ -50,6 +50,8 @@ _RUNTIME = {
     "eat_str_append_bool": ir.FunctionType(ir.VoidType(), [STRP, I32L]),
     "eat_str_eq": ir.FunctionType(I32L, [STRP, STRP]),
     "eat_read_line": ir.FunctionType(I32L, [STRP]),
+    "eat_read_byte": ir.FunctionType(I32L, []),
+    "eat_write": ir.FunctionType(ir.VoidType(), [STRP]),
     "eat_parse_i32": ir.FunctionType(I32L, [STRP, ir.PointerType(I32L)]),
 }
 
@@ -732,6 +734,11 @@ class Codegen:
         if name == "print":
             self.b.call(self.rt["eat_print"], [self.expr(node.args[0])])
             return None
+        if name == "write":
+            self.b.call(self.rt["eat_write"], [self.expr(node.args[0])])
+            return None
+        if name == "read_byte":
+            return self.gen_read_byte(node)
         if name == "read_line":
             return self.gen_read_line(node)
         if name == "parse_i32":
@@ -776,6 +783,20 @@ class Codegen:
         if sig.ret is None:
             return None
         return out if agg_ret else result
+
+    def gen_read_byte(self, node: ast.Call):
+        raw = self.b.call(self.rt["eat_read_byte"], [])
+        res = self.alloca(self.ll(node.ty), name="rb.res")
+        ok = self.b.icmp_signed(">=", raw, I32L(0))
+        tag = self.b.select(ok, I32L(0), I32L(1))
+        self.b.store(tag, self.b.gep(res, [I32L(0), I32L(0)], inbounds=True))
+        byte = self.b.select(ok, self.b.trunc(raw, I8L), I8L(0))
+        self.b.store(byte, self.b.gep(res, [I32L(0), I32L(1)], inbounds=True))
+        # Err(Eof) — индекс варианта 0
+        self.b.store(
+            I32L(0), self.b.gep(res, [I32L(0), I32L(2)], inbounds=True)
+        )
+        return res
 
     def gen_read_line(self, node: ast.Call):
         tmp = self.alloca(STR_LL, name="line")

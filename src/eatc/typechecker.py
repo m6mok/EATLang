@@ -80,8 +80,12 @@ class CheckResult:
 
 BUILTINS = {
     "print": FuncSig("print", [("s", StrType(None))], None),
+    "write": FuncSig("write", [("s", StrType(None))], None),
     "read_line": FuncSig(
         "read_line", [], ResultType(StrType(256), EnumType("IoError"))
+    ),
+    "read_byte": FuncSig(
+        "read_byte", [], ResultType(U8, EnumType("IoError"))
     ),
     "parse_i32": FuncSig(
         "parse_i32",

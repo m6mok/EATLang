@@ -478,6 +478,15 @@ class Interpreter:
         if name == "print":
             print(args[0], flush=True)
             return None
+        if name == "write":
+            sys.stdout.write(args[0])
+            sys.stdout.flush()
+            return None
+        if name == "read_byte":
+            data = sys.stdin.buffer.read(1)
+            if not data:
+                return Tagged("Err", EnumValue("IoError", "Eof"))
+            return Tagged("Ok", data[0])
         if name == "read_line":
             line = sys.stdin.readline()
             if line == "":
