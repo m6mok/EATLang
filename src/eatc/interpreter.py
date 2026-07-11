@@ -429,7 +429,11 @@ class Interpreter:
                 parts.append("true" if value else "false")
             else:
                 parts.append(str(value))
-        return "".join(parts)
+        result = "".join(parts)
+        # ёмкость рантайма: собранная строка не длиннее str<256>
+        if len(result) > 256:
+            raise self.trap(node, "строка длиннее ёмкости str<256>")
+        return result
 
     def _eval_unary(self, node: ast.UnaryOp):
         value = self.eval(node.operand)
@@ -502,6 +506,9 @@ class Interpreter:
             if not data:
                 return Tagged("Err", EnumValue("IoError", "Eof"))
             return Tagged("Ok", data[0])
+        if name == "write_byte":
+            self._write_bytes(chr(args[0]))
+            return None
         if name == "read_line":
             data = sys.stdin.buffer.readline()
             if data == b"":

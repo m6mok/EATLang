@@ -223,10 +223,17 @@ self-hosting компилятор без динамической памяти.
 | `write(s: str)` | вывод строки в stdout без перевода строки |
 | `read_line() -> Result<str<256>, IoError>` | чтение строки из stdin |
 | `read_byte() -> Result<u8, IoError>` | байт из stdin; `Err(Eof)` в конце потока |
+| `write_byte(b: u8)` | один байт в stdout — примитив, через который выражается вывод |
 | `parse_i32(s: str) -> Result<i32, ParseError>` | разбор целого |
 | `len(x) -> u32` | текущая длина строки / размер массива |
 
 Встроенные enum: `IoError { Eof, Fail }`, `ParseError { Empty, BadChar, Overflow }`.
+
+Аксиомы языка — `read_byte`, `write_byte` и trap (примитивы ОС, шим
+`runtime.c` из трёх функций). Остальные встроенные — `print`, `write`,
+интерполяция, `==` строк, `read_line`, `parse_i32` — реализованы на
+EATLang в рантайм-модуле `selfhost/Rt.eat`, который идёт первым модулем
+каждой собираемой программы (`eatc build selfhost/Rt.eat App.eat`).
 
 ## 8. Артефакты компиляции
 

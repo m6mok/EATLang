@@ -88,6 +88,7 @@ BUILTINS = {
     "read_byte": FuncSig(
         "read_byte", [], ResultType(U8, EnumType("IoError"))
     ),
+    "write_byte": FuncSig("write_byte", [("b", U8)], None),
     "parse_i32": FuncSig(
         "parse_i32",
         [("s", StrType(None))],

@@ -313,7 +313,7 @@ struct Check {
         ensures true
     {
         var found: u32 = 4294967295
-        for i in 0..512 {
+        for i in 0..1024 {
             if i < self.nfun and found == 4294967295 {
                 if self.fown[i] == 4294967295 {
                     if self.span_eq(self.fn_s[i], self.fn_l[i], a, l) {
@@ -331,7 +331,7 @@ struct Check {
         ensures true
     {
         var found: u32 = 4294967295
-        for i in 0..512 {
+        for i in 0..1024 {
             if i < self.nfun and found == 4294967295 {
                 if self.fnd[i] == n {
                     found = i
@@ -676,6 +676,9 @@ struct Check {
             return true
         }
         if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
+            return true
+        }
+        if self.span_is(a, l, "write_byte") {
             return true
         }
         if self.span_is(a, l, "parse_i32") or self.span_is(a, l, "len") {
@@ -1114,7 +1117,7 @@ struct Check {
         requires true
         ensures true
     {
-        for i in 0..512 {
+        for i in 0..1024 {
             if i < self.nfun and not self.failed {
                 self.rule_func(i)
             }
@@ -1122,7 +1125,7 @@ struct Check {
     }
 
     func rule_func(var self, i: u32)
-        requires i < 512
+        requires i < 1024
         ensures true
     {
         let d: u32 = self.fnd[i]
@@ -1216,7 +1219,7 @@ struct Check {
         ensures true
     {
         var mi: u32 = 4294967295
-        for i in 0..512 {
+        for i in 0..1024 {
             if i < self.nfun and mi == 4294967295 {
                 if self.fown[i] == 4294967295 {
                     if self.span_is(self.fn_s[i], self.fn_l[i], "main") {
@@ -1353,7 +1356,7 @@ struct Check {
     # --- дамп сигнатур (формат `eatc sig`) ---------------------------------
 
     func write_sig(var self, i: u32)
-        requires i < 512
+        requires i < 1024
         ensures true
     {
         write("(")
@@ -1606,6 +1609,9 @@ struct Check {
             return true
         }
         if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
+            return true
+        }
+        if self.span_is(a, l, "write_byte") {
             return true
         }
         return self.span_is(a, l, "parse_i32")
@@ -2123,6 +2129,15 @@ struct Check {
             self.xdone()
             return
         }
+        if self.span_is(a, l, "write_byte") {
+            if argc != 1 {
+                self.fail_node(n, "ожидается 1 аргумент")
+                return
+            }
+            self.xa[f] = 108
+            self.xpush(self.p.nfc[n], 2)
+            return
+        }
         if self.span_is(a, l, "parse_i32") {
             if argc != 1 {
                 self.fail_node(n, "ожидается 1 аргумент")
@@ -2191,6 +2206,12 @@ struct Check {
             } else {
                 self.tres = self.ty_pi
             }
+            self.xdone()
+        } elif code == 108 {
+            if not self.compat(2, self.tres) {
+                self.fail_node(n, "write_byte() принимает u8")
+            }
+            self.tres = 5
             self.xdone()
         } else {
             self.xs_user_arg(f, n, code)

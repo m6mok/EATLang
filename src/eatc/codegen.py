@@ -39,21 +39,12 @@ STR_LL = ir.LiteralStructType([I32L, ir.ArrayType(I8L, STR_CAP)])
 I8P = ir.PointerType(I8L)
 STRP = ir.PointerType(STR_LL)
 
+# Аксиомы ОС — единственные внешние символы (шим runtime.c);
+# логика строк/разбора — EAT-методы RtStr (selfhost/Rt.eat).
 _RUNTIME = {
     "eat_trap": ir.FunctionType(ir.VoidType(), [I8P]),
-    "eat_print": ir.FunctionType(ir.VoidType(), [STRP]),
-    "eat_str_init": ir.FunctionType(ir.VoidType(), [STRP]),
-    "eat_str_append_bytes": ir.FunctionType(ir.VoidType(), [STRP, I8P, I32L]),
-    "eat_str_append_str": ir.FunctionType(ir.VoidType(), [STRP, STRP]),
-    "eat_str_append_i32": ir.FunctionType(ir.VoidType(), [STRP, I32L]),
-    "eat_str_append_u32": ir.FunctionType(ir.VoidType(), [STRP, I32L]),
-    "eat_str_append_char": ir.FunctionType(ir.VoidType(), [STRP, I8L]),
-    "eat_str_append_bool": ir.FunctionType(ir.VoidType(), [STRP, I32L]),
-    "eat_str_eq": ir.FunctionType(I32L, [STRP, STRP]),
-    "eat_read_line": ir.FunctionType(I32L, [STRP]),
     "eat_read_byte": ir.FunctionType(I32L, []),
-    "eat_write": ir.FunctionType(ir.VoidType(), [STRP]),
-    "eat_parse_i32": ir.FunctionType(I32L, [STRP, ir.PointerType(I32L)]),
+    "eat_write_byte": ir.FunctionType(ir.VoidType(), [I8L]),
 }
 
 _SIGNED = {"i32"}
@@ -78,6 +69,8 @@ class Codegen:
             for name, ftype in _RUNTIME.items()
         }
         self.cstr_cache: dict[bytes, ir.GlobalVariable] = {}
+        self.strlit_cache: dict[bytes, ir.GlobalVariable] = {}
+        self.gname_n = 0  # общий счётчик имён @"str.N" обоих видов
         # enum с нагрузкой: {i32 tag, слот на каждый вариант с нагрузкой}
         self.payload_enums: set = {
             name
@@ -152,14 +145,48 @@ class Codegen:
         if data not in self.cstr_cache:
             arr = ir.Constant(ir.ArrayType(I8L, len(data)), bytearray(data))
             g = ir.GlobalVariable(
-                self.module, arr.type, name=f"str.{len(self.cstr_cache)}"
+                self.module, arr.type, name=f"str.{self.gname_n}"
             )
+            self.gname_n += 1
             g.initializer = arr
             g.global_constant = True
             g.linkage = "private"
             self.cstr_cache[data] = g
         g = self.cstr_cache[data]
         return self.b.gep(g, [I32L(0), I32L(0)], inbounds=True), len(data) - 1
+
+    def cstr_str(self, text: str):
+        """Литеральный сегмент строки — глобал в layout'е str<256>
+        ({i32 len, [256 x i8]}): передаётся RtStr-методам как параметр."""
+        data = text.encode("utf-8")
+        if data not in self.strlit_cache:
+            buf = ir.Constant(
+                ir.ArrayType(I8L, STR_CAP),
+                bytearray(data.ljust(STR_CAP, b"\0")),
+            )
+            init = ir.Constant.literal_struct([I32L(len(data)), buf])
+            g = ir.GlobalVariable(
+                self.module, STR_LL, name=f"str.{self.gname_n}"
+            )
+            self.gname_n += 1
+            g.initializer = init
+            g.global_constant = True
+            g.linkage = "private"
+            self.strlit_cache[data] = g
+        return self.strlit_cache[data]
+
+    def rtm(self, name: str):
+        """Метод рантайм-модуля RtStr (selfhost/Rt.eat)."""
+        fn = self.funcs.get(f"RtStr.{name}")
+        if fn is None:
+            raise EatError(
+                self.filename,
+                1,
+                1,
+                "программа не включает рантайм-модуль: первым модулем "
+                "должен идти selfhost/Rt.eat (struct RtStr)",
+            )
+        return fn
 
     def trap_if(self, bad, node: ast.Node, message: str) -> None:
         """bad — i1: если истина, аварийная остановка."""
@@ -647,30 +674,25 @@ class Codegen:
 
     def gen_strlit(self, node: ast.StrLit):
         out = self.alloca(STR_LL, name="str")
-        self.b.call(self.rt["eat_str_init"], [out])
+        self.b.call(self.rtm("init"), [out])
         for seg in node.segments:
             if isinstance(seg, str):
-                ptr, n = self.cstr(seg)
-                self.b.call(
-                    self.rt["eat_str_append_bytes"], [out, ptr, I32L(n)]
-                )
+                g = self.cstr_str(seg)
+                self.b.call(self.rtm("append_str"), [out, g])
                 continue
             value = self.expr(seg)
             ty = seg.ty
             if isinstance(ty, StrType):
-                self.b.call(self.rt["eat_str_append_str"], [out, value])
+                self.b.call(self.rtm("append_str"), [out, value])
             elif isinstance(ty, CharType):
-                self.b.call(self.rt["eat_str_append_char"], [out, value])
+                self.b.call(self.rtm("append_char"), [out, value])
             elif isinstance(ty, BoolType):
-                self.b.call(
-                    self.rt["eat_str_append_bool"],
-                    [out, self.b.zext(value, I32L)],
-                )
+                self.b.call(self.rtm("append_bool"), [out, value])
             elif ty.kind == "i32":
-                self.b.call(self.rt["eat_str_append_i32"], [out, value])
+                self.b.call(self.rtm("append_i32"), [out, value])
             else:  # u32, u8
                 wide = self.b.zext(value, I32L) if ty.kind == "u8" else value
-                self.b.call(self.rt["eat_str_append_u32"], [out, wide])
+                self.b.call(self.rtm("append_u32"), [out, wide])
         return out
 
     def gen_unary(self, node: ast.UnaryOp):
@@ -690,8 +712,7 @@ class Codegen:
             return self.arith(node, op, left, right, lty.kind)
         # сравнения
         if isinstance(lty, StrType):
-            eq = self.b.call(self.rt["eat_str_eq"], [left, right])
-            res = self.b.icmp_signed("!=", eq, I32L(0))
+            res = self.b.call(self.rtm("eq"), [left, right])
             return res if op == "==" else self.b.not_(res)
         signed = isinstance(lty, IntType) and lty.kind in _SIGNED
         if signed:
@@ -772,13 +793,16 @@ class Codegen:
     def gen_call(self, node: ast.Call):
         name = node.name
         if name == "print":
-            self.b.call(self.rt["eat_print"], [self.expr(node.args[0])])
+            self.b.call(self.rtm("print"), [self.expr(node.args[0])])
             return None
         if name == "write":
-            self.b.call(self.rt["eat_write"], [self.expr(node.args[0])])
+            self.b.call(self.rtm("write"), [self.expr(node.args[0])])
             return None
         if name == "read_byte":
             return self.gen_read_byte(node)
+        if name == "write_byte":
+            self.b.call(self.rt["eat_write_byte"], [self.expr(node.args[0])])
+            return None
         if name == "read_line":
             return self.gen_read_line(node)
         if name == "parse_i32":
@@ -840,8 +864,7 @@ class Codegen:
 
     def gen_read_line(self, node: ast.Call):
         tmp = self.alloca(STR_LL, name="line")
-        self.b.call(self.rt["eat_str_init"], [tmp])
-        status = self.b.call(self.rt["eat_read_line"], [tmp])
+        status = self.b.call(self.rtm("read_line"), [tmp])
         res_ll = self.ll(node.ty)
         res = self.alloca(res_ll, name="read.res")
         tag = self.b.select(
@@ -860,15 +883,14 @@ class Codegen:
 
     def gen_parse_i32(self, node: ast.Call):
         s = self.expr(node.args[0])
-        out = self.alloca(I32L, name="parse.out")
-        self.b.store(I32L(0), out)
-        status = self.b.call(self.rt["eat_parse_i32"], [s, out])
+        status = self.b.call(self.rtm("parse_status"), [s])
+        value = self.b.call(self.rtm("parse_value"), [s])
         res = self.alloca(self.ll(node.ty), name="parse.res")
         ok = self.b.icmp_signed("==", status, I32L(0))
         tag = self.b.select(ok, I32L(0), I32L(1))
         self.b.store(tag, self.b.gep(res, [I32L(0), I32L(0)], inbounds=True))
         self.b.store(
-            self.b.load(out),
+            value,
             self.b.gep(res, [I32L(0), I32L(1)], inbounds=True),
         )
         # статусы 1..3 → варианты ParseError 0..2
@@ -1011,7 +1033,9 @@ def _memory_report(cg: Codegen, checker, machine) -> dict:
             )
         return memo[key]
 
-    globals_bytes = sum(len(data) for data in cg.cstr_cache)
+    globals_bytes = sum(len(data) for data in cg.cstr_cache) + (
+        4 + STR_CAP
+    ) * len(cg.strlit_cache)
     return {
         "frames": frames,
         "stack_bytes": worst("main"),

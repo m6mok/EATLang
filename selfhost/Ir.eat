@@ -39,6 +39,7 @@ struct Ir {
     gss: [u32; 65536]
     gsl: [u32; 65536]
     gsh: [u32; 65536]
+    gvk: [u32; 65536]
     ngl: u32
     # хвост модуля: 0 глобал / 1 declare интринзика
     tlk: [u32; 65536]
@@ -922,8 +923,8 @@ struct Ir {
         }
     }
 
-    func g_commit(var self) -> u32
-        requires true
+    func g_commit(var self, vk: u32) -> u32
+        requires vk <= 1
         ensures result < 65536
     {
         let s: u32 = self.gmk
@@ -932,7 +933,7 @@ struct Ir {
         var f: u32 = 4294967295
         for i in 0..65536 {
             if i < self.ngl and f == 4294967295 {
-                if self.gsh[i] == h and self.gsl[i] == l {
+                if self.gsh[i] == h and self.gsl[i] == l and self.gvk[i] == vk {
                     if self.g_eqspan(i, s, l) {
                         f = i
                     }
@@ -951,6 +952,7 @@ struct Ir {
         self.gss[g] = s
         self.gsl[g] = l
         self.gsh[g] = h
+        self.gvk[g] = vk
         self.ngl = g + 1
         self.tail_add(0, g)
         return g
@@ -1004,17 +1006,18 @@ struct Ir {
             self.g_lit("()")
         }
         self.g_b(0)
-        return self.g_commit()
+        return self.g_commit(0)
     }
 
+    # Литеральный сегмент — глобал в layout'е str<256> (без NUL,
+    # длина в i32-поле): передаётся методам RtStr как параметр.
     func cstr_seg(var self, a: u32, l: u32) -> u32
         requires true
         ensures result < 65536
     {
         self.g_begin()
         self.g_sb(a, l)
-        self.g_b(0)
-        return self.g_commit()
+        return self.g_commit(1)
     }
 
     # --- регистры значений --------------------------------------------------
@@ -1759,11 +1762,23 @@ struct Ir {
         ensures true
     {
         self.vpre()
-        self.lb_lit("call void @\"eat_")
+        self.lb_lit("call void @\"eat_RtStr__")
         self.lb_lit(nm)
         self.lb_lit("\"(")
         self.w_strty()
         self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # call void @"eat_write_byte"(i8 v1)
+    func e_wbyte(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_write_byte\"(i8 ")
         self.wr1()
         self.lb_lit(")")
         self.line_fin()
@@ -1775,7 +1790,7 @@ struct Ir {
         ensures true
     {
         self.vpre()
-        self.lb_lit("call void @\"eat_str_append_")
+        self.lb_lit("call void @\"eat_RtStr__append_")
         self.lb_lit(nm)
         self.lb_lit("\"(")
         self.w_strty()
@@ -1813,7 +1828,7 @@ struct Ir {
         ensures true
     {
         self.vpre()
-        self.lb_lit("call void @\"eat_str_append_str\"(")
+        self.lb_lit("call void @\"eat_RtStr__append_str\"(")
         self.w_strty()
         self.lb_lit("* ")
         self.wr1()
@@ -1830,7 +1845,7 @@ struct Ir {
         ensures true
     {
         self.rpre()
-        self.lb_lit("call i32 @\"eat_str_eq\"(")
+        self.lb_lit("call i1 @\"eat_RtStr__eq\"(")
         self.w_strty()
         self.lb_lit("* ")
         self.wr1()
@@ -1857,7 +1872,7 @@ struct Ir {
         ensures true
     {
         self.rpre()
-        self.lb_lit("call i32 @\"eat_read_line\"(")
+        self.lb_lit("call i32 @\"eat_RtStr__read_line\"(")
         self.w_strty()
         self.lb_lit("* ")
         self.wr1()
@@ -1865,18 +1880,30 @@ struct Ir {
         self.line_fin()
     }
 
-    # v1 — строка, v2 — out i32*.
-    func e_pi(var self)
+    # v1 — строка: статус разбора (0..3).
+    func e_pstat(var self)
         requires true
         ensures true
     {
         self.rpre()
-        self.lb_lit("call i32 @\"eat_parse_i32\"(")
+        self.lb_lit("call i32 @\"eat_RtStr__parse_status\"(")
         self.w_strty()
         self.lb_lit("* ")
         self.wr1()
-        self.lb_lit(", i32* ")
-        self.wr2()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # v1 — строка: значение при статусе 0.
+    func e_pval(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_RtStr__parse_value\"(")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr1()
         self.lb_lit(")")
         self.line_fin()
     }
@@ -2276,7 +2303,7 @@ struct Ir {
             self.xb3[f] = self.rra
             self.xc3[f] = self.rrb
             self.set1rr()
-            self.e_rt_s("str_init")
+            self.e_rt_s("init")
             self.xa3[f] = self.c.p.nfc[n]
             self.xp3[f] = 1
             return
@@ -2296,10 +2323,9 @@ struct Ir {
         self.xa3[f] = self.c.p.nns[cur]
         if self.c.p.nk[cur] == 36 {
             let g: u32 = self.cstr_seg(self.c.p.nss[cur], self.c.p.nsl[cur])
-            self.e_gepg(g)
-            self.set2rr()
             self.set1(1, self.xb3[f], self.xc3[f])
-            self.e_ab(self.c.p.nsl[cur])
+            self.set2(3, g, 0)
+            self.e_as()
         } else {
             self.xp3[f] = 2
             self.xpush2(cur)
@@ -2321,11 +2347,9 @@ struct Ir {
             self.set2er()
             self.e_rt_si("char", "i8")
         } elif tk == 3 {
-            self.set1er()
-            self.e_cvt(0, 3, 0)
             self.set1(1, self.xb3[f], self.xc3[f])
-            self.set2rr()
-            self.e_rt_si("bool", "i32")
+            self.set2er()
+            self.e_rt_si("bool", "i1")
         } elif tk == 0 {
             self.set1(1, self.xb3[f], self.xc3[f])
             self.set2er()
@@ -2463,9 +2487,6 @@ struct Ir {
             self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
             self.set2er()
             self.e_streq()
-            self.set1rr()
-            self.set2(2, 0, 0)
-            self.e_icmp(2, 0)
             if op != 4 {
                 self.set1rr()
                 self.e_not()
@@ -2607,6 +2628,9 @@ struct Ir {
         } elif self.c.span_is(a, l, "read_line") {
             self.xrline(n)
             self.nx3 = self.nx3 - 1
+        } elif self.c.span_is(a, l, "write_byte") {
+            self.xa3[f] = 5
+            self.xpush2(self.c.p.nfc[n])
         } elif self.c.span_is(a, l, "parse_i32") {
             self.xa3[f] = 3
             self.xpush2(self.c.p.nfc[n])
@@ -2685,6 +2709,11 @@ struct Ir {
             self.nx3 = self.nx3 - 1
         } elif code == 3 {
             self.xpi(n)
+            self.nx3 = self.nx3 - 1
+        } elif code == 5 {
+            self.set1er()
+            self.e_wbyte()
+            self.ert = 5
             self.nx3 = self.nx3 - 1
         } elif code == 4 {
             # len строки: load текущей длины
@@ -3233,8 +3262,6 @@ struct Ir {
         self.e_alloca_n(self.c.ty_sq)
         let ts2: u32 = self.rra
         let tl2: u32 = self.rrb
-        self.set1rr()
-        self.e_rt_s("str_init")
         self.set1(1, ts2, tl2)
         self.e_rline()
         let wk: u32 = self.rrk
@@ -3287,19 +3314,16 @@ struct Ir {
         let sk2: u32 = self.erk
         let sa2: u32 = self.era
         let sb2: u32 = self.erb
-        self.nm_lit("parse.out")
-        self.e_alloca_n(0)
-        let os2: u32 = self.rra
-        let ol2: u32 = self.rrb
-        self.set1(2, 0, 0)
-        self.set2rr()
-        self.e_store(0)
         self.set1(sk2, sa2, sb2)
-        self.set2(1, os2, ol2)
-        self.e_pi()
+        self.e_pstat()
         let wk: u32 = self.rrk
         let wa: u32 = self.rra
         let wb: u32 = self.rrb
+        self.set1(sk2, sa2, sb2)
+        self.e_pval()
+        let vk2: u32 = self.rrk
+        let va2: u32 = self.rra
+        let vb2: u32 = self.rrb
         self.nm_lit("parse.res")
         self.e_alloca_n(t)
         let rs2: u32 = self.rra
@@ -3322,15 +3346,10 @@ struct Ir {
         self.set2rr()
         self.set1(tk2, ta2, tb2)
         self.e_store(0)
-        self.set1(1, os2, ol2)
-        self.e_load(0)
-        let vk: u32 = self.rrk
-        let va: u32 = self.rra
-        let vb: u32 = self.rrb
         self.set1(1, rs2, rl2)
         self.e_gepc(t, 1)
         self.set2rr()
-        self.set1(vk, va, vb)
+        self.set1(vk2, va2, vb2)
         self.e_store(0)
         self.u1k = ok3
         self.u1a = oa3
@@ -4536,6 +4555,18 @@ struct Ir {
         ensures true
     {
         let l: u32 = self.gsl[g]
+        if self.gvk[g] == 1 {
+            write("@\"str.{g}\" = private constant {{i32, [256 x i8]}} {{i32 {l}, [256 x i8] c\"")
+            for i in 0..256 {
+                if i < l {
+                    self.p_esc(self.g_at(self.gss[g] + i))
+                } else {
+                    write("\\00")
+                }
+            }
+            write("\"}}")
+            return
+        }
         write("@\"str.{g}\" = private constant [{l} x i8] c\"")
         for h in 0..2 {
             if h * 256 < l {
@@ -4629,31 +4660,9 @@ struct Ir {
         self.p_sep()
         write("declare void @\"eat_trap\"(i8* %\".1\")\n")
         self.p_sep()
-        write("declare void @\"eat_print\"({{i32, [256 x i8]}}* %\".1\")\n")
-        self.p_sep()
-        write("declare void @\"eat_str_init\"({{i32, [256 x i8]}}* %\".1\")\n")
-        self.p_sep()
-        write("declare void @\"eat_str_append_bytes\"({{i32, [256 x i8]}}* %\".1\", i8* %\".2\", i32 %\".3\")\n")
-        self.p_sep()
-        write("declare void @\"eat_str_append_str\"({{i32, [256 x i8]}}* %\".1\", {{i32, [256 x i8]}}* %\".2\")\n")
-        self.p_sep()
-        write("declare void @\"eat_str_append_i32\"({{i32, [256 x i8]}}* %\".1\", i32 %\".2\")\n")
-        self.p_sep()
-        write("declare void @\"eat_str_append_u32\"({{i32, [256 x i8]}}* %\".1\", i32 %\".2\")\n")
-        self.p_sep()
-        write("declare void @\"eat_str_append_char\"({{i32, [256 x i8]}}* %\".1\", i8 %\".2\")\n")
-        self.p_sep()
-        write("declare void @\"eat_str_append_bool\"({{i32, [256 x i8]}}* %\".1\", i32 %\".2\")\n")
-        self.p_sep()
-        write("declare i32 @\"eat_str_eq\"({{i32, [256 x i8]}}* %\".1\", {{i32, [256 x i8]}}* %\".2\")\n")
-        self.p_sep()
-        write("declare i32 @\"eat_read_line\"({{i32, [256 x i8]}}* %\".1\")\n")
-        self.p_sep()
         write("declare i32 @\"eat_read_byte\"()\n")
         self.p_sep()
-        write("declare void @\"eat_write\"({{i32, [256 x i8]}}* %\".1\")\n")
-        self.p_sep()
-        write("declare i32 @\"eat_parse_i32\"({{i32, [256 x i8]}}* %\".1\", i32* %\".2\")\n")
+        write("declare void @\"eat_write_byte\"(i8 %\".1\")\n")
     }
 
     func p_main(var self)

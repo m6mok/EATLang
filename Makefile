@@ -3,6 +3,10 @@
 
 EATC = PYTHONPATH=src uv run python -m eatc
 
+# Рантайм-модуль (фаза 6): логика строк/вывода/разбора — на EATLang,
+# первый модуль каждой программы; в C остался шим аксиом ОС (runtime.c)
+RT = selfhost/Rt.eat
+
 EXAMPLES = \
 	examples/hello_world/HelloWorld.eat \
 	examples/math/Math.eat \
@@ -19,13 +23,13 @@ check:
 	$(EATC) check $(EXAMPLES)
 
 # Модульная программа: несколько файлов, последний — главный
-MODULES_EXAMPLE = examples/modules/ByteUtil.eat examples/modules/Main.eat
+MODULES_EXAMPLE = $(RT) examples/modules/ByteUtil.eat examples/modules/Main.eat
 
 run_modules:
 	$(EATC) run $(MODULES_EXAMPLE)
 
 # Проба self-host лексера: все кирпичи разом, вход — собственный исходник
-LEXER_PROBE = examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
+LEXER_PROBE = $(RT) examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
 
 run_lexer_probe:
 	cat examples/lexer/LexMain.eat | $(EATC) run $(LEXER_PROBE)
@@ -38,14 +42,14 @@ verify_suite:
 # сверка с эталоном на каждом .eat репозитория + интерпретатор == бинарник.
 # Фаза 1 — лексер (`eatc lex`), фаза 2 — парсер (`eatc parse`),
 # фаза 4 — эмиссия LLVM IR (`eatc ir`).
-SELFHOST_LEXER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/LexMain.eat
-SELFHOST_PARSER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
+SELFHOST_LEXER = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/LexMain.eat
+SELFHOST_PARSER = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/ParseMain.eat
-SELFHOST_SIG = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
+SELFHOST_SIG = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/Check.eat selfhost/SigMain.eat
-SELFHOST_TYPED = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
+SELFHOST_TYPED = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/Check.eat selfhost/TypedMain.eat
-SELFHOST_IR = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
+SELFHOST_IR = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/Check.eat selfhost/Ir.eat selfhost/IrMain.eat
 
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
@@ -68,7 +72,7 @@ run_selfhost_sig:
 	cat $(SELFHOST_SIG) | $(EATC) run $(SELFHOST_SIG)
 
 run_selfhost_ir:
-	cat examples/hello_world/HelloWorld.eat | $(EATC) run $(SELFHOST_IR)
+	cat $(RT) examples/hello_world/HelloWorld.eat | $(EATC) run $(SELFHOST_IR)
 
 verify_selfhost:
 	@$(EATC) build $(SELFHOST_LEXER) -o build/SelfLex > /dev/null
@@ -100,8 +104,9 @@ verify_selfhost:
 				&& echo "TYPED OK $$f" \
 				|| { echo "TYPED DIFF $$f"; exit 1; }; \
 		fi; \
-		if $(EATC) ir $$f > /tmp/eat_ir_ref.ll 2>/dev/null; then \
-			./build/SelfIr < $$f > /tmp/eat_ir_self.ll; \
+		cat $(RT) $$f > /tmp/eat_ir_in.eat; \
+		if $(EATC) ir /tmp/eat_ir_in.eat > /tmp/eat_ir_ref.ll 2>/dev/null; then \
+			./build/SelfIr < /tmp/eat_ir_in.eat > /tmp/eat_ir_self.ll; \
 			diff /tmp/eat_ir_ref.ll /tmp/eat_ir_self.ll > /dev/null \
 				&& echo "IR OK $$f" \
 				|| { echo "IR DIFF $$f"; exit 1; }; \
@@ -145,8 +150,8 @@ verify_selfhost:
 	@diff /tmp/eat_typed_ref.txt /tmp/eat_ir_e2e.txt \
 		&& echo "VERIFIED SelfIr (тайпчекер, собранный clang из self-IR, == эталон)" \
 		|| exit 1
-	@cat examples/hello_world/HelloWorld.eat | $(EATC) run $(SELFHOST_IR) > /tmp/eat_ir_interp.txt
-	@cat examples/hello_world/HelloWorld.eat | ./build/SelfIr > /tmp/eat_ir_native.txt
+	@cat $(RT) examples/hello_world/HelloWorld.eat | $(EATC) run $(SELFHOST_IR) > /tmp/eat_ir_interp.txt
+	@cat $(RT) examples/hello_world/HelloWorld.eat | ./build/SelfIr > /tmp/eat_ir_native.txt
 	@diff /tmp/eat_ir_interp.txt /tmp/eat_ir_native.txt \
 		&& echo "VERIFIED SelfIr (interp == native)" || exit 1
 
@@ -195,14 +200,14 @@ run_all:
 
 # Нативные бинарники (LLVM → build/<Имя>)
 build_all_examples:
-	@for f in $(EXAMPLES); do $(EATC) build $$f || exit 1; done
+	@for f in $(EXAMPLES); do $(EATC) build $(RT) $$f || exit 1; done
 
 # Сверка: вывод бинарника == вывод интерпретатора на каждом примере
 verify: build_all_examples
 	@for f in $(EXAMPLES); do \
 		name=$$(basename $$f .eat); \
 		case $$name in Elif) input="42"; ;; *) input=""; ;; esac; \
-		echo "$$input" | $(EATC) run $$f > /tmp/eat_interp.txt; \
+		echo "$$input" | $(EATC) run $(RT) $$f > /tmp/eat_interp.txt; \
 		echo "$$input" | ./build/$$name > /tmp/eat_native.txt; \
 		diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 			&& echo "VERIFIED $$name" || exit 1; \

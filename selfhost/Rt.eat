@@ -1,0 +1,362 @@
+# Рантайм EATLang на EATLang (фаза 6): строки, вывод, разбор чисел.
+# RtStr повторяет layout встроенной строки — {i32, [256 x i8]}, — поэтому
+# кодоген передаёт указатели на str<256> прямо в эти методы: print/write,
+# сегменты интерполяции, ==, read_line и parse_i32 лаверятся в @"RtStr.*".
+#
+# Rt.eat — первый модуль каждой программы:
+#   eatc build selfhost/Rt.eat App.eat
+#   cat selfhost/Rt.eat App.eat | ./build/SelfIr
+#
+# Аксиомы ОС, невыразимые в себе (шим runtime.c): read_byte(),
+# write_byte(), trap. Внутри методов вывода и разбора нет ни print,
+# ни интерполяции — они сами реализуют эти механизмы (иначе рекурсия,
+# невидимая правилу 1).
+
+struct RtStr {
+    ln: u32
+    buf: [u8; 256]
+
+    # --- вывод (write_byte — аксиома) -------------------------------------
+
+    func write(self)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if i < self.ln {
+                write_byte(self.buf[i])
+            }
+        }
+    }
+
+    func print(self)
+        requires true
+        ensures true
+    {
+        self.write()
+        write_byte(10)
+    }
+
+    # --- построение строки (интерполяция) ---------------------------------
+
+    func init(var self)
+        requires true
+        ensures self.ln == 0
+    {
+        self.ln = 0
+    }
+
+    func append_str(var self, o: RtStr)
+        requires true
+        ensures true
+    {
+        assert self.ln + o.ln <= 256
+        let base: u32 = self.ln
+        for i in 0..256 {
+            if i < o.ln {
+                self.buf[base + i] = o.buf[i]
+            }
+        }
+        self.ln = base + o.ln
+    }
+
+    func append_char(var self, c: char)
+        requires true
+        ensures true
+    {
+        assert self.ln < 256
+        self.buf[self.ln] = u8(c)
+        self.ln = self.ln + 1
+    }
+
+    func append_bool(var self, b: bool)
+        requires true
+        ensures true
+    {
+        if b {
+            self.append_char('t')
+            self.append_char('r')
+            self.append_char('u')
+            self.append_char('e')
+        } else {
+            self.append_char('f')
+            self.append_char('a')
+            self.append_char('l')
+            self.append_char('s')
+            self.append_char('e')
+        }
+    }
+
+    func append_u32(var self, v: u32)
+        requires true
+        ensures true
+    {
+        var tmp: [u8; 10] = [0; 10]
+        var n: u32 = 0
+        var x: u32 = v
+        for _ in 0..10 {
+            if n == 0 or x > 0 {
+                tmp[n] = u8(x % 10 + 48)
+                x = x / 10
+                n = n + 1
+            }
+        }
+        assert self.ln + n <= 256
+        let base: u32 = self.ln
+        for i in 0..10 {
+            if i < n {
+                self.buf[base + i] = tmp[n - 1 - i]
+            }
+        }
+        self.ln = base + n
+    }
+
+    # Магнитуда через (v + 1): -2147483648 выразим без переполнения.
+    func append_i32(var self, v: i32)
+        requires true
+        ensures true
+    {
+        if v < 0 {
+            self.append_char('-')
+            self.append_u32(u32(0 - (v + 1)) + 1)
+        } else {
+            self.append_u32(u32(v))
+        }
+    }
+
+    # --- сравнение ---------------------------------------------------------
+
+    func eq(self, o: RtStr) -> bool
+        requires true
+        ensures true
+    {
+        if self.ln != o.ln {
+            return false
+        }
+        var alike: bool = true
+        for i in 0..256 {
+            if i < self.ln {
+                if self.buf[i] != o.buf[i] {
+                    alike = false
+                }
+            }
+        }
+        return alike
+    }
+
+    # --- ввод строки (read_byte — аксиома) ---------------------------------
+    # 0 — Ok (строка в self), 1 — Eof. Как fgets: EOF после прочитанных
+    # байтов — обычная строка; строка длиннее 256 байт — trap.
+
+    func read_line(var self) -> u32
+        requires true
+        ensures result <= 1
+    {
+        self.ln = 0
+        var st: u32 = 2
+        for _ in 0..257 {
+            if st == 2 {
+                match read_byte() {
+                    Ok(b) {
+                        if b == 10 {
+                            st = 0
+                        } else {
+                            assert self.ln < 256
+                            self.buf[self.ln] = b
+                            self.ln = self.ln + 1
+                        }
+                    }
+                    Err(_) {
+                        if self.ln == 0 {
+                            st = 1
+                        } else {
+                            st = 0
+                        }
+                    }
+                }
+            }
+        }
+        return st
+    }
+
+    # --- разбор i32 ----------------------------------------------------------
+    # Семантика eat_parse_i32: обрезка ' ' и '\t', знак, цифры.
+    # Статус: 0 Ok, 1 Empty, 2 BadChar, 3 Overflow. Значение — вторым
+    # вызовом (Result собирает кодоген из пары status/value).
+
+    # Индекс первого значимого байта.
+    func p_lo(self) -> u32
+        requires true
+        ensures result <= 256
+    {
+        var i: u32 = 0
+        for _ in 0..256 {
+            if i < self.ln {
+                if self.buf[i] == 32 or self.buf[i] == 9 {
+                    i = i + 1
+                }
+            }
+        }
+        return i
+    }
+
+    # Индекс за последним значимым байтом.
+    func p_hi(self) -> u32
+        requires true
+        ensures result <= 256
+    {
+        var h: u32 = self.ln
+        for _ in 0..256 {
+            if h > 0 {
+                if self.buf[h - 1] == 32 or self.buf[h - 1] == 9 {
+                    h = h - 1
+                }
+            }
+        }
+        return h
+    }
+
+    func parse_status(self) -> u32
+        requires true
+        ensures result <= 3
+    {
+        var lo: u32 = self.p_lo()
+        let hi: u32 = self.p_hi()
+        if lo >= hi {
+            return 1
+        }
+        var neg: bool = false
+        if self.buf[lo] == 43 or self.buf[lo] == 45 {
+            neg = self.buf[lo] == 45
+            lo = lo + 1
+            if lo >= hi {
+                return 2
+            }
+        }
+        var mag: u32 = 0
+        var st: u32 = 0
+        for _ in 0..256 {
+            if lo < hi and st == 0 {
+                let b: u8 = self.buf[lo]
+                if b < 48 or b > 57 {
+                    st = 2
+                } else {
+                    let d: u32 = u32(b) - 48
+                    if mag > (4294967295 - d) / 10 {
+                        st = 3
+                    } else {
+                        mag = mag * 10 + d
+                        if neg {
+                            if mag > 2147483648 {
+                                st = 3
+                            }
+                        } elif mag > 2147483647 {
+                            st = 3
+                        }
+                        lo = lo + 1
+                    }
+                }
+            }
+        }
+        return st
+    }
+
+    # Значение при статусе 0; иначе 0. Границы уже проверены статусом.
+    func parse_value(self) -> i32
+        requires true
+        ensures true
+    {
+        if self.parse_status() != 0 {
+            return 0
+        }
+        var lo: u32 = self.p_lo()
+        let hi: u32 = self.p_hi()
+        var neg: bool = false
+        if self.buf[lo] == 43 or self.buf[lo] == 45 {
+            neg = self.buf[lo] == 45
+            lo = lo + 1
+        }
+        var mag: u32 = 0
+        for _ in 0..256 {
+            if lo < hi {
+                mag = mag * 10 + (u32(self.buf[lo]) - 48)
+                lo = lo + 1
+            }
+        }
+        if neg {
+            if mag == 2147483648 {
+                return -2147483648
+            }
+            return 0 - i32(mag)
+        }
+        return i32(mag)
+    }
+}
+
+# Заполнение RtStr в тестах: побайтно через append_char.
+func rt_of(a: str<16>) -> RtStr
+    requires true
+    ensures true
+{
+    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    for i in 0..16 {
+        if i < len(a) {
+            s.append_char(a[i])
+        }
+    }
+    return s
+}
+
+test rt_append_u32 {
+    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    s.append_u32(0)
+    assert s.ln == 1
+    assert u32(s.buf[0]) == 48
+    s.append_u32(4294967295)
+    assert s.ln == 11
+    assert u32(s.buf[1]) == 52
+    assert u32(s.buf[10]) == 53
+}
+
+test rt_append_i32 {
+    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    s.append_i32(-2147483648)
+    assert s.eq(rt_of("-2147483648"))
+    s.init()
+    s.append_i32(2147483647)
+    assert s.eq(rt_of("2147483647"))
+    s.init()
+    s.append_i32(0)
+    s.append_i32(-1)
+    assert s.eq(rt_of("0-1"))
+}
+
+test rt_append_misc {
+    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    s.append_bool(true)
+    s.append_char(',')
+    s.append_bool(false)
+    assert s.eq(rt_of("true,false"))
+    var t: RtStr = rt_of("ab")
+    t.append_str(rt_of("cd"))
+    assert t.eq(rt_of("abcd"))
+    assert not t.eq(rt_of("abce"))
+    assert not t.eq(rt_of("abc"))
+}
+
+test rt_parse {
+    assert rt_of(" 42 ").parse_status() == 0
+    assert rt_of(" 42 ").parse_value() == 42
+    assert rt_of("").parse_status() == 1
+    assert rt_of("  ").parse_status() == 1
+    assert rt_of("+").parse_status() == 2
+    assert rt_of("12x").parse_status() == 2
+    assert rt_of("x12").parse_status() == 2
+    assert rt_of("2147483647").parse_value() == 2147483647
+    assert rt_of("2147483648").parse_status() == 3
+    assert rt_of("-2147483648").parse_value() == -2147483648
+    assert rt_of("-2147483649").parse_status() == 3
+    assert rt_of("99999999999999").parse_status() == 3
+    assert rt_of("+7").parse_value() == 7
+    assert rt_of("-0").parse_value() == 0
+}
