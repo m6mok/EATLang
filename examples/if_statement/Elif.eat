@@ -1,34 +1,41 @@
-name: "Elif"
-using [
-    { i32: "number" },
-    { char: "input" cluster: 4096 }
-]
-def [
-    { receiving: "input" },
-    {
-        named: "print_is_positive"
-        do { conclude: "The number is positive." }
-    },
-    {
-        named: "print_is_negative"
-        do { conclude: "The number is negative." }
-    },
-    {
-        named: "print_is_zero"
-        do { conclude: "The number is zero." }
+# if / elif / else, ввод из stdin и обработка ошибок.
+#
+# Правило 7 NASA: read_line и parse_i32 возвращают Result,
+# отбросить или «забыть» ошибку невозможно — match исчерпывающий.
+
+func describe(number: i32) -> str<16>
+    requires true
+    ensures true
+{
+    if number > 0 {
+        return "positive"
+    } elif number < 0 {
+        return "negative"
     }
-]
-do [
-    {
-        commence: "Enter an integer: "
-        call: "input"
-    },
-    {
-        set { var: "number" cast: "input" }
-        if {
-            true: "number > 0" call: "print_is_positive"
-            elif { true: "number < 0" call: "print_is_negative" }
+    return "zero"
+}
+
+test describe {
+    assert describe(5) == "positive"
+    assert describe(-5) == "negative"
+    assert describe(0) == "zero"
+}
+
+func main() {
+    print("Enter an integer: ")
+    match read_line() {
+        Ok(line) {
+            match parse_i32(line) {
+                Ok(number) {
+                    print("The number is {describe(number)}.")
+                }
+                Err(_) {
+                    print("That is not an integer.")
+                }
+            }
         }
-        else { call: "print_is_zero"}
+        Err(_) {
+            print("Input error.")
+        }
     }
-]
+}

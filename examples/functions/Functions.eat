@@ -1,21 +1,27 @@
-name: "Functions"
-using [
-    { i32: "max" },
-    { i32: "a" },
-    { i32: "b" }
-]
-def {
-    calling: "max"
-    do {
-        if { true: "a > b" ret: "a" }
-        else { ret: "b" }
+# Функции, контракты и встроенные тесты.
+#
+# Правило 5 NASA: функция с параметрами обязана иметь requires,
+# с возвращаемым значением — ensures. Отказ от контракта —
+# только явный (requires true), чтобы он был виден на ревью.
+
+func max(a: i32, b: i32) -> i32
+    requires true
+    ensures result >= a and result >= b
+{
+    if a > b {
+        return a
     }
+    return b
 }
-do {
-    set [
-        { var: "a" i32: 10 },
-        { var: "b" i32: 20 }
-    ]
-    call: "max"
-    conclude: "The maximum is {max}"
+
+test max {
+    assert max(10, 20) == 20
+    assert max(-1, 1) == 1
+    assert max(7, 7) == 7
+}
+
+func main() {
+    let a: i32 = 10
+    let b: i32 = 20
+    print("The maximum is {max(a, b)}")
 }

@@ -1,34 +1,72 @@
-name: "All"
-version: "0.0.1"
-struct [
-    {
+# Витрина всех конструкций EATLang 0.0.1 на одной программе.
+# Служит эталоном для парсера: если этот файл собирается — язык покрыт.
 
-    },
-    {
+const LIMIT: u32 = 5
 
+enum Sign {
+    Negative,
+    Zero,
+    Positive
+}
+
+struct Stats {
+    total: i32
+    count: u32
+
+    func mean(self) -> i32
+        requires self.count > 0
+        ensures true
+    {
+        return self.total / cast_i32(self.count)
     }
-]
-using [
-    {
+}
 
-    },
-    {
-
+func sign_of(x: i32) -> Sign
+    requires true
+    ensures true
+{
+    if x < 0 {
+        return Sign.Negative
+    } elif x == 0 {
+        return Sign.Zero
     }
-]
-def [
-    {
+    return Sign.Positive
+}
 
-    },
-    {
-
+func describe(s: Sign) -> str<16>
+    requires true
+    ensures true
+{
+    match s {
+        Negative { return "negative" }
+        Zero     { return "zero" }
+        Positive { return "positive" }
     }
-]
-do [
-    {
+}
 
-    },
-    {
+func cast_i32(x: u32) -> i32
+    requires x <= 2147483647
+    ensures result >= 0
+{
+    return i32(x)
+}
 
+test sign_of {
+    assert describe(sign_of(-3)) == "negative"
+    assert describe(sign_of(0)) == "zero"
+    assert describe(sign_of(42)) == "positive"
+}
+
+func main() {
+    let data: [i32; 5] = [3, -1, 4, -1, 5]
+    var stats: Stats = Stats { total: 0, count: 0 }
+
+    for x in data {
+        stats.total = stats.total + x
+        stats.count = stats.count + 1
+        print("item {x} is {describe(sign_of(x))}")
     }
-]
+
+    assert stats.count == LIMIT
+    print("mean = {stats.mean()}")
+}

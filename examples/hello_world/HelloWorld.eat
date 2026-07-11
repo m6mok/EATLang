@@ -1,2 +1,5 @@
-name: "HelloWorld"
-do { conclude: "Hello, world!" }
+# Минимальная программа: точка входа и вывод.
+
+func main() {
+    print("Hello, world!")
+}

@@ -1,14 +1,9 @@
-name: "Math"
-using [
-    { i32: "a" },
-    { i32: "b" },
-    { i32: "result" }
-]
-do {
-    set [
-        { var: "a" i32: 10 },
-        { var: "b" i32: 5 },
-        { var: "result" eval: "(a + b) * 2" }
-    ]
-    conclude: "Result is: {result}"
+# Арифметика и иммутабельные переменные.
+# Переполнение i32 — это trap, а не молчаливый wrap.
+
+func main() {
+    let a: i32 = 10
+    let b: i32 = 5
+    let result: i32 = (a + b) * 2
+    print("Result is: {result}")
 }

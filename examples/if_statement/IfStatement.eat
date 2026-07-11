@@ -1,17 +1,15 @@
-name: "IfStatement"
-using { i32: "number" }
-def [
-    {
-        name: "print_is_even"
-        do { conclude: "{number} is even" }
-    },
-    {
-        name: "print_is_odd"
-        do { conclude: "{number} is odd" }
+# Ветвление if / else.
+
+func print_parity(number: i32)
+    requires true
+{
+    if number % 2 == 0 {
+        print("{number} is even")
+    } else {
+        print("{number} is odd")
     }
-]
-do {
-    set { var: "number" i32: 8 }
-    if { true: "number % 2 == 0" call: "print_is_even" }
-    else { call: "print_is_odd" }
+}
+
+func main() {
+    print_parity(8)
 }

@@ -1,14 +1,13 @@
-name: "Iterator"
-using { ui32: "count" }
-def {
-    named: "dec_count"
-    do {
-        commence: "Countdown: {count}"
-        set { var: "count" eval: "count - 1" }
+# Цикл со статической границей.
+#
+# Правило 2 NASA: while в языке нет. Граница цикла — константа
+# времени компиляции, число итераций известно до запуска.
+
+func main() {
+    var count: u32 = 3
+    for _ in 0..3 {
+        print("Countdown: {count}")
+        count = count - 1
     }
-}
-do {
-    set { var: "count" ui32: 3 }
-    while { true: "count > 0" call: "dec_count" }
-    conclude: "Go!"
+    print("Go!")
 }

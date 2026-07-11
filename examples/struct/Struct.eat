@@ -1,85 +1,61 @@
-name: "Struct"
-struct {
-    name: "Point"
-    contain [
-        { i32: "x" },
-        { i32: "y" }
-    ]
-    summary: { name: "Point_summary" shape: "Point" }
-    subtract: { name: "Point_subtract" shape: "Point" }
-    multiply: { name: "Point_mutiply" shape: "Point" }
-    divide: { name: "Point_divide" shape: "Point" }
-    unitary: { name: "Point_unitary" shape: "Point" }
-    repr: { char: "Point_repr" cluster: 1024 }
-    util [
-        { name: "_Point" shape: "Point" },
-        { ui32: "Distance" },
-        { name: "_Point_1" shape: "Point" }
-    ]
-}
-def [
+# Структуры, методы и контракты.
+#
+# Кучи и указателей нет: Point живёт на стеке, передаётся by-value.
+# Float'ов в v1 нет — вместо расстояния считаем его квадрат.
+
+struct Point {
+    x: i32
+    y: i32
+
+    func add(self, other: Point) -> Point
+        requires true
+        ensures true
     {
-        calling: "Distance"
-        do {
-            set { var: "&" eval: "((_Point->x - _Point_1->x)^2 + (_Point->y - _Point_1->y)^2)^0.5" }
-            ret: "&"
-        }
-    },
-    {
-        calling: "Point_summary"
-        do {
-            set [
-                { var: "&x" eval: "&x + _Point->x" },
-                { var: "&y" eval: "&y + _Point->y" }
-            ]
-            ret: "&"
-        }
-    },
-    {
-        calling: "Point_subtract"
-        do {
-            set [
-                { var: "&x" eval: "&x - _Point->x" },
-                { var: "&y" eval: "&y - _Point->y" }
-            ]
-            ret: "&"
-        }
-    },
-    {
-        calling: "Point_mutiply"
-        do {
-            set [
-                { var: "&x" eval: "&x * _Point->x" },
-                { var: "&y" eval: "&y * _Point->y" }
-            ]
-            ret: "&"
-        }
-    },
-    {
-        calling: "Point_divide"
-        do {
-            set [
-                { var: "&x" eval: "&x / _Point->x" },
-                { var: "&y" eval: "&y / _Point->y" }
-            ]
-            ret: "&"
-        }
-    },
-    {
-        calling: "Point_repr"
-        do {
-            set { var: "&" format: "Point({&x}, {&y})" }
-            ret: "&"
-        }
-    },
-    {
-        calling: "Point_unitary"
-        do {
-            set [
-                { var: "&x" eval: "-&x" },
-                { var: "&y" eval: "-&y" }
-            ]
-            ret: "&"
-        }
+        return Point { x: self.x + other.x, y: self.y + other.y }
     }
-]
+
+    func sub(self, other: Point) -> Point
+        requires true
+        ensures true
+    {
+        return Point { x: self.x - other.x, y: self.y - other.y }
+    }
+
+    func neg(self) -> Point
+        requires true
+        ensures true
+    {
+        return Point { x: -self.x, y: -self.y }
+    }
+
+    func repr(self) -> str<64>
+        requires true
+        ensures true
+    {
+        return "Point({self.x}, {self.y})"
+    }
+}
+
+func dist_sq(p: Point, q: Point) -> i32
+    requires true
+    ensures result >= 0
+{
+    let dx: i32 = p.x - q.x
+    let dy: i32 = p.y - q.y
+    return dx * dx + dy * dy
+}
+
+test dist_sq {
+    let a: Point = Point { x: 0, y: 0 }
+    let b: Point = Point { x: 3, y: 4 }
+    assert dist_sq(a, b) == 25
+    assert dist_sq(a, a) == 0
+}
+
+func main() {
+    let p: Point = Point { x: 1, y: 2 }
+    let q: Point = Point { x: 3, y: 4 }
+    let s: Point = p.add(q)
+    print("Sum: {s.repr()}")
+    print("Distance squared: {dist_sq(p, q)}")
+}
