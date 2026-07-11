@@ -261,7 +261,9 @@ class Codegen:
                 self.bind(pname, pty, slot)
 
         self.exit_block = fn.append_basic_block("exit")
-        if func.requires is not None:
+        if func.requires is not None and not getattr(
+            func, "requires_proven", False
+        ):
             cond = self.expr(func.requires)
             self.trap_if(
                 self.b.not_(cond),
@@ -272,7 +274,9 @@ class Codegen:
         self.ensure_br(self.exit_block)
 
         self.b.position_at_end(self.exit_block)
-        if func.ensures is not None:
+        if func.ensures is not None and not getattr(
+            func, "ensures_proven", False
+        ):
             self.push()
             if sig.ret is not None:
                 self.bind("result", sig.ret, self.ret_slot)
@@ -346,6 +350,8 @@ class Codegen:
             self.b.branch(self.loop_exits[-1])
             return
         if isinstance(stmt, ast.AssertStmt):
+            if getattr(stmt, "proven", False):
+                return  # доказан статически — проверка не нужна
             cond = self.expr(stmt.cond)
             self.trap_if(self.b.not_(cond), stmt, "assert не выполнен")
             return
@@ -502,9 +508,12 @@ class Codegen:
                 self.b.gep(base, [I32L(0), I32L(0)], inbounds=True)
             )
             path = [I32L(0), I32L(1), idx32]
-        bad_low = self.b.icmp_signed("<", idx32, I32L(0))
-        bad_high = self.b.icmp_signed(">=", idx32, size)
-        self.trap_if(self.b.or_(bad_low, bad_high), node, "индекс вне границ")
+        if not getattr(node, "in_bounds", False):
+            bad_low = self.b.icmp_signed("<", idx32, I32L(0))
+            bad_high = self.b.icmp_signed(">=", idx32, size)
+            self.trap_if(
+                self.b.or_(bad_low, bad_high), node, "индекс вне границ"
+            )
         return self.b.gep(base, path, inbounds=True)
 
     def widen_index(self, ty: Type, value):
@@ -631,6 +640,10 @@ class Codegen:
     def arith(self, node, op: str, left, right, kind: str):
         signed = kind in _SIGNED
         if op in ("+", "-", "*"):
+            if getattr(node, "no_overflow", False):
+                # переполнение доказуемо невозможно — обычная инструкция
+                plain = {"+": self.b.add, "-": self.b.sub, "*": self.b.mul}
+                return plain[op](left, right)
             name = {
                 ("+", True): "llvm.sadd.with.overflow",
                 ("-", True): "llvm.ssub.with.overflow",
@@ -650,16 +663,21 @@ class Codegen:
             )
             return self.b.extract_value(pair, 0)
         # деление и остаток
-        zero = left.type(0)
-        self.trap_if(
-            self.b.icmp_signed("==", right, zero), node, "деление на ноль"
-        )
-        if signed:
-            edge = self.b.and_(
-                self.b.icmp_signed("==", left, left.type(_INT_MIN)),
-                self.b.icmp_signed("==", right, left.type(-1)),
+        safe = getattr(node, "div_safe", False)
+        if not safe:
+            zero = left.type(0)
+            self.trap_if(
+                self.b.icmp_signed("==", right, zero),
+                node,
+                "деление на ноль",
             )
-            self.trap_if(edge, node, f"переполнение {kind}")
+        if signed:
+            if not safe:
+                edge = self.b.and_(
+                    self.b.icmp_signed("==", left, left.type(_INT_MIN)),
+                    self.b.icmp_signed("==", right, left.type(-1)),
+                )
+                self.trap_if(edge, node, f"переполнение {kind}")
             return (
                 self.b.sdiv(left, right)
                 if op == "/"
@@ -756,6 +774,7 @@ class Codegen:
         source_ty = node.args[0].ty
         value = self.expr(node.args[0])
         src = source_ty.kind
+        proven = getattr(node, "cast_ok", False)
         if src == "u8":
             wide = self.b.zext(value, I32L)
             if target == "u8":
@@ -763,19 +782,22 @@ class Codegen:
             return wide  # в i32/u32 всегда помещается
         # src — i32 или u32 (регистр i32)
         if target == "i32" and src == "u32":
-            bad = self.b.icmp_unsigned(">", value, I32L(2**31 - 1))
-            self.trap_if(bad, node, "переполнение при i32()")
+            if not proven:
+                bad = self.b.icmp_unsigned(">", value, I32L(2**31 - 1))
+                self.trap_if(bad, node, "переполнение при i32()")
         elif target == "u32" and src == "i32":
-            bad = self.b.icmp_signed("<", value, I32L(0))
-            self.trap_if(bad, node, "переполнение при u32()")
+            if not proven:
+                bad = self.b.icmp_signed("<", value, I32L(0))
+                self.trap_if(bad, node, "переполнение при u32()")
         elif target == "u8":
-            if src == "i32":
-                low = self.b.icmp_signed("<", value, I32L(0))
-                high = self.b.icmp_signed(">", value, I32L(255))
-                bad = self.b.or_(low, high)
-            else:
-                bad = self.b.icmp_unsigned(">", value, I32L(255))
-            self.trap_if(bad, node, "переполнение при u8()")
+            if not proven:
+                if src == "i32":
+                    low = self.b.icmp_signed("<", value, I32L(0))
+                    high = self.b.icmp_signed(">", value, I32L(255))
+                    bad = self.b.or_(low, high)
+                else:
+                    bad = self.b.icmp_unsigned(">", value, I32L(255))
+                self.trap_if(bad, node, "переполнение при u8()")
             return self.b.trunc(value, I8L)
         return value
 

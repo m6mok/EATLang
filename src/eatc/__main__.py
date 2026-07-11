@@ -57,14 +57,27 @@ def cmd_run(path: str) -> int:
     return 0
 
 
+_KIND_LABEL = {
+    "overflow": "переполнение",
+    "div": "деление",
+    "bounds": "границы",
+    "cast": "cast",
+    "requires": "requires",
+    "ensures": "ensures",
+    "assert": "assert",
+}
+
+
 def cmd_build(path: str, out: str | None) -> int:
     from .codegen import compile_binary
+    from .verifier import verify
 
     if out is None:
         out = str(Path("build") / Path(path).stem)
     try:
         program, _, typed = _compile(path)
         tests = Interpreter(program, path).run_tests()
+        proofs = verify(program, typed.checker)
         binary, report = compile_binary(program, typed.checker, path, out)
     except EatError as err:
         print(err, file=sys.stderr)
@@ -73,6 +86,17 @@ def cmd_build(path: str, out: str | None) -> int:
         f"OK {binary} — stack depth: {typed.stack_depth}, "
         f"tests passed: {len(tests)}"
     )
+    left = proofs["total"] - proofs["proven"]
+    print(
+        f"  верификация: доказано {proofs['proven']} из "
+        f"{proofs['total']} проверок ({left} остаётся в рантайме)"
+    )
+    detail = ", ".join(
+        f"{_KIND_LABEL[k]}: {v[0]}/{v[1]}"
+        for k, v in sorted(proofs["by_kind"].items())
+    )
+    if detail:
+        print(f"    {detail}")
     print(
         f"  память (§8): стек худшей цепочки ≤ {report['stack_bytes']} Б, "
         f"статические данные {report['globals_bytes']} Б"

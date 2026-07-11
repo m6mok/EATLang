@@ -492,7 +492,12 @@ class Parser:
     def parse_unary(self) -> ast.Expr:
         if self.at(T.MINUS):
             tok = self.advance()
-            return ast.UnaryOp(tok.line, tok.col, "-", self.parse_unary())
+            operand = self.parse_unary()
+            if isinstance(operand, ast.IntLit):
+                # отрицательный литерал — одно число: иначе -2147483648
+                # (INT_MIN) был бы невыразим
+                return ast.IntLit(tok.line, tok.col, -operand.value)
+            return ast.UnaryOp(tok.line, tok.col, "-", operand)
         return self.parse_postfix()
 
     def parse_postfix(self) -> ast.Expr:
