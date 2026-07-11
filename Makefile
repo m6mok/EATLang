@@ -24,6 +24,12 @@ MODULES_EXAMPLE = examples/modules/ByteUtil.eat examples/modules/Main.eat
 run_modules:
 	$(EATC) run $(MODULES_EXAMPLE)
 
+# Проба self-host лексера: все кирпичи разом, вход — собственный исходник
+LEXER_PROBE = examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
+
+run_lexer_probe:
+	cat examples/lexer/LexMain.eat | $(EATC) run $(LEXER_PROBE)
+
 # Регрессионный набор верификатора (tests/verify/, docs/VERIFICATION_PLAN.md)
 verify_suite:
 	uv run python tests/verify_suite.py
@@ -71,3 +77,8 @@ verify: build_all_examples
 	@./build/Modules > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Modules" || exit 1
+	@$(EATC) build $(LEXER_PROBE) -o build/Lexer > /dev/null
+	@cat examples/lexer/LexMain.eat | $(EATC) run $(LEXER_PROBE) > /tmp/eat_interp.txt
+	@cat examples/lexer/LexMain.eat | ./build/Lexer > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED LexerProbe" || exit 1

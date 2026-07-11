@@ -1,0 +1,42 @@
+# Модуль классификации байтов исходника (self-host проба).
+
+enum Klass {
+    Letter,
+    Digit,
+    Space,
+    Other,
+}
+
+func klass(b: u8) -> Klass
+    requires true
+    ensures true
+{
+    if b >= 97 and b <= 122 {
+        return Klass.Letter
+    }
+    if b >= 65 and b <= 90 {
+        return Klass.Letter
+    }
+    if b == 95 {
+        return Klass.Letter
+    }
+    if b >= 48 and b <= 57 {
+        return Klass.Digit
+    }
+    if b == 32 or b == 10 or b == 9 or b == 13 {
+        return Klass.Space
+    }
+    return Klass.Other
+}
+
+func code_of(k: Klass) -> u32
+    requires true
+    ensures result <= 3
+{
+    match k {
+        Letter { return 0 }
+        Digit { return 1 }
+        Space { return 2 }
+        Other { return 3 }
+    }
+}
