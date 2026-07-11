@@ -75,6 +75,7 @@ class CheckResult:
     stack_depth: int = 0
     funcs: int = 0
     edges: set = field(default_factory=set)
+    checker: object = None  # TypeChecker — таблицы типов для кодогенерации
 
 
 BUILTINS = {
@@ -179,7 +180,10 @@ class TypeChecker:
                 self.check_test(decl)
         depth = self.check_call_graph()
         return CheckResult(
-            stack_depth=depth, funcs=len(self.funcs), edges=self.edges
+            stack_depth=depth,
+            funcs=len(self.funcs),
+            edges=self.edges,
+            checker=self,
         )
 
     # --- сбор объявлений -----------------------------------------------------
@@ -375,6 +379,7 @@ class TypeChecker:
     def check_stmt(self, stmt: ast.Stmt) -> None:
         if isinstance(stmt, ast.LetStmt):
             declared = self.resolve(stmt.type)
+            stmt.var_ty = declared  # для кодогенерации
             actual = self.expr(stmt.value, expected=declared)
             self._require_compatible(stmt, declared, actual)
             self.declare(
@@ -474,7 +479,9 @@ class TypeChecker:
             elem: Type = U32 if start >= 0 else I32
             self._check_int_fits(stmt.iterable, elem, start)
             self._check_int_fits(stmt.iterable, elem, end)
+            stmt.bounds = (start, end)  # для кодогенерации
         else:
+            stmt.bounds = None
             itype = self.expr(stmt.iterable)
             if isinstance(itype, ArrayType):
                 elem = itype.elem
@@ -486,6 +493,7 @@ class TypeChecker:
                     f"итерация возможна по диапазону, массиву или строке, "
                     f"не по {show(itype)}",
                 )
+        stmt.elem_ty = elem  # для кодогенерации
         self.push_scope()
         if stmt.target != "_":
             self.declare(
@@ -519,6 +527,7 @@ class TypeChecker:
                 raise self.err(arm, f"вариант {arm.pattern} повторяется")
             seen.add(arm.pattern)
             payload = expected[arm.pattern]
+            arm.payload_ty = payload  # для кодогенерации
             if arm.binding is not None and payload is None:
                 raise self.err(arm, f"вариант {arm.pattern} не несёт значения")
             self.push_scope()
@@ -589,6 +598,7 @@ class TypeChecker:
         allow_void: bool = False,
     ) -> Type:
         t = self._expr(node, expected)
+        node.ty = t  # аннотация для кодогенерации
         if t is VOID and not allow_void:
             raise self.err(
                 node, "функция ничего не возвращает — это не значение"
@@ -772,6 +782,7 @@ class TypeChecker:
         if sig is None:
             raise self.err(node, f"у struct {obj.name} нет метода {node.name}")
         self._check_args(node, sig)
+        node.struct = obj.name  # для кодогенерации
         self.edges.add((self.current_key, f"{obj.name}.{node.name}"))
         return sig.ret if sig.ret is not None else VOID
 

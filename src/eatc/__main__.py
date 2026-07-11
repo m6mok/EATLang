@@ -2,10 +2,12 @@
 
 python -m eatc check <файлы...>  — компиляция: парсинг, проверки,
                                    типы, исполнение test-блоков
-python -m eatc run <файл>        — check + запуск main
+python -m eatc run <файл>        — check + запуск main интерпретатором
+python -m eatc build <файл> [out] — check + LLVM → нативный бинарник
 """
 
 import sys
+from pathlib import Path
 
 from .checks import check_program
 from .errors import EatError
@@ -55,13 +57,35 @@ def cmd_run(path: str) -> int:
     return 0
 
 
+def cmd_build(path: str, out: str | None) -> int:
+    from .codegen import compile_binary
+
+    if out is None:
+        out = str(Path("build") / Path(path).stem)
+    try:
+        program, _, typed = _compile(path)
+        tests = Interpreter(program, path).run_tests()
+        binary = compile_binary(program, typed.checker, path, out)
+    except EatError as err:
+        print(err, file=sys.stderr)
+        return 1
+    print(
+        f"OK {binary} — stack depth: {typed.stack_depth}, "
+        f"tests passed: {len(tests)}"
+    )
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "check":
         return cmd_check(argv[1:])
     if len(argv) == 2 and argv[0] == "run":
         return cmd_run(argv[1])
+    if len(argv) in (2, 3) and argv[0] == "build":
+        return cmd_build(argv[1], argv[2] if len(argv) == 3 else None)
     print(
-        "использование: python -m eatc (check <файлы.eat...> | run <файл>)",
+        "использование: python -m eatc "
+        "(check <файлы.eat...> | run <файл> | build <файл> [out])",
         file=sys.stderr,
     )
     return 2

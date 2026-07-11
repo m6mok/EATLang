@@ -41,3 +41,18 @@ run_struct:
 
 run_all:
 	$(EATC) run examples/all/All.eat
+
+# Нативные бинарники (LLVM → build/<Имя>)
+build_all_examples:
+	@for f in $(EXAMPLES); do $(EATC) build $$f || exit 1; done
+
+# Сверка: вывод бинарника == вывод интерпретатора на каждом примере
+verify: build_all_examples
+	@for f in $(EXAMPLES); do \
+		name=$$(basename $$f .eat); \
+		case $$name in Elif) input="42"; ;; *) input=""; ;; esac; \
+		echo "$$input" | $(EATC) run $$f > /tmp/eat_interp.txt; \
+		echo "$$input" | ./build/$$name > /tmp/eat_native.txt; \
+		diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+			&& echo "VERIFIED $$name" || exit 1; \
+	done
