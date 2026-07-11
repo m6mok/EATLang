@@ -34,6 +34,27 @@ run_lexer_probe:
 verify_suite:
 	uv run python tests/verify_suite.py
 
+# Self-hosted лексер (selfhost/): дифференциальная сверка с эталоном
+# `eatc lex` на каждом .eat репозитория + интерпретатор == бинарник.
+SELFHOST_LEXER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Main.eat
+
+run_selfhost_lexer:
+	cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER)
+
+verify_selfhost:
+	@$(EATC) build $(SELFHOST_LEXER) -o build/SelfLex > /dev/null
+	@for f in $$(find examples selfhost tests -name '*.eat' | sort); do \
+		$(EATC) lex $$f > /tmp/eat_lex_ref.txt; \
+		./build/SelfLex < $$f > /tmp/eat_lex_self.txt; \
+		diff /tmp/eat_lex_ref.txt /tmp/eat_lex_self.txt > /dev/null \
+			&& echo "LEX OK $$f" \
+			|| { echo "LEX DIFF $$f"; exit 1; }; \
+	done
+	@cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER) > /tmp/eat_lex_interp.txt
+	@cat $(SELFHOST_LEXER) | ./build/SelfLex > /tmp/eat_lex_native.txt
+	@diff /tmp/eat_lex_interp.txt /tmp/eat_lex_native.txt \
+		&& echo "VERIFIED SelfLex (interp == native == эталон)" || exit 1
+
 run_hello_world:
 	$(EATC) run examples/hello_world/HelloWorld.eat
 

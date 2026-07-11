@@ -1,0 +1,123 @@
+# Self-hosted лексер: коды токенов, их имена, распознавание ключевых слов.
+# Коды и имена совпадают с эталоном (src/eatc/tokens.py, `eatc lex`).
+#
+# 0 INT      1 STRING   2 CHAR     3 IDENT
+# 4..29 ключевые слова, 30..53 пунктуация, 54 NEWLINE, 55 EOF
+
+func write_kind(k: u32)
+    requires k <= 55
+    ensures true
+{
+    if k < 30 {
+        write_kind_kw(k)
+    } else {
+        write_kind_op(k)
+    }
+}
+
+func write_kind_kw(k: u32)
+    requires k < 30
+    ensures true
+{
+    if k == 0 { write("INT") } elif k == 1 { write("STRING") } elif k == 2 { write("CHAR") } elif k == 3 { write("IDENT") } elif k == 4 { write("FUNC") } elif k == 5 { write("LET") } elif k == 6 { write("VAR") } elif k == 7 { write("CONST") } elif k == 8 { write("STRUCT") } elif k == 9 { write("ENUM") } elif k == 10 { write("TEST") } elif k == 11 { write("IF") } elif k == 12 { write("ELIF") } elif k == 13 { write("ELSE") } elif k == 14 { write("FOR") } elif k == 15 { write("IN") } elif k == 16 { write("LOOP") } elif k == 17 { write("MATCH") } elif k == 18 { write("RETURN") } elif k == 19 { write("BREAK") } elif k == 20 { write("ASSERT") } elif k == 21 { write("REQUIRES") } elif k == 22 { write("ENSURES") } elif k == 23 { write("DISCARD") } elif k == 24 { write("SELF") } elif k == 25 { write("TRUE") } elif k == 26 { write("FALSE") } elif k == 27 { write("AND") } elif k == 28 { write("OR") } else { write("NOT") }
+}
+
+func write_kind_op(k: u32)
+    requires k >= 30 and k <= 55
+    ensures true
+{
+    if k == 30 { write("LPAREN") } elif k == 31 { write("RPAREN") } elif k == 32 { write("LBRACE") } elif k == 33 { write("RBRACE") } elif k == 34 { write("LBRACKET") } elif k == 35 { write("RBRACKET") } elif k == 36 { write("LT") } elif k == 37 { write("GT") } elif k == 38 { write("LE") } elif k == 39 { write("GE") } elif k == 40 { write("EQ") } elif k == 41 { write("NE") } elif k == 42 { write("ASSIGN") } elif k == 43 { write("COMMA") } elif k == 44 { write("COLON") } elif k == 45 { write("SEMI") } elif k == 46 { write("DOT") } elif k == 47 { write("DOTDOT") } elif k == 48 { write("ARROW") } elif k == 49 { write("PLUS") } elif k == 50 { write("MINUS") } elif k == 51 { write("STAR") } elif k == 52 { write("SLASH") } elif k == 53 { write("PERCENT") } elif k == 54 { write("NEWLINE") } else { write("EOF") }
+}
+
+# Слово (первые 16 байт лексемы) совпадает со строкой-эталоном?
+func same(a: [u8; 16], n: u32, kw: str<16>) -> bool
+    requires n <= 16
+    ensures true
+{
+    if n != len(kw) {
+        return false
+    }
+    var ok: bool = true
+    for i in 0..16 {
+        if i < n {
+            if a[i] != u8(kw[i]) {
+                ok = false
+            }
+        }
+    }
+    return ok
+}
+
+# Код ключевого слова, 3 (IDENT) — если слово не ключевое.
+func kw_code(w: [u8; 16], n: u32) -> u32
+    requires n <= 16
+    ensures result <= 29
+{
+    if n < 2 or n > 8 {
+        return 3
+    }
+    let k1: u32 = kw_code_af(w, n)
+    if k1 != 3 {
+        return k1
+    }
+    return kw_code_iv(w, n)
+}
+
+func kw_code_af(w: [u8; 16], n: u32) -> u32
+    requires n <= 16
+    ensures result <= 29
+{
+    let c: u8 = w[0]
+    if c == 97 { # a
+        if same(w, n, "and") { return 27 }
+        if same(w, n, "assert") { return 20 }
+    } elif c == 98 { # b
+        if same(w, n, "break") { return 19 }
+    } elif c == 99 { # c
+        if same(w, n, "const") { return 7 }
+    } elif c == 100 { # d
+        if same(w, n, "discard") { return 23 }
+    } elif c == 101 { # e
+        if same(w, n, "elif") { return 12 }
+        if same(w, n, "else") { return 13 }
+        if same(w, n, "ensures") { return 22 }
+        if same(w, n, "enum") { return 9 }
+    } elif c == 102 { # f
+        if same(w, n, "false") { return 26 }
+        if same(w, n, "for") { return 14 }
+        if same(w, n, "func") { return 4 }
+    }
+    return 3
+}
+
+func kw_code_iv(w: [u8; 16], n: u32) -> u32
+    requires n <= 16
+    ensures result <= 29
+{
+    let c: u8 = w[0]
+    if c == 105 { # i
+        if same(w, n, "if") { return 11 }
+        if same(w, n, "in") { return 15 }
+    } elif c == 108 { # l
+        if same(w, n, "let") { return 5 }
+        if same(w, n, "loop") { return 16 }
+    } elif c == 109 { # m
+        if same(w, n, "match") { return 17 }
+    } elif c == 110 { # n
+        if same(w, n, "not") { return 29 }
+    } elif c == 111 { # o
+        if same(w, n, "or") { return 28 }
+    } elif c == 114 { # r
+        if same(w, n, "requires") { return 21 }
+        if same(w, n, "return") { return 18 }
+    } elif c == 115 { # s
+        if same(w, n, "self") { return 24 }
+        if same(w, n, "struct") { return 8 }
+    } elif c == 116 { # t
+        if same(w, n, "test") { return 10 }
+        if same(w, n, "true") { return 25 }
+    } elif c == 118 { # v
+        if same(w, n, "var") { return 6 }
+    }
+    return 3
+}

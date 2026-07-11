@@ -1,0 +1,519 @@
+# Self-hosted лексер EATLang: стриминговый конечный автомат.
+# Байты приходят по одному (read_byte в main), токены печатаются
+# в формате эталона `eatc lex`: "СТРОКА:КОЛОНКА ВИД [значение]".
+#
+# Состояния:
+#  0 старт        1 слово        2 число        3 строка
+#  4 строка-esc   5 char-открыт  6 char-esc     7 char-закрытие
+#  8 комментарий  9 минус (->)  10 точка (..)  11 равно (==)
+# 12 внезапный ! 13 меньше (<=) 14 больше (>=)
+#
+# Колонки считаются в символах, как у эталона: continuation-байты
+# UTF-8 (0x80..0xBF) колонку не двигают.
+
+func is_digit(b: u8) -> bool
+    requires true
+    ensures true
+{
+    return b >= 48 and b <= 57
+}
+
+# Байт слова: ASCII-буква, цифра, '_' или не-ASCII (эталон принимает
+# юникодные буквы в идентификаторах — байтовый лексер принимает
+# любой байт >= 128).
+func is_word_byte(b: u8) -> bool
+    requires true
+    ensures true
+{
+    if is_digit(b) {
+        return true
+    }
+    if b >= 97 and b <= 122 {
+        return true
+    }
+    if b >= 65 and b <= 90 {
+        return true
+    }
+    return b == 95 or b >= 128
+}
+
+# Код escape-последовательности: \n \t \\ \" \' \0; 256 — неизвестная.
+func esc_code(b: u8) -> u32
+    requires true
+    ensures result <= 256
+{
+    if b == 110 { return 10 }
+    if b == 116 { return 9 }
+    if b == 92 { return 92 }
+    if b == 34 { return 34 }
+    if b == 39 { return 39 }
+    if b == 48 { return 0 }
+    return 256
+}
+
+# Код одиночного знака пунктуации; 99 — не пунктуация.
+func punct_code(b: u8) -> u32
+    requires true
+    ensures result <= 99
+{
+    if b == 40 { return 30 } elif b == 41 { return 31 } elif b == 123 { return 32 } elif b == 125 { return 33 } elif b == 91 { return 34 } elif b == 93 { return 35 } elif b == 44 { return 43 } elif b == 58 { return 44 } elif b == 59 { return 45 } elif b == 43 { return 49 } elif b == 42 { return 51 } elif b == 47 { return 52 } elif b == 37 { return 53 }
+    return 99
+}
+
+# Байт значения токена с экранированием формата дампа.
+func write_esc(b: u8)
+    requires true
+    ensures true
+{
+    if b == 92 { write("\\\\") } elif b == 10 { write("\\n") } elif b == 9 { write("\\t") } elif b == 13 { write("\\r") } elif b == 0 { write("\\0") } else { write("{char(b)}") }
+}
+
+struct Lexer {
+    state: u32
+    line: u32
+    col: u32
+    tline: u32
+    tcol: u32
+    val: [u8; 256]
+    vlen: u32
+    depth: u32
+    last_nl: bool
+    any: bool
+    failed: bool
+    ch: u8
+
+    # --- вывод токенов --------------------------------------------------
+
+    func write_val(self)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if i < self.vlen {
+                write_esc(self.val[i])
+            }
+        }
+    }
+
+    func emit_plain(var self, k: u32)
+        requires k <= 55
+        ensures true
+    {
+        write("{self.tline}:{self.tcol} ")
+        write_kind(k)
+        write("\n")
+        self.last_nl = false
+        self.any = true
+    }
+
+    func emit_value(var self, k: u32)
+        requires k <= 55
+        ensures true
+    {
+        write("{self.tline}:{self.tcol} ")
+        write_kind(k)
+        write(" ")
+        self.write_val()
+        write("\n")
+        self.last_nl = false
+        self.any = true
+    }
+
+    # NEWLINE подавляется внутри ( ) [ ], в начале файла и после NEWLINE.
+    func emit_newline(var self)
+        requires true
+        ensures true
+    {
+        if self.depth > 0 {
+            return
+        }
+        if not self.any {
+            return
+        }
+        if self.last_nl {
+            return
+        }
+        write("{self.line}:{self.col} ")
+        write_kind(54)
+        write("\n")
+        self.last_nl = true
+    }
+
+    func emit_word(var self)
+        requires true
+        ensures true
+    {
+        var w: [u8; 16] = [0; 16]
+        for i in 0..16 {
+            if i < self.vlen {
+                w[i] = self.val[i]
+            }
+        }
+        var n: u32 = self.vlen
+        if n > 16 {
+            n = 16
+        }
+        let k: u32 = kw_code(w, n)
+        if k == 3 {
+            self.emit_value(3)
+        } else {
+            self.emit_plain(k)
+        }
+    }
+
+    # --- ошибки ----------------------------------------------------------
+
+    func fail(var self, m: str<128>)
+        requires true
+        ensures true
+    {
+        if not self.failed {
+            print("err: {self.line}:{self.col}: {m}")
+        }
+        self.failed = true
+    }
+
+    func fail_sym(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if not self.failed {
+            print("err: {self.tline}:{self.tcol}: неожиданный символ '{char(b)}'")
+        }
+        self.failed = true
+    }
+
+    func fail_esc(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if not self.failed {
+            print("err: {self.line}:{self.col}: неизвестная escape-последовательность \\{char(b)}")
+        }
+        self.failed = true
+    }
+
+    # --- накопление лексемы -----------------------------------------------
+
+    func begin_tok(var self)
+        requires true
+        ensures true
+    {
+        self.tline = self.line
+        self.tcol = self.col
+    }
+
+    func push_val(var self, b: u8)
+        requires true
+        ensures self.vlen <= 256
+    {
+        if self.vlen < 256 {
+            self.val[self.vlen] = b
+            self.vlen = self.vlen + 1
+        } else {
+            self.fail("лексема длиннее 256 байт")
+        }
+    }
+
+    # --- состояния ---------------------------------------------------------
+
+    func start_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if b == 10 {
+            self.emit_newline()
+            return
+        }
+        if b == 32 or b == 9 or b == 13 {
+            return
+        }
+        self.begin_tok()
+        if b == 35 { # '#'
+            self.state = 8
+        } elif b == 34 { # '"'
+            self.vlen = 0
+            self.state = 3
+        } elif b == 39 { # '\''
+            self.state = 5
+        } elif is_digit(b) {
+            self.vlen = 0
+            self.push_val(b)
+            self.state = 2
+        } elif is_word_byte(b) {
+            self.vlen = 0
+            self.push_val(b)
+            self.state = 1
+        } elif b == 45 { # '-'
+            self.state = 9
+        } elif b == 46 { # '.'
+            self.state = 10
+        } elif b == 61 { # '='
+            self.state = 11
+        } elif b == 33 { # '!'
+            self.state = 12
+        } elif b == 60 { # '<'
+            self.state = 13
+        } elif b == 62 { # '>'
+            self.state = 14
+        } else {
+            self.punct_byte(b)
+        }
+    }
+
+    func punct_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        let k: u32 = punct_code(b)
+        if k == 99 {
+            self.fail_sym(b)
+            return
+        }
+        if b == 40 or b == 91 { # ( [
+            self.depth = self.depth + 1
+        } elif b == 41 or b == 93 { # ) ]
+            if self.depth > 0 {
+                self.depth = self.depth - 1
+            }
+        }
+        self.emit_plain(k)
+    }
+
+    func word_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if is_word_byte(b) {
+            self.push_val(b)
+            return
+        }
+        self.emit_word()
+        self.state = 0
+        self.start_byte(b)
+    }
+
+    func int_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if is_digit(b) {
+            self.push_val(b)
+            return
+        }
+        if is_word_byte(b) {
+            self.fail("идентификатор не может начинаться с цифры")
+            return
+        }
+        self.emit_value(0)
+        self.state = 0
+        self.start_byte(b)
+    }
+
+    func str_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if b == 34 { # закрывающая кавычка
+            self.emit_value(1)
+            self.state = 0
+            return
+        }
+        if b == 92 {
+            self.state = 4
+            return
+        }
+        if b == 10 {
+            self.fail("незакрытая строка")
+            return
+        }
+        self.push_val(b)
+    }
+
+    func stresc_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        let e: u32 = esc_code(b)
+        if e == 256 {
+            self.fail_esc(b)
+            return
+        }
+        self.push_val(u8(e))
+        self.state = 3
+    }
+
+    func chopen_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if b == 92 {
+            self.state = 6
+            return
+        }
+        if b >= 128 {
+            self.fail("символ не помещается в один байт (char — байт)")
+            return
+        }
+        self.ch = b
+        self.state = 7
+    }
+
+    func chesc_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        let e: u32 = esc_code(b)
+        if e == 256 {
+            self.fail_esc(b)
+            return
+        }
+        self.ch = u8(e)
+        self.state = 7
+    }
+
+    func chclose_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if b == 39 {
+            self.val[0] = self.ch
+            self.vlen = 1
+            self.emit_value(2)
+            self.state = 0
+            return
+        }
+        self.fail("ожидался закрывающий апостроф")
+    }
+
+    func comment_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if b == 10 {
+            self.emit_newline()
+            self.state = 0
+        }
+    }
+
+    # Состояния 9..14: возможный второй байт двухсимвольного оператора.
+    func op_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        let st: u32 = self.state
+        self.state = 0
+        if b == 61 and st >= 11 { # =? : ==  !=  <=  >=
+            if st == 11 {
+                self.emit_plain(40)
+            } elif st == 12 {
+                self.emit_plain(41)
+            } elif st == 13 {
+                self.emit_plain(38)
+            } else {
+                self.emit_plain(39)
+            }
+            return
+        }
+        if b == 62 and st == 9 { # ->
+            self.emit_plain(48)
+            return
+        }
+        if b == 46 and st == 10 { # ..
+            self.emit_plain(47)
+            return
+        }
+        if st == 9 {
+            self.emit_plain(50)
+        } elif st == 10 {
+            self.emit_plain(46)
+        } elif st == 11 {
+            self.emit_plain(42)
+        } elif st == 12 {
+            self.fail_sym(33)
+            return
+        } elif st == 13 {
+            self.emit_plain(36)
+        } else {
+            self.emit_plain(37)
+        }
+        self.start_byte(b)
+    }
+
+    # --- вход автомата ------------------------------------------------------
+
+    func step(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.failed {
+            return
+        }
+        if self.state == 0 {
+            self.start_byte(b)
+        } elif self.state == 1 {
+            self.word_byte(b)
+        } elif self.state == 2 {
+            self.int_byte(b)
+        } elif self.state == 3 {
+            self.str_byte(b)
+        } elif self.state == 4 {
+            self.stresc_byte(b)
+        } elif self.state == 5 {
+            self.chopen_byte(b)
+        } elif self.state == 6 {
+            self.chesc_byte(b)
+        } elif self.state == 7 {
+            self.chclose_byte(b)
+        } elif self.state == 8 {
+            self.comment_byte(b)
+        } else {
+            self.op_byte(b)
+        }
+        if b == 10 {
+            self.line = self.line + 1
+            self.col = 1
+        } elif b < 128 or b >= 192 {
+            self.col = self.col + 1
+        }
+    }
+
+    # Конец потока: добить незавершённый токен, финальные NEWLINE и EOF.
+    func finish(var self)
+        requires true
+        ensures true
+    {
+        if self.failed {
+            return
+        }
+        if self.state == 1 {
+            self.emit_word()
+        } elif self.state == 2 {
+            self.emit_value(0)
+        } elif self.state == 3 or self.state == 4 {
+            self.fail("незакрытая строка")
+        } elif self.state == 5 or self.state == 6 {
+            self.fail("незакрытый символьный литерал")
+        } elif self.state == 7 {
+            self.fail("ожидался закрывающий апостроф")
+        } elif self.state == 9 {
+            self.emit_plain(50)
+        } elif self.state == 10 {
+            self.emit_plain(46)
+        } elif self.state == 11 {
+            self.emit_plain(42)
+        } elif self.state == 12 {
+            self.fail_sym(33)
+        } elif self.state == 13 {
+            self.emit_plain(36)
+        } elif self.state == 14 {
+            self.emit_plain(37)
+        }
+        if self.failed {
+            return
+        }
+        self.emit_newline()
+        self.begin_tok()
+        self.emit_plain(55)
+    }
+}

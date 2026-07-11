@@ -142,10 +142,16 @@ class Interpreter:
             )
 
     def _fit_cap(self, node, cap: int | None, value) -> None:
+        # Значения строк хранятся в latin-1: len == число байт.
         if cap is None or not isinstance(value, str):
             return
-        if len(value.encode("utf-8")) > cap:
+        if len(value) > cap:
             raise self.trap(node, f"строка длиннее ёмкости str<{cap}>")
+
+    @staticmethod
+    def _write_bytes(value: str) -> None:
+        sys.stdout.buffer.write(value.encode("latin-1"))
+        sys.stdout.buffer.flush()
 
     def push_scope(self) -> None:
         self.frames[-1].append({})
@@ -411,10 +417,12 @@ class Interpreter:
         raise self.trap(node, "неизвестное выражение")
 
     def _eval_str(self, node: ast.StrLit) -> str:
+        # Строка — байты (как в рантайме): литерал из исходника
+        # переводится в latin-1-представление, где 1 символ == 1 байт.
         parts = []
         for seg in node.segments:
             if isinstance(seg, str):
-                parts.append(seg)
+                parts.append(seg.encode("utf-8").decode("latin-1"))
                 continue
             value = self.eval(seg)
             if isinstance(value, bool):
@@ -484,11 +492,10 @@ class Interpreter:
         args = [self.eval(a) for a in node.args]
         name = node.name
         if name == "print":
-            print(args[0], flush=True)
+            self._write_bytes(args[0] + "\n")
             return None
         if name == "write":
-            sys.stdout.write(args[0])
-            sys.stdout.flush()
+            self._write_bytes(args[0])
             return None
         if name == "read_byte":
             data = sys.stdin.buffer.read(1)
@@ -496,13 +503,13 @@ class Interpreter:
                 return Tagged("Err", EnumValue("IoError", "Eof"))
             return Tagged("Ok", data[0])
         if name == "read_line":
-            line = sys.stdin.readline()
-            if line == "":
+            data = sys.stdin.buffer.readline()
+            if data == b"":
                 return Tagged("Err", EnumValue("IoError", "Eof"))
-            line = line.rstrip("\n")
-            if len(line.encode("utf-8")) > 256:
+            data = data.rstrip(b"\n")
+            if len(data) > 256:
                 raise self.trap(node, "ввод длиннее str<256>")
-            return Tagged("Ok", line)
+            return Tagged("Ok", data.decode("latin-1"))
         if name == "parse_i32":
             return self._parse_i32(args[0])
         if name == "len":
