@@ -11,6 +11,7 @@ EXAMPLES = \
 	examples/struct/Struct.eat \
 	examples/all/All.eat
 
-# Приёмочная проверка: все эталонные примеры парсятся (появится вместе с src/eatc)
+# Приёмочная проверка: все эталонные примеры парсятся и проходят
+# структурные проверки Power of 10
 check:
-	@echo "TODO: uv run -m eatc check $(EXAMPLES)"
+	PYTHONPATH=src uv run python -m eatc check $(EXAMPLES)
