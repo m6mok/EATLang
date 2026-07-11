@@ -8,6 +8,9 @@ python -m eatc lex <файл>         — эталонный дамп токен
                                     с self-hosted лексером, selfhost/)
 python -m eatc parse <файл>       — эталонный дамп AST (сверка
                                     с self-hosted парсером, selfhost/)
+python -m eatc ir <файл>          — эталонный текстовый LLVM IR без
+                                    верификатора (сверка с self-hosted
+                                    эмиттером, selfhost/Ir.eat)
 
 Модули: run/build принимают несколько файлов — одна программа с
 единым пространством имён; последний файл — главный (даёт имя
@@ -144,6 +147,21 @@ def cmd_typed(path: str) -> int:
     return 0
 
 
+def cmd_ir(path: str) -> int:
+    from .codegen import emit_ir
+
+    try:
+        program = parse_file(path)
+        check_program(program, path)
+        typed = typecheck(program, path)
+        text = emit_ir(program, typed.checker)
+    except (OSError, EatError) as err:
+        print(err, file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
+    return 0
+
+
 _KIND_LABEL = {
     "overflow": "переполнение",
     "div": "деление",
@@ -206,6 +224,8 @@ def main(argv: list[str]) -> int:
         return cmd_sig(argv[1])
     if len(argv) == 2 and argv[0] == "typed":
         return cmd_typed(argv[1])
+    if len(argv) == 2 and argv[0] == "ir":
+        return cmd_ir(argv[1])
     if len(argv) >= 2 and argv[0] == "build":
         args = argv[1:]
         out = None
@@ -221,7 +241,8 @@ def main(argv: list[str]) -> int:
     print(
         "использование: python -m eatc "
         "(check <файлы.eat...> | run <файлы...> | "
-        "build <файлы...> [-o out] | lex <файл> | parse <файл>)",
+        "build <файлы...> [-o out] | lex <файл> | parse <файл> | "
+        "ir <файл>)",
         file=sys.stderr,
     )
     return 2

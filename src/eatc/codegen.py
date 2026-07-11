@@ -220,10 +220,12 @@ class Codegen:
         )
 
     def alloca(self, llty: ir.Type, name: str = ""):
-        """Единственная точка аллокации: учитывает кадр функции
-        для отчёта о памяти (SPEC.md §8)."""
+        """Единственная точка аллокации: учитывает кадр функции для
+        отчёта о памяти (SPEC.md §8). Все alloca поднимаются в
+        entry-блок (как в clang): alloca в теле цикла выделял бы
+        стек на каждой итерации — кадр рос бы с числом итераций."""
         self.frame_types.setdefault(self.cur_key, []).append(llty)
-        return self.b.alloca(llty, name=name)
+        return self.ab.alloca(llty, name=name)
 
     def materialize(self, ty: Type, src):
         """Копия значения в свежем alloca; возвращает указатель."""
@@ -285,7 +287,13 @@ class Codegen:
         fn = self.funcs[key]
         self.fn = fn
         self.cur_key = key
-        self.b = ir.IRBuilder(fn.append_basic_block("entry"))
+        # entry держит только alloca и br на body: код идёт в body
+        entry = fn.append_basic_block("entry")
+        body_bb = fn.append_basic_block("body")
+        entry_br = ir.IRBuilder(entry).branch(body_bb)
+        self.ab = ir.IRBuilder(entry)
+        self.ab.position_before(entry_br)
+        self.b = ir.IRBuilder(body_bb)
         self.env = [{}]
         self.loop_exits = []
         self.ret_ty = sig.ret
@@ -1009,6 +1017,18 @@ def _memory_report(cg: Codegen, checker, machine) -> dict:
         "stack_bytes": worst("main"),
         "globals_bytes": globals_bytes,
     }
+
+
+def emit_ir(program: ast.Program, checker) -> str:
+    """Текстовый LLVM IR — канон дифф-сверки фазы 4 self-host
+    (`eatc ir`, selfhost/Ir.eat). Без верификатора: все проверки
+    остаются в рантайме. Имя модуля и файл в trap-сообщениях —
+    «stdin», triple пуст: вывод не зависит от платформы и пути
+    файла (self-hosted эмиттер читает исходник со stdin)."""
+    cg = Codegen(program, checker, "stdin")
+    module = cg.generate()
+    module.triple = ""
+    return str(module)
 
 
 def compile_binary(

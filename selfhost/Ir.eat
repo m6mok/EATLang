@@ -1,0 +1,4707 @@
+# Self-hosted эмиссия текстового LLVM IR (фаза 4). Вход — таблицы и
+# аннотации тайпчекера (Check), выход — модуль LLVM, байт-в-байт
+# совпадающий с эталоном `eatc ir` (llvmlite-принтер src/eatc/codegen.py).
+#
+# Воспроизводится модель имён llvmlite: у каждой функции счётчик
+# безымянных значений (аргументы — %".1"..%".n", возврат съедает ещё
+# один номер, дальше КАЖДАЯ инструкция инкрементирует счётчик);
+# именованные alloca и блоки дедуплицируются по базовому имени
+# (str, str.1, str.2...). Блоки печатаются в порядке создания, а
+# заполняются вразнобой — текст функции буферизуется по блокам
+# (связные списки строк). switch печатается при сборке блока: имена
+# арм-блоков известны только после генерации всех рук.
+#
+# Значение (ссылка LLVM) — тройка (вид, a, b): 0 безымянное %".a",
+# 1 именованное %"nb[a..a+b]", 2 целая константа (a — знак, b — модуль),
+# 3 глобал @"str.a", 4 null. Регистры w1/w2/w3 — операнды эмиттеров,
+# rr — результат последней инструкции, er — результат выражения.
+#
+# Глобалы @"str.N" (сегменты строк и trap-сообщения) дедуплицируются
+# по содержимому; хвост модуля (глобалы + declare интринзиков) — в
+# порядке первого появления, как у llvmlite.
+
+struct Ir {
+    c: Check
+    failed: bool
+    # пул строк типов LLVM (мемо по индексу типа)
+    tp: [u8; 65536]
+    tpl: u32
+    tys: [u32; 512]
+    tyl: [u32; 512]
+    # стек построителя строк типов
+    yb1: [u32; 32]
+    yb2: [u32; 32]
+    ybp: u32
+    # содержимое глобалов @"str.N" (байты с завершающим \0)
+    gp: [[u8; 65536]; 32]
+    gpl: u32
+    gmk: u32
+    gss: [u32; 32768]
+    gsl: [u32; 32768]
+    gsh: [u32; 32768]
+    ngl: u32
+    # хвост модуля: 0 глобал / 1 declare интринзика
+    tlk: [u32; 32768]
+    tlx: [u32; 32768]
+    ntl: u32
+    itr: [u32; 16]
+    # буфер строк-инструкций текущей функции
+    lb: [[u8; 65536]; 64]
+    lbl: u32
+    lcu: u32
+    lns: [u32; 65536]
+    lnl: [u32; 65536]
+    lnn: [u32; 65536]
+    nln: u32
+    # блоки текущей функции
+    bns: [u32; 16384]
+    bnl: [u32; 16384]
+    bkf: [u32; 16384]
+    bkl: [u32; 16384]
+    bkt: [u32; 16384]
+    bks: [u32; 16384]
+    nbk: u32
+    cb: u32
+    # отложенные switch: тег (вид, a, b), default, первый/последний кейс
+    swk: [u32; 512]
+    swa: [u32; 512]
+    swb: [u32; 512]
+    swd: [u32; 512]
+    swf: [u32; 512]
+    swz: [u32; 512]
+    nsw: u32
+    csv: [u32; 4096]
+    csb: [u32; 4096]
+    csn: [u32; 4096]
+    ncs: u32
+    # пул имён функции + дедупликация (базовые имена и счётчики)
+    nb: [u8; 65536]
+    nbn: u32
+    uns: [u32; 256]
+    unl: [u32; 256]
+    nun: u32
+    bss: [u32; 256]
+    bsl: [u32; 256]
+    bsc: [u32; 256]
+    nbs: u32
+    ctr: u32
+    dds: u32
+    ddl: u32
+    # привязки значений (области видимости)
+    vns: [u32; 256]
+    vnl: [u32; 256]
+    vty: [u32; 256]
+    vkk: [u32; 256]
+    vka: [u32; 256]
+    vkb: [u32; 256]
+    nvr: u32
+    scb: [u32; 64]
+    nsb: u32
+    # текущая функция
+    fi2: u32
+    rett: u32
+    aggr: u32
+    sty2: u32
+    rsk: u32
+    rsa: u32
+    rsb: u32
+    exb: u32
+    res_on: u32
+    lpx: [u32; 8]
+    nlx: u32
+    # регистры значений
+    w1k: u32
+    w1a: u32
+    w1b: u32
+    w2k: u32
+    w2a: u32
+    w2b: u32
+    w3k: u32
+    w3a: u32
+    w3b: u32
+    rrk: u32
+    rra: u32
+    rrb: u32
+    erk: u32
+    era: u32
+    erb: u32
+    ert: u32
+    # передача значений между шагами машин
+    u1k: u32
+    u1a: u32
+    u1b: u32
+    u2k: u32
+    u2a: u32
+    u2b: u32
+    uty: u32
+    # результат lvalue
+    lvk: u32
+    lva: u32
+    lvb: u32
+    # машина выражений
+    xn3: [u32; 64]
+    xp3: [u32; 64]
+    xa3: [u32; 64]
+    xb3: [u32; 64]
+    xc3: [u32; 64]
+    xd3: [u32; 64]
+    xe3: [u32; 64]
+    xf3: [u32; 64]
+    xg3: [u32; 64]
+    nx3: u32
+    # стек аргументов вызовов
+    agk: [u32; 256]
+    aga: [u32; 256]
+    agb: [u32; 256]
+    agt: [u32; 256]
+    nag: u32
+    # машина инструкций
+    sk4: [u32; 64]
+    sn4: [u32; 64]
+    sp4: [u32; 64]
+    sa4: [u32; 64]
+    sb4: [u32; 64]
+    sc4: [u32; 64]
+    sd4: [u32; 64]
+    se4: [u32; 64]
+    sf4: [u32; 64]
+    sg4: [u32; 64]
+    ns4: u32
+    # печать модуля: первый элемент?
+    fst: u32
+
+    # --- инфраструктура ---------------------------------------------------
+
+    func fail(var self, m: str<64>)
+        requires true
+        ensures true
+    {
+        if not self.failed {
+            print("err: 1:1: {m}")
+        }
+        self.failed = true
+    }
+
+    # --- байтовый буфер текста функции -------------------------------------
+
+    func lb_b(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.lbl >= 4194304 {
+            self.fail("переполнен буфер текста функции")
+            return
+        }
+        self.lb[self.lbl / 65536][self.lbl % 65536] = b
+        self.lbl = self.lbl + 1
+    }
+
+    func lb_at(var self, i: u32) -> u8
+        requires i < 4194304
+        ensures true
+    {
+        return self.lb[i / 65536][i % 65536]
+    }
+
+    func lb_lit(var self, s: str<64>)
+        requires true
+        ensures true
+    {
+        for i in 0..64 {
+            if i < len(s) {
+                self.lb_b(u8(s[i]))
+            }
+        }
+    }
+
+    func lb_dec(var self, n: u32)
+        requires true
+        ensures true
+    {
+        var d: [u8; 10] = [0; 10]
+        var m: u32 = n
+        var cnt: u32 = 0
+        for _ in 0..10 {
+            if m > 0 {
+                d[cnt] = u8(m % 10 + 48)
+                m = m / 10
+                cnt = cnt + 1
+            }
+        }
+        if cnt == 0 {
+            self.lb_b(48)
+        }
+        for i in 0..10 {
+            if i < cnt {
+                self.lb_b(d[cnt - 1 - i])
+            }
+        }
+    }
+
+    func lb_sb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if i < l {
+                self.lb_b(self.c.p.lex.sbuf[a + i])
+            }
+        }
+    }
+
+    func lb_nb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..128 {
+            if i < l {
+                self.lb_b(self.nb[a + i])
+            }
+        }
+    }
+
+    func lb_tp(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for h in 0..64 {
+            if h * 256 < l {
+                for j in 0..256 {
+                    let i: u32 = h * 256 + j
+                    if i < l {
+                        self.lb_b(self.tp[a + i])
+                    }
+                }
+            }
+        }
+    }
+
+    func line_new(var self)
+        requires true
+        ensures true
+    {
+        self.lcu = self.lbl
+    }
+
+    func line_fin(var self)
+        requires true
+        ensures true
+    {
+        if self.nln >= 65536 {
+            self.fail("слишком много инструкций в функции")
+            return
+        }
+        let i: u32 = self.nln
+        self.lns[i] = self.lcu
+        self.lnl[i] = self.lbl - self.lcu
+        self.lnn[i] = 4294967295
+        if self.bkf[self.cb] == 4294967295 {
+            self.bkf[self.cb] = i
+        } else {
+            self.lnn[self.bkl[self.cb]] = i
+        }
+        self.bkl[self.cb] = i
+        self.nln = i + 1
+    }
+
+    # --- пул имён функции ---------------------------------------------------
+
+    func nb_b(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.nbn >= 65536 {
+            self.fail("переполнен пул имён функции")
+            return
+        }
+        self.nb[self.nbn] = b
+        self.nbn = self.nbn + 1
+    }
+
+    func nb_lit(var self, s: str<16>)
+        requires true
+        ensures true
+    {
+        for i in 0..16 {
+            if i < len(s) {
+                self.nb_b(u8(s[i]))
+            }
+        }
+    }
+
+    func nb_dec(var self, n: u32)
+        requires true
+        ensures true
+    {
+        var d: [u8; 10] = [0; 10]
+        var m: u32 = n
+        var cnt: u32 = 0
+        for _ in 0..10 {
+            if m > 0 {
+                d[cnt] = u8(m % 10 + 48)
+                m = m / 10
+                cnt = cnt + 1
+            }
+        }
+        if cnt == 0 {
+            self.nb_b(48)
+        }
+        for i in 0..10 {
+            if i < cnt {
+                self.nb_b(d[cnt - 1 - i])
+            }
+        }
+    }
+
+    func nb_sb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if i < l {
+                self.nb_b(self.c.p.lex.sbuf[a + i])
+            }
+        }
+    }
+
+    func nb_eq(var self, a1: u32, l1: u32, a2: u32, l2: u32) -> bool
+        requires true
+        ensures true
+    {
+        if l1 != l2 {
+            return false
+        }
+        var ok: bool = true
+        for i in 0..128 {
+            if i < l1 {
+                if self.nb[a1 + i] != self.nb[a2 + i] {
+                    ok = false
+                }
+            }
+        }
+        return ok
+    }
+
+    # Имя занято? Хранятся только базовые (несуффиксованные) имена:
+    # суффиксованные кандидаты не сталкиваются ни с чем (см. шапку).
+    func name_used(var self, a: u32, l: u32) -> bool
+        requires true
+        ensures true
+    {
+        var found: bool = false
+        for i in 0..256 {
+            if i < self.nun {
+                if self.nb_eq(self.uns[i], self.unl[i], a, l) {
+                    found = true
+                }
+            }
+        }
+        return found
+    }
+
+    func bs_bump(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        var f: u32 = 4294967295
+        for i in 0..256 {
+            if i < self.nbs and f == 4294967295 {
+                if self.nb_eq(self.bss[i], self.bsl[i], a, l) {
+                    f = i
+                }
+            }
+        }
+        if f == 4294967295 {
+            if self.nbs >= 256 {
+                self.fail("слишком много базовых имён в функции")
+                return 1
+            }
+            f = self.nbs
+            self.bss[f] = a
+            self.bsl[f] = l
+            self.bsc[f] = 0
+            self.nbs = f + 1
+        }
+        self.bsc[f] = self.bsc[f] + 1
+        return self.bsc[f]
+    }
+
+    # Кандидат построен в nb начиная с s; результат — dds/ddl.
+    func dedup(var self, s: u32)
+        requires true
+        ensures true
+    {
+        let l: u32 = self.nbn - s
+        if not self.name_used(s, l) {
+            if self.nun >= 256 {
+                self.fail("слишком много имён в функции")
+                return
+            }
+            self.uns[self.nun] = s
+            self.unl[self.nun] = l
+            self.nun = self.nun + 1
+            self.dds = s
+            self.ddl = l
+            return
+        }
+        let cnum: u32 = self.bs_bump(s, l)
+        let s2: u32 = self.nbn
+        for i in 0..128 {
+            if i < l {
+                self.nb_b(self.nb[s + i])
+            }
+        }
+        self.nb_b(46)
+        self.nb_dec(cnum)
+        self.dds = s2
+        self.ddl = self.nbn - s2
+    }
+
+    func nm_lit(var self, s: str<16>)
+        requires true
+        ensures true
+    {
+        let m: u32 = self.nbn
+        self.nb_lit(s)
+        self.dedup(m)
+    }
+
+    func nm_sb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        let m: u32 = self.nbn
+        self.nb_sb(a, l)
+        self.dedup(m)
+    }
+
+    # --- блоки --------------------------------------------------------------
+
+    func blk_rec(var self) -> u32
+        requires true
+        ensures result < 16384
+    {
+        if self.nbk >= 16384 {
+            self.fail("слишком много блоков в функции")
+            return 0
+        }
+        let b: u32 = self.nbk
+        self.bns[b] = self.dds
+        self.bnl[b] = self.ddl
+        self.bkf[b] = 4294967295
+        self.bkl[b] = 4294967295
+        self.bkt[b] = 0
+        self.bks[b] = 4294967295
+        self.nbk = b + 1
+        return b
+    }
+
+    func blk_new(var self, nm: str<16>) -> u32
+        requires true
+        ensures result < 16384
+    {
+        self.nm_lit(nm)
+        return self.blk_rec()
+    }
+
+    func blk_arm(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures result < 16384
+    {
+        let m: u32 = self.nbn
+        self.nb_lit("match.")
+        self.nb_sb(a, l)
+        self.dedup(m)
+        return self.blk_rec()
+    }
+
+    # --- строки типов LLVM --------------------------------------------------
+
+    func tp_b(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.tpl >= 65536 {
+            self.fail("переполнен пул строк типов")
+            return
+        }
+        self.tp[self.tpl] = b
+        self.tpl = self.tpl + 1
+    }
+
+    func tp_lit(var self, s: str<32>)
+        requires true
+        ensures true
+    {
+        for i in 0..32 {
+            if i < len(s) {
+                self.tp_b(u8(s[i]))
+            }
+        }
+    }
+
+    func tp_dec(var self, n: u32)
+        requires true
+        ensures true
+    {
+        var d: [u8; 10] = [0; 10]
+        var m: u32 = n
+        var cnt: u32 = 0
+        for _ in 0..10 {
+            if m > 0 {
+                d[cnt] = u8(m % 10 + 48)
+                m = m / 10
+                cnt = cnt + 1
+            }
+        }
+        if cnt == 0 {
+            self.tp_b(48)
+        }
+        for i in 0..10 {
+            if i < cnt {
+                self.tp_b(d[cnt - 1 - i])
+            }
+        }
+    }
+
+    func enum_of(var self, t: u32) -> u32
+        requires t < 512
+        ensures true
+    {
+        return self.c.find_enum(self.c.ys[t], self.c.yl[t])
+    }
+
+    func enum_pay(var self, t: u32) -> bool
+        requires t < 512
+        ensures true
+    {
+        let ei: u32 = self.enum_of(t)
+        if ei == 4294967295 {
+            return false
+        }
+        var has: bool = false
+        for w in 0..256 {
+            if w >= self.c.evs[ei] and w < self.c.evs[ei] + self.c.evc[ei] {
+                if self.c.wpl[w] != 4294967295 {
+                    has = true
+                }
+            }
+        }
+        return has
+    }
+
+    func is_agg(var self, t: u32) -> bool
+        requires t < 512
+        ensures true
+    {
+        let k: u32 = self.c.yk[t]
+        if k == 6 or k == 7 or k == 8 or k == 10 or k == 11 {
+            return true
+        }
+        if k == 9 {
+            return self.enum_pay(t)
+        }
+        return false
+    }
+
+    # Слот нагрузки варианта w внутри enum-типа t (тег — слот 0).
+    func slot_of(var self, t: u32, w: u32) -> u32
+        requires t < 512 and w < 256
+        ensures true
+    {
+        let ei: u32 = self.enum_of(t)
+        var slot: u32 = 1
+        for v in 0..256 {
+            if v >= self.c.evs[ei] and v < w {
+                if self.c.wpl[v] != 4294967295 {
+                    slot = slot + 1
+                }
+            }
+        }
+        return slot
+    }
+
+    func typ_push(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        if self.ybp >= 32 {
+            self.fail("слишком глубокий тип")
+            return
+        }
+        self.yb1[self.ybp] = t
+        self.yb2[self.ybp] = 0
+        self.ybp = self.ybp + 1
+    }
+
+    func ty_scalar(var self, k: u32)
+        requires k <= 6
+        ensures true
+    {
+        if k == 0 or k == 1 {
+            self.tp_lit("i32")
+        } elif k == 2 or k == 4 {
+            self.tp_lit("i8")
+        } elif k == 3 {
+            self.tp_lit("i1")
+        } elif k == 5 {
+            self.tp_lit("void")
+        } else {
+            self.tp_lit("{{i32, [256 x i8]}}")
+        }
+    }
+
+    func ty_struct(var self, f: u32, t: u32, ph: u32)
+        requires f < 32 and t < 512
+        ensures true
+    {
+        let si: u32 = self.c.find_struct(self.c.ys[t], self.c.yl[t])
+        let nf: u32 = self.c.sgc[si]
+        if ph == 0 {
+            self.tp_lit("{{")
+            if nf == 0 {
+                self.tp_lit("}}")
+                self.ybp = f
+                return
+            }
+            self.yb2[f] = 1
+            self.typ_push(self.c.gty[self.c.sgs[si]])
+            return
+        }
+        if ph < nf {
+            self.tp_lit(", ")
+            self.yb2[f] = ph + 1
+            self.typ_push(self.c.gty[self.c.sgs[si] + ph])
+            return
+        }
+        self.tp_lit("}}")
+        self.ybp = f
+    }
+
+    func ty_enum(var self, f: u32, t: u32, ph: u32)
+        requires f < 32 and t < 512
+        ensures true
+    {
+        if ph == 0 {
+            if not self.enum_pay(t) {
+                self.tp_lit("i32")
+                self.ybp = f
+                return
+            }
+            self.tp_lit("{{i32")
+            self.yb2[f] = 1
+            return
+        }
+        let ei: u32 = self.enum_of(t)
+        var nxt: u32 = 4294967295
+        for v in 0..256 {
+            if v + 1 >= ph and v < self.c.evc[ei] and nxt == 4294967295 {
+                if self.c.wpl[self.c.evs[ei] + v] != 4294967295 {
+                    nxt = v
+                }
+            }
+        }
+        if nxt == 4294967295 {
+            self.tp_lit("}}")
+            self.ybp = f
+            return
+        }
+        self.tp_lit(", ")
+        self.yb2[f] = nxt + 2
+        self.typ_push(self.c.wpl[self.c.evs[ei] + nxt])
+    }
+
+    func ty_step(var self)
+        requires self.ybp >= 1
+        ensures true
+    {
+        let f: u32 = self.ybp - 1
+        let t: u32 = self.yb1[f]
+        let ph: u32 = self.yb2[f]
+        let k: u32 = self.c.yk[t]
+        if k <= 6 {
+            self.ty_scalar(k)
+            self.ybp = f
+        } elif k == 7 {
+            if ph == 0 {
+                self.tp_lit("[")
+                self.tp_dec(self.c.yb[t])
+                self.tp_lit(" x ")
+                self.yb2[f] = 1
+                self.typ_push(self.c.ya[t])
+            } else {
+                self.tp_lit("]")
+                self.ybp = f
+            }
+        } elif k == 8 {
+            self.ty_struct(f, t, ph)
+        } elif k == 9 {
+            self.ty_enum(f, t, ph)
+        } elif k == 10 {
+            if ph == 0 {
+                self.tp_lit("{{i32, ")
+                self.yb2[f] = 1
+                self.typ_push(self.c.ya[t])
+            } elif ph == 1 {
+                self.tp_lit(", ")
+                self.yb2[f] = 2
+                self.typ_push(self.c.yb[t])
+            } else {
+                self.tp_lit("}}")
+                self.ybp = f
+            }
+        } else {
+            if ph == 0 {
+                self.tp_lit("{{i32, ")
+                self.yb2[f] = 1
+                self.typ_push(self.c.ya[t])
+            } else {
+                self.tp_lit("}}")
+                self.ybp = f
+            }
+        }
+    }
+
+    func ty_build(var self, root: u32)
+        requires root < 512
+        ensures true
+    {
+        if self.tyl[root] != 4294967295 {
+            return
+        }
+        let st: u32 = self.tpl
+        self.ybp = 0
+        self.typ_push(root)
+        for _ in 0..4096 {
+            if self.ybp > 0 and not self.failed {
+                self.ty_step()
+            }
+        }
+        if self.ybp > 0 and not self.failed {
+            self.fail("тип слишком велик для self-host")
+        }
+        self.tys[root] = st
+        self.tyl[root] = self.tpl - st
+    }
+
+    # --- глобалы @"str.N" ---------------------------------------------------
+
+    func g_b(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.gpl >= 2097152 {
+            self.fail("переполнен пул глобальных констант")
+            return
+        }
+        self.gp[self.gpl / 65536][self.gpl % 65536] = b
+        self.gpl = self.gpl + 1
+    }
+
+    func g_at(var self, i: u32) -> u8
+        requires i < 2097152
+        ensures true
+    {
+        return self.gp[i / 65536][i % 65536]
+    }
+
+    func g_lit(var self, s: str<64>)
+        requires true
+        ensures true
+    {
+        for i in 0..64 {
+            if i < len(s) {
+                self.g_b(u8(s[i]))
+            }
+        }
+    }
+
+    func g_dec(var self, n: u32)
+        requires true
+        ensures true
+    {
+        var d: [u8; 10] = [0; 10]
+        var m: u32 = n
+        var cnt: u32 = 0
+        for _ in 0..10 {
+            if m > 0 {
+                d[cnt] = u8(m % 10 + 48)
+                m = m / 10
+                cnt = cnt + 1
+            }
+        }
+        if cnt == 0 {
+            self.g_b(48)
+        }
+        for i in 0..10 {
+            if i < cnt {
+                self.g_b(d[cnt - 1 - i])
+            }
+        }
+    }
+
+    func g_sb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if i < l {
+                self.g_b(self.c.p.lex.sbuf[a + i])
+            }
+        }
+    }
+
+    func g_begin(var self)
+        requires true
+        ensures true
+    {
+        self.gmk = self.gpl
+    }
+
+    func g_eqspan(var self, gi: u32, s: u32, l: u32) -> bool
+        requires gi < 32768
+        ensures true
+    {
+        if self.gsl[gi] != l {
+            return false
+        }
+        var ok: bool = true
+        for h in 0..2 {
+            if h * 256 < l {
+                for j in 0..256 {
+                    let i: u32 = h * 256 + j
+                    if i < l {
+                        if self.g_at(self.gss[gi] + i) != self.g_at(s + i) {
+                            ok = false
+                        }
+                    }
+                }
+            }
+        }
+        return ok
+    }
+
+    func g_hash(var self, s: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        var h: u32 = 0
+        for hh in 0..2 {
+            if hh * 256 < l {
+                for j in 0..256 {
+                    let i: u32 = hh * 256 + j
+                    if i < l {
+                        h = (h % 131072) * 31 + u32(self.g_at(s + i))
+                    }
+                }
+            }
+        }
+        return h
+    }
+
+    func tail_add(var self, k: u32, x: u32)
+        requires k <= 1
+        ensures true
+    {
+        if self.ntl >= 32768 {
+            self.fail("переполнен хвост модуля")
+            return
+        }
+        self.tlk[self.ntl] = k
+        self.tlx[self.ntl] = x
+        self.ntl = self.ntl + 1
+    }
+
+    func use_intr(var self, id: u32)
+        requires id < 16
+        ensures true
+    {
+        if self.itr[id] == 0 {
+            self.itr[id] = 1
+            self.tail_add(1, id)
+        }
+    }
+
+    func g_commit(var self) -> u32
+        requires true
+        ensures result < 32768
+    {
+        let s: u32 = self.gmk
+        let l: u32 = self.gpl - s
+        let h: u32 = self.g_hash(s, l)
+        var f: u32 = 4294967295
+        for i in 0..32768 {
+            if i < self.ngl and f == 4294967295 {
+                if self.gsh[i] == h and self.gsl[i] == l {
+                    if self.g_eqspan(i, s, l) {
+                        f = i
+                    }
+                }
+            }
+        }
+        if f != 4294967295 {
+            self.gpl = s
+            return f
+        }
+        if self.ngl >= 32768 {
+            self.fail("слишком много глобальных констант")
+            return 0
+        }
+        let g: u32 = self.ngl
+        self.gss[g] = s
+        self.gsl[g] = l
+        self.gsh[g] = h
+        self.ngl = g + 1
+        self.tail_add(0, g)
+        return g
+    }
+
+    func g_kind(var self, k: u32)
+        requires k <= 2
+        ensures true
+    {
+        if k == 0 {
+            self.g_lit("i32")
+        } elif k == 1 {
+            self.g_lit("u32")
+        } else {
+            self.g_lit("u8")
+        }
+    }
+
+    # Глобал trap-сообщения: stdin:ln:cl: error: trap: <текст>.
+    # mk: 0 requires (e1/e2 — имя функции), 1 ensures, 2 переполнение
+    # (e1 — вид целого), 3 деление на ноль, 4 границы, 5 assert,
+    # 6 переполнение при касте (e1 — вид цели).
+    func trap_glob(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32) -> u32
+        requires mk <= 6
+        ensures result < 32768
+    {
+        self.g_begin()
+        self.g_lit("stdin:")
+        self.g_dec(ln)
+        self.g_lit(":")
+        self.g_dec(cl)
+        self.g_lit(": error: trap: ")
+        if mk == 0 {
+            self.g_lit("нарушен requires функции ")
+            self.g_sb(e1, e2)
+        } elif mk == 1 {
+            self.g_lit("нарушен ensures функции ")
+            self.g_sb(e1, e2)
+        } elif mk == 2 {
+            self.g_lit("переполнение ")
+            self.g_kind(e1)
+        } elif mk == 3 {
+            self.g_lit("деление на ноль")
+        } elif mk == 4 {
+            self.g_lit("индекс вне границ")
+        } elif mk == 5 {
+            self.g_lit("assert не выполнен")
+        } else {
+            self.g_lit("переполнение при ")
+            self.g_kind(e1)
+            self.g_lit("()")
+        }
+        self.g_b(0)
+        return self.g_commit()
+    }
+
+    func cstr_seg(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures result < 32768
+    {
+        self.g_begin()
+        self.g_sb(a, l)
+        self.g_b(0)
+        return self.g_commit()
+    }
+
+    # --- регистры значений --------------------------------------------------
+
+    func set1(var self, k: u32, a: u32, b: u32)
+        requires true
+        ensures true
+    {
+        self.w1k = k
+        self.w1a = a
+        self.w1b = b
+    }
+
+    func set2(var self, k: u32, a: u32, b: u32)
+        requires true
+        ensures true
+    {
+        self.w2k = k
+        self.w2a = a
+        self.w2b = b
+    }
+
+    func set3(var self, k: u32, a: u32, b: u32)
+        requires true
+        ensures true
+    {
+        self.w3k = k
+        self.w3a = a
+        self.w3b = b
+    }
+
+    func set1rr(var self)
+        requires true
+        ensures true
+    {
+        self.w1k = self.rrk
+        self.w1a = self.rra
+        self.w1b = self.rrb
+    }
+
+    func set2rr(var self)
+        requires true
+        ensures true
+    {
+        self.w2k = self.rrk
+        self.w2a = self.rra
+        self.w2b = self.rrb
+    }
+
+    func set3rr(var self)
+        requires true
+        ensures true
+    {
+        self.w3k = self.rrk
+        self.w3a = self.rra
+        self.w3b = self.rrb
+    }
+
+    func set1er(var self)
+        requires true
+        ensures true
+    {
+        self.w1k = self.erk
+        self.w1a = self.era
+        self.w1b = self.erb
+    }
+
+    func set2er(var self)
+        requires true
+        ensures true
+    {
+        self.w2k = self.erk
+        self.w2a = self.era
+        self.w2b = self.erb
+    }
+
+    func ser(var self, k: u32, a: u32, b: u32)
+        requires true
+        ensures true
+    {
+        self.erk = k
+        self.era = a
+        self.erb = b
+    }
+
+    func serrr(var self, t: u32)
+        requires true
+        ensures true
+    {
+        self.erk = self.rrk
+        self.era = self.rra
+        self.erb = self.rrb
+        self.ert = t
+    }
+
+    # --- запись ссылок и типов в буфер --------------------------------------
+
+    func wref(var self, k: u32, a: u32, b: u32)
+        requires true
+        ensures true
+    {
+        if k == 0 {
+            self.lb_lit("%\".")
+            self.lb_dec(a)
+            self.lb_lit("\"")
+        } elif k == 1 {
+            self.lb_lit("%\"")
+            self.lb_nb(a, b)
+            self.lb_lit("\"")
+        } elif k == 2 {
+            if a == 1 {
+                self.lb_lit("-")
+            }
+            self.lb_dec(b)
+        } elif k == 3 {
+            self.lb_lit("@\"str.")
+            self.lb_dec(a)
+            self.lb_lit("\"")
+        } else {
+            self.lb_lit("null")
+        }
+    }
+
+    func wr1(var self)
+        requires true
+        ensures true
+    {
+        self.wref(self.w1k, self.w1a, self.w1b)
+    }
+
+    func wr2(var self)
+        requires true
+        ensures true
+    {
+        self.wref(self.w2k, self.w2a, self.w2b)
+    }
+
+    func wr3(var self)
+        requires true
+        ensures true
+    {
+        self.wref(self.w3k, self.w3a, self.w3b)
+    }
+
+    func wty(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.ty_build(t)
+        self.lb_tp(self.tys[t], self.tyl[t])
+    }
+
+    func wblk(var self, b: u32)
+        requires b < 16384
+        ensures true
+    {
+        self.lb_lit("%\"")
+        self.lb_nb(self.bns[b], self.bnl[b])
+        self.lb_lit("\"")
+    }
+
+    func w_strty(var self)
+        requires true
+        ensures true
+    {
+        self.lb_lit("{{i32, [256 x i8]}}")
+    }
+
+    func w_mangle(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        self.lb_lit("eat_")
+        let own: u32 = self.c.fown[fi]
+        if own != 4294967295 {
+            self.lb_sb(self.c.sn_s[own], self.c.sn_l[own])
+            self.lb_lit("__")
+        }
+        self.lb_sb(self.c.fn_s[fi], self.c.fn_l[fi])
+    }
+
+    func bump(var self) -> u32
+        requires true
+        ensures true
+    {
+        self.ctr = self.ctr + 1
+        return self.ctr
+    }
+
+    func rpre(var self)
+        requires true
+        ensures true
+    {
+        self.line_new()
+        let n: u32 = self.bump()
+        self.lb_lit("%\".")
+        self.lb_dec(n)
+        self.lb_lit("\" = ")
+        self.rrk = 0
+        self.rra = n
+        self.rrb = 0
+    }
+
+    func vpre(var self)
+        requires true
+        ensures true
+    {
+        self.line_new()
+        discard self.bump()
+    }
+
+    # --- эмиттеры инструкций ------------------------------------------------
+
+    func e_alloca_u(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        let saved: u32 = self.cb
+        self.cb = 0
+        self.rpre()
+        self.lb_lit("alloca ")
+        self.wty(t)
+        self.line_fin()
+        self.cb = saved
+    }
+
+    # Имя-кандидат уже прошло dedup (dds/ddl).
+    func e_alloca_n(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        let saved: u32 = self.cb
+        self.cb = 0
+        self.line_new()
+        self.lb_lit("%\"")
+        self.lb_nb(self.dds, self.ddl)
+        self.lb_lit("\" = alloca ")
+        self.wty(t)
+        self.line_fin()
+        self.cb = saved
+        self.rrk = 1
+        self.rra = self.dds
+        self.rrb = self.ddl
+    }
+
+    # v1 — указатель.
+    func e_load(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("load ")
+        self.wty(t)
+        self.lb_lit(", ")
+        self.wty(t)
+        self.lb_lit("* ")
+        self.wr1()
+        self.line_fin()
+    }
+
+    # v1 — значение, v2 — указатель.
+    func e_store(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("store ")
+        self.wty(t)
+        self.lb_lit(" ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.wty(t)
+        self.lb_lit("* ")
+        self.wr2()
+        self.line_fin()
+    }
+
+    # v1 — указатель; путь [0, k].
+    func e_gepc(var self, t: u32, k: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("getelementptr inbounds ")
+        self.wty(t)
+        self.lb_lit(", ")
+        self.wty(t)
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(", i32 0, i32 ")
+        self.lb_dec(k)
+        self.line_fin()
+    }
+
+    # v1 — указатель, v2 — индекс; путь [0, idx].
+    func e_gepi(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("getelementptr inbounds ")
+        self.wty(t)
+        self.lb_lit(", ")
+        self.wty(t)
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(", i32 0, i32 ")
+        self.wr2()
+        self.line_fin()
+    }
+
+    # v1 — указатель на str, v2 — индекс; путь [0, 1, idx].
+    func e_geps(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("getelementptr inbounds ")
+        self.wty(t)
+        self.lb_lit(", ")
+        self.wty(t)
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(", i32 0, i32 1, i32 ")
+        self.wr2()
+        self.line_fin()
+    }
+
+    # sizeof-трюк: gep(null, 1) без inbounds.
+    func e_gepn(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("getelementptr ")
+        self.wty(t)
+        self.lb_lit(", ")
+        self.wty(t)
+        self.lb_lit("* null, i32 1")
+        self.line_fin()
+    }
+
+    func e_gepg(var self, g: u32)
+        requires g < 32768
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("getelementptr inbounds [")
+        self.lb_dec(self.gsl[g])
+        self.lb_lit(" x i8], [")
+        self.lb_dec(self.gsl[g])
+        self.lb_lit(" x i8]* @\"str.")
+        self.lb_dec(g)
+        self.lb_lit("\", i32 0, i32 0")
+        self.line_fin()
+    }
+
+    func e_p2i(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("ptrtoint ")
+        self.wty(t)
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(" to i64")
+        self.line_fin()
+    }
+
+    func e_bc(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("bitcast ")
+        self.wty(t)
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(" to i8*")
+        self.line_fin()
+    }
+
+    # v1 — dst i8*, v2 — src i8*, v3 — размер i64.
+    func e_mcpy(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"llvm.memcpy.p0i8.p0i8.i64\"(i8* ")
+        self.wr1()
+        self.lb_lit(", i8* ")
+        self.wr2()
+        self.lb_lit(", i64 ")
+        self.wr3()
+        self.lb_lit(", i1 0)")
+        self.line_fin()
+    }
+
+    func w_iop(var self, op: u32)
+        requires op >= 1 and op <= 10
+        ensures true
+    {
+        if op == 1 {
+            self.lb_lit("eq")
+        } elif op == 2 {
+            self.lb_lit("ne")
+        } elif op == 3 {
+            self.lb_lit("slt")
+        } elif op == 4 {
+            self.lb_lit("sle")
+        } elif op == 5 {
+            self.lb_lit("sgt")
+        } elif op == 6 {
+            self.lb_lit("sge")
+        } elif op == 7 {
+            self.lb_lit("ult")
+        } elif op == 8 {
+            self.lb_lit("ule")
+        } elif op == 9 {
+            self.lb_lit("ugt")
+        } else {
+            self.lb_lit("uge")
+        }
+    }
+
+    # v1, v2 — операнды типа t.
+    func e_icmp(var self, op: u32, t: u32)
+        requires op >= 1 and op <= 10 and t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("icmp ")
+        self.w_iop(op)
+        self.lb_lit(" ")
+        self.wty(t)
+        self.lb_lit(" ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.wr2()
+        self.line_fin()
+    }
+
+    func w_bop(var self, o: u32)
+        requires o >= 1 and o <= 10
+        ensures true
+    {
+        if o == 1 {
+            self.lb_lit("add")
+        } elif o == 2 {
+            self.lb_lit("sub")
+        } elif o == 3 {
+            self.lb_lit("mul")
+        } elif o == 4 {
+            self.lb_lit("sdiv")
+        } elif o == 5 {
+            self.lb_lit("srem")
+        } elif o == 6 {
+            self.lb_lit("udiv")
+        } elif o == 7 {
+            self.lb_lit("urem")
+        } elif o == 8 {
+            self.lb_lit("and")
+        } elif o == 9 {
+            self.lb_lit("or")
+        } else {
+            self.lb_lit("xor")
+        }
+    }
+
+    # v1, v2 — операнды типа t.
+    func e_bin(var self, o: u32, t: u32)
+        requires o >= 1 and o <= 10 and t < 512
+        ensures true
+    {
+        self.rpre()
+        self.w_bop(o)
+        self.lb_lit(" ")
+        self.wty(t)
+        self.lb_lit(" ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.wr2()
+        self.line_fin()
+    }
+
+    # not: xor i1 v1, -1.
+    func e_not(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("xor i1 ")
+        self.wr1()
+        self.lb_lit(", -1")
+        self.line_fin()
+    }
+
+    # o: 0 zext, 1 trunc; v1 — значение.
+    func e_cvt(var self, o: u32, tf: u32, tt: u32)
+        requires o <= 1 and tf < 512 and tt < 512
+        ensures true
+    {
+        self.rpre()
+        if o == 0 {
+            self.lb_lit("zext ")
+        } else {
+            self.lb_lit("trunc ")
+        }
+        self.wty(tf)
+        self.lb_lit(" ")
+        self.wr1()
+        self.lb_lit(" to ")
+        self.wty(tt)
+        self.line_fin()
+    }
+
+    func w_it(var self, id: u32)
+        requires id >= 1 and id <= 9
+        ensures true
+    {
+        if id >= 7 {
+            self.lb_lit("i8")
+        } else {
+            self.lb_lit("i32")
+        }
+    }
+
+    func w_iname(var self, id: u32)
+        requires id >= 1 and id <= 9
+        ensures true
+    {
+        if id == 1 or id == 4 or id == 7 {
+            if id == 1 {
+                self.lb_lit("sadd")
+            } else {
+                self.lb_lit("uadd")
+            }
+        } elif id == 2 or id == 5 or id == 8 {
+            if id == 2 {
+                self.lb_lit("ssub")
+            } else {
+                self.lb_lit("usub")
+            }
+        } else {
+            if id == 3 {
+                self.lb_lit("smul")
+            } else {
+                self.lb_lit("umul")
+            }
+        }
+    }
+
+    # v1, v2 — операнды; вызов llvm.*.with.overflow.*.
+    func e_ov(var self, id: u32)
+        requires id >= 1 and id <= 9
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call {{")
+        self.w_it(id)
+        self.lb_lit(", i1}} @\"llvm.")
+        self.w_iname(id)
+        self.lb_lit(".with.overflow.")
+        self.w_it(id)
+        self.lb_lit("\"(")
+        self.w_it(id)
+        self.lb_lit(" ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.w_it(id)
+        self.lb_lit(" ")
+        self.wr2()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # v1 — пара {int, i1}.
+    func e_exv(var self, id: u32, idx: u32)
+        requires id >= 1 and id <= 9 and idx <= 1
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("extractvalue {{")
+        self.w_it(id)
+        self.lb_lit(", i1}} ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.lb_dec(idx)
+        self.line_fin()
+    }
+
+    # v1 — условие, v2/v3 — ветви типа t. Двойной пробел — llvmlite.
+    func e_sel(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("select  i1 ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.wty(t)
+        self.lb_lit(" ")
+        self.wr2()
+        self.lb_lit(", ")
+        self.wty(t)
+        self.lb_lit(" ")
+        self.wr3()
+        self.line_fin()
+    }
+
+    # v1 — из блока b1, v2 — из блока b2. Двойной пробел — llvmlite.
+    func e_phi(var self, t: u32, b1: u32, b2: u32)
+        requires t < 512 and b1 < 16384 and b2 < 16384
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("phi  ")
+        self.wty(t)
+        self.lb_lit(" [")
+        self.wr1()
+        self.lb_lit(", ")
+        self.wblk(b1)
+        self.lb_lit("], [")
+        self.wr2()
+        self.lb_lit(", ")
+        self.wblk(b2)
+        self.lb_lit("]")
+        self.line_fin()
+    }
+
+    func e_br(var self, b: u32)
+        requires b < 16384
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("br label ")
+        self.wblk(b)
+        self.line_fin()
+        self.bkt[self.cb] = 1
+    }
+
+    # v1 — условие.
+    func e_cbr(var self, b1: u32, b2: u32)
+        requires b1 < 16384 and b2 < 16384
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("br i1 ")
+        self.wr1()
+        self.lb_lit(", label ")
+        self.wblk(b1)
+        self.lb_lit(", label ")
+        self.wblk(b2)
+        self.line_fin()
+        self.bkt[self.cb] = 1
+    }
+
+    func e_retv(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("ret void")
+        self.line_fin()
+        self.bkt[self.cb] = 1
+    }
+
+    # v1 — значение.
+    func e_ret(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("ret ")
+        self.wty(t)
+        self.lb_lit(" ")
+        self.wr1()
+        self.line_fin()
+        self.bkt[self.cb] = 1
+    }
+
+    func e_unr(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("unreachable")
+        self.line_fin()
+        self.bkt[self.cb] = 1
+    }
+
+    # v1 — тег; собственно текст печатается при сборке блока.
+    func e_switch(var self, d: u32) -> u32
+        requires d < 16384
+        ensures result < 512
+    {
+        if self.nsw >= 512 {
+            self.fail("слишком много switch в функции")
+            return 0
+        }
+        discard self.bump()
+        let s: u32 = self.nsw
+        self.swk[s] = self.w1k
+        self.swa[s] = self.w1a
+        self.swb[s] = self.w1b
+        self.swd[s] = d
+        self.swf[s] = 4294967295
+        self.swz[s] = 4294967295
+        self.nsw = s + 1
+        self.bks[self.cb] = s
+        self.bkt[self.cb] = 1
+        return s
+    }
+
+    func case_add(var self, s: u32, v: u32, b: u32)
+        requires s < 512 and b < 16384
+        ensures true
+    {
+        if self.ncs >= 4096 {
+            self.fail("слишком много веток switch")
+            return
+        }
+        let i: u32 = self.ncs
+        self.csv[i] = v
+        self.csb[i] = b
+        self.csn[i] = 4294967295
+        if self.swf[s] == 4294967295 {
+            self.swf[s] = i
+        } else {
+            self.csn[self.swz[s]] = i
+        }
+        self.swz[s] = i
+        self.ncs = i + 1
+    }
+
+    # --- вызовы рантайма ----------------------------------------------------
+
+    # call void @"eat_{nm}"({STR}* v1)
+    func e_rt_s(var self, nm: str<16>)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_")
+        self.lb_lit(nm)
+        self.lb_lit("\"(")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # call void @"eat_str_append_{nm}"({STR}* v1, {at} v2)
+    func e_rt_si(var self, nm: str<8>, at: str<8>)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_str_append_")
+        self.lb_lit(nm)
+        self.lb_lit("\"(")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.lb_lit(at)
+        self.lb_lit(" ")
+        self.wr2()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # call void @"eat_str_append_bytes"({STR}* v1, i8* v2, i32 n)
+    func e_ab(var self, n: u32)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_str_append_bytes\"(")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(", i8* ")
+        self.wr2()
+        self.lb_lit(", i32 ")
+        self.lb_dec(n)
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # call void @"eat_str_append_str"({STR}* v1, {STR}* v2)
+    func e_as(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_str_append_str\"(")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr2()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    func e_streq(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_str_eq\"(")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr2()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    func e_rbyte(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_read_byte\"()")
+        self.line_fin()
+    }
+
+    # v1 — буфер str.
+    func e_rline(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_read_line\"(")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # v1 — строка, v2 — out i32*.
+    func e_pi(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_parse_i32\"(")
+        self.w_strty()
+        self.lb_lit("* ")
+        self.wr1()
+        self.lb_lit(", i32* ")
+        self.wr2()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # v1 — i8* сообщение.
+    func e_trapc(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_trap\"(i8* ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # --- стек аргументов и вызовы пользовательских функций -------------------
+
+    func ag_push(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        if self.nag >= 256 {
+            self.fail("слишком глубокий стек аргументов")
+            return
+        }
+        self.agk[self.nag] = self.erk
+        self.aga[self.nag] = self.era
+        self.agb[self.nag] = self.erb
+        self.agt[self.nag] = t
+        self.nag = self.nag + 1
+    }
+
+    func ag_push_rr(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        if self.nag >= 256 {
+            self.fail("слишком глубокий стек аргументов")
+            return
+        }
+        self.agk[self.nag] = self.rrk
+        self.aga[self.nag] = self.rra
+        self.agb[self.nag] = self.rrb
+        self.agt[self.nag] = t
+        self.nag = self.nag + 1
+    }
+
+    func e_ucall(var self, fi: u32, base: u32)
+        requires fi < 512 and base < 256
+        ensures true
+    {
+        let cnt: u32 = self.nag - base
+        let rt2: u32 = self.c.fret[fi]
+        var isv: bool = true
+        if rt2 != 4294967295 {
+            if not self.is_agg(rt2) {
+                isv = false
+            }
+        }
+        if isv {
+            self.vpre()
+            self.lb_lit("call void @\"")
+        } else {
+            self.rpre()
+            self.lb_lit("call ")
+            self.wty(rt2)
+            self.lb_lit(" @\"")
+        }
+        self.w_mangle(fi)
+        self.lb_lit("\"(")
+        for j in 0..8 {
+            if j < cnt {
+                if j > 0 {
+                    self.lb_lit(", ")
+                }
+                let t: u32 = self.agt[base + j]
+                self.wty(t)
+                if self.is_agg(t) {
+                    self.lb_lit("*")
+                }
+                self.lb_lit(" ")
+                self.wref(self.agk[base + j], self.aga[base + j], self.agb[base + j])
+            }
+        }
+        self.lb_lit(")")
+        self.line_fin()
+        self.nag = base
+    }
+
+    # --- копирование значений -----------------------------------------------
+
+    # w1 — указатель-назначение, w2 — источник (значение или указатель).
+    func copy_into(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        if not self.is_agg(t) {
+            let dk: u32 = self.w1k
+            let da: u32 = self.w1a
+            let db: u32 = self.w1b
+            self.set1(self.w2k, self.w2a, self.w2b)
+            self.set2(dk, da, db)
+            self.e_store(t)
+            return
+        }
+        self.use_intr(0)
+        let dk2: u32 = self.w1k
+        let da2: u32 = self.w1a
+        let db2: u32 = self.w1b
+        let sk2: u32 = self.w2k
+        let sa2: u32 = self.w2a
+        let sb2: u32 = self.w2b
+        self.e_gepn(t)
+        self.set1rr()
+        self.e_p2i(t)
+        let zk: u32 = self.rrk
+        let za: u32 = self.rra
+        let zb: u32 = self.rrb
+        self.set1(dk2, da2, db2)
+        self.e_bc(t)
+        let xk: u32 = self.rrk
+        let xa: u32 = self.rra
+        let xb: u32 = self.rrb
+        self.set1(sk2, sa2, sb2)
+        self.e_bc(t)
+        self.set2rr()
+        self.set1(xk, xa, xb)
+        self.set3(zk, za, zb)
+        self.e_mcpy()
+    }
+
+    # w2 — источник; результат (указатель на копию) — rr.
+    func materialize(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        let sk2: u32 = self.w2k
+        let sa2: u32 = self.w2a
+        let sb2: u32 = self.w2b
+        self.e_alloca_u(t)
+        let ok2: u32 = self.rra
+        self.set1(0, ok2, 0)
+        self.set2(sk2, sa2, sb2)
+        self.copy_into(t)
+        self.rrk = 0
+        self.rra = ok2
+        self.rrb = 0
+    }
+
+    # w1 — i1: если истина, аварийная остановка.
+    func trap_if(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32)
+        requires mk <= 6
+        ensures true
+    {
+        let bk2: u32 = self.w1k
+        let ba2: u32 = self.w1a
+        let bb2: u32 = self.w1b
+        let tb: u32 = self.blk_new("trap")
+        let ob: u32 = self.blk_new("ok")
+        self.set1(bk2, ba2, bb2)
+        self.e_cbr(tb, ob)
+        self.cb = tb
+        let g: u32 = self.trap_glob(ln, cl, mk, e1, e2)
+        self.e_gepg(g)
+        self.set1rr()
+        self.e_trapc()
+        self.e_unr()
+        self.cb = ob
+    }
+
+    func ensure_br(var self, b: u32)
+        requires b < 16384
+        ensures true
+    {
+        if self.bkt[self.cb] == 0 {
+            self.e_br(b)
+        }
+    }
+
+    # --- области видимости значений ------------------------------------------
+
+    func push_sc(var self)
+        requires true
+        ensures true
+    {
+        if self.nsb >= 64 {
+            self.fail("слишком глубокие области видимости")
+            return
+        }
+        self.scb[self.nsb] = self.nvr
+        self.nsb = self.nsb + 1
+    }
+
+    func pop_sc(var self)
+        requires self.nsb >= 1
+        ensures true
+    {
+        self.nvr = self.scb[self.nsb - 1]
+        self.nsb = self.nsb - 1
+    }
+
+    # w1 — указатель привязки; a=NONE — self, «_» пропускается.
+    func bindv(var self, a: u32, l: u32, t: u32)
+        requires t < 512
+        ensures true
+    {
+        if a != 4294967295 {
+            if self.c.span_is(a, l, "_") {
+                return
+            }
+        }
+        if self.nvr >= 256 {
+            self.fail("слишком много переменных")
+            return
+        }
+        let v: u32 = self.nvr
+        self.vns[v] = a
+        self.vnl[v] = l
+        self.vty[v] = t
+        self.vkk[v] = self.w1k
+        self.vka[v] = self.w1a
+        self.vkb[v] = self.w1b
+        self.nvr = v + 1
+    }
+
+    func lookupv(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        var f: u32 = 4294967295
+        for i in 0..256 {
+            if i < self.nvr and f == 4294967295 {
+                if self.vns[i] != 4294967295 {
+                    if self.c.span_eq(self.vns[i], self.vnl[i], a, l) {
+                        f = i
+                    }
+                }
+            }
+        }
+        return f
+    }
+
+    func lookup_self2(var self) -> u32
+        requires true
+        ensures true
+    {
+        var f: u32 = 4294967295
+        for i in 0..256 {
+            if i < self.nvr and f == 4294967295 {
+                if self.vns[i] == 4294967295 {
+                    f = i
+                }
+            }
+        }
+        return f
+    }
+
+    # --- машина выражений -----------------------------------------------------
+
+    func xpush2(var self, n: u32)
+        requires n < 32768
+        ensures true
+    {
+        if self.nx3 >= 64 {
+            self.fail("слишком глубокое выражение")
+            return
+        }
+        self.xn3[self.nx3] = n
+        self.xp3[self.nx3] = 0
+        self.xa3[self.nx3] = 0
+        self.xb3[self.nx3] = 0
+        self.xc3[self.nx3] = 0
+        self.xd3[self.nx3] = 0
+        self.xe3[self.nx3] = 0
+        self.xf3[self.nx3] = 0
+        self.xg3[self.nx3] = 0
+        self.nx3 = self.nx3 + 1
+    }
+
+    func expr_run(var self, root: u32)
+        requires root < 32768
+        ensures true
+    {
+        self.nx3 = 0
+        self.xpush2(root)
+        for _ in 0..8192 {
+            if self.nx3 > 0 and not self.failed {
+                self.xstep()
+            }
+        }
+        if self.nx3 > 0 and not self.failed {
+            self.fail("выражение слишком велико для self-host")
+        }
+    }
+
+    func xstep(var self)
+        requires self.nx3 >= 1
+        ensures true
+    {
+        let f: u32 = self.nx3 - 1
+        let n: u32 = self.xn3[f]
+        let k: u32 = self.c.p.nk[n]
+        if k == 32 or k == 33 or k == 34 or k == 37 or k == 38 {
+            self.xleaf(n, k)
+        } elif k == 35 {
+            self.xstr(f, n)
+        } elif k == 39 {
+            self.xbin(f, n)
+        } elif k == 40 {
+            self.xun(f, n)
+        } elif k == 41 {
+            self.xcall(f, n)
+        } elif k == 42 {
+            self.xmeth(f, n)
+        } elif k == 43 {
+            self.xmem(f, n)
+        } elif k == 44 {
+            self.xidx(f, n)
+        } elif k == 45 {
+            self.xslit(f, n)
+        } elif k == 47 {
+            self.xalit(f, n)
+        } else {
+            self.xafill(f, n)
+        }
+    }
+
+    func xleaf(var self, n: u32, k: u32)
+        requires n < 32768
+        ensures true
+    {
+        if k == 32 {
+            self.ser(2, self.c.p.ny[n], self.c.p.nx[n])
+            self.ert = self.c.nty[n]
+        } elif k == 33 {
+            self.ser(2, 0, self.c.p.nx[n])
+            self.ert = 3
+        } elif k == 34 {
+            self.ser(2, 0, u32(self.c.p.lex.sbuf[self.c.p.nss[n]]))
+            self.ert = 4
+        } elif k == 38 {
+            let v: u32 = self.lookup_self2()
+            self.ser(self.vkk[v], self.vka[v], self.vkb[v])
+            self.ert = self.vty[v]
+        } else {
+            self.xname(n)
+        }
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xname(var self, n: u32)
+        requires n < 32768
+        ensures true
+    {
+        let a: u32 = self.c.p.nss[n]
+        let l: u32 = self.c.p.nsl[n]
+        if self.res_on == 1 {
+            if self.c.span_is(a, l, "result") {
+                if self.is_agg(self.rett) {
+                    self.ser(self.rsk, self.rsa, self.rsb)
+                    self.ert = self.rett
+                } else {
+                    self.set1(self.rsk, self.rsa, self.rsb)
+                    self.e_load(self.rett)
+                    self.serrr(self.rett)
+                }
+                return
+            }
+        }
+        let v: u32 = self.lookupv(a, l)
+        if v != 4294967295 {
+            let t: u32 = self.vty[v]
+            if self.is_agg(t) {
+                self.ser(self.vkk[v], self.vka[v], self.vkb[v])
+                self.ert = t
+            } else {
+                self.set1(self.vkk[v], self.vka[v], self.vkb[v])
+                self.e_load(t)
+                self.serrr(t)
+            }
+            return
+        }
+        let ci: u32 = self.c.find_const(a, l)
+        self.ser(2, self.c.cvs[ci], self.c.cvm[ci])
+        self.ert = self.c.cty[ci]
+    }
+
+    func xstr(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.nm_lit("str")
+            self.e_alloca_n(self.c.nty[n])
+            self.xb3[f] = self.rra
+            self.xc3[f] = self.rrb
+            self.set1rr()
+            self.e_rt_s("str_init")
+            self.xa3[f] = self.c.p.nfc[n]
+            self.xp3[f] = 1
+            return
+        }
+        if ph == 2 {
+            self.xseg(f)
+            self.xp3[f] = 1
+            return
+        }
+        let cur: u32 = self.xa3[f]
+        if cur == 4294967295 {
+            self.ser(1, self.xb3[f], self.xc3[f])
+            self.ert = self.c.nty[n]
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.xa3[f] = self.c.p.nns[cur]
+        if self.c.p.nk[cur] == 36 {
+            let g: u32 = self.cstr_seg(self.c.p.nss[cur], self.c.p.nsl[cur])
+            self.e_gepg(g)
+            self.set2rr()
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.e_ab(self.c.p.nsl[cur])
+        } else {
+            self.xp3[f] = 2
+            self.xpush2(cur)
+        }
+    }
+
+    # Выражение-сегмент готово (er): подобрать eat_str_append_*.
+    func xseg(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        let tk: u32 = self.c.yk[self.ert]
+        if tk == 6 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_as()
+        } elif tk == 4 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("char", "i8")
+        } elif tk == 3 {
+            self.set1er()
+            self.e_cvt(0, 3, 0)
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2rr()
+            self.e_rt_si("bool", "i32")
+        } elif tk == 0 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("i32", "i32")
+        } elif tk == 2 {
+            self.set1er()
+            self.e_cvt(0, 2, 0)
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2rr()
+            self.e_rt_si("u32", "i32")
+        } else {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("u32", "i32")
+        }
+    }
+
+    func xun(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        if self.xp3[f] == 0 {
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n])
+            return
+        }
+        if self.c.p.nx[n] == 3 {
+            self.set1er()
+            self.e_not()
+            self.serrr(3)
+        } else {
+            # унарный минус: 0 - x с проверкой переполнения i32
+            self.use_intr(2)
+            self.set1(2, 0, 0)
+            self.set2er()
+            self.e_ov(2)
+            let pk: u32 = self.rrk
+            let pa: u32 = self.rra
+            let pb: u32 = self.rrb
+            self.set1(pk, pa, pb)
+            self.e_exv(2, 1)
+            self.set1rr()
+            self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 2, 0, 0)
+            self.set1(pk, pa, pb)
+            self.e_exv(2, 0)
+            self.serrr(0)
+        }
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xbin(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let op: u32 = self.c.p.nx[n]
+        if op <= 2 {
+            self.xsc(f, n, op)
+            return
+        }
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n])
+        } elif ph == 1 {
+            self.xa3[f] = self.erk
+            self.xb3[f] = self.era
+            self.xc3[f] = self.erb
+            self.xd3[f] = self.ert
+            self.xp3[f] = 2
+            self.xpush2(self.c.p.nns[self.c.p.nfc[n]])
+        } else {
+            self.xbfin(f, n, op)
+        }
+    }
+
+    # Короткое замыкание and/or (op: 1 or, 2 and).
+    func xsc(var self, f: u32, n: u32, op: u32)
+        requires f < 64 and n < 32768 and op <= 2
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n])
+            return
+        }
+        if ph == 1 {
+            self.xa3[f] = self.erk
+            self.xb3[f] = self.era
+            self.xc3[f] = self.erb
+            self.xe3[f] = self.cb
+            var rhs: u32 = 0
+            var mrg: u32 = 0
+            if op == 2 {
+                rhs = self.blk_new("and")
+                mrg = self.blk_new("and.end")
+            } else {
+                rhs = self.blk_new("or")
+                mrg = self.blk_new("or.end")
+            }
+            self.xf3[f] = mrg
+            self.set1er()
+            if op == 2 {
+                self.e_cbr(rhs, mrg)
+            } else {
+                self.e_cbr(mrg, rhs)
+            }
+            self.cb = rhs
+            self.xp3[f] = 2
+            self.xpush2(self.c.p.nns[self.c.p.nfc[n]])
+            return
+        }
+        let re: u32 = self.cb
+        let mrg2: u32 = self.xf3[f]
+        self.e_br(mrg2)
+        self.cb = mrg2
+        self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.set2er()
+        self.e_phi(3, self.xe3[f], re)
+        self.serrr(3)
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xbfin(var self, f: u32, n: u32, op: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let lt: u32 = self.xd3[f]
+        let lk: u32 = self.c.yk[lt]
+        if op >= 10 {
+            self.xarith(f, n, op)
+            return
+        }
+        if lk == 6 {
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_streq()
+            self.set1rr()
+            self.set2(2, 0, 0)
+            self.e_icmp(2, 0)
+            if op != 4 {
+                self.set1rr()
+                self.e_not()
+            }
+            self.serrr(3)
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        var oc: u32 = 0
+        if op == 4 {
+            oc = 1
+        } elif op == 5 {
+            oc = 2
+        } elif op == 6 {
+            oc = 3
+        } elif op == 7 {
+            oc = 4
+        } elif op == 8 {
+            oc = 5
+        } else {
+            oc = 6
+        }
+        if oc >= 3 and lk != 0 {
+            oc = oc + 4
+        }
+        self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.set2er()
+        self.e_icmp(oc, lt)
+        self.serrr(3)
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Арифметика с проверками; левый операнд в кадре, правый в er.
+    func xarith(var self, f: u32, n: u32, op: u32)
+        requires f < 64 and n < 32768 and op >= 10 and op <= 14
+        ensures true
+    {
+        let lt: u32 = self.xd3[f]
+        let lk: u32 = self.c.yk[lt]
+        if op <= 12 {
+            var iid: u32 = op - 9
+            if lk == 1 {
+                iid = op - 6
+            } elif lk == 2 {
+                iid = op - 3
+            }
+            self.use_intr(iid)
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_ov(iid)
+            let pk: u32 = self.rrk
+            let pa: u32 = self.rra
+            let pb: u32 = self.rrb
+            self.set1(pk, pa, pb)
+            self.e_exv(iid, 1)
+            self.set1rr()
+            self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 2, lk, 0)
+            self.set1(pk, pa, pb)
+            self.e_exv(iid, 0)
+            self.serrr(lt)
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.xdiv(f, n, op, lt)
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xdiv(var self, f: u32, n: u32, op: u32, lt: u32)
+        requires f < 64 and n < 32768 and lt < 512
+        ensures true
+    {
+        let rk: u32 = self.erk
+        let ra: u32 = self.era
+        let rb: u32 = self.erb
+        self.set1(rk, ra, rb)
+        self.set2(2, 0, 0)
+        self.e_icmp(1, lt)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 3, 0, 0)
+        var o: u32 = 6
+        if op == 14 {
+            o = 7
+        }
+        if self.c.yk[lt] == 0 {
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2(2, 1, 2147483648)
+            self.e_icmp(1, lt)
+            let c1k: u32 = self.rrk
+            let c1a: u32 = self.rra
+            let c1b: u32 = self.rrb
+            self.set1(rk, ra, rb)
+            self.set2(2, 1, 1)
+            self.e_icmp(1, lt)
+            self.set2rr()
+            self.set1(c1k, c1a, c1b)
+            self.e_bin(8, 3)
+            self.set1rr()
+            self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 2, 0, 0)
+            o = 4
+            if op == 14 {
+                o = 5
+            }
+        }
+        self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.set2(rk, ra, rb)
+        self.e_bin(o, lt)
+        self.serrr(lt)
+    }
+
+    # --- вызовы -----------------------------------------------------------
+
+    func xcall(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        if self.xp3[f] == 0 {
+            self.xcall_start(f, n)
+        } else {
+            self.xcall_next(f, n)
+        }
+    }
+
+    func xcall_start(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let a: u32 = self.c.p.nss[n]
+        let l: u32 = self.c.p.nsl[n]
+        self.xp3[f] = 1
+        if self.c.span_is(a, l, "print") {
+            self.xa3[f] = 1
+            self.xpush2(self.c.p.nfc[n])
+        } elif self.c.span_is(a, l, "write") {
+            self.xa3[f] = 2
+            self.xpush2(self.c.p.nfc[n])
+        } elif self.c.span_is(a, l, "read_byte") {
+            self.xrbyte(n)
+            self.nx3 = self.nx3 - 1
+        } elif self.c.span_is(a, l, "read_line") {
+            self.xrline(n)
+            self.nx3 = self.nx3 - 1
+        } elif self.c.span_is(a, l, "parse_i32") {
+            self.xa3[f] = 3
+            self.xpush2(self.c.p.nfc[n])
+        } elif self.c.span_is(a, l, "len") {
+            self.xcall_len(f, n)
+        } elif self.c.span_is(a, l, "i32") {
+            self.xa3[f] = 100
+            self.xpush2(self.c.p.nfc[n])
+        } elif self.c.span_is(a, l, "u32") {
+            self.xa3[f] = 101
+            self.xpush2(self.c.p.nfc[n])
+        } elif self.c.span_is(a, l, "u8") {
+            self.xa3[f] = 102
+            self.xpush2(self.c.p.nfc[n])
+        } elif self.c.span_is(a, l, "char") {
+            self.xa3[f] = 104
+            self.xpush2(self.c.p.nfc[n])
+        } else {
+            self.xcall_user(f, n, a, l)
+        }
+    }
+
+    func xcall_len(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let at: u32 = self.c.nty[self.c.p.nfc[n]]
+        if self.c.yk[at] == 7 {
+            # len массива — константа, аргумент не вычисляется
+            self.ser(2, 0, self.c.yb[at])
+            self.ert = 1
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.xa3[f] = 4
+        self.xpush2(self.c.p.nfc[n])
+    }
+
+    func xcall_user(var self, f: u32, n: u32, a: u32, l: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let fi: u32 = self.c.find_func(a, l)
+        self.xa3[f] = 0
+        self.xb3[f] = fi
+        self.xg3[f] = self.nag
+        let rt2: u32 = self.c.fret[fi]
+        if rt2 != 4294967295 {
+            if self.is_agg(rt2) {
+                self.nm_lit("call.ret")
+                self.e_alloca_n(rt2)
+                self.ag_push_rr(rt2)
+            }
+        }
+        if self.c.fpc[fi] == 0 {
+            self.xufin(f)
+        } else {
+            self.xf3[f] = 0
+            self.xpush2(self.c.p.nfc[n])
+        }
+    }
+
+    func xcall_next(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let code: u32 = self.xa3[f]
+        if code == 1 or code == 2 {
+            self.set1er()
+            if code == 1 {
+                self.e_rt_s("print")
+            } else {
+                self.e_rt_s("write")
+            }
+            self.ert = 5
+            self.nx3 = self.nx3 - 1
+        } elif code == 3 {
+            self.xpi(n)
+            self.nx3 = self.nx3 - 1
+        } elif code == 4 {
+            # len строки: load текущей длины
+            self.set1er()
+            self.e_gepc(self.ert, 0)
+            self.set1rr()
+            self.e_load(0)
+            self.serrr(1)
+            self.nx3 = self.nx3 - 1
+        } elif code >= 100 {
+            self.xcast(n, code)
+            self.nx3 = self.nx3 - 1
+        } else {
+            # очередной аргумент пользовательской функции
+            let fi: u32 = self.xb3[f]
+            self.ag_push(self.c.pty[self.c.fps[fi] + self.xf3[f]])
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= self.c.fpc[fi] {
+                self.xufin(f)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f]))
+            }
+        }
+    }
+
+    # Завершение вызова функции/метода: аргументы в ag[xg3..nag).
+    func xufin(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        let fi: u32 = self.xb3[f]
+        let base: u32 = self.xg3[f]
+        let rt2: u32 = self.c.fret[fi]
+        var ok2: u32 = 0
+        var oa: u32 = 0
+        var ob2: u32 = 0
+        var agg2: bool = false
+        if rt2 != 4294967295 {
+            if self.is_agg(rt2) {
+                agg2 = true
+                ok2 = self.agk[base]
+                oa = self.aga[base]
+                ob2 = self.agb[base]
+            }
+        }
+        self.e_ucall(fi, base)
+        if rt2 == 4294967295 {
+            self.ert = 5
+        } elif agg2 {
+            self.ser(ok2, oa, ob2)
+            self.ert = rt2
+        } else {
+            self.serrr(rt2)
+        }
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xmeth(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        let obj: u32 = self.c.p.nfc[n]
+        if ph == 0 {
+            if self.c.p.nk[obj] == 37 {
+                if self.c.is_enum_name(self.c.p.nss[obj], self.c.p.nsl[obj]) {
+                    self.xctor(f, n, obj)
+                    return
+                }
+            }
+            self.xp3[f] = 1
+            self.xpush2(obj)
+        } elif ph == 1 {
+            self.xmeth_obj(f, n)
+        } elif ph == 9 {
+            # аргумент конструктора готов: скопировать в слот
+            self.set1(0, self.xe3[f], 0)
+            self.set2er()
+            self.copy_into(self.xa3[f])
+            self.ser(1, self.xb3[f], self.xc3[f])
+            self.ert = self.xd3[f]
+            self.nx3 = self.nx3 - 1
+        } else {
+            # очередной аргумент метода
+            let mfi: u32 = self.xb3[f]
+            self.ag_push(self.c.pty[self.c.fps[mfi] + self.xf3[f]])
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= self.c.fpc[mfi] {
+                self.xufin(f)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f] + 1))
+            }
+        }
+    }
+
+    func xmeth_obj(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let st2: u32 = self.ert
+        let si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
+        var mfi: u32 = 4294967295
+        for i in 0..512 {
+            if i < self.c.nfun and mfi == 4294967295 {
+                if self.c.fown[i] == si {
+                    if self.c.span_eq(self.c.fn_s[i], self.c.fn_l[i], self.c.p.nss[n], self.c.p.nsl[n]) {
+                        mfi = i
+                    }
+                }
+            }
+        }
+        self.xb3[f] = mfi
+        self.xg3[f] = self.nag
+        let ek: u32 = self.erk
+        let ea: u32 = self.era
+        let eb: u32 = self.erb
+        let rt2: u32 = self.c.fret[mfi]
+        if rt2 != 4294967295 {
+            if self.is_agg(rt2) {
+                self.nm_lit("call.ret")
+                self.e_alloca_n(rt2)
+                self.ag_push_rr(rt2)
+            }
+        }
+        self.ser(ek, ea, eb)
+        self.ag_push(st2)
+        if self.c.fpc[mfi] == 0 {
+            self.xufin(f)
+        } else {
+            self.xf3[f] = 0
+            self.xp3[f] = 2
+            self.xpush2(self.c.nth_child(n, 1))
+        }
+    }
+
+    # Конструктор варианта enum с нагрузкой: E.V(x).
+    func xctor(var self, f: u32, n: u32, obj: u32)
+        requires f < 64 and n < 32768 and obj < 32768
+        ensures true
+    {
+        let ei: u32 = self.c.find_enum(self.c.p.nss[obj], self.c.p.nsl[obj])
+        let w: u32 = self.c.variant_of(self.c.p.nss[obj], self.c.p.nsl[obj], self.c.p.nss[n], self.c.p.nsl[n])
+        let ety: u32 = self.c.nty[n]
+        let m: u32 = self.nbn
+        self.nb_sb(self.c.p.nss[obj], self.c.p.nsl[obj])
+        self.nb_b(46)
+        self.nb_sb(self.c.p.nss[n], self.c.p.nsl[n])
+        self.dedup(m)
+        self.e_alloca_n(ety)
+        self.xb3[f] = self.rra
+        self.xc3[f] = self.rrb
+        self.xd3[f] = ety
+        self.set1rr()
+        self.e_gepc(ety, 0)
+        self.set2rr()
+        self.set1(2, 0, w - self.c.evs[ei])
+        self.e_store(0)
+        self.set1(1, self.xb3[f], self.xc3[f])
+        self.e_gepc(ety, self.slot_of(ety, w))
+        self.xe3[f] = self.rra
+        self.xa3[f] = self.c.wpl[w]
+        self.xp3[f] = 9
+        self.xpush2(self.c.p.nns[obj])
+    }
+
+    # Тег встроенного enum-варианта.
+    func builtin_vtag(var self, va: u32, vl: u32) -> u32
+        requires true
+        ensures result <= 2
+    {
+        if self.c.span_is(va, vl, "Eof") or self.c.span_is(va, vl, "Empty") {
+            return 0
+        }
+        if self.c.span_is(va, vl, "Fail") or self.c.span_is(va, vl, "BadChar") {
+            return 1
+        }
+        return 2
+    }
+
+    func xmem(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let obj: u32 = self.c.p.nfc[n]
+        if self.xp3[f] == 0 {
+            if self.c.p.nk[obj] == 37 {
+                if self.c.is_enum_name(self.c.p.nss[obj], self.c.p.nsl[obj]) {
+                    self.xmem_enum(n, obj)
+                    self.nx3 = self.nx3 - 1
+                    return
+                }
+            }
+            self.xp3[f] = 1
+            self.xpush2(obj)
+            return
+        }
+        let st2: u32 = self.ert
+        let si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
+        let g: u32 = self.c.field_of(si, self.c.p.nss[n], self.c.p.nsl[n])
+        self.set1er()
+        self.e_gepc(st2, g - self.c.sgs[si])
+        let ft: u32 = self.c.gty[g]
+        if self.is_agg(ft) {
+            self.serrr(ft)
+        } else {
+            self.set1rr()
+            self.e_load(ft)
+            self.serrr(ft)
+        }
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Литерал варианта без нагрузки: E.V.
+    func xmem_enum(var self, n: u32, obj: u32)
+        requires n < 32768 and obj < 32768
+        ensures true
+    {
+        let ety: u32 = self.c.nty[n]
+        let ei: u32 = self.c.find_enum(self.c.p.nss[obj], self.c.p.nsl[obj])
+        if ei == 4294967295 {
+            self.ser(2, 0, self.builtin_vtag(self.c.p.nss[n], self.c.p.nsl[n]))
+            self.ert = ety
+            return
+        }
+        let w: u32 = self.c.variant_of(self.c.p.nss[obj], self.c.p.nsl[obj], self.c.p.nss[n], self.c.p.nsl[n])
+        let tag: u32 = w - self.c.evs[ei]
+        if self.enum_pay(ety) {
+            # вариант без нагрузки внутри enum с нагрузкой — агрегат с тегом
+            let m: u32 = self.nbn
+            self.nb_sb(self.c.p.nss[obj], self.c.p.nsl[obj])
+            self.nb_b(46)
+            self.nb_sb(self.c.p.nss[n], self.c.p.nsl[n])
+            self.dedup(m)
+            self.e_alloca_n(ety)
+            let os: u32 = self.rra
+            let ol: u32 = self.rrb
+            self.set1rr()
+            self.e_gepc(ety, 0)
+            self.set2rr()
+            self.set1(2, 0, tag)
+            self.e_store(0)
+            self.ser(1, os, ol)
+            self.ert = ety
+        } else {
+            self.ser(2, 0, tag)
+            self.ert = ety
+        }
+    }
+
+    # er — индексное значение: u8 расширяется до i32.
+    func widen(var self)
+        requires true
+        ensures true
+    {
+        if self.c.yk[self.ert] == 2 {
+            self.set1er()
+            self.e_cvt(0, 2, 0)
+            self.serrr(0)
+        }
+    }
+
+    # Указатель на элемент с проверкой границ. База — (bk,ba,bb) типа bt,
+    # индекс — er (уже i32). Результат — rr.
+    func idx_gep(var self, n: u32, bk: u32, ba: u32, bb: u32, bt: u32)
+        requires n < 32768 and bt < 512
+        ensures true
+    {
+        let ik: u32 = self.erk
+        let ia: u32 = self.era
+        let ib: u32 = self.erb
+        var zk: u32 = 2
+        var za: u32 = 0
+        var zb: u32 = 0
+        if self.c.yk[bt] == 7 {
+            zb = self.c.yb[bt]
+        } else {
+            self.set1(bk, ba, bb)
+            self.e_gepc(bt, 0)
+            self.set1rr()
+            self.e_load(0)
+            zk = self.rrk
+            za = self.rra
+            zb = self.rrb
+        }
+        self.set1(ik, ia, ib)
+        self.set2(2, 0, 0)
+        self.e_icmp(3, 0)
+        let lk2: u32 = self.rrk
+        let la2: u32 = self.rra
+        let lb2: u32 = self.rrb
+        self.set1(ik, ia, ib)
+        self.set2(zk, za, zb)
+        self.e_icmp(6, 0)
+        self.set2rr()
+        self.set1(lk2, la2, lb2)
+        self.e_bin(9, 3)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 4, 0, 0)
+        self.set1(bk, ba, bb)
+        self.set2(ik, ia, ib)
+        if self.c.yk[bt] == 7 {
+            self.e_gepi(bt)
+        } else {
+            self.e_geps(bt)
+        }
+    }
+
+    func xidx(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n])
+        } elif ph == 1 {
+            self.xa3[f] = self.erk
+            self.xb3[f] = self.era
+            self.xc3[f] = self.erb
+            self.xd3[f] = self.ert
+            self.xp3[f] = 2
+            self.xpush2(self.c.p.nns[self.c.p.nfc[n]])
+        } else {
+            self.widen()
+            let bt: u32 = self.xd3[f]
+            self.idx_gep(n, self.xa3[f], self.xb3[f], self.xc3[f], bt)
+            var et: u32 = 4
+            if self.c.yk[bt] == 7 {
+                et = self.c.ya[bt]
+            }
+            if not self.is_agg(et) {
+                self.set1rr()
+                self.e_load(et)
+            }
+            self.serrr(et)
+            self.nx3 = self.nx3 - 1
+        }
+    }
+
+    func xslit(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.nm_sb(self.c.p.nss[n], self.c.p.nsl[n])
+            self.e_alloca_n(self.c.nty[n])
+            self.xa3[f] = self.rra
+            self.xb3[f] = self.rrb
+            self.xc3[f] = self.c.p.nfc[n]
+            self.xp3[f] = 1
+            return
+        }
+        if ph == 2 {
+            self.set1(0, self.xd3[f], 0)
+            self.set2er()
+            self.copy_into(self.xe3[f])
+            self.xp3[f] = 1
+            return
+        }
+        let cur: u32 = self.xc3[f]
+        if cur == 4294967295 {
+            self.ser(1, self.xa3[f], self.xb3[f])
+            self.ert = self.c.nty[n]
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        let si: u32 = self.c.find_struct(self.c.p.nss[n], self.c.p.nsl[n])
+        let g: u32 = self.c.field_of(si, self.c.p.nss[cur], self.c.p.nsl[cur])
+        self.set1(1, self.xa3[f], self.xb3[f])
+        self.e_gepc(self.c.nty[n], g - self.c.sgs[si])
+        self.xd3[f] = self.rra
+        self.xe3[f] = self.c.gty[g]
+        self.xc3[f] = self.c.p.nns[cur]
+        self.xp3[f] = 2
+        self.xpush2(self.c.p.nfc[cur])
+    }
+
+    func xalit(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.nm_lit("arr")
+            self.e_alloca_n(self.c.nty[n])
+            self.xa3[f] = self.rra
+            self.xb3[f] = self.rrb
+            self.xc3[f] = self.c.p.nfc[n]
+            self.xd3[f] = 0
+            self.xp3[f] = 1
+            return
+        }
+        if ph == 2 {
+            self.set1(0, self.xe3[f], 0)
+            self.set2er()
+            self.copy_into(self.c.ya[self.c.nty[n]])
+            self.xp3[f] = 1
+            return
+        }
+        let cur: u32 = self.xc3[f]
+        if cur == 4294967295 {
+            self.ser(1, self.xa3[f], self.xb3[f])
+            self.ert = self.c.nty[n]
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.set1(1, self.xa3[f], self.xb3[f])
+        self.e_gepc(self.c.nty[n], self.xd3[f])
+        self.xe3[f] = self.rra
+        self.xd3[f] = self.xd3[f] + 1
+        self.xc3[f] = self.c.p.nns[cur]
+        self.xp3[f] = 2
+        self.xpush2(cur)
+    }
+
+    func xafill(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        if self.xp3[f] == 0 {
+            self.nm_lit("arr.fill")
+            self.e_alloca_n(self.c.nty[n])
+            self.xa3[f] = self.rra
+            self.xb3[f] = self.rrb
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n])
+            return
+        }
+        self.xafill_fin(f, n)
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xafill_fin(var self, f: u32, n: u32)
+        requires f < 64 and n < 32768
+        ensures true
+    {
+        let t: u32 = self.c.nty[n]
+        let et: u32 = self.c.ya[t]
+        let vk: u32 = self.erk
+        let va: u32 = self.era
+        let vb: u32 = self.erb
+        self.nm_lit("fill.i")
+        self.e_alloca_n(0)
+        let is2: u32 = self.rra
+        let il2: u32 = self.rrb
+        self.set1(2, 0, 0)
+        self.set2rr()
+        self.e_store(0)
+        let condb: u32 = self.blk_new("fill.cond")
+        let bodyb: u32 = self.blk_new("fill.body")
+        let endb: u32 = self.blk_new("fill.end")
+        self.e_br(condb)
+        self.cb = condb
+        self.set1(1, is2, il2)
+        self.e_load(0)
+        let ck: u32 = self.rrk
+        let ca: u32 = self.rra
+        let cb2: u32 = self.rrb
+        self.set1(ck, ca, cb2)
+        self.set2(2, 0, self.c.yb[t])
+        self.e_icmp(3, 0)
+        self.set1rr()
+        self.e_cbr(bodyb, endb)
+        self.cb = bodyb
+        self.set1(1, self.xa3[f], self.xb3[f])
+        self.set2(ck, ca, cb2)
+        self.e_gepi(t)
+        self.set1rr()
+        self.set2(vk, va, vb)
+        self.copy_into(et)
+        self.set1(ck, ca, cb2)
+        self.set2(2, 0, 1)
+        self.e_bin(1, 0)
+        self.set1rr()
+        self.set2(1, is2, il2)
+        self.e_store(0)
+        self.e_br(condb)
+        self.cb = endb
+        self.ser(1, self.xa3[f], self.xb3[f])
+        self.ert = t
+    }
+
+    # --- встроенные функции ---------------------------------------------------
+
+    func xrbyte(var self, n: u32)
+        requires n < 32768
+        ensures true
+    {
+        let t: u32 = self.c.nty[n]
+        self.e_rbyte()
+        let wk: u32 = self.rrk
+        let wa: u32 = self.rra
+        let wb: u32 = self.rrb
+        self.nm_lit("rb.res")
+        self.e_alloca_n(t)
+        let rs2: u32 = self.rra
+        let rl2: u32 = self.rrb
+        self.set1(wk, wa, wb)
+        self.set2(2, 0, 0)
+        self.e_icmp(6, 0)
+        let ok3: u32 = self.rrk
+        let oa3: u32 = self.rra
+        let ob3: u32 = self.rrb
+        self.set1(ok3, oa3, ob3)
+        self.set2(2, 0, 0)
+        self.set3(2, 0, 1)
+        self.e_sel(0)
+        let tk2: u32 = self.rrk
+        let ta2: u32 = self.rra
+        let tb2: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 0)
+        self.set2rr()
+        self.set1(tk2, ta2, tb2)
+        self.e_store(0)
+        self.set1(wk, wa, wb)
+        self.e_cvt(1, 0, 2)
+        self.set2rr()
+        self.set1(ok3, oa3, ob3)
+        self.set3(2, 0, 0)
+        self.e_sel(2)
+        let bk3: u32 = self.rrk
+        let ba3: u32 = self.rra
+        let bb3: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 1)
+        self.set2rr()
+        self.set1(bk3, ba3, bb3)
+        self.e_store(2)
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 2)
+        self.set2rr()
+        self.set1(2, 0, 0)
+        self.e_store(self.c.yb[t])
+        self.ser(1, rs2, rl2)
+        self.ert = t
+    }
+
+    func xrline(var self, n: u32)
+        requires n < 32768
+        ensures true
+    {
+        let t: u32 = self.c.nty[n]
+        self.nm_lit("line")
+        self.e_alloca_n(self.c.ty_sq)
+        let ts2: u32 = self.rra
+        let tl2: u32 = self.rrb
+        self.set1rr()
+        self.e_rt_s("str_init")
+        self.set1(1, ts2, tl2)
+        self.e_rline()
+        let wk: u32 = self.rrk
+        let wa: u32 = self.rra
+        let wb: u32 = self.rrb
+        self.nm_lit("read.res")
+        self.e_alloca_n(t)
+        let rs2: u32 = self.rra
+        let rl2: u32 = self.rrb
+        self.set1(wk, wa, wb)
+        self.set2(2, 0, 0)
+        self.e_icmp(1, 0)
+        self.set1rr()
+        self.set2(2, 0, 0)
+        self.set3(2, 0, 1)
+        self.e_sel(0)
+        let tk2: u32 = self.rrk
+        let ta2: u32 = self.rra
+        let tb2: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 0)
+        self.set2rr()
+        self.set1(tk2, ta2, tb2)
+        self.e_store(0)
+        self.set1(1, ts2, tl2)
+        self.e_load(self.c.ty_sq)
+        let vk: u32 = self.rrk
+        let va: u32 = self.rra
+        let vb: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 1)
+        self.set2rr()
+        self.set1(vk, va, vb)
+        self.e_store(self.c.ty_sq)
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 2)
+        self.set2rr()
+        self.set1(2, 0, 0)
+        self.e_store(self.c.yb[t])
+        self.ser(1, rs2, rl2)
+        self.ert = t
+    }
+
+    # er — строка-аргумент parse_i32.
+    func xpi(var self, n: u32)
+        requires n < 32768
+        ensures true
+    {
+        let t: u32 = self.c.nty[n]
+        let sk2: u32 = self.erk
+        let sa2: u32 = self.era
+        let sb2: u32 = self.erb
+        self.nm_lit("parse.out")
+        self.e_alloca_n(0)
+        let os2: u32 = self.rra
+        let ol2: u32 = self.rrb
+        self.set1(2, 0, 0)
+        self.set2rr()
+        self.e_store(0)
+        self.set1(sk2, sa2, sb2)
+        self.set2(1, os2, ol2)
+        self.e_pi()
+        let wk: u32 = self.rrk
+        let wa: u32 = self.rra
+        let wb: u32 = self.rrb
+        self.nm_lit("parse.res")
+        self.e_alloca_n(t)
+        let rs2: u32 = self.rra
+        let rl2: u32 = self.rrb
+        self.set1(wk, wa, wb)
+        self.set2(2, 0, 0)
+        self.e_icmp(1, 0)
+        let ok3: u32 = self.rrk
+        let oa3: u32 = self.rra
+        let ob3: u32 = self.rrb
+        self.set1(ok3, oa3, ob3)
+        self.set2(2, 0, 0)
+        self.set3(2, 0, 1)
+        self.e_sel(0)
+        let tk2: u32 = self.rrk
+        let ta2: u32 = self.rra
+        let tb2: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 0)
+        self.set2rr()
+        self.set1(tk2, ta2, tb2)
+        self.e_store(0)
+        self.set1(1, os2, ol2)
+        self.e_load(0)
+        let vk: u32 = self.rrk
+        let va: u32 = self.rra
+        let vb: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 1)
+        self.set2rr()
+        self.set1(vk, va, vb)
+        self.e_store(0)
+        self.u1k = ok3
+        self.u1a = oa3
+        self.u1b = ob3
+        self.u2k = wk
+        self.u2a = wa
+        self.u2b = wb
+        self.xpi_err(t, rs2, rl2)
+        self.ser(1, rs2, rl2)
+        self.ert = t
+    }
+
+    # Слот ошибки parse_i32: статусы 1..3 -> варианты 0..2
+    # (u1 — ok, u2 — статус).
+    func xpi_err(var self, t: u32, rs2: u32, rl2: u32)
+        requires t < 512
+        ensures true
+    {
+        self.set1(self.u2k, self.u2a, self.u2b)
+        self.set2(2, 0, 1)
+        self.e_bin(2, 0)
+        self.set3rr()
+        self.set1(self.u1k, self.u1a, self.u1b)
+        self.set2(2, 0, 0)
+        self.e_sel(0)
+        let ek2: u32 = self.rrk
+        let ea2: u32 = self.rra
+        let eb2: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 2)
+        self.set2rr()
+        self.set1(ek2, ea2, eb2)
+        self.e_store(self.c.yb[t])
+    }
+
+    # er — значение-аргумент каста; code: 100 i32, 101 u32, 102 u8, 104 char.
+    func xcast(var self, n: u32, code: u32)
+        requires n < 32768 and code >= 100
+        ensures true
+    {
+        let st2: u32 = self.ert
+        let sk2: u32 = self.c.yk[st2]
+        if code == 104 or sk2 == 4 {
+            self.ert = self.c.nty[n]
+            return
+        }
+        if sk2 == 2 {
+            if code == 102 {
+                self.ert = 2
+                return
+            }
+            self.set1er()
+            self.e_cvt(0, 2, 0)
+            self.serrr(self.c.nty[n])
+            return
+        }
+        if code == 100 {
+            if sk2 == 1 {
+                self.set1er()
+                self.set2(2, 0, 2147483647)
+                self.e_icmp(9, st2)
+                self.set1rr()
+                self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 6, 0, 0)
+            }
+            self.ert = 0
+            return
+        }
+        if code == 101 {
+            if sk2 == 0 {
+                self.set1er()
+                self.set2(2, 0, 0)
+                self.e_icmp(3, st2)
+                self.set1rr()
+                self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 6, 1, 0)
+            }
+            self.ert = 1
+            return
+        }
+        self.xcast_u8(n, st2, sk2)
+    }
+
+    func xcast_u8(var self, n: u32, st2: u32, sk2: u32)
+        requires n < 32768 and st2 < 512
+        ensures true
+    {
+        if sk2 == 0 {
+            self.set1er()
+            self.set2(2, 0, 0)
+            self.e_icmp(3, st2)
+            let lk2: u32 = self.rrk
+            let la2: u32 = self.rra
+            let lb2: u32 = self.rrb
+            self.set1er()
+            self.set2(2, 0, 255)
+            self.e_icmp(5, st2)
+            self.set2rr()
+            self.set1(lk2, la2, lb2)
+            self.e_bin(9, 3)
+        } else {
+            self.set1er()
+            self.set2(2, 0, 255)
+            self.e_icmp(9, st2)
+        }
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 6, 2, 0)
+        self.set1er()
+        self.e_cvt(1, st2, 2)
+        self.serrr(2)
+    }
+
+    # --- lvalue ---------------------------------------------------------------
+
+    # Указатель на цель присваивания; результат — lvk/lva/lvb.
+    func lvalue(var self, tgt: u32)
+        requires tgt < 32768
+        ensures true
+    {
+        var path: [u32; 32] = [0; 32]
+        var np: u32 = 0
+        var cur: u32 = tgt
+        for _ in 0..32 {
+            let k: u32 = self.c.p.nk[cur]
+            if k == 43 or k == 44 {
+                path[np] = cur
+                np = np + 1
+                cur = self.c.p.nfc[cur]
+            }
+        }
+        var bt: u32 = 0
+        if self.c.p.nk[cur] == 38 {
+            let v: u32 = self.lookup_self2()
+            self.lvk = self.vkk[v]
+            self.lva = self.vka[v]
+            self.lvb = self.vkb[v]
+            bt = self.vty[v]
+        } else {
+            let v2: u32 = self.lookupv(self.c.p.nss[cur], self.c.p.nsl[cur])
+            self.lvk = self.vkk[v2]
+            self.lva = self.vka[v2]
+            self.lvb = self.vkb[v2]
+            bt = self.vty[v2]
+        }
+        for q in 0..32 {
+            if q < np and not self.failed {
+                bt = self.lv_step(path[np - 1 - q], bt)
+            }
+        }
+    }
+
+    # Один шаг пути lvalue: поле или индекс. Возвращает тип уровня.
+    func lv_step(var self, nd: u32, bt: u32) -> u32
+        requires nd < 32768 and bt < 512
+        ensures result < 512
+    {
+        if self.c.p.nk[nd] == 43 {
+            let si: u32 = self.c.find_struct(self.c.ys[bt], self.c.yl[bt])
+            let g: u32 = self.c.field_of(si, self.c.p.nss[nd], self.c.p.nsl[nd])
+            self.set1(self.lvk, self.lva, self.lvb)
+            self.e_gepc(bt, g - self.c.sgs[si])
+            self.lvk = self.rrk
+            self.lva = self.rra
+            self.lvb = self.rrb
+            return self.c.gty[g]
+        }
+        let bk: u32 = self.lvk
+        let ba: u32 = self.lva
+        let bb: u32 = self.lvb
+        self.expr_run(self.c.p.nns[self.c.p.nfc[nd]])
+        self.widen()
+        self.idx_gep(nd, bk, ba, bb, bt)
+        self.lvk = self.rrk
+        self.lva = self.rra
+        self.lvb = self.rrb
+        if self.c.yk[bt] == 7 {
+            return self.c.ya[bt]
+        }
+        return 4
+    }
+
+    # --- машина инструкций ------------------------------------------------------
+
+    func spush(var self, k: u32, nd: u32, cur: u32)
+        requires k <= 4 and nd < 32768
+        ensures true
+    {
+        if self.ns4 >= 64 {
+            self.fail("слишком глубокая вложенность")
+            return
+        }
+        self.sk4[self.ns4] = k
+        self.sn4[self.ns4] = nd
+        self.sp4[self.ns4] = cur
+        self.sa4[self.ns4] = 0
+        self.sb4[self.ns4] = 0
+        self.sc4[self.ns4] = 0
+        self.sd4[self.ns4] = 0
+        self.se4[self.ns4] = 0
+        self.sf4[self.ns4] = 0
+        self.sg4[self.ns4] = 0
+        self.ns4 = self.ns4 + 1
+    }
+
+    func start_blk(var self, body: u32)
+        requires body < 32768
+        ensures true
+    {
+        self.push_sc()
+        self.spush(0, body, self.c.p.nfc[body])
+    }
+
+    func st_run(var self, body: u32)
+        requires body < 32768
+        ensures true
+    {
+        self.ns4 = 0
+        self.start_blk(body)
+        for _ in 0..8192 {
+            if self.ns4 > 0 and not self.failed {
+                self.sstep()
+            }
+        }
+        if self.ns4 > 0 and not self.failed {
+            self.fail("тело функции слишком велико для self-host")
+        }
+    }
+
+    func sstep(var self)
+        requires self.ns4 >= 1
+        ensures true
+    {
+        let k: u32 = self.sk4[self.ns4 - 1]
+        if k == 0 {
+            self.s_blk()
+        } elif k == 1 {
+            self.s_if()
+        } elif k == 2 {
+            self.s_for()
+        } elif k == 3 {
+            self.s_match()
+        } else {
+            self.s_loop()
+        }
+    }
+
+    func s_blk(var self)
+        requires self.ns4 >= 1
+        ensures true
+    {
+        let f: u32 = self.ns4 - 1
+        if self.bkt[self.cb] == 1 {
+            self.pop_sc()
+            self.ns4 = f
+            return
+        }
+        let cur: u32 = self.sp4[f]
+        if cur == 4294967295 {
+            self.pop_sc()
+            self.ns4 = f
+            return
+        }
+        self.sp4[f] = self.c.p.nns[cur]
+        self.s_stmt(cur)
+    }
+
+    func s_stmt(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let k: u32 = self.c.p.nk[cur]
+        if k == 13 {
+            self.s_let(cur)
+        } elif k == 14 {
+            self.s_assign(cur)
+        } elif k == 15 {
+            self.s_if_start(cur)
+        } elif k == 18 {
+            self.s_for_start(cur)
+        } elif k == 19 {
+            self.s_loop_start(cur)
+        } elif k == 20 {
+            self.s_match_start(cur)
+        } elif k == 22 {
+            self.s_ret(cur)
+        } elif k == 23 {
+            self.e_br(self.lpx[self.nlx - 1])
+        } elif k == 24 {
+            self.s_assert(cur)
+        } else {
+            self.expr_run(self.c.p.nfc[cur])
+        }
+    }
+
+    func s_let(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let t: u32 = self.c.nty[cur]
+        self.expr_run(self.c.p.nns[self.c.p.nfc[cur]])
+        if self.failed {
+            return
+        }
+        self.set2er()
+        self.materialize(t)
+        self.set1rr()
+        self.bindv(self.c.p.nss[cur], self.c.p.nsl[cur], t)
+    }
+
+    func s_assign(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let tgt: u32 = self.c.p.nfc[cur]
+        self.expr_run(self.c.p.nns[tgt])
+        if self.failed {
+            return
+        }
+        let vk: u32 = self.erk
+        let va: u32 = self.era
+        let vb: u32 = self.erb
+        self.lvalue(tgt)
+        self.set1(self.lvk, self.lva, self.lvb)
+        self.set2(vk, va, vb)
+        self.copy_into(self.c.nty[tgt])
+    }
+
+    func s_assert(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        self.expr_run(self.c.p.nfc[cur])
+        if self.failed {
+            return
+        }
+        self.set1er()
+        self.e_not()
+        self.set1rr()
+        self.trap_if(self.c.p.nl[cur], self.c.p.nc[cur], 5, 0, 0)
+    }
+
+    func s_ret(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let v: u32 = self.c.p.nfc[cur]
+        if v != 4294967295 {
+            self.expr_run(v)
+            if self.failed {
+                return
+            }
+            self.set1(self.rsk, self.rsa, self.rsb)
+            self.set2er()
+            self.copy_into(self.rett)
+        }
+        self.e_br(self.exb)
+    }
+
+    func s_if_start(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let mrg: u32 = self.blk_new("if.end")
+        self.spush(1, cur, self.c.p.nfc[cur])
+        self.sa4[self.ns4 - 1] = mrg
+        self.sb4[self.ns4 - 1] = 4294967295
+    }
+
+    func s_if(var self)
+        requires self.ns4 >= 1
+        ensures true
+    {
+        let f: u32 = self.ns4 - 1
+        let stage: u32 = self.sc4[f]
+        if stage == 1 {
+            self.ensure_br(self.sa4[f])
+            self.cb = self.sb4[f]
+            self.sc4[f] = 0
+            return
+        }
+        if stage == 2 {
+            self.ensure_br(self.sa4[f])
+            self.cb = self.sa4[f]
+            self.ns4 = f
+            return
+        }
+        let cur: u32 = self.sp4[f]
+        if cur == 4294967295 {
+            self.ensure_br(self.sa4[f])
+            self.cb = self.sa4[f]
+            self.ns4 = f
+            return
+        }
+        let k: u32 = self.c.p.nk[cur]
+        if k == 17 {
+            self.sc4[f] = 2
+            self.sp4[f] = 4294967295
+            self.start_blk(self.c.p.nfc[cur])
+            return
+        }
+        var cnd: u32 = cur
+        var blk2: u32 = 0
+        if k == 16 {
+            cnd = self.c.p.nfc[cur]
+            blk2 = self.c.p.nns[cnd]
+            self.sp4[f] = self.c.p.nns[cur]
+        } else {
+            blk2 = self.c.p.nns[cur]
+            self.sp4[f] = self.c.p.nns[blk2]
+        }
+        let tb: u32 = self.blk_new("if.then")
+        let eb: u32 = self.blk_new("if.else")
+        self.expr_run(cnd)
+        if self.failed {
+            return
+        }
+        self.set1er()
+        self.e_cbr(tb, eb)
+        self.cb = tb
+        self.sb4[f] = eb
+        self.sc4[f] = 1
+        self.start_blk(blk2)
+    }
+
+    func s_for_start(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let it: u32 = self.c.p.nfc[cur]
+        self.nm_lit("for.i")
+        self.e_alloca_n(0)
+        let is2: u32 = self.rra
+        let il2: u32 = self.rrb
+        # предел -> u1, источник -> u2 (uty), s_for_src ставит store старта
+        self.s_for_src(cur, it, is2, il2)
+        if self.failed {
+            return
+        }
+        let condb: u32 = self.blk_new("for.cond")
+        let bodyb: u32 = self.blk_new("for.body")
+        let afterb: u32 = self.blk_new("for.end")
+        self.e_br(condb)
+        self.cb = condb
+        self.set1(1, is2, il2)
+        self.e_load(0)
+        let ck: u32 = self.rrk
+        let ca: u32 = self.rra
+        let cb2: u32 = self.rrb
+        self.set1(ck, ca, cb2)
+        self.set2(self.u1k, self.u1a, self.u1b)
+        self.e_icmp(3, 0)
+        self.set1rr()
+        self.e_cbr(bodyb, afterb)
+        self.cb = bodyb
+        self.push_sc()
+        self.set1(ck, ca, cb2)
+        self.s_for_slot(cur, it)
+        self.spush(2, cur, 4294967295)
+        self.sa4[self.ns4 - 1] = is2
+        self.sb4[self.ns4 - 1] = il2
+        self.sc4[self.ns4 - 1] = condb
+        self.sd4[self.ns4 - 1] = afterb
+        self.start_blk(self.c.p.nns[it])
+    }
+
+    # Инициализация счётчика и предел (u1) / источник (u2, uty).
+    func s_for_src(var self, cur: u32, it: u32, is2: u32, il2: u32)
+        requires cur < 32768 and it < 32768
+        ensures true
+    {
+        if self.c.p.nk[it] == 49 {
+            let ri: u32 = self.c.range_of(cur)
+            self.set1(2, self.c.rb_ss[ri], self.c.rb_sm[ri])
+            self.set2(1, is2, il2)
+            self.e_store(0)
+            self.u1k = 2
+            self.u1a = self.c.rb_es[ri]
+            self.u1b = self.c.rb_em[ri]
+            self.uty = 4294967295
+            return
+        }
+        self.set1(2, 0, 0)
+        self.set2(1, is2, il2)
+        self.e_store(0)
+        self.expr_run(it)
+        if self.failed {
+            return
+        }
+        self.u2k = self.erk
+        self.u2a = self.era
+        self.u2b = self.erb
+        self.uty = self.ert
+        if self.c.yk[self.ert] == 7 {
+            self.u1k = 2
+            self.u1a = 0
+            self.u1b = self.c.yb[self.ert]
+        } else {
+            self.set1er()
+            self.e_gepc(self.ert, 0)
+            self.set1rr()
+            self.e_load(0)
+            self.u1k = self.rrk
+            self.u1a = self.rra
+            self.u1b = self.rrb
+        }
+    }
+
+    # Слот переменной цикла; w1 — текущее значение счётчика (i32).
+    func s_for_slot(var self, cur: u32, it: u32)
+        requires cur < 32768 and it < 32768
+        ensures true
+    {
+        if self.c.span_is(self.c.p.nss[cur], self.c.p.nsl[cur], "_") {
+            return
+        }
+        let ck: u32 = self.w1k
+        let ca: u32 = self.w1a
+        let cb2: u32 = self.w1b
+        let elem: u32 = self.c.nty[cur]
+        if self.c.p.nk[it] == 49 {
+            self.nm_sb(self.c.p.nss[cur], self.c.p.nsl[cur])
+            self.e_alloca_n(0)
+            self.set2rr()
+            self.set1(ck, ca, cb2)
+            self.e_store(0)
+            self.set1rr()
+            self.bindv(self.c.p.nss[cur], self.c.p.nsl[cur], elem)
+            return
+        }
+        self.nm_sb(self.c.p.nss[cur], self.c.p.nsl[cur])
+        self.e_alloca_n(elem)
+        let ss2: u32 = self.rra
+        let sl2: u32 = self.rrb
+        self.set1(self.u2k, self.u2a, self.u2b)
+        self.set2(ck, ca, cb2)
+        if self.c.yk[self.uty] == 7 {
+            self.e_gepi(self.uty)
+        } else {
+            self.e_geps(self.uty)
+        }
+        if self.is_agg(elem) {
+            self.set2rr()
+            self.set1(1, ss2, sl2)
+            self.copy_into(elem)
+        } else {
+            self.set1rr()
+            self.e_load(elem)
+            self.set1rr()
+            self.set2(1, ss2, sl2)
+            self.e_store(elem)
+        }
+        self.set1(1, ss2, sl2)
+        self.bindv(self.c.p.nss[cur], self.c.p.nsl[cur], elem)
+    }
+
+    func s_for(var self)
+        requires self.ns4 >= 1
+        ensures true
+    {
+        let f: u32 = self.ns4 - 1
+        self.pop_sc()
+        if self.bkt[self.cb] == 0 {
+            self.set1(1, self.sa4[f], self.sb4[f])
+            self.e_load(0)
+            self.set1rr()
+            self.set2(2, 0, 1)
+            self.e_bin(1, 0)
+            self.set1rr()
+            self.set2(1, self.sa4[f], self.sb4[f])
+            self.e_store(0)
+            self.e_br(self.sc4[f])
+        }
+        self.cb = self.sd4[f]
+        self.ns4 = f
+    }
+
+    func s_loop_start(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let bodyb: u32 = self.blk_new("loop")
+        let afterb: u32 = self.blk_new("loop.end")
+        self.e_br(bodyb)
+        self.cb = bodyb
+        if self.nlx >= 8 {
+            self.fail("слишком глубокие loop")
+            return
+        }
+        self.lpx[self.nlx] = afterb
+        self.nlx = self.nlx + 1
+        self.spush(4, cur, 4294967295)
+        self.sa4[self.ns4 - 1] = bodyb
+        self.sb4[self.ns4 - 1] = afterb
+        self.start_blk(self.c.p.nfc[cur])
+    }
+
+    func s_loop(var self)
+        requires self.ns4 >= 1
+        ensures true
+    {
+        let f: u32 = self.ns4 - 1
+        self.nlx = self.nlx - 1
+        self.ensure_br(self.sa4[f])
+        self.cb = self.sb4[f]
+        self.ns4 = f
+    }
+
+    func s_match_start(var self, cur: u32)
+        requires cur < 32768
+        ensures true
+    {
+        let subj: u32 = self.c.p.nfc[cur]
+        self.expr_run(subj)
+        if self.failed {
+            return
+        }
+        let dom: u32 = self.ert
+        let sk2: u32 = self.erk
+        let sa2: u32 = self.era
+        let sb2: u32 = self.erb
+        var tk2: u32 = sk2
+        var ta2: u32 = sa2
+        var tb2: u32 = sb2
+        var scalar: bool = false
+        if self.c.yk[dom] == 9 {
+            if not self.enum_pay(dom) {
+                scalar = true
+            }
+        }
+        if not scalar {
+            self.set1(sk2, sa2, sb2)
+            self.e_gepc(dom, 0)
+            self.set1rr()
+            self.e_load(0)
+            tk2 = self.rrk
+            ta2 = self.rra
+            tb2 = self.rrb
+        }
+        let mrg: u32 = self.blk_new("match.end")
+        let dead: u32 = self.blk_new("match.dead")
+        self.set1(tk2, ta2, tb2)
+        let si2: u32 = self.e_switch(dead)
+        self.cb = dead
+        self.e_unr()
+        self.spush(3, cur, self.c.p.nns[subj])
+        self.sa4[self.ns4 - 1] = sk2
+        self.sb4[self.ns4 - 1] = sa2
+        self.sc4[self.ns4 - 1] = sb2
+        self.sd4[self.ns4 - 1] = dom
+        self.se4[self.ns4 - 1] = mrg
+        self.sf4[self.ns4 - 1] = si2
+    }
+
+    func s_match(var self)
+        requires self.ns4 >= 1
+        ensures true
+    {
+        let f: u32 = self.ns4 - 1
+        if self.sg4[f] == 1 {
+            self.pop_sc()
+            self.ensure_br(self.se4[f])
+            self.sg4[f] = 0
+            return
+        }
+        let cur: u32 = self.sp4[f]
+        if cur == 4294967295 {
+            self.cb = self.se4[f]
+            self.ns4 = f
+            return
+        }
+        self.sp4[f] = self.c.p.nns[cur]
+        self.s_arm(f, cur)
+    }
+
+    # Значение кейса варианта арма в домене dom.
+    func arm_tag(var self, dom: u32, arm: u32) -> u32
+        requires dom < 512 and arm < 32768
+        ensures true
+    {
+        let dk: u32 = self.c.yk[dom]
+        let va: u32 = self.c.p.nss[arm]
+        let vl: u32 = self.c.p.nsl[arm]
+        if dk == 10 {
+            if self.c.span_is(va, vl, "Ok") {
+                return 0
+            }
+            return 1
+        }
+        if dk == 11 {
+            if self.c.span_is(va, vl, "Some") {
+                return 0
+            }
+            return 1
+        }
+        let ei: u32 = self.enum_of(dom)
+        if ei == 4294967295 {
+            return self.builtin_vtag(va, vl)
+        }
+        let w: u32 = self.c.variant_of(self.c.ys[dom], self.c.yl[dom], va, vl)
+        return w - self.c.evs[ei]
+    }
+
+    # Слот нагрузки варианта арма в домене dom.
+    func arm_slot(var self, dom: u32, arm: u32) -> u32
+        requires dom < 512 and arm < 32768
+        ensures true
+    {
+        let dk: u32 = self.c.yk[dom]
+        if dk == 10 {
+            if self.c.span_is(self.c.p.nss[arm], self.c.p.nsl[arm], "Ok") {
+                return 1
+            }
+            return 2
+        }
+        if dk == 11 {
+            return 1
+        }
+        let w: u32 = self.c.variant_of(self.c.ys[dom], self.c.yl[dom], self.c.p.nss[arm], self.c.p.nsl[arm])
+        return self.slot_of(dom, w)
+    }
+
+    func s_arm(var self, f: u32, arm: u32)
+        requires f < 64 and arm < 32768
+        ensures true
+    {
+        let dom: u32 = self.sd4[f]
+        let ab: u32 = self.blk_arm(self.c.p.nss[arm], self.c.p.nsl[arm])
+        self.case_add(self.sf4[f], self.arm_tag(dom, arm), ab)
+        self.cb = ab
+        self.push_sc()
+        let payload: u32 = self.c.nty[arm]
+        let bind: u32 = self.c.p.nx[arm]
+        if payload != 4294967295 and bind != 4294967295 {
+            if not self.c.span_is(bind, self.c.p.ny[arm], "_") {
+                self.s_arm_bind(f, arm, dom, payload, bind)
+            }
+        }
+        self.sg4[f] = 1
+        self.start_blk(self.c.p.nfc[arm])
+    }
+
+    func s_arm_bind(var self, f: u32, arm: u32, dom: u32, payload: u32, bind: u32)
+        requires f < 64 and arm < 32768 and dom < 512 and payload < 512
+        ensures true
+    {
+        self.set1(self.sa4[f], self.sb4[f], self.sc4[f])
+        self.e_gepc(dom, self.arm_slot(dom, arm))
+        if self.is_agg(payload) {
+            self.set2rr()
+        } else {
+            self.set1rr()
+            self.e_load(payload)
+            self.set2rr()
+        }
+        self.materialize(payload)
+        self.set1rr()
+        self.bindv(bind, self.c.p.ny[arm], payload)
+    }
+
+    # --- генерация функции ------------------------------------------------------
+
+    func reset_fn(var self)
+        requires true
+        ensures true
+    {
+        self.lbl = 0
+        self.lcu = 0
+        self.nln = 0
+        self.nbk = 0
+        self.nbs = 0
+        self.nun = 0
+        self.nbn = 0
+        self.ctr = 0
+        self.nsw = 0
+        self.ncs = 0
+        self.nvr = 0
+        self.nsb = 0
+        self.nlx = 0
+        self.nag = 0
+        self.res_on = 0
+        self.cb = 0
+    }
+
+    # k-й ребёнок вида kind у декларации d; NONE.
+    func find_child(var self, d: u32, kind: u32) -> u32
+        requires d < 32768
+        ensures true
+    {
+        var cc: u32 = self.c.p.nfc[d]
+        var found: u32 = 4294967295
+        for _ in 0..64 {
+            if cc != 4294967295 {
+                if self.c.p.nk[cc] == kind and found == 4294967295 {
+                    found = cc
+                }
+                cc = self.c.p.nns[cc]
+            }
+        }
+        return found
+    }
+
+    func gen_fn(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        self.reset_fn()
+        self.fi2 = fi
+        self.rett = self.c.fret[fi]
+        self.aggr = 0
+        if self.rett != 4294967295 {
+            if self.is_agg(self.rett) {
+                self.aggr = 1
+            }
+        }
+        let own: u32 = self.c.fown[fi]
+        var nargs: u32 = self.aggr + self.c.fpc[fi]
+        if own != 4294967295 {
+            nargs = nargs + 1
+        }
+        self.ctr = nargs + 1
+        # entry держит только alloca и br на body (блоки 0 и 1)
+        let entry: u32 = self.blk_new("entry")
+        self.cb = entry
+        let body2: u32 = self.blk_new("body")
+        discard self.bump()
+        self.bkt[entry] = 1
+        self.cb = body2
+        self.gen_prologue(fi, own)
+        self.exb = self.blk_new("exit")
+        self.gen_req(fi)
+        let body: u32 = self.find_child(self.c.fnd[fi], 12)
+        if not self.failed {
+            self.st_run(body)
+        }
+        if self.failed {
+            return
+        }
+        self.ensure_br(self.exb)
+        self.cb = self.exb
+        self.gen_ens(fi)
+        if self.rett == 4294967295 or self.aggr == 1 {
+            self.e_retv()
+        } else {
+            self.set1(self.rsk, self.rsa, self.rsb)
+            self.e_load(self.rett)
+            self.set1rr()
+            self.e_ret(self.rett)
+        }
+        self.p_fn(fi)
+    }
+
+    func gen_prologue(var self, fi: u32, own: u32)
+        requires fi < 512
+        ensures true
+    {
+        self.push_sc()
+        var ai: u32 = 0
+        if self.aggr == 1 {
+            self.rsk = 0
+            self.rsa = 1
+            self.rsb = 0
+            ai = 1
+        } elif self.rett != 4294967295 {
+            self.nm_lit("ret")
+            self.e_alloca_n(self.rett)
+            self.rsk = 1
+            self.rsa = self.dds
+            self.rsb = self.ddl
+        }
+        if own != 4294967295 {
+            self.sty2 = self.c.intern(8, 4294967295, 4294967295, self.c.sn_s[own], self.c.sn_l[own])
+            ai = ai + 1
+            if self.c.fvs[fi] == 1 {
+                self.set1(0, ai, 0)
+                self.bindv(4294967295, 0, self.sty2)
+            } else {
+                self.set2(0, ai, 0)
+                self.materialize(self.sty2)
+                self.set1rr()
+                self.bindv(4294967295, 0, self.sty2)
+            }
+        }
+        for k in 0..8 {
+            if k < self.c.fpc[fi] and not self.failed {
+                ai = ai + 1
+                self.gen_param(self.c.fps[fi] + k, ai)
+            }
+        }
+    }
+
+    func gen_param(var self, pi: u32, ai: u32)
+        requires pi < 1024
+        ensures true
+    {
+        let pt: u32 = self.c.pty[pi]
+        if self.is_agg(pt) {
+            self.set2(0, ai, 0)
+            self.materialize(pt)
+            self.set1rr()
+            self.bindv(self.c.pn_s[pi], self.c.pn_l[pi], pt)
+            return
+        }
+        self.nm_sb(self.c.pn_s[pi], self.c.pn_l[pi])
+        self.e_alloca_n(pt)
+        self.set1(0, ai, 0)
+        self.set2rr()
+        self.e_store(pt)
+        self.set1rr()
+        self.bindv(self.c.pn_s[pi], self.c.pn_l[pi], pt)
+    }
+
+    func gen_req(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        let d: u32 = self.c.fnd[fi]
+        let rq: u32 = self.find_child(d, 9)
+        if rq == 4294967295 {
+            return
+        }
+        self.expr_run(self.c.p.nfc[rq])
+        if self.failed {
+            return
+        }
+        self.set1er()
+        self.e_not()
+        self.set1rr()
+        self.trap_if(self.c.p.nl[d], self.c.p.nc[d], 0, self.c.fn_s[fi], self.c.fn_l[fi])
+    }
+
+    func gen_ens(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        let d: u32 = self.c.fnd[fi]
+        let en: u32 = self.find_child(d, 10)
+        if en == 4294967295 {
+            return
+        }
+        if self.rett != 4294967295 {
+            self.res_on = 1
+        }
+        self.expr_run(self.c.p.nfc[en])
+        self.res_on = 0
+        if self.failed {
+            return
+        }
+        self.set1er()
+        self.e_not()
+        self.set1rr()
+        self.trap_if(self.c.p.nl[d], self.c.p.nc[d], 1, self.c.fn_s[fi], self.c.fn_l[fi])
+    }
+
+    # --- печать модуля -----------------------------------------------------------
+
+    func p_sep(var self)
+        requires true
+        ensures true
+    {
+        if self.fst == 1 {
+            self.fst = 0
+        } else {
+            write("\n")
+        }
+    }
+
+    func o_lb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for h in 0..64 {
+            if h * 256 < l {
+                for j in 0..256 {
+                    let i: u32 = h * 256 + j
+                    if i < l {
+                        write("{char(self.lb_at(a + i))}")
+                    }
+                }
+            }
+        }
+    }
+
+    func o_nb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..128 {
+            if i < l {
+                write("{char(self.nb[a + i])}")
+            }
+        }
+    }
+
+    func o_tp(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for h in 0..64 {
+            if h * 256 < l {
+                for j in 0..256 {
+                    let i: u32 = h * 256 + j
+                    if i < l {
+                        write("{char(self.tp[a + i])}")
+                    }
+                }
+            }
+        }
+    }
+
+    func o_sb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if i < l {
+                write("{char(self.c.p.lex.sbuf[a + i])}")
+            }
+        }
+    }
+
+    func o_ty(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.ty_build(t)
+        self.o_tp(self.tys[t], self.tyl[t])
+    }
+
+    func o_mangle(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        write("eat_")
+        let own: u32 = self.c.fown[fi]
+        if own != 4294967295 {
+            self.o_sb(self.c.sn_s[own], self.c.sn_l[own])
+            write("__")
+        }
+        self.o_sb(self.c.fn_s[fi], self.c.fn_l[fi])
+    }
+
+    func p_fn(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        self.p_sep()
+        write("define ")
+        if self.rett == 4294967295 or self.aggr == 1 {
+            write("void")
+        } else {
+            self.o_ty(self.rett)
+        }
+        write(" @\"")
+        self.o_mangle(fi)
+        write("\"(")
+        self.p_args(fi)
+        write(")\n{{\n")
+        self.p_blocks()
+        write("}}\n")
+    }
+
+    func p_args(var self, fi: u32)
+        requires fi < 512
+        ensures true
+    {
+        var i: u32 = 0
+        if self.aggr == 1 {
+            self.o_ty(self.rett)
+            write("* %\".1\"")
+            i = 1
+        }
+        if self.c.fown[fi] != 4294967295 {
+            if i > 0 {
+                write(", ")
+            }
+            i = i + 1
+            self.o_ty(self.sty2)
+            write("* %\".{i}\"")
+        }
+        for k in 0..8 {
+            if k < self.c.fpc[fi] {
+                if i > 0 {
+                    write(", ")
+                }
+                i = i + 1
+                let pt: u32 = self.c.pty[self.c.fps[fi] + k]
+                self.o_ty(pt)
+                if self.is_agg(pt) {
+                    write("*")
+                }
+                write(" %\".{i}\"")
+            }
+        }
+    }
+
+    func p_blocks(var self)
+        requires true
+        ensures true
+    {
+        var b: u32 = 0
+        var li: u32 = 0
+        var hdr: bool = true
+        for _ in 0..131072 {
+            if b < self.nbk and not self.failed {
+                if hdr {
+                    self.o_nb(self.bns[b], self.bnl[b])
+                    write(":\n")
+                    li = self.bkf[b]
+                    hdr = false
+                } elif li != 4294967295 {
+                    write("  ")
+                    self.o_lb(self.lns[li], self.lnl[li])
+                    write("\n")
+                    li = self.lnn[li]
+                } else {
+                    if b == 0 {
+                        write("  br label %\"")
+                        self.o_nb(self.bns[1], self.bnl[1])
+                        write("\"\n")
+                    }
+                    if self.bks[b] != 4294967295 {
+                        self.p_switch(self.bks[b])
+                    }
+                    b = b + 1
+                    hdr = true
+                }
+            }
+        }
+    }
+
+    func o_ref(var self, k: u32, a: u32, b: u32)
+        requires true
+        ensures true
+    {
+        if k == 0 {
+            write("%\".{a}\"")
+        } elif k == 1 {
+            write("%\"")
+            self.o_nb(a, b)
+            write("\"")
+        } elif k == 2 {
+            if a == 1 {
+                write("-")
+            }
+            write("{b}")
+        } elif k == 3 {
+            write("@\"str.{a}\"")
+        } else {
+            write("null")
+        }
+    }
+
+    func p_switch(var self, s: u32)
+        requires s < 512
+        ensures true
+    {
+        write("  switch i32 ")
+        self.o_ref(self.swk[s], self.swa[s], self.swb[s])
+        write(", label %\"")
+        self.o_nb(self.bns[self.swd[s]], self.bnl[self.swd[s]])
+        write("\" [")
+        var ci: u32 = self.swf[s]
+        var frs: bool = true
+        for _ in 0..4096 {
+            if ci != 4294967295 {
+                if not frs {
+                    write(" ")
+                }
+                frs = false
+                write("i32 {self.csv[ci]}, label %\"")
+                self.o_nb(self.bns[self.csb[ci]], self.bnl[self.csb[ci]])
+                write("\"")
+                ci = self.csn[ci]
+            }
+        }
+        write("]\n")
+    }
+
+    func p_hexd(var self, d: u32)
+        requires d < 16
+        ensures true
+    {
+        if d < 10 {
+            write("{d}")
+        } else {
+            write("{char(u8(d + 87))}")
+        }
+    }
+
+    func p_esc(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if b >= 32 and b <= 126 and b != 34 and b != 92 {
+            write("{char(b)}")
+            return
+        }
+        write("\\")
+        self.p_hexd(u32(b) / 16)
+        self.p_hexd(u32(b) % 16)
+    }
+
+    func p_glob(var self, g: u32)
+        requires g < 32768
+        ensures true
+    {
+        let l: u32 = self.gsl[g]
+        write("@\"str.{g}\" = private constant [{l} x i8] c\"")
+        for h in 0..2 {
+            if h * 256 < l {
+                for j in 0..256 {
+                    let i: u32 = h * 256 + j
+                    if i < l {
+                        self.p_esc(self.g_at(self.gss[g] + i))
+                    }
+                }
+            }
+        }
+        write("\"")
+    }
+
+    func p_it(var self, id: u32)
+        requires id >= 1 and id <= 9
+        ensures true
+    {
+        if id >= 7 {
+            write("i8")
+        } else {
+            write("i32")
+        }
+    }
+
+    func p_iname(var self, id: u32)
+        requires id >= 1 and id <= 9
+        ensures true
+    {
+        if id == 1 {
+            write("sadd")
+        } elif id == 2 {
+            write("ssub")
+        } elif id == 3 {
+            write("smul")
+        } elif id == 4 or id == 7 {
+            write("uadd")
+        } elif id == 5 or id == 8 {
+            write("usub")
+        } else {
+            write("umul")
+        }
+    }
+
+    func p_intr(var self, id: u32)
+        requires id < 16
+        ensures true
+    {
+        if id == 0 {
+            write("declare void @\"llvm.memcpy.p0i8.p0i8.i64\"(i8* %\".1\", i8* %\".2\", i64 %\".3\", i1 %\".4\")\n")
+            return
+        }
+        write("declare {{")
+        self.p_it(id)
+        write(", i1}} @\"llvm.")
+        self.p_iname(id)
+        write(".with.overflow.")
+        self.p_it(id)
+        write("\"(")
+        self.p_it(id)
+        write(" %\".1\", ")
+        self.p_it(id)
+        write(" %\".2\")\n")
+    }
+
+    func p_tail(var self)
+        requires true
+        ensures true
+    {
+        for i in 0..32768 {
+            if i < self.ntl {
+                self.p_sep()
+                if self.tlk[i] == 0 {
+                    self.p_glob(self.tlx[i])
+                } else {
+                    self.p_intr(self.tlx[i])
+                }
+            }
+        }
+    }
+
+    func p_head(var self)
+        requires true
+        ensures true
+    {
+        write("; ModuleID = \"stdin\"\n")
+        write("target triple = \"\"\n")
+        write("target datalayout = \"\"\n")
+        write("\n")
+        self.fst = 1
+        self.p_sep()
+        write("declare void @\"eat_trap\"(i8* %\".1\")\n")
+        self.p_sep()
+        write("declare void @\"eat_print\"({{i32, [256 x i8]}}* %\".1\")\n")
+        self.p_sep()
+        write("declare void @\"eat_str_init\"({{i32, [256 x i8]}}* %\".1\")\n")
+        self.p_sep()
+        write("declare void @\"eat_str_append_bytes\"({{i32, [256 x i8]}}* %\".1\", i8* %\".2\", i32 %\".3\")\n")
+        self.p_sep()
+        write("declare void @\"eat_str_append_str\"({{i32, [256 x i8]}}* %\".1\", {{i32, [256 x i8]}}* %\".2\")\n")
+        self.p_sep()
+        write("declare void @\"eat_str_append_i32\"({{i32, [256 x i8]}}* %\".1\", i32 %\".2\")\n")
+        self.p_sep()
+        write("declare void @\"eat_str_append_u32\"({{i32, [256 x i8]}}* %\".1\", i32 %\".2\")\n")
+        self.p_sep()
+        write("declare void @\"eat_str_append_char\"({{i32, [256 x i8]}}* %\".1\", i8 %\".2\")\n")
+        self.p_sep()
+        write("declare void @\"eat_str_append_bool\"({{i32, [256 x i8]}}* %\".1\", i32 %\".2\")\n")
+        self.p_sep()
+        write("declare i32 @\"eat_str_eq\"({{i32, [256 x i8]}}* %\".1\", {{i32, [256 x i8]}}* %\".2\")\n")
+        self.p_sep()
+        write("declare i32 @\"eat_read_line\"({{i32, [256 x i8]}}* %\".1\")\n")
+        self.p_sep()
+        write("declare i32 @\"eat_read_byte\"()\n")
+        self.p_sep()
+        write("declare void @\"eat_write\"({{i32, [256 x i8]}}* %\".1\")\n")
+        self.p_sep()
+        write("declare i32 @\"eat_parse_i32\"({{i32, [256 x i8]}}* %\".1\", i32* %\".2\")\n")
+    }
+
+    func p_main(var self)
+        requires true
+        ensures true
+    {
+        self.p_sep()
+        write("define i32 @\"main\"()\n")
+        write("{{\n")
+        write("entry:\n")
+        write("  call void @\"eat_main\"()\n")
+        write("  ret i32 0\n")
+        write("}}\n")
+    }
+
+    # --- точка входа эмиттера ------------------------------------------------------
+
+    func emit(var self)
+        requires true
+        ensures true
+    {
+        for t in 0..512 {
+            self.tyl[t] = 4294967295
+        }
+        self.p_head()
+        var d: u32 = self.c.p.nfc[0]
+        for _ in 0..32768 {
+            if d != 4294967295 and not self.failed {
+                let k: u32 = self.c.p.nk[d]
+                if k == 6 {
+                    self.gen_fn(self.c.func_by_node(d))
+                } elif k == 4 {
+                    var m: u32 = self.c.p.nfc[d]
+                    for _ in 0..512 {
+                        if m != 4294967295 and not self.failed {
+                            if self.c.p.nk[m] == 6 {
+                                self.gen_fn(self.c.func_by_node(m))
+                            }
+                            m = self.c.p.nns[m]
+                        }
+                    }
+                }
+                d = self.c.p.nns[d]
+            }
+        }
+        if not self.failed {
+            self.p_tail()
+            self.p_main()
+        }
+    }
+}

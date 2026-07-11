@@ -1,0 +1,168 @@
+# Стресс-кейс фазы 4: все конструкции кодогена в одном файле.
+
+const LIM: i32 = 7
+const NEG: i32 = -3
+
+enum Cmd {
+    Set(u8),
+    Clear,
+    Nop
+}
+
+enum Sign {
+    Plus,
+    Minus
+}
+
+struct Pair {
+    a: i32
+    b: str<8>
+
+    func sum(self, d: i32) -> i32
+        requires true
+        ensures true
+    {
+        return self.a + d
+    }
+
+    func bump(var self, d: i32)
+        requires true
+        ensures true
+    {
+        self.a = self.a + d
+    }
+}
+
+func pick(z: u8, c: Cmd) -> u32
+    requires true
+    ensures true
+{
+    var acc: u32 = u32(z)
+    match c {
+        Set(x) {
+            acc = acc + u32(x)
+        }
+        Clear {
+            acc = acc + 2
+        }
+        Nop {
+            return acc
+        }
+    }
+    return acc
+}
+
+func mk(n: i32) -> Pair
+    requires n > -100 and n < 100
+    ensures true
+{
+    return Pair { a: n, b: "p{n}" }
+}
+
+func flags(x: i32, y: i32) -> bool
+    requires true
+    ensures true
+{
+    return x > 0 and y > 0 or not (x == y)
+}
+
+func main() {
+    let s: Sign = Sign.Minus
+    var t: u32 = 0
+    if s == Sign.Plus {
+        t = 1
+    } elif s == Sign.Minus {
+        t = 2
+    } else {
+        t = 3
+    }
+    let bytes: [u8; 4] = [1, 2, 3, 255]
+    var total: u32 = 0
+    for b in bytes {
+        total = total + u32(b)
+    }
+    for i in NEG..LIM {
+        if i % 2 == 0 {
+            total = total + 1
+        }
+    }
+    let hello: str<16> = "hi"
+    for ch in hello {
+        if ch == 'h' {
+            total = total + 1
+        }
+    }
+    var p: Pair = mk(5)
+    p.bump(2)
+    let q: i32 = p.sum(1)
+    discard pick(u8(3), Cmd.Set(u8(9)))
+    let d: u32 = pick(u8(0), Cmd.Clear)
+    let arr: [i32; 3] = [0; 3]
+    var big: [u32; 100] = [7; 100]
+    big[0] = big[1] + 1
+    let neg: i32 = -q
+    let cast1: u32 = u32(q)
+    let cast2: u8 = u8(cast1)
+    let cast3: i32 = i32(t)
+    let c2: char = char(cast2)
+    let cc: u8 = u8(c2)
+    assert cc == cast2
+    let sm: u32 = u32(len(hello)) + u32(len(arr)) - u32(len(bytes))
+    if flags(q, neg) and hello == "hi" {
+        total = total + 1
+    }
+    print("t={t} total={total} q={q} d={d} neg={neg} sm={sm}")
+    print("c={cast1} {cast2} {cast3} {c2} b={flags(1, 2)} arr={arr[0]}")
+    loop {
+        match read_byte() {
+            Ok(v) {
+                if v == 10 {
+                    break
+                }
+                total = total + u32(v)
+            }
+            Err(e) {
+                match e {
+                    Eof {
+                        break
+                    }
+                    Fail {
+                        break
+                    }
+                }
+            }
+        }
+    }
+    match read_line() {
+        Ok(line) {
+            write(line)
+        }
+        Err(_) {
+            write("eof\n")
+        }
+    }
+    match parse_i32("42") {
+        Ok(v2) {
+            total = total + u32(v2)
+        }
+        Err(pe) {
+            match pe {
+                Empty {
+                    total = total + 1
+                }
+                BadChar {
+                    total = total + 2
+                }
+                Overflow {
+                    total = total + 3
+                }
+            }
+        }
+    }
+    let sub: u8 = bytes[1] - bytes[0]
+    let mul: u8 = sub * 2
+    let dv: u8 = mul / 2
+    let md: i32 = q % 3
+    let dvi: i32 = q / (md + 1)
+    print("end {total} {sub} {mul} {dv} {md} {dvi}")
+}
