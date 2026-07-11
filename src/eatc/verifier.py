@@ -1,4 +1,4 @@
-"""Статическая верификация EATLang: интервальный анализ целых.
+"""Статическая верификация EATLang: интервальный + реляционный анализ.
 
 Этап 2 контрактов из SPEC.md §5.2: то, что доказано на этапе
 компиляции, удаляется из бинарника. Анализ консервативен: недоказанная
@@ -10,23 +10,33 @@
   - выход за границы массива;
   - допустимость сужающих преобразований i32()/u32()/u8();
   - requires на каждом месте вызова (снятие проверки — только если
-    доказаны ВСЕ вызовы функции);
+    доказаны ВСЕ вызовы функции, либо requires — тавтология);
   - ensures на каждом return;
   - assert.
 
-Механика: функции обходятся в топологическом порядке DAG вызовов
-(рекурсии нет — правило 1), интервал результата функции служит
-summary для вызывающих. Ключ интервала — путь: имя, self.поле,
-переменная.поле. Присваивание в цикле расширяет интервал до диапазона
-типа (widening без итерации до фиксированной точки — грубо, но
-корректно). Семантика «после trap'а»: выживший результат операции
-всегда в диапазоне типа, поэтому интервалы пересекаются с ним.
+Два домена, работающих вместе:
+  1. Интервалы: путь (имя, self.поле, переменная.поле) → [lo, hi].
+     Присваивание в цикле расширяет интервал до диапазона типа
+     (widening без фиксированной точки — грубо, но корректно).
+  2. Отношения: факты (p, "<"|"<=", q) между путями из условий ветвей
+     и requires, с транзитивным замыканием. На return `result`
+     символически связывается с возвращаемым путём — так доказывается
+     `ensures result >= a` у max.
+
+Summary функции — интервал результата либо тождество параметру
+(функция возвращает свой параметр, возможно через cast): во втором
+случае интервал аргумента проходит сквозь вызов.
+
+Функции обходятся в топологическом порядке DAG вызовов (рекурсии
+нет — правило 1). Семантика «после trap'а»: выживший результат
+операции всегда в диапазоне типа.
 """
 
 from . import ast_nodes as ast
-from .types import INT_RANGES, IntType
+from .types import INT_RANGES, ArrayType, IntType
 
 Iv = tuple[int, int]
+_CASTS = ("i32", "u32", "u8")
 
 
 def _range(kind: str) -> Iv:
@@ -106,20 +116,74 @@ def _block_returns(block) -> bool:
     return any(_stmt_returns(s) for s in block.stmts)
 
 
+class State:
+    """Абстрактное состояние: интервалы путей + отношения путей."""
+
+    __slots__ = ("ivs", "rels")
+
+    def __init__(self, ivs=None, rels=None):
+        self.ivs: dict[str, Iv] = dict(ivs or {})
+        self.rels: set[tuple] = set(rels or ())  # (p, "<"|"<=", q)
+
+    def copy(self) -> "State":
+        return State(self.ivs, self.rels)
+
+    def kill(self, path: str) -> None:
+        for k in list(self.ivs):
+            if k == path or k.startswith(path + "."):
+                del self.ivs[k]
+
+        def dead(p: str) -> bool:
+            return p == path or p.startswith(path + ".")
+
+        self.rels = {r for r in self.rels if not dead(r[0]) and not dead(r[2])}
+
+    def relate(self, lhs: str, op: str, rhs: str) -> None:
+        if op == "<":
+            self.rels.add((lhs, "<", rhs))
+        elif op == "<=":
+            self.rels.add((lhs, "<=", rhs))
+        elif op == ">":
+            self.rels.add((rhs, "<", lhs))
+        elif op == ">=":
+            self.rels.add((rhs, "<=", lhs))
+        elif op == "==":
+            self.rels.add((lhs, "<=", rhs))
+            self.rels.add((rhs, "<=", lhs))
+
+    def closure(self) -> set:
+        cl = set(self.rels)
+        changed = True
+        while changed:
+            changed = False
+            for a, op1, b in list(cl):
+                for b2, op2, c in list(cl):
+                    if b != b2:
+                        continue
+                    op = "<" if "<" in (op1, op2) else "<="
+                    if a != c and (a, op, c) not in cl:
+                        cl.add((a, op, c))
+                        changed = True
+        return cl
+
+
 class Verifier:
     def __init__(self, program: ast.Program, checker):
         self.program = program
         self.checker = checker
-        self.summaries: dict[str, Iv | None] = {}
+        # key -> None | ("iv", Iv) | ("param", имя параметра)
+        self.summaries: dict[str, tuple | None] = {}
         self.req_sites: dict[str, list] = {}  # key -> [proven, total]
         # (kind, id(node)) -> [bool, node] c AND-слиянием повторных оценок
         self.checks: dict[tuple, list] = {}
         self.cur_func: ast.FuncDecl | None = None
         self.cur_sig = None
+        self.param_names: set = set()
         self.returns: list = []
+        self.ret_syms: list = []
         self.ensures_ok: list = []
 
-    # --- отметки и статистика -------------------------------------------
+    # --- отметки и статистика ---------------------------------------------
 
     def _mark(self, kind: str, node, ok: bool) -> None:
         key = (kind, id(node))
@@ -146,7 +210,7 @@ class Verifier:
         total = sum(v[1] for v in by_kind.values())
         return {"proven": proven, "total": total, "by_kind": by_kind}
 
-    # --- запуск -------------------------------------------------------------
+    # --- запуск --------------------------------------------------------------
 
     def run(self) -> dict:
         order = self._topo_order()
@@ -158,19 +222,19 @@ class Verifier:
             if isinstance(decl, ast.TestBlock):
                 self.cur_func = None
                 self.cur_sig = None
+                self.param_names = set()
                 self.returns = []
+                self.ret_syms = []
                 self.ensures_ok = []
-                self._flow_block(decl.body, {})
-        # requires снимается только если доказаны все вызовы
+                self._flow_block(decl.body, State())
         for key in order:
             func, _ = self._func_by_key(key)
             if func is None or func.requires is None:
                 continue
             proven, total = self.req_sites.get(key, [0, 0])
             no_calls = not _has_call(func.requires)
-            # тавтология (например, `requires true`) верна без вызовов
             tautology = (
-                self._eval_bool(func.requires, {}, annotate=False) is True
+                self._eval_bool(func.requires, State(), annotate=False) is True
             )
             ok = no_calls and (tautology or (total > 0 and proven == total))
             func.requires_proven = ok
@@ -225,12 +289,14 @@ class Verifier:
         )
         self.cur_func = func
         self.cur_sig = sig
+        self.param_names = {p for p, _ in sig.params}
         self.returns = []
+        self.ret_syms = []
         self.ensures_ok = []
-        env: dict[str, Iv] = {}
+        env = State()
         for pname, ptype in sig.params:
             if isinstance(ptype, IntType):
-                env[pname] = _range(ptype.kind)
+                env.ivs[pname] = _range(ptype.kind)
         if func.requires is not None:
             self._eval_bool(func.requires, env)  # аннотации внутри requires
             self._refine(env, func.requires, True)
@@ -247,67 +313,83 @@ class Verifier:
             )
             func.ensures_proven = proven
             self._mark("ensures", func, proven)
-        ret_ivs = [r for r in self.returns if r is not None]
+        self.summaries[key] = self._summary(sig)
+
+    def _summary(self, sig) -> tuple | None:
+        if not isinstance(sig.ret, IntType) or not self.returns:
+            return None
+        # тождество параметру: все return возвращают один параметр
+        syms = set(self.ret_syms)
+        if len(syms) == 1 and None not in syms:
+            return ("param", next(iter(syms)))
+        ivs = [r for r in self.returns if r is not None]
+        if len(ivs) != len(self.returns):
+            return None
+        summary = ivs[0]
+        for r in ivs[1:]:
+            summary = _hull(summary, r)
+        clamped = _inter(summary, _range(sig.ret.kind))
+        return ("iv", clamped) if clamped is not None else None
+
+    def _ret_sym(self, value) -> str | None:
+        """Параметр, которому тождественен return (возможно через cast)."""
+        if isinstance(value, ast.Name) and value.ident in self.param_names:
+            return value.ident
         if (
-            isinstance(sig.ret, IntType)
-            and ret_ivs
-            and len(ret_ivs) == len(self.returns)
+            isinstance(value, ast.Call)
+            and value.name in _CASTS
+            and isinstance(value.args[0], ast.Name)
+            and value.args[0].ident in self.param_names
         ):
-            summary = ret_ivs[0]
-            for r in ret_ivs[1:]:
-                summary = _hull(summary, r)
-            self.summaries[key] = _inter(summary, _range(sig.ret.kind))
-        else:
-            self.summaries[key] = None
+            return value.args[0].ident
+        return None
 
     # --- поток управления ----------------------------------------------------
 
-    def _flow_block(self, block: ast.Block, env: dict) -> dict:
-        env = dict(env)
+    def _flow_block(self, block: ast.Block, env: State) -> State:
+        env = env.copy()
         for stmt in block.stmts:
             env = self._flow_stmt(stmt, env)
         return env
 
-    def _kill(self, env: dict, path: str) -> None:
-        for k in list(env):
-            if k == path or k.startswith(path + "."):
-                del env[k]
-
-    def _flow_stmt(self, stmt, env: dict) -> dict:
+    def _flow_stmt(self, stmt, env: State) -> State:
         if isinstance(stmt, ast.LetStmt):
             value = self._iv(stmt.value, env)
             if isinstance(stmt.var_ty, IntType):
                 clamp = _range(stmt.var_ty.kind)
-                env[stmt.name] = (
+                env.ivs[stmt.name] = (
                     (_inter(value, clamp) or clamp)
                     if value is not None
                     else clamp
                 )
+                vpath = _path_of(stmt.value)
+                if vpath is not None:
+                    env.relate(stmt.name, "==", vpath)
             if isinstance(stmt.value, ast.StructLit):
                 for fname, fexpr in stmt.value.fields:
                     fiv = self._iv(fexpr, env)
                     if fiv is not None:
-                        env[f"{stmt.name}.{fname}"] = fiv
+                        env.ivs[f"{stmt.name}.{fname}"] = fiv
             return env
         if isinstance(stmt, ast.AssignStmt):
             value = self._iv(stmt.value, env)
             path = _path_of(stmt.target)
             if path is not None:
-                self._kill(env, path)
+                env.kill(path)
                 tty = stmt.target.ty
                 if isinstance(tty, IntType) and value is not None:
                     clamped = _inter(value, _range(tty.kind))
                     if clamped is not None:
-                        env[path] = clamped
+                        env.ivs[path] = clamped
             return env
         if isinstance(stmt, ast.IfStmt):
             return self._flow_if(stmt, env)
         if isinstance(stmt, ast.ForStmt):
             return self._flow_for(stmt, env)
         if isinstance(stmt, ast.LoopStmt):
-            body_env = dict(env)
+            body_env = env.copy()
             for p in _assigned_paths(stmt.body):
-                self._kill(body_env, p)
+                body_env.kill(p)
             self._flow_block(stmt.body, body_env)
             return body_env
         if isinstance(stmt, ast.MatchStmt):
@@ -315,13 +397,19 @@ class Verifier:
         if isinstance(stmt, ast.ReturnStmt):
             riv = self._iv(stmt.value, env) if stmt.value is not None else None
             self.returns.append(riv)
+            self.ret_syms.append(
+                self._ret_sym(stmt.value) if stmt.value is not None else None
+            )
             func = self.cur_func
             if func is not None and func.ensures is not None:
-                env_r = dict(env)
+                env_r = env.copy()
                 if riv is not None:
-                    env_r["result"] = riv
-                elif stmt.value is not None:
-                    env_r.pop("result", None)
+                    env_r.ivs["result"] = riv
+                rpath = (
+                    _path_of(stmt.value) if stmt.value is not None else None
+                )
+                if rpath is not None:
+                    env_r.relate("result", "==", rpath)
                 ok = self._eval_bool(func.ensures, env_r)
                 self.ensures_ok.append(ok is True)
             return env
@@ -338,14 +426,14 @@ class Verifier:
             return env
         return env
 
-    def _flow_if(self, stmt: ast.IfStmt, env: dict) -> dict:
+    def _flow_if(self, stmt: ast.IfStmt, env: State) -> State:
         branches = []
         conds = [stmt.cond] + [c for c, _ in stmt.elifs]
         blocks = [stmt.then] + [b for _, b in stmt.elifs]
-        neg_env = dict(env)
+        neg_env = env.copy()
         for cond, block in zip(conds, blocks):
             self._eval_bool(cond, neg_env)  # аннотации внутри условия
-            b_env = dict(neg_env)
+            b_env = neg_env.copy()
             self._refine(b_env, cond, True)
             out = self._flow_block(block, b_env)
             if not _block_returns(block):
@@ -359,51 +447,53 @@ class Verifier:
             branches.append(neg_env)
         return self._join(branches)
 
-    def _flow_for(self, stmt: ast.ForStmt, env: dict) -> dict:
-        body_env = dict(env)
+    def _flow_for(self, stmt: ast.ForStmt, env: State) -> State:
+        body_env = env.copy()
         for p in _assigned_paths(stmt.body):
-            self._kill(body_env, p)
+            body_env.kill(p)
         if stmt.bounds is not None:
             start, end = stmt.bounds
-            body_env[stmt.target] = (start, end - 1)
+            body_env.ivs[stmt.target] = (start, end - 1)
         else:
             self._iv(stmt.iterable, body_env)
             if isinstance(stmt.elem_ty, IntType):
-                body_env[stmt.target] = _range(stmt.elem_ty.kind)
+                body_env.ivs[stmt.target] = _range(stmt.elem_ty.kind)
         self._flow_block(stmt.body, body_env)
-        out = dict(body_env)
-        out.pop(stmt.target, None)
+        out = body_env.copy()
+        out.kill(stmt.target)
         return out
 
-    def _flow_match(self, stmt: ast.MatchStmt, env: dict) -> dict:
+    def _flow_match(self, stmt: ast.MatchStmt, env: State) -> State:
         self._iv(stmt.subject, env)
         branches = []
         for arm in stmt.arms:
-            a_env = dict(env)
+            a_env = env.copy()
             if arm.binding is not None and isinstance(arm.payload_ty, IntType):
-                a_env[arm.binding] = _range(arm.payload_ty.kind)
+                a_env.ivs[arm.binding] = _range(arm.payload_ty.kind)
             out = self._flow_block(arm.body, a_env)
             if not _block_returns(arm.body):
                 branches.append(out)
         return self._join(branches) if branches else env
 
-    def _join(self, envs: list) -> dict:
+    def _join(self, envs: list) -> State:
         if not envs:
-            return {}
-        keys = set(envs[0])
+            return State()
+        keys = set(envs[0].ivs)
+        rels = set(envs[0].rels)
         for e in envs[1:]:
-            keys &= set(e)
-        joined = {}
+            keys &= set(e.ivs)
+            rels &= e.rels
+        joined = State(rels=rels)
         for k in keys:
-            iv = envs[0][k]
+            iv = envs[0].ivs[k]
             for e in envs[1:]:
-                iv = _hull(iv, e[k])
-            joined[k] = iv
+                iv = _hull(iv, e.ivs[k])
+            joined.ivs[k] = iv
         return joined
 
-    # --- уточнение по условиям ----------------------------------------------
+    # --- уточнение по условиям -----------------------------------------------
 
-    def _refine(self, env: dict, cond, assume: bool) -> None:
+    def _refine(self, env: State, cond, assume: bool) -> None:
         if isinstance(cond, ast.BinOp) and cond.op == "and" and assume:
             self._refine(env, cond.left, True)
             self._refine(env, cond.right, True)
@@ -431,8 +521,17 @@ class Verifier:
         self._refine_cmp(env, cond.left, op, cond.right)
         mirror = {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "==": "=="}
         self._refine_cmp(env, cond.right, mirror[op], cond.left)
+        # отношения между путями
+        lp, rp = _path_of(cond.left), _path_of(cond.right)
+        if (
+            lp is not None
+            and rp is not None
+            and isinstance(getattr(cond.left, "ty", None), IntType)
+            and isinstance(getattr(cond.right, "ty", None), IntType)
+        ):
+            env.relate(lp, op, rp)
 
-    def _refine_cmp(self, env: dict, target, op: str, other) -> None:
+    def _refine_cmp(self, env: State, target, op: str, other) -> None:
         path = _path_of(target)
         if path is None or not isinstance(
             getattr(target, "ty", None), IntType
@@ -441,7 +540,7 @@ class Verifier:
         oiv = self._iv(other, env, annotate=False)
         if oiv is None:
             return
-        cur = env.get(path, _range(target.ty.kind))
+        cur = env.ivs.get(path, _range(target.ty.kind))
         if op == "<":
             new = _inter(cur, (cur[0], oiv[1] - 1))
         elif op == "<=":
@@ -453,11 +552,11 @@ class Verifier:
         else:  # ==
             new = _inter(cur, oiv)
         if new is not None:
-            env[path] = new
+            env.ivs[path] = new
 
     # --- трёхзначная логика --------------------------------------------------
 
-    def _eval_bool(self, node, env: dict, annotate: bool = True):
+    def _eval_bool(self, node, env: State, annotate: bool = True):
         if isinstance(node, ast.BoolLit):
             return node.value
         if isinstance(node, ast.UnaryOp) and node.op == "not":
@@ -487,9 +586,19 @@ class Verifier:
         ):
             left = self._iv(node.left, env, annotate)
             right = self._iv(node.right, env, annotate)
-            if left is None or right is None:
-                return None
-            return self._cmp_iv(node.op, left, right)
+            if left is not None and right is not None:
+                res = self._cmp_iv(node.op, left, right)
+                if res is not None:
+                    return res
+            lp, rp = _path_of(node.left), _path_of(node.right)
+            if (
+                lp is not None
+                and rp is not None
+                and isinstance(getattr(node.left, "ty", None), IntType)
+                and isinstance(getattr(node.right, "ty", None), IntType)
+            ):
+                return self._decide_rel(env, lp, node.op, rp)
+            return None
         # прочее (str/enum сравнения, вызовы) — неизвестно
         self._iv(node, env, annotate)
         return None
@@ -528,15 +637,56 @@ class Verifier:
                 return False
         return None
 
-    # --- интервалы выражений -----------------------------------------------
+    def _decide_rel(self, env: State, lp: str, op: str, rp: str):
+        cl = env.closure()
 
-    def _iv(self, node, env: dict, annotate: bool = True) -> Iv | None:
+        def le(x, y):
+            return x == y or (x, "<=", y) in cl or (x, "<", y) in cl
+
+        def lt(x, y):
+            return (x, "<", y) in cl
+
+        if op == "<":
+            if lt(lp, rp):
+                return True
+            if le(rp, lp):
+                return False
+        elif op == "<=":
+            if le(lp, rp):
+                return True
+            if lt(rp, lp):
+                return False
+        elif op == ">":
+            if lt(rp, lp):
+                return True
+            if le(lp, rp):
+                return False
+        elif op == ">=":
+            if le(rp, lp):
+                return True
+            if lt(lp, rp):
+                return False
+        elif op == "==":
+            if lp == rp or (le(lp, rp) and le(rp, lp)):
+                return True
+            if lt(lp, rp) or lt(rp, lp):
+                return False
+        elif op == "!=":
+            if lt(lp, rp) or lt(rp, lp):
+                return True
+            if lp == rp:
+                return False
+        return None
+
+    # --- интервалы выражений ------------------------------------------------
+
+    def _iv(self, node, env: State, annotate: bool = True) -> Iv | None:
         ty = getattr(node, "ty", None)
         if isinstance(node, ast.IntLit):
             return (node.value, node.value)
         if isinstance(node, (ast.Name, ast.FieldAccess, ast.SelfExpr)):
             if isinstance(node, ast.Name) and node.ident == "result":
-                return env.get("result") or self._ty_range(ty)
+                return env.ivs.get("result") or self._ty_range(ty)
             if (
                 isinstance(node, ast.Name)
                 and node.ident in self.checker.consts
@@ -549,8 +699,8 @@ class Verifier:
                 if node.obj.ident in self.checker.enums:
                     return None  # литерал enum — не число
             path = _path_of(node)
-            if path is not None and path in env:
-                return env[path]
+            if path is not None and path in env.ivs:
+                return env.ivs[path]
             if isinstance(node, ast.FieldAccess):
                 self._iv(node.obj, env, annotate)
             return self._ty_range(ty)
@@ -577,8 +727,7 @@ class Verifier:
                     and left is not None
                 ):
                     m = max(abs(left[0]), abs(left[1]))
-                    left_sq: Iv = (0, m * m)
-                    return self._square(node, left_sq, kind, annotate)
+                    return self._square(node, (0, m * m), kind, annotate)
                 return self._arith(node, node.op, left, right, kind, annotate)
             return None  # сравнение в числовом контексте не встречается
         if isinstance(node, ast.Call):
@@ -589,8 +738,6 @@ class Verifier:
             self._iv(node.obj, env, annotate)
             idx = self._iv(node.index, env, annotate)
             if annotate:
-                from .types import ArrayType
-
                 oty = node.obj.ty
                 ok = (
                     isinstance(oty, ArrayType)
@@ -691,18 +838,19 @@ class Verifier:
 
     # --- вызовы --------------------------------------------------------------
 
-    def _call_env(self, sig, node, env: dict, obj_path: str | None) -> dict:
-        call_env: dict[str, Iv] = {}
+    def _call_env(self, sig, node, env: State, obj_path: str | None) -> State:
+        call_env = State()
         for (pname, _), arg in zip(sig.params, node.args):
             arg_iv = self._iv(arg, env, annotate=False)
             if arg_iv is not None:
-                call_env[pname] = arg_iv
+                call_env.ivs[pname] = arg_iv
         if obj_path is not None:
-            for k, v in env.items():
+            prefix = obj_path + "."
+            for k, v in env.ivs.items():
                 if k == obj_path:
-                    call_env["self"] = v
-                elif k.startswith(obj_path + "."):
-                    call_env["self" + k[len(obj_path) :]] = v
+                    call_env.ivs["self"] = v
+                elif k.startswith(prefix):
+                    call_env.ivs["self." + k[len(prefix) :]] = v
         return call_env
 
     def _check_requires(self, key, func, sig, node, env, obj_path=None):
@@ -714,11 +862,29 @@ class Verifier:
         entry[1] += 1
         entry[0] += 1 if ok is True else 0
 
-    def _iv_call(self, node: ast.Call, env: dict, annotate: bool):
+    def _apply_summary(self, key: str, sig, node, env: State):
+        summary = self.summaries.get(key)
+        base = self._ty_range(node.ty)
+        if summary is None:
+            return base
+        tag = summary[0]
+        if tag == "iv":
+            return summary[1]
+        # тождество параметру: интервал аргумента проходит сквозь вызов
+        pname = summary[1]
+        for (name, _), arg in zip(sig.params, node.args):
+            if name != pname:
+                continue
+            arg_iv = self._iv(arg, env, annotate=False)
+            if arg_iv is not None and base is not None:
+                return _inter(arg_iv, base) or base
+        return base
+
+    def _iv_call(self, node: ast.Call, env: State, annotate: bool):
         for arg in node.args:
             self._iv(arg, env, annotate)
         name = node.name
-        if name in ("i32", "u32", "u8"):
+        if name in _CASTS:
             src = self._iv(node.args[0], env, annotate=False)
             clamp = _range(name)
             if annotate:
@@ -730,8 +896,6 @@ class Verifier:
                 self._mark("cast", node, ok)
             return (_inter(src, clamp) if src is not None else clamp) or clamp
         if name == "len":
-            from .types import ArrayType
-
             aty = node.args[0].ty
             if isinstance(aty, ArrayType):
                 return (aty.size, aty.size)
@@ -740,10 +904,10 @@ class Verifier:
             func, _ = self._func_by_key(name)
             sig = self.checker.funcs[name]
             self._check_requires(name, func, sig, node, env)
-            return self.summaries.get(name) or self._ty_range(node.ty)
+            return self._apply_summary(name, sig, node, env)
         return self._ty_range(node.ty)
 
-    def _iv_method(self, node: ast.MethodCall, env: dict, annotate: bool):
+    def _iv_method(self, node: ast.MethodCall, env: State, annotate: bool):
         self._iv(node.obj, env, annotate)
         for arg in node.args:
             self._iv(arg, env, annotate)
@@ -753,7 +917,7 @@ class Verifier:
         self._check_requires(
             key, func, sig, node, env, obj_path=_path_of(node.obj)
         )
-        return self.summaries.get(key) or self._ty_range(node.ty)
+        return self._apply_summary(key, sig, node, env)
 
 
 def verify(program: ast.Program, checker) -> dict:
