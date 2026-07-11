@@ -29,14 +29,14 @@ struct Check {
     cvm: [u32; 128]
     ncon: u32
     # функции и методы: owner — индекс struct | NONE
-    fn_s: [u32; 512]
-    fn_l: [u32; 512]
-    fown: [u32; 512]
-    fps: [u32; 512]
-    fpc: [u32; 512]
-    fret: [u32; 512]
-    fvs: [u32; 512]
-    fnd: [u32; 512]
+    fn_s: [u32; 1024]
+    fn_l: [u32; 1024]
+    fown: [u32; 1024]
+    fps: [u32; 1024]
+    fpc: [u32; 1024]
+    fret: [u32; 1024]
+    fvs: [u32; 1024]
+    fnd: [u32; 1024]
     nfun: u32
     # параметры (без self)
     pn_s: [u32; 1024]
@@ -75,14 +75,14 @@ struct Check {
     total_stmts: u32
     # --- фаза 3b: тайпчекер тел -----------------------------------------
     # аннотации узлов: тип выражения и «возвращает» (достижимость)
-    nty: [u32; 32768]
-    nrt: [u32; 32768]
+    nty: [u32; 65536]
+    nrt: [u32; 65536]
     # границы for-диапазонов: узел, старт (sign, mag), конец (sign, mag)
-    rb_n: [u32; 128]
-    rb_ss: [u32; 128]
-    rb_sm: [u32; 128]
-    rb_es: [u32; 128]
-    rb_em: [u32; 128]
+    rb_n: [u32; 512]
+    rb_ss: [u32; 512]
+    rb_sm: [u32; 512]
+    rb_es: [u32; 512]
+    rb_em: [u32; 512]
     nrb: u32
     # узлы параметров (позиции для правила 10)
     pnd: [u32; 1024]
@@ -97,7 +97,7 @@ struct Check {
     nsv: u32
     scp: [u32; 64]
     nsc: u32
-    # текущий контекст: fi | 1024+тест; main; self; result; loop
+    # текущий контекст: fi | 2048+тест; main; self; result; loop
     cur_key: u32
     main_fi: u32
     self_ty2: u32
@@ -105,8 +105,8 @@ struct Check {
     res_ty2: u32
     loopd: u32
     # рёбра графа вызовов (код вызывающего, fi вызываемого)
-    eg_c: [u32; 1024]
-    eg_d: [u32; 1024]
+    eg_c: [u32; 4096]
+    eg_d: [u32; 4096]
     neg: u32
     # тесты
     tt_s: [u32; 64]
@@ -151,7 +151,7 @@ struct Check {
     }
 
     func fail_node(var self, n: u32, m: str<128>)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         self.fail_at(self.p.nl[n], self.p.nc[n], m)
@@ -167,7 +167,7 @@ struct Check {
         var ok: bool = true
         for i in 0..256 {
             if i < l1 {
-                if self.p.lex.sbuf[a1 + i] != self.p.lex.sbuf[a2 + i] {
+                if self.p.lex.sb_at(a1 + i) != self.p.lex.sb_at(a2 + i) {
                     ok = false
                 }
             }
@@ -185,7 +185,7 @@ struct Check {
         var w: [u8; 16] = [0; 16]
         for i in 0..16 {
             if i < l {
-                w[i] = self.p.lex.sbuf[a + i]
+                w[i] = self.p.lex.sb_at(a + i)
             }
         }
         return same(w, l, kw)
@@ -197,14 +197,14 @@ struct Check {
     {
         for i in 0..256 {
             if i < l {
-                write("{char(self.p.lex.sbuf[a + i])}")
+                write("{char(self.p.lex.sb_at(a + i))}")
             }
         }
     }
 
     # Имя узла (nss/nsl).
     func nspan_is(var self, n: u32, kw: str<16>) -> bool
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         return self.span_is(self.p.nss[n], self.p.nsl[n], kw)
@@ -345,7 +345,7 @@ struct Check {
 
     # Имя простого типа: индекс в пуле; struct/enum — интернируются.
     func resolve_name(var self, n: u32) -> u32
-        requires n < 32768
+        requires n < 65536
         ensures result < 512
     {
         let a: u32 = self.p.nss[n]
@@ -381,7 +381,7 @@ struct Check {
     # Разрешить узел типа AST → индекс типа. Явный стек кадров:
     # (узел, фаза, результат первого ребёнка).
     func resolve(var self, root: u32) -> u32
-        requires root < 32768
+        requires root < 65536
         ensures result < 512
     {
         var s1: [u32; 32] = [0; 32]
@@ -467,7 +467,7 @@ struct Check {
     # Результат — в self.ces (знак) / self.cem (величина).
 
     func const_eval(var self, root: u32)
-        requires root < 32768
+        requires root < 65536
         ensures true
     {
         var s1: [u32; 32] = [0; 32]
@@ -545,7 +545,7 @@ struct Check {
     # Знаковая арифметика (sign, mag); / и % — семантика floor (эталон
     # считает константы средствами Python). Результат в ces/cem.
     func const_binop(var self, n: u32, s1: u32, m1: u32, s2: u32, m2: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         let op: u32 = self.p.nx[n]
@@ -598,7 +598,7 @@ struct Check {
     }
 
     func sadd(var self, n: u32, s1: u32, m1: u32, s2: u32, m2: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if s1 == s2 {
@@ -697,7 +697,7 @@ struct Check {
     }
 
     func declare_top(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if self.top_taken(self.p.nss[n], self.p.nsl[n]) {
@@ -711,7 +711,7 @@ struct Check {
         ensures true
     {
         var d: u32 = self.p.nfc[0]
-        for _ in 0..32768 {
+        for _ in 0..65536 {
             if d != 4294967295 and not self.failed {
                 let k: u32 = self.p.nk[d]
                 if k == 4 {
@@ -727,7 +727,7 @@ struct Check {
     }
 
     func reg_struct(var self, d: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         if self.nstr >= 128 {
@@ -744,7 +744,7 @@ struct Check {
     }
 
     func reg_enum(var self, d: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         if self.nenu >= 64 {
@@ -781,7 +781,7 @@ struct Check {
         ensures true
     {
         var d: u32 = self.p.nfc[0]
-        for _ in 0..32768 {
+        for _ in 0..65536 {
             if d != 4294967295 and not self.failed {
                 let k: u32 = self.p.nk[d]
                 if k == 1 {
@@ -800,7 +800,7 @@ struct Check {
     }
 
     func col_const(var self, d: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         self.declare_top(d)
@@ -828,11 +828,11 @@ struct Check {
 
     # Сигнатура функции d в таблицу (owner — struct | NONE).
     func add_func(var self, d: u32, owner: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
-        if self.nfun >= 512 {
-            self.fail_node(d, "слишком много функций (предел 512)")
+        if self.nfun >= 1024 {
+            self.fail_node(d, "слишком много функций (предел 1024)")
             return
         }
         let i: u32 = self.nfun
@@ -879,7 +879,7 @@ struct Check {
     }
 
     func col_enum(var self, d: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         let ei: u32 = self.find_enum(self.p.nss[d], self.p.nsl[d])
@@ -910,7 +910,7 @@ struct Check {
     }
 
     func col_struct(var self, d: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         let si: u32 = self.find_struct(self.p.nss[d], self.p.nsl[d])
@@ -937,7 +937,7 @@ struct Check {
     }
 
     func col_field(var self, si: u32, c: u32)
-        requires si < 128 and c < 32768
+        requires si < 128 and c < 65536
         ensures true
     {
         # повтор поля — ошибка
@@ -1165,7 +1165,7 @@ struct Check {
 
     # Число statements в поддереве функции (вид узла — инструкция).
     func count_stmts(var self, root: u32) -> u32
-        requires root < 32768
+        requires root < 65536
         ensures true
     {
         var cnt: u32 = 0
@@ -1173,7 +1173,7 @@ struct Check {
         var st: [u32; 64] = [0; 64]
         var sp: u32 = 0
         var done: bool = false
-        for _ in 0..32768 {
+        for _ in 0..65536 {
             if not done {
                 let k: u32 = self.p.nk[cur]
                 if is_stmt_kind(k) {
@@ -1383,7 +1383,7 @@ struct Check {
         ensures true
     {
         var d: u32 = self.p.nfc[0]
-        for _ in 0..32768 {
+        for _ in 0..65536 {
             if d != 4294967295 {
                 self.dump_decl(d)
                 d = self.p.nns[d]
@@ -1393,7 +1393,7 @@ struct Check {
     }
 
     func dump_decl(var self, d: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         let k: u32 = self.p.nk[d]
@@ -1429,7 +1429,7 @@ struct Check {
     }
 
     func dump_struct(var self, d: u32, ln: u32, cl: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         write("struct ")
@@ -1463,7 +1463,7 @@ struct Check {
     }
 
     func dump_enum(var self, d: u32, ln: u32, cl: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         write("enum ")
@@ -1496,11 +1496,11 @@ struct Check {
         let pe: str<16> = "ParseError"
         self.bn_io = self.p.lex.sblen
         for i in 0..7 {
-            self.p.lex.sbuf[self.bn_io + i] = u8(io[i])
+            self.p.lex.sb_set(self.bn_io + i, u8(io[i]))
         }
         self.bn_pe = self.bn_io + 7
         for i in 0..10 {
-            self.p.lex.sbuf[self.bn_pe + i] = u8(pe[i])
+            self.p.lex.sb_set(self.bn_pe + i, u8(pe[i]))
         }
         self.p.lex.sblen = self.bn_pe + 10
         self.ty_sq = self.intern(6, 4294967295, 4294967295, 4294967295, 0)
@@ -1513,7 +1513,7 @@ struct Check {
         self.cur_key = 4294967295
         self.self_ty2 = 4294967295
         self.res_ty2 = 4294967295
-        for n in 0..32768 {
+        for n in 0..65536 {
             self.nty[n] = 4294967295
         }
     }
@@ -1562,7 +1562,7 @@ struct Check {
 
     # Объявить переменную (sv_s = NONE — self). «_» не заносится.
     func declare(var self, nd: u32, a: u32, l: u32, ty: u32, mut: u32)
-        requires nd < 32768 and ty < 512
+        requires nd < 65536 and ty < 512
         ensures true
     {
         if self.span_is(a, l, "_") {
@@ -1669,7 +1669,7 @@ struct Check {
         ensures true
     {
         var dup: bool = false
-        for i in 0..1024 {
+        for i in 0..4096 {
             if i < self.neg {
                 if self.eg_c[i] == c and self.eg_d[i] == d {
                     dup = true
@@ -1679,7 +1679,7 @@ struct Check {
         if dup {
             return
         }
-        if self.neg >= 1024 {
+        if self.neg >= 4096 {
             self.fail_at(1, 1, "слишком много рёбер графа вызовов")
             return
         }
@@ -1693,7 +1693,7 @@ struct Check {
     # Результат кадра — self.tres; аннотация nty ставится при завершении.
 
     func nth_child(var self, n: u32, i: u32) -> u32
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         var c: u32 = self.p.nfc[n]
@@ -1706,7 +1706,7 @@ struct Check {
     }
 
     func nchildren(var self, n: u32) -> u32
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         var c: u32 = self.p.nfc[n]
@@ -1721,7 +1721,7 @@ struct Check {
     }
 
     func xpush(var self, n: u32, exp: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if self.nxq >= 64 {
@@ -1754,7 +1754,7 @@ struct Check {
 
     # Типизировать выражение root; результат в tres (и nty[root]).
     func expr_check(var self, root: u32, exp: u32, voidok: u32)
-        requires root < 32768
+        requires root < 65536
         ensures true
     {
         self.xvoid = voidok
@@ -1771,7 +1771,7 @@ struct Check {
     }
 
     func expect_bool(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         self.expr_check(n, 3, 0)
@@ -1815,7 +1815,7 @@ struct Check {
     }
 
     func xs_leaf(var self, n: u32, k: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if k == 32 {
@@ -1850,7 +1850,7 @@ struct Check {
     }
 
     func xs_name(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         let a: u32 = self.p.nss[n]
@@ -1879,7 +1879,7 @@ struct Check {
     }
 
     func xs_str(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         if self.xp[f] == 0 {
@@ -1915,7 +1915,7 @@ struct Check {
     }
 
     func xs_unary(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let op: u32 = self.p.nx[n]
@@ -1943,7 +1943,7 @@ struct Check {
     }
 
     func xs_binop(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let op: u32 = self.p.nx[n]
@@ -1986,7 +1986,7 @@ struct Check {
     }
 
     func xs_binop_fin(var self, n: u32, op: u32, left: u32)
-        requires n < 32768 and left < 512
+        requires n < 65536 and left < 512
         ensures true
     {
         if not self.compat(left, self.tres) {
@@ -2041,7 +2041,7 @@ struct Check {
     # Вызов: коды xa — 100+каст(0/1/2), 104 char, 105 len, 106 print/write,
     # 107 parse_i32, иначе fi пользовательской функции.
     func xs_call(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         if self.xp[f] == 0 {
@@ -2052,7 +2052,7 @@ struct Check {
     }
 
     func xs_call_start(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let a: u32 = self.p.nss[n]
@@ -2096,7 +2096,7 @@ struct Check {
     }
 
     func xs_call_start2(var self, f: u32, n: u32, argc: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let a: u32 = self.p.nss[n]
@@ -2151,7 +2151,7 @@ struct Check {
     }
 
     func xs_call_next(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let code: u32 = self.xa[f]
@@ -2199,7 +2199,7 @@ struct Check {
 
     # Очередной аргумент пользовательской функции готов.
     func xs_user_arg(var self, f: u32, n: u32, fi: u32)
-        requires f < 64 and n < 32768 and fi < 512
+        requires f < 64 and n < 65536 and fi < 1024
         ensures true
     {
         let i: u32 = self.xb[f]
@@ -2216,7 +2216,7 @@ struct Check {
     }
 
     func xs_user_fin(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         self.add_edge(self.cur_key, fi)
@@ -2279,7 +2279,7 @@ struct Check {
     # Метод / конструктор варианта enum. Фазы: 0 старт; 1 объект готов;
     # 2+ аргументы; 9 аргумент конструктора готов.
     func xs_method(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp[f]
@@ -2307,7 +2307,7 @@ struct Check {
     }
 
     func xs_enum_ctor(var self, f: u32, n: u32, obj: u32)
-        requires f < 64 and n < 32768 and obj < 32768
+        requires f < 64 and n < 65536 and obj < 65536
         ensures true
     {
         let w: u32 = self.variant_of(self.p.nss[obj], self.p.nsl[obj], self.p.nss[n], self.p.nsl[n])
@@ -2330,7 +2330,7 @@ struct Check {
     }
 
     func xs_method_obj(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         if self.yk[self.tres] != 8 {
@@ -2339,7 +2339,7 @@ struct Check {
         }
         let si: u32 = self.find_struct(self.ys[self.tres], self.yl[self.tres])
         var mfi: u32 = 4294967295
-        for i in 0..512 {
+        for i in 0..1024 {
             if i < self.nfun and mfi == 4294967295 {
                 if self.fown[i] == si {
                     if self.span_eq(self.fn_s[i], self.fn_l[i], self.p.nss[n], self.p.nsl[n]) {
@@ -2370,7 +2370,7 @@ struct Check {
     }
 
     func xs_marg(var self, f: u32, n: u32, mfi: u32)
-        requires f < 64 and n < 32768 and mfi < 512
+        requires f < 64 and n < 65536 and mfi < 1024
         ensures true
     {
         let i: u32 = self.xb[f]
@@ -2388,7 +2388,7 @@ struct Check {
 
     # Метод с var self: получатель обязан быть изменяемым lvalue.
     func check_receiver(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         var base: u32 = self.p.nfc[n]
@@ -2415,7 +2415,7 @@ struct Check {
     }
 
     func xs_member(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let obj: u32 = self.p.nfc[n]
@@ -2466,7 +2466,7 @@ struct Check {
     }
 
     func xs_index(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp[f]
@@ -2496,7 +2496,7 @@ struct Check {
 
     # Struct-литерал: xa — текущий fld-ребёнок, xb — тип текущего поля.
     func xs_slit(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp[f]
@@ -2535,15 +2535,15 @@ struct Check {
 
     # Литерал: без повторов, без лишних, все поля struct на месте.
     func slit_fields_ok(var self, n: u32, si: u32)
-        requires n < 32768 and si < 128
+        requires n < 65536 and si < 128
         ensures true
     {
         var c: u32 = self.p.nfc[n]
         var cnt: u32 = 0
-        for _ in 0..128 {
+        for _ in 0..512 {
             if c != 4294967295 and not self.failed {
                 var w: u32 = self.p.nns[c]
-                for _ in 0..128 {
+                for _ in 0..512 {
                     if w != 4294967295 {
                         if self.span_eq(self.p.nss[c], self.p.nsl[c], self.p.nss[w], self.p.nsl[w]) {
                             self.fail_node(n, "поле повторяется в литерале")
@@ -2565,7 +2565,7 @@ struct Check {
 
     # Массив-литерал: xa — текущий ребёнок, xb — тип первого элемента.
     func xs_alit(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp[f]
@@ -2607,7 +2607,7 @@ struct Check {
     }
 
     func xs_afill(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let exp: u32 = self.xe[f]
@@ -2643,7 +2643,7 @@ struct Check {
     # Биты aux блока: 1 своя область, 2 finished, 4 «возвращает».
 
     func qpush(var self, k: u32, node: u32, cursor: u32, aux: u32)
-        requires k <= 4 and node < 32768
+        requires k <= 4 and node < 65536
         ensures true
     {
         if self.nq >= 128 {
@@ -2659,7 +2659,7 @@ struct Check {
     }
 
     func start_block_frame(var self, body: u32, ns: u32)
-        requires body < 32768 and ns <= 1
+        requires body < 65536 and ns <= 1
         ensures true
     {
         if ns == 1 {
@@ -2669,7 +2669,7 @@ struct Check {
     }
 
     func run_block_machine(var self, body: u32, ns: u32)
-        requires body < 32768 and ns <= 1
+        requires body < 65536 and ns <= 1
         ensures true
     {
         self.nq = 0
@@ -2740,7 +2740,7 @@ struct Check {
     }
 
     func check_stmt(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let k: u32 = self.p.nk[cur]
@@ -2787,7 +2787,7 @@ struct Check {
     }
 
     func q_let(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let ty: u32 = self.resolve(self.p.nfc[cur])
@@ -2807,7 +2807,7 @@ struct Check {
     }
 
     func q_assign(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let tgt: u32 = self.p.nfc[cur]
@@ -2875,7 +2875,7 @@ struct Check {
     }
 
     func if_returns(var self, n: u32) -> u32
-        requires n < 32768
+        requires n < 65536
         ensures result <= 1
     {
         var has_else: bool = false
@@ -2919,7 +2919,7 @@ struct Check {
     }
 
     func q_for_start(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let it: u32 = self.p.nfc[cur]
@@ -2943,7 +2943,7 @@ struct Check {
                 self.fail_node(it, "граница диапазона не помещается в тип")
                 return
             }
-            if self.nrb >= 128 {
+            if self.nrb >= 512 {
                 self.fail_node(cur, "слишком много for-диапазонов")
                 return
             }
@@ -2991,11 +2991,11 @@ struct Check {
     }
 
     func q_return(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         var ret: u32 = 4294967295
-        if self.cur_key < 1024 {
+        if self.cur_key < 2048 {
             ret = self.fret[self.cur_key]
         }
         let value: u32 = self.p.nfc[cur]
@@ -3017,7 +3017,7 @@ struct Check {
     # --- match ------------------------------------------------------------
 
     func q_match_start(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let subj: u32 = self.p.nfc[cur]
@@ -3055,7 +3055,7 @@ struct Check {
     }
 
     func q_arm(var self, f: u32, arm: u32)
-        requires f < 128 and arm < 32768
+        requires f < 128 and arm < 65536
         ensures true
     {
         let dom: u32 = self.qx[f]
@@ -3095,7 +3095,7 @@ struct Check {
 
     # Тип нагрузки варианта арма в домене dom; ошибка — не вариант.
     func arm_payload(var self, dom: u32, arm: u32) -> u32
-        requires dom < 512 and arm < 32768
+        requires dom < 512 and arm < 65536
         ensures true
     {
         let va: u32 = self.p.nss[arm]
@@ -3133,7 +3133,7 @@ struct Check {
     }
 
     func has_arm16(var self, m: u32, kw: str<16>) -> bool
-        requires m < 32768
+        requires m < 65536
         ensures true
     {
         var a: u32 = self.p.nns[self.p.nfc[m]]
@@ -3150,7 +3150,7 @@ struct Check {
     }
 
     func exhaust_check(var self, m: u32, dom: u32)
-        requires m < 32768 and dom < 512
+        requires m < 65536 and dom < 512
         ensures true
     {
         let dk: u32 = self.yk[dom]
@@ -3181,7 +3181,7 @@ struct Check {
     }
 
     func exhaust_builtin(var self, m: u32, dom: u32)
-        requires m < 32768 and dom < 512
+        requires m < 65536 and dom < 512
         ensures true
     {
         if self.span_is(self.ys[dom], self.yl[dom], "IoError") {
@@ -3200,7 +3200,7 @@ struct Check {
     }
 
     func has_arm_span(var self, m: u32, a: u32, l: u32) -> bool
-        requires m < 32768
+        requires m < 65536
         ensures true
     {
         var c: u32 = self.p.nns[self.p.nfc[m]]
@@ -3217,7 +3217,7 @@ struct Check {
     }
 
     func arms_return(var self, m: u32) -> u32
-        requires m < 32768
+        requires m < 65536
         ensures result <= 1
     {
         var all: u32 = 1
@@ -3234,7 +3234,7 @@ struct Check {
     # --- проверка тел -----------------------------------------------------
 
     func check_func_body(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         self.cur_key = fi
@@ -3291,7 +3291,7 @@ struct Check {
         ensures true
     {
         var d: u32 = self.p.nfc[0]
-        for _ in 0..32768 {
+        for _ in 0..65536 {
             if d != 4294967295 and not self.failed {
                 let k: u32 = self.p.nk[d]
                 if k == 6 {
@@ -3315,7 +3315,7 @@ struct Check {
     }
 
     func check_test_body(var self, d: u32)
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         if self.ttn >= 64 {
@@ -3326,23 +3326,23 @@ struct Check {
         self.tt_s[ti] = self.p.nss[d]
         self.tt_l[ti] = self.p.nsl[d]
         self.ttn = ti + 1
-        self.cur_key = 1024 + ti
+        self.cur_key = 2048 + ti
         self.self_ty2 = 4294967295
         self.res_ty2 = 4294967295
         self.run_block_machine(self.p.nfc[d], 1)
     }
 
     # --- правило 1: DAG вызовов и глубина стека ------------------------------
-    # Идентификаторы: fi < 512; тест — 512 + ti (код ребра 1024 + ti).
+    # Идентификаторы: fi < 1024; тест — 1024 + ti (код ребра 2048 + ti).
 
     func cg_code(var self, idx: u32) -> u32
         requires idx < 576
         ensures true
     {
-        if idx < 512 {
+        if idx < 1024 {
             return idx
         }
-        return 1024 + idx - 512
+        return 2048 + idx - 1024
     }
 
     # k-й вызываемый из idx; NONE.
@@ -3353,7 +3353,7 @@ struct Check {
         let code: u32 = self.cg_code(idx)
         var cnt: u32 = 0
         var found: u32 = 4294967295
-        for i in 0..1024 {
+        for i in 0..4096 {
             if i < self.neg and found == 4294967295 {
                 if self.eg_c[i] == code {
                     if cnt == k {
@@ -3415,10 +3415,10 @@ struct Check {
         requires idx < 576
         ensures true
     {
-        if idx < 512 {
+        if idx < 1024 {
             return idx < self.nfun
         }
-        return idx - 512 < self.ttn
+        return idx - 1024 < self.ttn
     }
 
     func cg_maxdep(var self, idx: u32, dep: [u32; 576]) -> u32
@@ -3460,7 +3460,7 @@ struct Check {
         ensures true
     {
         var found: u32 = 4294967295
-        for i in 0..128 {
+        for i in 0..512 {
             if i < self.nrb and found == 4294967295 {
                 if self.rb_n[i] == n {
                     found = i
@@ -3471,7 +3471,7 @@ struct Check {
     }
 
     func tprint(var self, n: u32, d: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         for i in 0..64 {
@@ -3507,7 +3507,7 @@ struct Check {
     }
 
     func textras(var self, n: u32, k: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if k == 6 {
@@ -3566,7 +3566,7 @@ struct Check {
     {
         for i in 0..256 {
             if i < l {
-                write_esc(self.p.lex.sbuf[a + i])
+                write_esc(self.p.lex.sb_at(a + i))
             }
         }
     }
@@ -3580,7 +3580,7 @@ struct Check {
         var cur: u32 = 0
         var dpt: u32 = 0
         var done: bool = false
-        for _ in 0..65536 {
+        for _ in 0..131072 {
             if not done {
                 self.tprint(cur, dpt)
                 if self.p.nfc[cur] != 4294967295 and sp < 64 {
@@ -3619,14 +3619,14 @@ struct Check {
         requires true
         ensures true
     {
-        if code >= 1024 {
+        if code >= 2048 {
             let pre: str<8> = "test:"
             if i < 5 {
                 return u32(u8(pre[i]))
             }
-            let ti: u32 = code - 1024
+            let ti: u32 = code - 2048
             if i - 5 < self.tt_l[ti] {
-                return u32(self.p.lex.sbuf[self.tt_s[ti] + i - 5])
+                return u32(self.p.lex.sb_at(self.tt_s[ti] + i - 5))
             }
             return 999
         }
@@ -3634,7 +3634,7 @@ struct Check {
         let own: u32 = self.fown[code]
         if own != 4294967295 {
             if i < self.sn_l[own] {
-                return u32(self.p.lex.sbuf[self.sn_s[own] + i])
+                return u32(self.p.lex.sb_at(self.sn_s[own] + i))
             }
             if i == self.sn_l[own] {
                 return 46
@@ -3642,7 +3642,7 @@ struct Check {
             off = self.sn_l[own] + 1
         }
         if i - off < self.fn_l[code] {
-            return u32(self.p.lex.sbuf[self.fn_s[code] + i - off])
+            return u32(self.p.lex.sb_at(self.fn_s[code] + i - off))
         }
         return 999
     }
@@ -3680,7 +3680,7 @@ struct Check {
 
     # Ребро i больше ребра j (по ключам вызывающего, затем вызываемого)?
     func edge_gt(var self, i: u32, j: u32) -> bool
-        requires i < 1024 and j < 1024
+        requires i < 4096 and j < 4096
         ensures true
     {
         let c: u32 = self.cmp_key(self.eg_c[i], self.eg_c[j])
@@ -3698,10 +3698,10 @@ struct Check {
         ensures true
     {
         # сортировка выбором
-        for i in 0..1024 {
+        for i in 0..4096 {
             if i < self.neg {
                 var best: u32 = i
-                for j in 0..1024 {
+                for j in 0..4096 {
                     if j > i and j < self.neg {
                         if self.edge_gt(best, j) {
                             best = j
@@ -3718,7 +3718,7 @@ struct Check {
                 }
             }
         }
-        for i in 0..1024 {
+        for i in 0..4096 {
             if i < self.neg {
                 write("edge ")
                 self.write_key(self.eg_c[i])

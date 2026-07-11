@@ -48,13 +48,14 @@ SELFHOST_TYPED = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 SELFHOST_IR = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/Check.eat selfhost/Ir.eat selfhost/IrMain.eat
 
-# Стек 64 МБ для бинарников, собираемых clang'ом из self-hosted IR
-# (пулы компилятора живут в кадре main — как в src/eatc/codegen.py)
+# Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
+# (пулы компилятора живут в кадре main — как в src/eatc/codegen.py;
+# кадр main самого self-hosted компилятора — ~85 МБ, фаза 5)
 UNAME := $(shell uname)
 ifeq ($(UNAME),Darwin)
-STACK_FLAGS = -Wl,-stack_size,0x4000000
+STACK_FLAGS = -Wl,-stack_size,0x8000000
 else
-STACK_FLAGS = -Wl,-z,stacksize=67108864
+STACK_FLAGS = -Wl,-z,stacksize=134217728
 endif
 
 run_selfhost_lexer:
@@ -148,6 +149,25 @@ verify_selfhost:
 	@cat examples/hello_world/HelloWorld.eat | ./build/SelfIr > /tmp/eat_ir_native.txt
 	@diff /tmp/eat_ir_interp.txt /tmp/eat_ir_native.txt \
 		&& echo "VERIFIED SelfIr (interp == native)" || exit 1
+
+# Фаза 5: bootstrap — self-hosted компилятор собирает сам себя.
+# stage1 — build/SelfIr (собран Python-бутстрапом) эмитит IR собственных
+# восьми модулей; сверка с `eatc ir` байт-в-байт. clang собирает из этого
+# IR stage2 — и stage2 эмитит для тех же исходников тот же IR (фикспойнт).
+verify_bootstrap:
+	@$(EATC) build $(SELFHOST_IR) -o build/SelfIr > /dev/null
+	@cat $(SELFHOST_IR) > /tmp/eat_boot_src.eat
+	@$(EATC) ir /tmp/eat_boot_src.eat > /tmp/eat_boot_ref.ll
+	@./build/SelfIr < /tmp/eat_boot_src.eat > /tmp/eat_boot_1.ll
+	@diff /tmp/eat_boot_ref.ll /tmp/eat_boot_1.ll > /dev/null \
+		&& echo "BOOT OK (stage1: IR самого компилятора == эталон eatc ir)" \
+		|| { echo "BOOT DIFF stage1"; exit 1; }
+	@clang /tmp/eat_boot_1.ll src/eatc/runtime.c -o build/SelfIr2 \
+		$(STACK_FLAGS) 2>/dev/null
+	@./build/SelfIr2 < /tmp/eat_boot_src.eat > /tmp/eat_boot_2.ll
+	@diff /tmp/eat_boot_1.ll /tmp/eat_boot_2.ll > /dev/null \
+		&& echo "BOOT OK (fixpoint: stage2 эмитит байт-в-байт тот же IR)" \
+		|| { echo "BOOT DIFF fixpoint"; exit 1; }
 
 run_hello_world:
 	$(EATC) run examples/hello_world/HelloWorld.eat

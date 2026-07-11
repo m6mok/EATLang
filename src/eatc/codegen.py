@@ -1053,12 +1053,13 @@ def compile_binary(
     obj_path = out.with_suffix(".o")
     obj_path.write_bytes(machine.emit_object(ref))
     runtime = Path(__file__).parent / "runtime.c"
-    # стек 64 МБ: у программ без кучи пулы живут в кадре main,
-    # и кадры компилятора (§8) выходят за умолчание ОС (8 МБ)
+    # стек 128 МБ: у программ без кучи пулы живут в кадре main,
+    # и кадры компилятора (§8) выходят за умолчание ОС (8 МБ);
+    # кадр main самого self-hosted компилятора — ~85 МБ (фаза 5)
     if sys.platform == "darwin":
-        stack_flags = ["-Wl,-stack_size,0x4000000"]
+        stack_flags = ["-Wl,-stack_size,0x8000000"]
     else:
-        stack_flags = ["-Wl,-z,stacksize=67108864"]
+        stack_flags = ["-Wl,-z,stacksize=134217728"]
     proc = subprocess.run(
         ["clang", str(obj_path), str(runtime), "-o", str(out)]
         + stack_flags,

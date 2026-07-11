@@ -25,16 +25,16 @@ struct Parser {
     failed: bool
     done: bool
     # пул узлов AST
-    nk: [u32; 32768]
-    nl: [u32; 32768]
-    nc: [u32; 32768]
-    nss: [u32; 32768]
-    nsl: [u32; 32768]
-    nx: [u32; 32768]
-    ny: [u32; 32768]
-    nfc: [u32; 32768]
-    nlc: [u32; 32768]
-    nns: [u32; 32768]
+    nk: [u32; 65536]
+    nl: [u32; 65536]
+    nc: [u32; 65536]
+    nss: [u32; 65536]
+    nsl: [u32; 65536]
+    nx: [u32; 65536]
+    ny: [u32; 65536]
+    nfc: [u32; 65536]
+    nlc: [u32; 65536]
+    nns: [u32; 65536]
     nnode: u32
     # стек кадров
     fk: [u32; 64]
@@ -69,28 +69,28 @@ struct Parser {
         requires true
         ensures true
     {
-        return self.lex.tk[self.cur]
+        return self.lex.tok_k(self.cur)
     }
 
     func t_line(var self) -> u32
         requires true
         ensures true
     {
-        return self.lex.tl[self.cur]
+        return self.lex.tok_l(self.cur)
     }
 
     func t_col(var self) -> u32
         requires true
         ensures true
     {
-        return self.lex.tc[self.cur]
+        return self.lex.tok_c(self.cur)
     }
 
     func advance(var self)
         requires true
         ensures true
     {
-        if self.lex.tk[self.cur] != 55 {
+        if self.lex.tok_k(self.cur) != 55 {
             self.cur = self.cur + 1
         }
     }
@@ -100,7 +100,7 @@ struct Parser {
         requires true
         ensures true
     {
-        if self.lex.tk[self.cur] == 54 {
+        if self.lex.tok_k(self.cur) == 54 {
             self.advance()
         }
     }
@@ -110,7 +110,7 @@ struct Parser {
         ensures true
     {
         if not self.failed {
-            print("err: {self.lex.tl[self.cur]}:{self.lex.tc[self.cur]}: {m}")
+            print("err: {self.lex.tok_l(self.cur)}:{self.lex.tok_c(self.cur)}: {m}")
         }
         self.failed = true
     }
@@ -135,15 +135,15 @@ struct Parser {
         requires true
         ensures true
     {
-        let vl: u32 = self.lex.tvl[self.cur]
+        let vl: u32 = self.lex.tok_vl(self.cur)
         if vl > 16 {
             return false
         }
         var w: [u8; 16] = [0; 16]
-        let vs: u32 = self.lex.tvs[self.cur]
+        let vs: u32 = self.lex.tok_vs(self.cur)
         for i in 0..16 {
             if i < vl {
-                w[i] = self.lex.sbuf[vs + i]
+                w[i] = self.lex.sb_at(vs + i)
             }
         }
         return same(w, vl, kw)
@@ -154,8 +154,8 @@ struct Parser {
         requires true
         ensures true
     {
-        let vs: u32 = self.lex.tvs[self.cur]
-        let vl: u32 = self.lex.tvl[self.cur]
+        let vs: u32 = self.lex.tok_vs(self.cur)
+        let vl: u32 = self.lex.tok_vl(self.cur)
         if vl > 10 {
             self.fail("целочисленный литерал больше 2^32-1")
             return 0
@@ -163,7 +163,7 @@ struct Parser {
         var acc: u32 = 0
         for i in 0..10 {
             if i < vl and not self.failed {
-                let d: u32 = u32(self.lex.sbuf[vs + i]) - 48
+                let d: u32 = u32(self.lex.sb_at(vs + i)) - 48
                 if acc > (4294967295 - d) / 10 {
                     self.fail("целочисленный литерал больше 2^32-1")
                 } else {
@@ -178,10 +178,10 @@ struct Parser {
 
     func alloc(var self, k: u32, ln: u32, cl: u32) -> u32
         requires k <= 49
-        ensures result < 32768
+        ensures result < 65536
     {
-        if self.nnode >= 32768 {
-            self.fail("слишком много узлов AST (предел 32768)")
+        if self.nnode >= 65536 {
+            self.fail("слишком много узлов AST (предел 65536)")
             return 0
         }
         let n: u32 = self.nnode
@@ -201,15 +201,15 @@ struct Parser {
 
     # Строковый payload узла — значение токена ti.
     func set_str(var self, n: u32, ti: u32)
-        requires n < 32768 and ti < 65536
+        requires n < 65536 and ti < 131072
         ensures true
     {
-        self.nss[n] = self.lex.tvs[ti]
-        self.nsl[n] = self.lex.tvl[ti]
+        self.nss[n] = self.lex.tok_vs(ti)
+        self.nsl[n] = self.lex.tok_vl(ti)
     }
 
     func append_child(var self, p: u32, c: u32)
-        requires p < 32768 and c < 32768
+        requires p < 65536 and c < 65536
         ensures true
     {
         if self.nfc[p] == 4294967295 {
@@ -223,7 +223,7 @@ struct Parser {
     # Поле struct-декларации: после последнего поля, до методов
     # (эталон печатает поля, затем методы). nx[struct] — последнее поле.
     func insert_field(var self, s: u32, f: u32)
-        requires s < 32768 and f < 32768
+        requires s < 65536 and f < 65536
         ensures true
     {
         let last: u32 = self.nx[s]
@@ -290,9 +290,9 @@ struct Parser {
         requires true
         ensures true
     {
-        let pn: u32 = self.alloc(0, self.lex.tl[0], self.lex.tc[0])
+        let pn: u32 = self.alloc(0, self.lex.tok_l(0), self.lex.tok_c(0))
         self.push_frame(0, 0, pn, 4294967295, 0)
-        for _ in 0..131072 {
+        for _ in 0..262144 {
             if not self.done and not self.failed {
                 self.pump()
             }
@@ -994,8 +994,8 @@ struct Parser {
                 self.fail("ожидалось имя или '_'")
                 return
             }
-            self.nx[arm] = self.lex.tvs[self.cur]
-            self.ny[arm] = self.lex.tvl[self.cur]
+            self.nx[arm] = self.lex.tok_vs(self.cur)
+            self.ny[arm] = self.lex.tok_vl(self.cur)
             self.advance()
             if self.tk_at() != 31 {
                 self.fail("ожидалось ')'")
@@ -1317,7 +1317,7 @@ struct Parser {
     }
 
     func push_opnd(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if self.nos >= 64 {
@@ -1330,7 +1330,7 @@ struct Parser {
 
     func pop_opnd(var self) -> u32
         requires true
-        ensures result < 32768
+        ensures result < 65536
     {
         if self.nos == 0 {
             self.fail("внутренняя ошибка: пустой стек операндов")
@@ -1653,19 +1653,19 @@ struct Parser {
         let ti: u32 = self.cur
         let node: u32 = self.alloc(35, self.t_line(), self.t_col())
         self.advance()
-        let sg: u32 = self.lex.tsg[ti]
+        let sg: u32 = self.lex.tok_sg(ti)
         if sg == 4294967295 {
-            if self.lex.tvl[ti] > 0 {
+            if self.lex.tok_vl(ti) > 0 {
                 let seg: u32 = self.alloc(36, 0, 0)
-                self.nss[seg] = self.lex.tvs[ti]
-                self.nsl[seg] = self.lex.tvl[ti]
+                self.nss[seg] = self.lex.tok_vs(ti)
+                self.nsl[seg] = self.lex.tok_vl(ti)
                 self.append_child(node, seg)
             }
             self.push_opnd(node)
             self.set_phase(1)
             return
         }
-        let send: u32 = sg + self.lex.tns[ti]
+        let send: u32 = sg + self.lex.tok_ns(ti)
         let nxt: u32 = self.seg_scan(node, sg, send)
         if nxt == 4294967295 {
             self.push_opnd(node)
@@ -1682,7 +1682,7 @@ struct Parser {
     # Прикрепить литеральные сегменты от si; вернуть индекс следующего
     # сегмента-выражения (NONE, если сегменты кончились).
     func seg_scan(var self, node: u32, si: u32, send: u32) -> u32
-        requires node < 32768
+        requires node < 65536
         ensures true
     {
         var nxt: u32 = 4294967295
@@ -2073,7 +2073,7 @@ struct Parser {
         self.ddepth = 0
         self.dn = 0
         self.ddone = false
-        for _ in 0..65536 {
+        for _ in 0..131072 {
             if not self.ddone and not self.failed {
                 self.dump_step()
             }
@@ -2116,7 +2116,7 @@ struct Parser {
     }
 
     func print_node(var self, n: u32, d: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         for i in 0..64 {
@@ -2134,7 +2134,7 @@ struct Parser {
     }
 
     func node_extras(var self, n: u32, k: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if k == 6 {
@@ -2193,7 +2193,7 @@ struct Parser {
     {
         for i in 0..256 {
             if i < l {
-                write("{char(self.lex.sbuf[a + i])}")
+                write("{char(self.lex.sb_at(a + i))}")
             }
         }
     }
@@ -2204,7 +2204,7 @@ struct Parser {
     {
         for i in 0..256 {
             if i < l {
-                write_esc(self.lex.sbuf[a + i])
+                write_esc(self.lex.sb_at(a + i))
             }
         }
     }

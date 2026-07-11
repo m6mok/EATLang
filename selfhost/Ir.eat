@@ -36,13 +36,13 @@ struct Ir {
     gp: [[u8; 65536]; 32]
     gpl: u32
     gmk: u32
-    gss: [u32; 32768]
-    gsl: [u32; 32768]
-    gsh: [u32; 32768]
+    gss: [u32; 65536]
+    gsl: [u32; 65536]
+    gsh: [u32; 65536]
     ngl: u32
     # хвост модуля: 0 глобал / 1 declare интринзика
-    tlk: [u32; 32768]
-    tlx: [u32; 32768]
+    tlk: [u32; 65536]
+    tlx: [u32; 65536]
     ntl: u32
     itr: [u32; 16]
     # буфер строк-инструкций текущей функции
@@ -244,7 +244,7 @@ struct Ir {
     {
         for i in 0..256 {
             if i < l {
-                self.lb_b(self.c.p.lex.sbuf[a + i])
+                self.lb_b(self.c.p.lex.sb_at(a + i))
             }
         }
     }
@@ -359,7 +359,7 @@ struct Ir {
     {
         for i in 0..256 {
             if i < l {
-                self.nb_b(self.c.p.lex.sbuf[a + i])
+                self.nb_b(self.c.p.lex.sb_at(a + i))
             }
         }
     }
@@ -846,7 +846,7 @@ struct Ir {
     {
         for i in 0..256 {
             if i < l {
-                self.g_b(self.c.p.lex.sbuf[a + i])
+                self.g_b(self.c.p.lex.sb_at(a + i))
             }
         }
     }
@@ -859,7 +859,7 @@ struct Ir {
     }
 
     func g_eqspan(var self, gi: u32, s: u32, l: u32) -> bool
-        requires gi < 32768
+        requires gi < 65536
         ensures true
     {
         if self.gsl[gi] != l {
@@ -903,7 +903,7 @@ struct Ir {
         requires k <= 1
         ensures true
     {
-        if self.ntl >= 32768 {
+        if self.ntl >= 65536 {
             self.fail("переполнен хвост модуля")
             return
         }
@@ -924,13 +924,13 @@ struct Ir {
 
     func g_commit(var self) -> u32
         requires true
-        ensures result < 32768
+        ensures result < 65536
     {
         let s: u32 = self.gmk
         let l: u32 = self.gpl - s
         let h: u32 = self.g_hash(s, l)
         var f: u32 = 4294967295
-        for i in 0..32768 {
+        for i in 0..65536 {
             if i < self.ngl and f == 4294967295 {
                 if self.gsh[i] == h and self.gsl[i] == l {
                     if self.g_eqspan(i, s, l) {
@@ -943,7 +943,7 @@ struct Ir {
             self.gpl = s
             return f
         }
-        if self.ngl >= 32768 {
+        if self.ngl >= 65536 {
             self.fail("слишком много глобальных констант")
             return 0
         }
@@ -975,7 +975,7 @@ struct Ir {
     # 6 переполнение при касте (e1 — вид цели).
     func trap_glob(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32) -> u32
         requires mk <= 6
-        ensures result < 32768
+        ensures result < 65536
     {
         self.g_begin()
         self.g_lit("stdin:")
@@ -1009,7 +1009,7 @@ struct Ir {
 
     func cstr_seg(var self, a: u32, l: u32) -> u32
         requires true
-        ensures result < 32768
+        ensures result < 65536
     {
         self.g_begin()
         self.g_sb(a, l)
@@ -1184,7 +1184,7 @@ struct Ir {
     }
 
     func w_mangle(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         self.lb_lit("eat_")
@@ -1358,7 +1358,7 @@ struct Ir {
     }
 
     func e_gepg(var self, g: u32)
-        requires g < 32768
+        requires g < 65536
         ensures true
     {
         self.rpre()
@@ -1926,7 +1926,7 @@ struct Ir {
     }
 
     func e_ucall(var self, fi: u32, base: u32)
-        requires fi < 512 and base < 256
+        requires fi < 1024 and base < 256
         ensures true
     {
         let cnt: u32 = self.nag - base
@@ -2138,7 +2138,7 @@ struct Ir {
     # --- машина выражений -----------------------------------------------------
 
     func xpush2(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if self.nx3 >= 64 {
@@ -2158,7 +2158,7 @@ struct Ir {
     }
 
     func expr_run(var self, root: u32)
-        requires root < 32768
+        requires root < 65536
         ensures true
     {
         self.nx3 = 0
@@ -2206,7 +2206,7 @@ struct Ir {
     }
 
     func xleaf(var self, n: u32, k: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         if k == 32 {
@@ -2216,7 +2216,7 @@ struct Ir {
             self.ser(2, 0, self.c.p.nx[n])
             self.ert = 3
         } elif k == 34 {
-            self.ser(2, 0, u32(self.c.p.lex.sbuf[self.c.p.nss[n]]))
+            self.ser(2, 0, u32(self.c.p.lex.sb_at(self.c.p.nss[n])))
             self.ert = 4
         } elif k == 38 {
             let v: u32 = self.lookup_self2()
@@ -2229,7 +2229,7 @@ struct Ir {
     }
 
     func xname(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         let a: u32 = self.c.p.nss[n]
@@ -2266,7 +2266,7 @@ struct Ir {
     }
 
     func xstr(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp3[f]
@@ -2344,7 +2344,7 @@ struct Ir {
     }
 
     func xun(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         if self.xp3[f] == 0 {
@@ -2377,7 +2377,7 @@ struct Ir {
     }
 
     func xbin(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let op: u32 = self.c.p.nx[n]
@@ -2403,7 +2403,7 @@ struct Ir {
 
     # Короткое замыкание and/or (op: 1 or, 2 and).
     func xsc(var self, f: u32, n: u32, op: u32)
-        requires f < 64 and n < 32768 and op <= 2
+        requires f < 64 and n < 65536 and op <= 2
         ensures true
     {
         let ph: u32 = self.xp3[f]
@@ -2450,7 +2450,7 @@ struct Ir {
     }
 
     func xbfin(var self, f: u32, n: u32, op: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let lt: u32 = self.xd3[f]
@@ -2500,7 +2500,7 @@ struct Ir {
 
     # Арифметика с проверками; левый операнд в кадре, правый в er.
     func xarith(var self, f: u32, n: u32, op: u32)
-        requires f < 64 and n < 32768 and op >= 10 and op <= 14
+        requires f < 64 and n < 65536 and op >= 10 and op <= 14
         ensures true
     {
         let lt: u32 = self.xd3[f]
@@ -2534,7 +2534,7 @@ struct Ir {
     }
 
     func xdiv(var self, f: u32, n: u32, op: u32, lt: u32)
-        requires f < 64 and n < 32768 and lt < 512
+        requires f < 64 and n < 65536 and lt < 512
         ensures true
     {
         let rk: u32 = self.erk
@@ -2578,7 +2578,7 @@ struct Ir {
     # --- вызовы -----------------------------------------------------------
 
     func xcall(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         if self.xp3[f] == 0 {
@@ -2589,7 +2589,7 @@ struct Ir {
     }
 
     func xcall_start(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let a: u32 = self.c.p.nss[n]
@@ -2630,7 +2630,7 @@ struct Ir {
     }
 
     func xcall_len(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let at: u32 = self.c.nty[self.c.p.nfc[n]]
@@ -2646,7 +2646,7 @@ struct Ir {
     }
 
     func xcall_user(var self, f: u32, n: u32, a: u32, l: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let fi: u32 = self.c.find_func(a, l)
@@ -2670,7 +2670,7 @@ struct Ir {
     }
 
     func xcall_next(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let code: u32 = self.xa3[f]
@@ -2743,7 +2743,7 @@ struct Ir {
     }
 
     func xmeth(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp3[f]
@@ -2781,13 +2781,13 @@ struct Ir {
     }
 
     func xmeth_obj(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let st2: u32 = self.ert
         let si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
         var mfi: u32 = 4294967295
-        for i in 0..512 {
+        for i in 0..1024 {
             if i < self.c.nfun and mfi == 4294967295 {
                 if self.c.fown[i] == si {
                     if self.c.span_eq(self.c.fn_s[i], self.c.fn_l[i], self.c.p.nss[n], self.c.p.nsl[n]) {
@@ -2822,7 +2822,7 @@ struct Ir {
 
     # Конструктор варианта enum с нагрузкой: E.V(x).
     func xctor(var self, f: u32, n: u32, obj: u32)
-        requires f < 64 and n < 32768 and obj < 32768
+        requires f < 64 and n < 65536 and obj < 65536
         ensures true
     {
         let ei: u32 = self.c.find_enum(self.c.p.nss[obj], self.c.p.nsl[obj])
@@ -2865,7 +2865,7 @@ struct Ir {
     }
 
     func xmem(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let obj: u32 = self.c.p.nfc[n]
@@ -2899,7 +2899,7 @@ struct Ir {
 
     # Литерал варианта без нагрузки: E.V.
     func xmem_enum(var self, n: u32, obj: u32)
-        requires n < 32768 and obj < 32768
+        requires n < 65536 and obj < 65536
         ensures true
     {
         let ety: u32 = self.c.nty[n]
@@ -2949,7 +2949,7 @@ struct Ir {
     # Указатель на элемент с проверкой границ. База — (bk,ba,bb) типа bt,
     # индекс — er (уже i32). Результат — rr.
     func idx_gep(var self, n: u32, bk: u32, ba: u32, bb: u32, bt: u32)
-        requires n < 32768 and bt < 512
+        requires n < 65536 and bt < 512
         ensures true
     {
         let ik: u32 = self.erk
@@ -2993,7 +2993,7 @@ struct Ir {
     }
 
     func xidx(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp3[f]
@@ -3025,7 +3025,7 @@ struct Ir {
     }
 
     func xslit(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp3[f]
@@ -3064,7 +3064,7 @@ struct Ir {
     }
 
     func xalit(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let ph: u32 = self.xp3[f]
@@ -3102,7 +3102,7 @@ struct Ir {
     }
 
     func xafill(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         if self.xp3[f] == 0 {
@@ -3119,7 +3119,7 @@ struct Ir {
     }
 
     func xafill_fin(var self, f: u32, n: u32)
-        requires f < 64 and n < 32768
+        requires f < 64 and n < 65536
         ensures true
     {
         let t: u32 = self.c.nty[n]
@@ -3171,7 +3171,7 @@ struct Ir {
     # --- встроенные функции ---------------------------------------------------
 
     func xrbyte(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         let t: u32 = self.c.nty[n]
@@ -3225,7 +3225,7 @@ struct Ir {
     }
 
     func xrline(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         let t: u32 = self.c.nty[n]
@@ -3280,7 +3280,7 @@ struct Ir {
 
     # er — строка-аргумент parse_i32.
     func xpi(var self, n: u32)
-        requires n < 32768
+        requires n < 65536
         ensures true
     {
         let t: u32 = self.c.nty[n]
@@ -3368,7 +3368,7 @@ struct Ir {
 
     # er — значение-аргумент каста; code: 100 i32, 101 u32, 102 u8, 104 char.
     func xcast(var self, n: u32, code: u32)
-        requires n < 32768 and code >= 100
+        requires n < 65536 and code >= 100
         ensures true
     {
         let st2: u32 = self.ert
@@ -3413,7 +3413,7 @@ struct Ir {
     }
 
     func xcast_u8(var self, n: u32, st2: u32, sk2: u32)
-        requires n < 32768 and st2 < 512
+        requires n < 65536 and st2 < 512
         ensures true
     {
         if sk2 == 0 {
@@ -3445,7 +3445,7 @@ struct Ir {
 
     # Указатель на цель присваивания; результат — lvk/lva/lvb.
     func lvalue(var self, tgt: u32)
-        requires tgt < 32768
+        requires tgt < 65536
         ensures true
     {
         var path: [u32; 32] = [0; 32]
@@ -3482,7 +3482,7 @@ struct Ir {
 
     # Один шаг пути lvalue: поле или индекс. Возвращает тип уровня.
     func lv_step(var self, nd: u32, bt: u32) -> u32
-        requires nd < 32768 and bt < 512
+        requires nd < 65536 and bt < 512
         ensures result < 512
     {
         if self.c.p.nk[nd] == 43 {
@@ -3513,7 +3513,7 @@ struct Ir {
     # --- машина инструкций ------------------------------------------------------
 
     func spush(var self, k: u32, nd: u32, cur: u32)
-        requires k <= 4 and nd < 32768
+        requires k <= 4 and nd < 65536
         ensures true
     {
         if self.ns4 >= 64 {
@@ -3534,7 +3534,7 @@ struct Ir {
     }
 
     func start_blk(var self, body: u32)
-        requires body < 32768
+        requires body < 65536
         ensures true
     {
         self.push_sc()
@@ -3542,7 +3542,7 @@ struct Ir {
     }
 
     func st_run(var self, body: u32)
-        requires body < 32768
+        requires body < 65536
         ensures true
     {
         self.ns4 = 0
@@ -3596,7 +3596,7 @@ struct Ir {
     }
 
     func s_stmt(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let k: u32 = self.c.p.nk[cur]
@@ -3624,7 +3624,7 @@ struct Ir {
     }
 
     func s_let(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let t: u32 = self.c.nty[cur]
@@ -3639,7 +3639,7 @@ struct Ir {
     }
 
     func s_assign(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let tgt: u32 = self.c.p.nfc[cur]
@@ -3657,7 +3657,7 @@ struct Ir {
     }
 
     func s_assert(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         self.expr_run(self.c.p.nfc[cur])
@@ -3671,7 +3671,7 @@ struct Ir {
     }
 
     func s_ret(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let v: u32 = self.c.p.nfc[cur]
@@ -3688,7 +3688,7 @@ struct Ir {
     }
 
     func s_if_start(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let mrg: u32 = self.blk_new("if.end")
@@ -3754,7 +3754,7 @@ struct Ir {
     }
 
     func s_for_start(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let it: u32 = self.c.p.nfc[cur]
@@ -3796,7 +3796,7 @@ struct Ir {
 
     # Инициализация счётчика и предел (u1) / источник (u2, uty).
     func s_for_src(var self, cur: u32, it: u32, is2: u32, il2: u32)
-        requires cur < 32768 and it < 32768
+        requires cur < 65536 and it < 65536
         ensures true
     {
         if self.c.p.nk[it] == 49 {
@@ -3838,7 +3838,7 @@ struct Ir {
 
     # Слот переменной цикла; w1 — текущее значение счётчика (i32).
     func s_for_slot(var self, cur: u32, it: u32)
-        requires cur < 32768 and it < 32768
+        requires cur < 65536 and it < 65536
         ensures true
     {
         if self.c.span_is(self.c.p.nss[cur], self.c.p.nsl[cur], "_") {
@@ -3906,7 +3906,7 @@ struct Ir {
     }
 
     func s_loop_start(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let bodyb: u32 = self.blk_new("loop")
@@ -3937,7 +3937,7 @@ struct Ir {
     }
 
     func s_match_start(var self, cur: u32)
-        requires cur < 32768
+        requires cur < 65536
         ensures true
     {
         let subj: u32 = self.c.p.nfc[cur]
@@ -4005,7 +4005,7 @@ struct Ir {
 
     # Значение кейса варианта арма в домене dom.
     func arm_tag(var self, dom: u32, arm: u32) -> u32
-        requires dom < 512 and arm < 32768
+        requires dom < 512 and arm < 65536
         ensures true
     {
         let dk: u32 = self.c.yk[dom]
@@ -4033,7 +4033,7 @@ struct Ir {
 
     # Слот нагрузки варианта арма в домене dom.
     func arm_slot(var self, dom: u32, arm: u32) -> u32
-        requires dom < 512 and arm < 32768
+        requires dom < 512 and arm < 65536
         ensures true
     {
         let dk: u32 = self.c.yk[dom]
@@ -4051,7 +4051,7 @@ struct Ir {
     }
 
     func s_arm(var self, f: u32, arm: u32)
-        requires f < 64 and arm < 32768
+        requires f < 64 and arm < 65536
         ensures true
     {
         let dom: u32 = self.sd4[f]
@@ -4071,7 +4071,7 @@ struct Ir {
     }
 
     func s_arm_bind(var self, f: u32, arm: u32, dom: u32, payload: u32, bind: u32)
-        requires f < 64 and arm < 32768 and dom < 512 and payload < 512
+        requires f < 64 and arm < 65536 and dom < 512 and payload < 512
         ensures true
     {
         self.set1(self.sa4[f], self.sb4[f], self.sc4[f])
@@ -4114,7 +4114,7 @@ struct Ir {
 
     # k-й ребёнок вида kind у декларации d; NONE.
     func find_child(var self, d: u32, kind: u32) -> u32
-        requires d < 32768
+        requires d < 65536
         ensures true
     {
         var cc: u32 = self.c.p.nfc[d]
@@ -4131,7 +4131,7 @@ struct Ir {
     }
 
     func gen_fn(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         self.reset_fn()
@@ -4181,7 +4181,7 @@ struct Ir {
     }
 
     func gen_prologue(var self, fi: u32, own: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         self.push_sc()
@@ -4241,7 +4241,7 @@ struct Ir {
     }
 
     func gen_req(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         let d: u32 = self.c.fnd[fi]
@@ -4260,7 +4260,7 @@ struct Ir {
     }
 
     func gen_ens(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         let d: u32 = self.c.fnd[fi]
@@ -4344,7 +4344,7 @@ struct Ir {
     {
         for i in 0..256 {
             if i < l {
-                write("{char(self.c.p.lex.sbuf[a + i])}")
+                write("{char(self.c.p.lex.sb_at(a + i))}")
             }
         }
     }
@@ -4358,7 +4358,7 @@ struct Ir {
     }
 
     func o_mangle(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         write("eat_")
@@ -4371,7 +4371,7 @@ struct Ir {
     }
 
     func p_fn(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         self.p_sep()
@@ -4391,7 +4391,7 @@ struct Ir {
     }
 
     func p_args(var self, fi: u32)
-        requires fi < 512
+        requires fi < 1024
         ensures true
     {
         var i: u32 = 0
@@ -4532,7 +4532,7 @@ struct Ir {
     }
 
     func p_glob(var self, g: u32)
-        requires g < 32768
+        requires g < 65536
         ensures true
     {
         let l: u32 = self.gsl[g]
@@ -4605,7 +4605,7 @@ struct Ir {
         requires true
         ensures true
     {
-        for i in 0..32768 {
+        for i in 0..65536 {
             if i < self.ntl {
                 self.p_sep()
                 if self.tlk[i] == 0 {
@@ -4680,7 +4680,7 @@ struct Ir {
         }
         self.p_head()
         var d: u32 = self.c.p.nfc[0]
-        for _ in 0..32768 {
+        for _ in 0..65536 {
             if d != 4294967295 and not self.failed {
                 let k: u32 = self.c.p.nk[d]
                 if k == 6 {

@@ -11,8 +11,10 @@
 # Колонки считаются в символах, как у эталона: continuation-байты
 # UTF-8 (0x80..0xBF) колонку не двигают.
 #
-# Пределы пулов: 65536 токенов, 65536 байт значений, 2048 сегментов
-# интерполяции. NONE = 4294967295.
+# Пределы пулов: 131072 токена, 131072 байта значений, 2048 сегментов
+# интерполяции. NONE = 4294967295. Пулы больше 65536 элементов (предел
+# массива) выражены вложенными массивами: элемент i — p[i / 65536][i % 65536],
+# доступ снаружи — через методы tok_*/sb_*.
 
 func is_digit(b: u8) -> bool
     requires true
@@ -98,17 +100,17 @@ struct Lexer {
     depth: u32
     failed: bool
     ch: u8
-    # пул токенов
-    tk: [u32; 65536]
-    tl: [u32; 65536]
-    tc: [u32; 65536]
-    tvs: [u32; 65536]
-    tvl: [u32; 65536]
-    tsg: [u32; 65536]
-    tns: [u32; 65536]
+    # пул токенов (131072 = 2 x 65536: вложенные массивы)
+    tk: [[u32; 65536]; 2]
+    tl: [[u32; 65536]; 2]
+    tc: [[u32; 65536]; 2]
+    tvs: [[u32; 65536]; 2]
+    tvl: [[u32; 65536]; 2]
+    tsg: [[u32; 65536]; 2]
+    tns: [[u32; 65536]; 2]
     ntok: u32
-    # пул байтов значений
-    sbuf: [u8; 65536]
+    # пул байтов значений (131072 = 2 x 65536)
+    sbuf: [[u8; 65536]; 2]
     sblen: u32
     # сегменты интерполяции: 0 — литерал (старт/длина в sbuf),
     # 1 — выражение (первый токен/число токенов)
@@ -117,23 +119,90 @@ struct Lexer {
     sgb: [u32; 2048]
     nseg: u32
 
+    # --- доступ к вложенным пулам ----------------------------------------
+
+    func tok_k(var self, ti: u32) -> u32
+        requires ti < 131072
+        ensures true
+    {
+        return self.tk[ti / 65536][ti % 65536]
+    }
+
+    func tok_l(var self, ti: u32) -> u32
+        requires ti < 131072
+        ensures true
+    {
+        return self.tl[ti / 65536][ti % 65536]
+    }
+
+    func tok_c(var self, ti: u32) -> u32
+        requires ti < 131072
+        ensures true
+    {
+        return self.tc[ti / 65536][ti % 65536]
+    }
+
+    func tok_vs(var self, ti: u32) -> u32
+        requires ti < 131072
+        ensures true
+    {
+        return self.tvs[ti / 65536][ti % 65536]
+    }
+
+    func tok_vl(var self, ti: u32) -> u32
+        requires ti < 131072
+        ensures true
+    {
+        return self.tvl[ti / 65536][ti % 65536]
+    }
+
+    func tok_sg(var self, ti: u32) -> u32
+        requires ti < 131072
+        ensures true
+    {
+        return self.tsg[ti / 65536][ti % 65536]
+    }
+
+    func tok_ns(var self, ti: u32) -> u32
+        requires ti < 131072
+        ensures true
+    {
+        return self.tns[ti / 65536][ti % 65536]
+    }
+
+    func sb_at(var self, i: u32) -> u8
+        requires i < 131072
+        ensures true
+    {
+        return self.sbuf[i / 65536][i % 65536]
+    }
+
+    func sb_set(var self, i: u32, b: u8)
+        requires i < 131072
+        ensures true
+    {
+        self.sbuf[i / 65536][i % 65536] = b
+    }
+
     # --- запись токенов в пул -------------------------------------------
 
     func emit_plain(var self, k: u32)
         requires k <= 55
         ensures true
     {
-        if self.ntok >= 65536 {
-            self.fail("слишком много токенов (предел 65536)")
+        if self.ntok >= 131072 {
+            self.fail("слишком много токенов (предел 131072)")
             return
         }
-        self.tk[self.ntok] = k
-        self.tl[self.ntok] = self.tline
-        self.tc[self.ntok] = self.tcol
-        self.tvs[self.ntok] = 0
-        self.tvl[self.ntok] = 0
-        self.tsg[self.ntok] = 4294967295
-        self.tns[self.ntok] = 0
+        let hi: u32 = self.ntok / 65536
+        let lo: u32 = self.ntok % 65536
+        self.tk[hi][lo] = k
+        self.tl[hi][lo] = self.tline
+        self.tc[hi][lo] = self.tcol
+        self.tvs[hi][lo] = 0
+        self.tvl[hi][lo] = 0
+        self.tsg[hi][lo] = 4294967295
+        self.tns[hi][lo] = 0
         self.ntok = self.ntok + 1
     }
 
@@ -142,21 +211,22 @@ struct Lexer {
         requires k <= 55
         ensures true
     {
-        if self.sblen >= 65280 {
+        if self.sblen >= 130816 {
             self.fail("пул значений токенов переполнен")
             return
         }
         let start: u32 = self.sblen
         for i in 0..256 {
             if i < self.vlen {
-                self.sbuf[start + i] = self.val[i]
+                self.sb_set(start + i, self.val[i])
             }
         }
         self.sblen = start + self.vlen
         self.emit_plain(k)
         if not self.failed {
-            self.tvs[self.ntok - 1] = start
-            self.tvl[self.ntok - 1] = self.vlen
+            let ti: u32 = self.ntok - 1
+            self.tvs[ti / 65536][ti % 65536] = start
+            self.tvl[ti / 65536][ti % 65536] = self.vlen
         }
     }
 
@@ -171,7 +241,7 @@ struct Lexer {
         if self.ntok == 0 {
             return
         }
-        if self.tk[self.ntok - 1] == 54 {
+        if self.tok_k(self.ntok - 1) == 54 {
             return
         }
         self.tline = self.line
@@ -569,9 +639,9 @@ struct Lexer {
         requires true
         ensures true
     {
-        for ti in 0..65536 {
+        for ti in 0..131072 {
             if ti < self.ntok and not self.failed {
-                if self.tk[ti] == 1 {
+                if self.tok_k(ti) == 1 {
                     if self.has_brace(ti) {
                         self.split_string(ti)
                     }
@@ -581,15 +651,15 @@ struct Lexer {
     }
 
     func has_brace(var self, ti: u32) -> bool
-        requires ti < 65536
+        requires ti < 131072
         ensures true
     {
-        let vs: u32 = self.tvs[ti]
-        let vl: u32 = self.tvl[ti]
+        let vs: u32 = self.tok_vs(ti)
+        let vl: u32 = self.tok_vl(ti)
         var found: bool = false
         for i in 0..256 {
             if i < vl {
-                let b: u8 = self.sbuf[vs + i]
+                let b: u8 = self.sb_at(vs + i)
                 if b == 123 or b == 125 {
                     found = true
                 }
@@ -603,11 +673,11 @@ struct Lexer {
         requires true
         ensures true
     {
-        if self.sblen >= 65536 {
+        if self.sblen >= 131072 {
             self.fail("пул значений токенов переполнен")
             return
         }
-        self.sbuf[self.sblen] = b
+        self.sb_set(self.sblen, b)
         self.sblen = self.sblen + 1
     }
 
@@ -641,7 +711,7 @@ struct Lexer {
         let first: u32 = self.ntok
         for i in 0..256 {
             if i < n and not self.failed {
-                self.step(self.sbuf[a + i])
+                self.step(self.sb_at(a + i))
             }
         }
         # финал под-потока: как у эталона — NEWLINE (если последний
@@ -657,21 +727,21 @@ struct Lexer {
 
     # Разбить значение STRING-токена ti на сегменты.
     func split_string(var self, ti: u32)
-        requires ti < 65536
+        requires ti < 131072
         ensures true
     {
-        let vs: u32 = self.tvs[ti]
-        let vl: u32 = self.tvl[ti]
-        let tln: u32 = self.tl[ti]
-        let tcl: u32 = self.tc[ti]
+        let vs: u32 = self.tok_vs(ti)
+        let vl: u32 = self.tok_vl(ti)
+        let tln: u32 = self.tok_l(ti)
+        let tcl: u32 = self.tok_c(ti)
         let seg_first: u32 = self.nseg
         var lit_start: u32 = self.sblen
         var i: u32 = 0
         for _ in 0..256 {
             if i < vl and not self.failed {
-                let b: u8 = self.sbuf[vs + i]
+                let b: u8 = self.sb_at(vs + i)
                 if b == 123 { # {
-                    if i + 1 < vl and self.sbuf[vs + i + 1] == 123 {
+                    if i + 1 < vl and self.sb_at(vs + i + 1) == 123 {
                         self.push_seg_byte(123)
                         i = i + 2
                     } else {
@@ -692,7 +762,7 @@ struct Lexer {
                         }
                     }
                 } elif b == 125 { # }
-                    if i + 1 < vl and self.sbuf[vs + i + 1] == 125 {
+                    if i + 1 < vl and self.sb_at(vs + i + 1) == 125 {
                         self.push_seg_byte(125)
                         i = i + 2
                     } else {
@@ -707,8 +777,8 @@ struct Lexer {
         if self.sblen > lit_start {
             self.add_segment(0, lit_start, self.sblen - lit_start)
         }
-        self.tsg[ti] = seg_first
-        self.tns[ti] = self.nseg - seg_first
+        self.tsg[ti / 65536][ti % 65536] = seg_first
+        self.tns[ti / 65536][ti % 65536] = self.nseg - seg_first
     }
 
     # Индекс закрывающей '}' от позиции from; NONE если нет.
@@ -719,7 +789,7 @@ struct Lexer {
         var found: u32 = 4294967295
         for k in 0..256 {
             if from + k < vl and found == 4294967295 {
-                if self.sbuf[vs + from + k] == 125 {
+                if self.sb_at(vs + from + k) == 125 {
                     found = from + k
                 }
             }
@@ -734,7 +804,7 @@ struct Lexer {
         var ws: bool = true
         for k in 0..256 {
             if k < n {
-                if not is_ws(self.sbuf[a + k]) {
+                if not is_ws(self.sb_at(a + k)) {
                     ws = false
                 }
             }
@@ -748,17 +818,17 @@ struct Lexer {
         requires true
         ensures true
     {
-        for ti in 0..65536 {
+        for ti in 0..131072 {
             if ti < self.ntok {
-                let k: u32 = self.tk[ti]
-                write("{self.tl[ti]}:{self.tc[ti]} ")
+                let k: u32 = self.tok_k(ti)
+                write("{self.tok_l(ti)}:{self.tok_c(ti)} ")
                 write_kind(k)
                 if is_valued(k) {
                     write(" ")
-                    let vs: u32 = self.tvs[ti]
+                    let vs: u32 = self.tok_vs(ti)
                     for i in 0..256 {
-                        if i < self.tvl[ti] {
-                            write_esc(self.sbuf[vs + i])
+                        if i < self.tok_vl(ti) {
+                            write_esc(self.sb_at(vs + i))
                         }
                     }
                 }
