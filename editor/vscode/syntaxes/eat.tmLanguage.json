@@ -1,0 +1,252 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "EATLang",
+    "scopeName": "source.eat",
+    "patterns": [
+        { "include": "#comment" },
+        { "include": "#contract" },
+        { "include": "#func-decl" },
+        { "include": "#type-decl" },
+        { "include": "#test-decl" },
+        { "include": "#string" },
+        { "include": "#char" },
+        { "include": "#number" },
+        { "include": "#keywords" },
+        { "include": "#types" },
+        { "include": "#function-call" },
+        { "include": "#const-ident" },
+        { "include": "#pascal-ident" },
+        { "include": "#wildcard" },
+        { "include": "#variable" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+    ],
+    "repository": {
+        "comment": {
+            "name": "comment.line.number-sign.eat",
+            "match": "#.*$"
+        },
+        "contract": {
+            "name": "meta.contract.eat",
+            "begin": "\\b(requires|ensures)\\b",
+            "end": "(?=#)|$",
+            "beginCaptures": {
+                "1": { "name": "keyword.control.contract.eat" }
+            },
+            "patterns": [
+                {
+                    "name": "variable.language.result.eat",
+                    "match": "\\bresult\\b"
+                },
+                { "include": "#string" },
+                { "include": "#char" },
+                { "include": "#number" },
+                { "include": "#keywords" },
+                { "include": "#types" },
+                { "include": "#function-call" },
+                { "include": "#const-ident" },
+                { "include": "#pascal-ident" },
+                { "include": "#wildcard" },
+                { "include": "#variable" },
+                { "include": "#operators" },
+                { "include": "#punctuation" }
+            ]
+        },
+        "func-decl": {
+            "match": "\\b(func)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "captures": {
+                "1": { "name": "storage.type.function.eat" },
+                "2": { "name": "entity.name.function.eat" }
+            }
+        },
+        "type-decl": {
+            "match": "\\b(struct|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "captures": {
+                "1": { "name": "storage.type.eat" },
+                "2": { "name": "entity.name.type.eat" }
+            }
+        },
+        "test-decl": {
+            "match": "\\b(test)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "captures": {
+                "1": { "name": "storage.type.test.eat" },
+                "2": { "name": "entity.name.function.test.eat" }
+            }
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.contract.eat",
+                    "match": "\\b(requires|ensures|assert)\\b"
+                },
+                {
+                    "name": "keyword.control.eat",
+                    "match": "\\b(if|elif|else|for|in|loop|match|return|break|discard)\\b"
+                },
+                {
+                    "name": "storage.type.eat",
+                    "match": "\\b(let|var|const|func|struct|enum|test)\\b"
+                },
+                {
+                    "name": "keyword.operator.logical.eat",
+                    "match": "\\b(and|or|not)\\b"
+                },
+                {
+                    "name": "constant.language.boolean.eat",
+                    "match": "\\b(true|false)\\b"
+                },
+                {
+                    "name": "variable.language.self.eat",
+                    "match": "\\bself\\b"
+                }
+            ]
+        },
+        "types": {
+            "patterns": [
+                {
+                    "name": "support.type.primitive.eat",
+                    "match": "\\b(i32|u32|u8|bool|char|str)\\b"
+                },
+                {
+                    "name": "support.type.builtin.eat",
+                    "match": "\\b(Result|Option)\\b"
+                }
+            ]
+        },
+        "function-call": {
+            "patterns": [
+                {
+                    "name": "support.function.builtin.eat",
+                    "match": "\\b(print|write|read_line|read_byte|write_byte|parse_i32|len)\\b(?=\\s*\\()"
+                },
+                {
+                    "name": "entity.name.function.call.eat",
+                    "match": "\\b[a-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
+                }
+            ]
+        },
+        "const-ident": {
+            "name": "constant.other.caps.eat",
+            "match": "\\b[A-Z][A-Z0-9_]+\\b(?![a-z])"
+        },
+        "pascal-ident": {
+            "name": "entity.name.type.eat",
+            "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        "wildcard": {
+            "name": "variable.language.wildcard.eat",
+            "match": "\\b_\\b"
+        },
+        "variable": {
+            "name": "variable.parameter.eat",
+            "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+        },
+        "number": {
+            "name": "constant.numeric.integer.eat",
+            "match": "\\b[0-9]+\\b"
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "name": "keyword.operator.arrow.eat",
+                    "match": "->"
+                },
+                {
+                    "name": "keyword.operator.range.eat",
+                    "match": "\\.\\."
+                },
+                {
+                    "name": "keyword.operator.comparison.eat",
+                    "match": "==|!=|<=|>=|<|>"
+                },
+                {
+                    "name": "keyword.operator.assignment.eat",
+                    "match": "="
+                },
+                {
+                    "name": "keyword.operator.arithmetic.eat",
+                    "match": "[+\\-*/%]"
+                }
+            ]
+        },
+        "punctuation": {
+            "patterns": [
+                {
+                    "name": "punctuation.separator.eat",
+                    "match": "[,:]"
+                },
+                {
+                    "name": "punctuation.accessor.eat",
+                    "match": "\\."
+                }
+            ]
+        },
+        "string": {
+            "name": "string.quoted.double.eat",
+            "begin": "\"",
+            "end": "\"",
+            "beginCaptures": {
+                "0": { "name": "punctuation.definition.string.begin.eat" }
+            },
+            "endCaptures": {
+                "0": { "name": "punctuation.definition.string.end.eat" }
+            },
+            "patterns": [
+                {
+                    "name": "constant.character.escape.eat",
+                    "match": "\\\\[nt\\\\\"'0]"
+                },
+                {
+                    "name": "invalid.illegal.escape.eat",
+                    "match": "\\\\."
+                },
+                {
+                    "name": "constant.character.escape.brace.eat",
+                    "match": "\\{\\{|\\}\\}"
+                },
+                {
+                    "name": "meta.interpolation.eat",
+                    "begin": "\\{",
+                    "end": "\\}",
+                    "beginCaptures": {
+                        "0": { "name": "punctuation.section.interpolation.begin.eat" }
+                    },
+                    "endCaptures": {
+                        "0": { "name": "punctuation.section.interpolation.end.eat" }
+                    },
+                    "patterns": [
+                        { "include": "#char" },
+                        { "include": "#number" },
+                        { "include": "#keywords" },
+                        { "include": "#types" },
+                        { "include": "#function-call" },
+                        { "include": "#const-ident" },
+                        { "include": "#pascal-ident" },
+                        { "include": "#variable" },
+                        { "include": "#operators" },
+                        { "include": "#punctuation" }
+                    ]
+                }
+            ]
+        },
+        "char": {
+            "patterns": [
+                {
+                    "name": "string.quoted.single.char.eat",
+                    "match": "'(\\\\[nt\\\\\"'0])'",
+                    "captures": {
+                        "1": { "name": "constant.character.escape.eat" }
+                    }
+                },
+                {
+                    "name": "string.quoted.single.char.eat",
+                    "match": "'[^\\\\']'"
+                },
+                {
+                    "name": "invalid.illegal.char.eat",
+                    "match": "'(\\\\.|[^'])*'"
+                }
+            ]
+        }
+    }
+}

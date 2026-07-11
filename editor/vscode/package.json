@@ -1,0 +1,40 @@
+{
+    "name": "eatlang",
+    "displayName": "EATLang",
+    "description": "Syntax highlighting for the EAT language (EATLang)",
+    "version": "0.0.1",
+    "publisher": "eatlang",
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "eat",
+                "aliases": [
+                    "EATLang",
+                    "EAT"
+                ],
+                "extensions": [
+                    ".eat"
+                ],
+                "configuration": "./language-configuration.json",
+                "icon": {
+                    "light": "./icons/eat.svg",
+                    "dark": "./icons/eat.svg"
+                }
+            }
+        ],
+        "grammars": [
+            {
+                "language": "eat",
+                "scopeName": "source.eat",
+                "path": "./syntaxes/eat.tmLanguage.json"
+            }
+        ]
+    }
+}

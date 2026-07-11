@@ -1,0 +1,8 @@
+# GitHub Linguist: своего языка EATLang в linguist пока нет, поэтому .eat
+# маппится на Rust — ближайший по синтаксису (struct/enum/match/let/->).
+# Даёт подсветку файлов и отдельную строку в статистике языков репозитория.
+*.eat linguist-language=Rust
+
+# Linguist по умолчанию считает examples/ документацией и исключает из
+# статистики — возвращаем: примеры на EATLang должны учитываться.
+examples/** linguist-documentation=false
