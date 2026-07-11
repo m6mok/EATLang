@@ -65,7 +65,7 @@ def cmd_build(path: str, out: str | None) -> int:
     try:
         program, _, typed = _compile(path)
         tests = Interpreter(program, path).run_tests()
-        binary = compile_binary(program, typed.checker, path, out)
+        binary, report = compile_binary(program, typed.checker, path, out)
     except EatError as err:
         print(err, file=sys.stderr)
         return 1
@@ -73,6 +73,12 @@ def cmd_build(path: str, out: str | None) -> int:
         f"OK {binary} — stack depth: {typed.stack_depth}, "
         f"tests passed: {len(tests)}"
     )
+    print(
+        f"  память (§8): стек худшей цепочки ≤ {report['stack_bytes']} Б, "
+        f"статические данные {report['globals_bytes']} Б"
+    )
+    for key, size in sorted(report["frames"].items(), key=lambda kv: -kv[1]):
+        print(f"    кадр {key}: {size} Б")
     return 0
 
 

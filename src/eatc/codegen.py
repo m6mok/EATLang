@@ -75,6 +75,8 @@ class Codegen:
             for name, ftype in _RUNTIME.items()
         }
         self.cstr_cache: dict[bytes, ir.GlobalVariable] = {}
+        self.frame_types: dict[str, list] = {}  # кадры для отчёта §8
+        self.cur_key = ""
         self.struct_ll: dict[str, ir.Type] = {}
         self.field_index: dict[str, dict] = {}
         self.funcs: dict[str, ir.Function] = {}
@@ -162,9 +164,15 @@ class Codegen:
         else:
             self.b.store(src, dst_ptr)
 
+    def alloca(self, llty: ir.Type, name: str = ""):
+        """Единственная точка аллокации: учитывает кадр функции
+        для отчёта о памяти (SPEC.md §8)."""
+        self.frame_types.setdefault(self.cur_key, []).append(llty)
+        return self.b.alloca(llty, name=name)
+
     def materialize(self, ty: Type, src):
         """Копия значения в свежем alloca; возвращает указатель."""
-        slot = self.b.alloca(self.ll(ty))
+        slot = self.alloca(self.ll(ty))
         self.copy_into(ty, slot, src)
         return slot
 
@@ -221,6 +229,7 @@ class Codegen:
     def gen_func(self, func: ast.FuncDecl, key, sig, struct) -> None:
         fn = self.funcs[key]
         self.fn = fn
+        self.cur_key = key
         self.b = ir.IRBuilder(fn.append_basic_block("entry"))
         self.env = [{}]
         self.loop_exits = []
@@ -232,7 +241,7 @@ class Codegen:
             self.ret_slot = fn.args[arg_i]
             arg_i += 1
         elif sig.ret is not None:
-            self.ret_slot = self.b.alloca(self.ll(sig.ret), name="ret")
+            self.ret_slot = self.alloca(self.ll(sig.ret), name="ret")
         else:
             self.ret_slot = None
         if struct is not None:
@@ -247,7 +256,7 @@ class Codegen:
             if _is_agg(pty):
                 self.bind(pname, pty, self.materialize(pty, arg))
             else:
-                slot = self.b.alloca(self.ll(pty), name=pname)
+                slot = self.alloca(self.ll(pty), name=pname)
                 self.b.store(arg, slot)
                 self.bind(pname, pty, slot)
 
@@ -362,7 +371,7 @@ class Codegen:
         self.b.position_at_end(merge)
 
     def gen_for(self, stmt: ast.ForStmt) -> None:
-        idx = self.b.alloca(I32L, name="for.i")
+        idx = self.alloca(I32L, name="for.i")
         if stmt.bounds is not None:
             start, end = stmt.bounds
             self.b.store(I32L(start), idx)
@@ -390,7 +399,7 @@ class Codegen:
         self.b.position_at_end(body_bb)
         self.push()
         if stmt.target != "_":
-            slot = self.b.alloca(
+            slot = self.alloca(
                 elem_ll if elem_ll is not None else I32L, name=stmt.target
             )
             if stmt.bounds is not None:
@@ -548,7 +557,7 @@ class Codegen:
         return self.ll(cty)(cval)
 
     def gen_strlit(self, node: ast.StrLit):
-        out = self.b.alloca(STR_LL, name="str")
+        out = self.alloca(STR_LL, name="str")
         self.b.call(self.rt["eat_str_init"], [out])
         for seg in node.segments:
             if isinstance(seg, str):
@@ -688,7 +697,7 @@ class Codegen:
         agg_ret = sig.ret is not None and _is_agg(sig.ret)
         out = None
         if agg_ret:
-            out = self.b.alloca(self.ll(sig.ret), name="call.ret")
+            out = self.alloca(self.ll(sig.ret), name="call.ret")
             args.insert(0, out)
         for arg in node.args:
             args.append(self.expr(arg))
@@ -698,11 +707,11 @@ class Codegen:
         return out if agg_ret else result
 
     def gen_read_line(self, node: ast.Call):
-        tmp = self.b.alloca(STR_LL, name="line")
+        tmp = self.alloca(STR_LL, name="line")
         self.b.call(self.rt["eat_str_init"], [tmp])
         status = self.b.call(self.rt["eat_read_line"], [tmp])
         res_ll = self.ll(node.ty)
-        res = self.b.alloca(res_ll, name="read.res")
+        res = self.alloca(res_ll, name="read.res")
         tag = self.b.select(
             self.b.icmp_signed("==", status, I32L(0)), I32L(0), I32L(1)
         )
@@ -719,10 +728,10 @@ class Codegen:
 
     def gen_parse_i32(self, node: ast.Call):
         s = self.expr(node.args[0])
-        out = self.b.alloca(I32L, name="parse.out")
+        out = self.alloca(I32L, name="parse.out")
         self.b.store(I32L(0), out)
         status = self.b.call(self.rt["eat_parse_i32"], [s, out])
-        res = self.b.alloca(self.ll(node.ty), name="parse.res")
+        res = self.alloca(self.ll(node.ty), name="parse.res")
         ok = self.b.icmp_signed("==", status, I32L(0))
         tag = self.b.select(ok, I32L(0), I32L(1))
         self.b.store(tag, self.b.gep(res, [I32L(0), I32L(0)], inbounds=True))
@@ -786,7 +795,7 @@ class Codegen:
         return ptr if _is_agg(node.ty) else self.b.load(ptr)
 
     def gen_struct_lit(self, node: ast.StructLit):
-        out = self.b.alloca(self.struct_ll[node.name], name=node.name)
+        out = self.alloca(self.struct_ll[node.name], name=node.name)
         fields = self.checker.structs[node.name].fields
         for fname, fexpr in node.fields:
             fidx = self.field_index[node.name][fname]
@@ -796,18 +805,51 @@ class Codegen:
 
     def gen_array_lit(self, node: ast.ArrayLit):
         aty = node.ty
-        out = self.b.alloca(self.ll(aty), name="arr")
+        out = self.alloca(self.ll(aty), name="arr")
         for i, elem in enumerate(node.elems):
             ptr = self.b.gep(out, [I32L(0), I32L(i)], inbounds=True)
             self.copy_into(aty.elem, ptr, self.expr(elem))
         return out
 
 
+def _memory_report(cg: Codegen, checker, machine) -> dict:
+    """Отчёт §8: кадры функций из фактических alloca (ABI-размеры LLVM)
+    и худшая цепочка вызовов по DAG. Верхняя граница: mem2reg на деле
+    поднимет часть локалов в регистры."""
+    td = machine.target_data
+    frames = {
+        key: sum(t.get_abi_size(td) for t in types)
+        for key, types in cg.frame_types.items()
+    }
+    graph: dict[str, set] = {}
+    for caller, callee in checker.edges:
+        if caller.startswith("test:") or callee not in frames:
+            continue
+        graph.setdefault(caller, set()).add(callee)
+
+    memo: dict[str, int] = {}
+
+    def worst(key: str) -> int:
+        if key not in memo:
+            memo[key] = frames.get(key, 0) + max(
+                (worst(c) for c in graph.get(key, ())), default=0
+            )
+        return memo[key]
+
+    globals_bytes = sum(len(data) for data in cg.cstr_cache)
+    return {
+        "frames": frames,
+        "stack_bytes": worst("main"),
+        "globals_bytes": globals_bytes,
+    }
+
+
 def compile_binary(
     program: ast.Program, checker, filename: str, out_path: str
-) -> str:
-    """AST → LLVM IR → объектный файл → clang → бинарник."""
-    module = Codegen(program, checker, filename).generate()
+) -> tuple[str, dict]:
+    """AST → LLVM IR → объектный файл → clang → бинарник + отчёт §8."""
+    cg = Codegen(program, checker, filename)
+    module = cg.generate()
     try:
         llvm.initialize_native_target()
         llvm.initialize_native_asmprinter()
@@ -816,6 +858,7 @@ def compile_binary(
     ref = llvm.parse_assembly(str(module))
     ref.verify()
     machine = llvm.Target.from_default_triple().create_target_machine()
+    report = _memory_report(cg, checker, machine)
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     ll_path = out.with_suffix(".ll")
@@ -831,4 +874,4 @@ def compile_binary(
     if proc.returncode != 0:
         raise EatError(filename, 1, 1, f"clang: {proc.stderr.strip()}")
     obj_path.unlink()
-    return str(out)
+    return str(out), report
