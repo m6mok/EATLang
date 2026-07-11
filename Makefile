@@ -40,6 +40,8 @@ verify_suite:
 SELFHOST_LEXER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/LexMain.eat
 SELFHOST_PARSER = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/ParseMain.eat
+SELFHOST_SIG = selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
+	selfhost/Parser.eat selfhost/Check.eat selfhost/SigMain.eat
 
 run_selfhost_lexer:
 	cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER)
@@ -47,9 +49,13 @@ run_selfhost_lexer:
 run_selfhost_parser:
 	cat $(SELFHOST_PARSER) | $(EATC) run $(SELFHOST_PARSER)
 
+run_selfhost_sig:
+	cat $(SELFHOST_SIG) | $(EATC) run $(SELFHOST_SIG)
+
 verify_selfhost:
 	@$(EATC) build $(SELFHOST_LEXER) -o build/SelfLex > /dev/null
 	@$(EATC) build $(SELFHOST_PARSER) -o build/SelfParse > /dev/null
+	@$(EATC) build $(SELFHOST_SIG) -o build/SelfSig > /dev/null
 	@for f in $$(find examples selfhost tests -name '*.eat' | sort); do \
 		$(EATC) lex $$f > /tmp/eat_lex_ref.txt; \
 		./build/SelfLex < $$f > /tmp/eat_lex_self.txt; \
@@ -62,7 +68,18 @@ verify_selfhost:
 				&& echo "PARSE OK $$f" \
 				|| { echo "PARSE DIFF $$f"; exit 1; }; \
 		fi; \
+		if $(EATC) sig $$f > /tmp/eat_sig_ref.txt 2>/dev/null; then \
+			./build/SelfSig < $$f > /tmp/eat_sig_self.txt; \
+			diff /tmp/eat_sig_ref.txt /tmp/eat_sig_self.txt > /dev/null \
+				&& echo "SIG OK $$f" \
+				|| { echo "SIG DIFF $$f"; exit 1; }; \
+		fi; \
 	done
+	@cat $(SELFHOST_SIG) > /tmp/eat_sig_all.eat
+	@$(EATC) sig /tmp/eat_sig_all.eat > /tmp/eat_sig_ref.txt
+	@./build/SelfSig < /tmp/eat_sig_all.eat > /tmp/eat_sig_self.txt
+	@diff /tmp/eat_sig_ref.txt /tmp/eat_sig_self.txt > /dev/null \
+		&& echo "SIG OK (конкатенация собственных исходников)" || exit 1
 	@cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER) > /tmp/eat_lex_interp.txt
 	@cat $(SELFHOST_LEXER) | ./build/SelfLex > /tmp/eat_lex_native.txt
 	@diff /tmp/eat_lex_interp.txt /tmp/eat_lex_native.txt \
@@ -71,6 +88,10 @@ verify_selfhost:
 	@cat $(SELFHOST_PARSER) | ./build/SelfParse > /tmp/eat_parse_native.txt
 	@diff /tmp/eat_parse_interp.txt /tmp/eat_parse_native.txt \
 		&& echo "VERIFIED SelfParse (interp == native == эталон)" || exit 1
+	@cat $(SELFHOST_SIG) | $(EATC) run $(SELFHOST_SIG) > /tmp/eat_sig_interp.txt
+	@cat $(SELFHOST_SIG) | ./build/SelfSig > /tmp/eat_sig_native.txt
+	@diff /tmp/eat_sig_interp.txt /tmp/eat_sig_native.txt \
+		&& echo "VERIFIED SelfSig (interp == native == эталон)" || exit 1
 
 run_hello_world:
 	$(EATC) run examples/hello_world/HelloWorld.eat

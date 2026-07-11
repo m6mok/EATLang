@@ -25,16 +25,16 @@ struct Parser {
     failed: bool
     done: bool
     # пул узлов AST
-    nk: [u32; 16384]
-    nl: [u32; 16384]
-    nc: [u32; 16384]
-    nss: [u32; 16384]
-    nsl: [u32; 16384]
-    nx: [u32; 16384]
-    ny: [u32; 16384]
-    nfc: [u32; 16384]
-    nlc: [u32; 16384]
-    nns: [u32; 16384]
+    nk: [u32; 32768]
+    nl: [u32; 32768]
+    nc: [u32; 32768]
+    nss: [u32; 32768]
+    nsl: [u32; 32768]
+    nx: [u32; 32768]
+    ny: [u32; 32768]
+    nfc: [u32; 32768]
+    nlc: [u32; 32768]
+    nns: [u32; 32768]
     nnode: u32
     # стек кадров
     fk: [u32; 64]
@@ -178,10 +178,10 @@ struct Parser {
 
     func alloc(var self, k: u32, ln: u32, cl: u32) -> u32
         requires k <= 49
-        ensures result < 16384
+        ensures result < 32768
     {
-        if self.nnode >= 16384 {
-            self.fail("слишком много узлов AST (предел 16384)")
+        if self.nnode >= 32768 {
+            self.fail("слишком много узлов AST (предел 32768)")
             return 0
         }
         let n: u32 = self.nnode
@@ -201,7 +201,7 @@ struct Parser {
 
     # Строковый payload узла — значение токена ti.
     func set_str(var self, n: u32, ti: u32)
-        requires n < 16384 and ti < 32768
+        requires n < 32768 and ti < 32768
         ensures true
     {
         self.nss[n] = self.lex.tvs[ti]
@@ -209,7 +209,7 @@ struct Parser {
     }
 
     func append_child(var self, p: u32, c: u32)
-        requires p < 16384 and c < 16384
+        requires p < 32768 and c < 32768
         ensures true
     {
         if self.nfc[p] == 4294967295 {
@@ -223,7 +223,7 @@ struct Parser {
     # Поле struct-декларации: после последнего поля, до методов
     # (эталон печатает поля, затем методы). nx[struct] — последнее поле.
     func insert_field(var self, s: u32, f: u32)
-        requires s < 16384 and f < 16384
+        requires s < 32768 and f < 32768
         ensures true
     {
         let last: u32 = self.nx[s]
@@ -1317,7 +1317,7 @@ struct Parser {
     }
 
     func push_opnd(var self, n: u32)
-        requires n < 16384
+        requires n < 32768
         ensures true
     {
         if self.nos >= 64 {
@@ -1330,7 +1330,7 @@ struct Parser {
 
     func pop_opnd(var self) -> u32
         requires true
-        ensures result < 16384
+        ensures result < 32768
     {
         if self.nos == 0 {
             self.fail("внутренняя ошибка: пустой стек операндов")
@@ -1682,7 +1682,7 @@ struct Parser {
     # Прикрепить литеральные сегменты от si; вернуть индекс следующего
     # сегмента-выражения (NONE, если сегменты кончились).
     func seg_scan(var self, node: u32, si: u32, send: u32) -> u32
-        requires node < 16384
+        requires node < 32768
         ensures true
     {
         var nxt: u32 = 4294967295
@@ -2116,7 +2116,7 @@ struct Parser {
     }
 
     func print_node(var self, n: u32, d: u32)
-        requires n < 16384
+        requires n < 32768
         ensures true
     {
         for i in 0..64 {
@@ -2134,7 +2134,7 @@ struct Parser {
     }
 
     func node_extras(var self, n: u32, k: u32)
-        requires n < 16384
+        requires n < 32768
         ensures true
     {
         if k == 6 {

@@ -116,6 +116,20 @@ def cmd_parse(path: str) -> int:
     return 0
 
 
+def cmd_sig(path: str) -> int:
+    from .sigdump import dump_signatures
+
+    try:
+        program = parse_file(path)
+        lines = dump_signatures(program, path)
+    except (OSError, EatError) as err:
+        print(err, file=sys.stderr)
+        return 1
+    for line in lines:
+        print(line)
+    return 0
+
+
 _KIND_LABEL = {
     "overflow": "переполнение",
     "div": "деление",
@@ -174,6 +188,8 @@ def main(argv: list[str]) -> int:
         return cmd_lex(argv[1])
     if len(argv) == 2 and argv[0] == "parse":
         return cmd_parse(argv[1])
+    if len(argv) == 2 and argv[0] == "sig":
+        return cmd_sig(argv[1])
     if len(argv) >= 2 and argv[0] == "build":
         args = argv[1:]
         out = None
