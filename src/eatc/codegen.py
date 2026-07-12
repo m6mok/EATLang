@@ -710,6 +710,14 @@ class Codegen:
         lty = node.left.ty
         if op in ("+", "-", "*", "/", "%"):
             return self.arith(node, op, left, right, lty.kind)
+        if op == "&":
+            return self.b.and_(left, right)
+        if op == "|":
+            return self.b.or_(left, right)
+        if op == "^":
+            return self.b.xor(left, right)
+        if op in ("<<", ">>"):
+            return self.shift(node, op, left, right, lty.kind)
         # сравнения
         if isinstance(lty, StrType):
             res = self.b.call(self.rtm("eq"), [left, right])
@@ -787,6 +795,29 @@ class Codegen:
         return (
             self.b.udiv(left, right) if op == "/" else self.b.urem(left, right)
         )
+
+    def shift(self, node, op: str, left, right, kind: str):
+        """Сдвиги беззнаковых. Сдвиг ≥ ширины типа в LLVM — яд,
+        поэтому trap до инструкции; << дополнительно трапит вынос
+        битов: обратный lshr обязан восстановить операнд."""
+        width = 8 if kind == "u8" else 32
+        if not getattr(node, "shift_ok", False):
+            self.trap_if(
+                self.b.icmp_unsigned(">=", right, right.type(width)),
+                node,
+                f"сдвиг ≥ ширины {kind}",
+            )
+        if op == ">>":
+            return self.b.lshr(left, right)
+        res = self.b.shl(left, right)
+        if not getattr(node, "no_overflow", False):
+            back = self.b.lshr(res, right)
+            self.trap_if(
+                self.b.icmp_unsigned("!=", back, left),
+                node,
+                f"переполнение {kind}",
+            )
+        return res
 
     # --- вызовы --------------------------------------------------------------
 

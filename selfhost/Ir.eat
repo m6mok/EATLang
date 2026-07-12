@@ -974,9 +974,10 @@ struct Ir {
     # Глобал trap-сообщения: stdin:ln:cl: error: trap: <текст>.
     # mk: 0 requires (e1/e2 — имя функции), 1 ensures, 2 переполнение
     # (e1 — вид целого), 3 деление на ноль, 4 границы, 5 assert,
-    # 6 переполнение при касте (e1 — вид цели).
+    # 6 переполнение при касте (e1 — вид цели), 7 сдвиг ≥ ширины
+    # (e1 — вид целого).
     func trap_glob(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32) -> u32
-        requires mk <= 6
+        requires mk <= 7
         ensures result < 65536
     {
         self.g_begin()
@@ -1000,10 +1001,13 @@ struct Ir {
             self.g_lit("индекс вне границ")
         } elif mk == 5 {
             self.g_lit("assert не выполнен")
-        } else {
+        } elif mk == 6 {
             self.g_lit("переполнение при ")
             self.g_kind(e1)
             self.g_lit("()")
+        } else {
+            self.g_lit("сдвиг ≥ ширины ")
+            self.g_kind(e1)
         }
         self.g_b(0)
         return self.g_commit(0)
@@ -1462,7 +1466,7 @@ struct Ir {
     }
 
     func w_bop(var self, o: u32)
-        requires o >= 1 and o <= 10
+        requires o >= 1 and o <= 12
         ensures true
     {
         if o == 1 {
@@ -1483,14 +1487,18 @@ struct Ir {
             self.lb_lit("and")
         } elif o == 9 {
             self.lb_lit("or")
-        } else {
+        } elif o == 10 {
             self.lb_lit("xor")
+        } elif o == 11 {
+            self.lb_lit("shl")
+        } else {
+            self.lb_lit("lshr")
         }
     }
 
     # v1, v2 — операнды типа t.
     func e_bin(var self, o: u32, t: u32)
-        requires o >= 1 and o <= 10 and t < 512
+        requires o >= 1 and o <= 12 and t < 512
         ensures true
     {
         self.rpre()
@@ -2056,7 +2064,7 @@ struct Ir {
 
     # w1 — i1: если истина, аварийная остановка.
     func trap_if(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32)
-        requires mk <= 6
+        requires mk <= 7
         ensures true
     {
         let bk2: u32 = self.w1k
@@ -2479,6 +2487,10 @@ struct Ir {
     {
         let lt: u32 = self.xd3[f]
         let lk: u32 = self.c.yk[lt]
+        if op >= 16 {
+            self.xbit(f, n, op)
+            return
+        }
         if op >= 10 {
             self.xarith(f, n, op)
             return
@@ -2552,6 +2564,77 @@ struct Ir {
         }
         self.xdiv(f, n, op, lt)
         self.nx3 = self.nx3 - 1
+    }
+
+    # Битовые операции: & | ^ — одна инструкция; сдвиги — с проверками
+    # (рисунок инструкций и trap'ов — байт-в-байт как у эталона).
+    func xbit(var self, f: u32, n: u32, op: u32)
+        requires f < 64 and n < 65536 and op >= 16 and op <= 20
+        ensures true
+    {
+        let lt: u32 = self.xd3[f]
+        if op <= 18 {
+            var o: u32 = 9 # |
+            if op == 17 {
+                o = 10 # ^
+            } elif op == 18 {
+                o = 8 # &
+            }
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_bin(o, lt)
+            self.serrr(lt)
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.xshift(f, n, op, lt)
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Сдвиг: trap при n ≥ ширины типа; << дополнительно трапит вынос
+    # битов (обратный lshr обязан восстановить операнд).
+    func xshift(var self, f: u32, n: u32, op: u32, lt: u32)
+        requires f < 64 and n < 65536 and lt < 512
+        ensures true
+    {
+        let lk: u32 = self.c.yk[lt]
+        let rk: u32 = self.erk
+        let ra: u32 = self.era
+        let rb: u32 = self.erb
+        var width: u32 = 32
+        if lk == 2 {
+            width = 8
+        }
+        self.set1(rk, ra, rb)
+        self.set2(2, 0, width)
+        self.e_icmp(10, lt)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 7, lk, 0)
+        if op == 20 { # >>
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2(rk, ra, rb)
+            self.e_bin(12, lt)
+            self.serrr(lt)
+            return
+        }
+        self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.set2(rk, ra, rb)
+        self.e_bin(11, lt)
+        let sk: u32 = self.rrk
+        let sa: u32 = self.rra
+        let sb: u32 = self.rrb
+        self.set1(sk, sa, sb)
+        self.set2(rk, ra, rb)
+        self.e_bin(12, lt)
+        self.set1rr()
+        self.set2(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.e_icmp(2, lt)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 2, lk, 0)
+        self.erk = sk
+        self.era = sa
+        self.erb = sb
+        self.ert = lt
     }
 
     func xdiv(var self, f: u32, n: u32, op: u32, lt: u32)

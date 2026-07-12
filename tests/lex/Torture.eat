@@ -49,3 +49,10 @@ test смешанное {
     x=y
     a5=67+b8
 }
+
+бит_суп {
+    q = a&b|c^d<<e>>f
+    w = BIG & 255 | 1 ^ 2 << 3 >> 4
+    plotno=x<<=y>>=z&&&w|||v^^^u
+    тип: Result<u32, str<8>> Option<Option<u8>>
+}

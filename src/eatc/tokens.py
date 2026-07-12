@@ -64,6 +64,11 @@ class T(Enum):
     STAR = auto()
     SLASH = auto()
     PERCENT = auto()
+    AMP = auto()
+    PIPE = auto()
+    CARET = auto()
+    SHL = auto()
+    SHR = auto()
 
     NEWLINE = auto()
     EOF = auto()

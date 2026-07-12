@@ -779,6 +779,18 @@ class TypeChecker:
                     node, f"арифметика применима к целым, не к {show(left)}"
                 )
             return left
+        if op in ("&", "|", "^", "<<", ">>"):
+            hint = expected if isinstance(expected, IntType) else None
+            left = self.expr(node.left, expected=hint)
+            right = self.expr(node.right, expected=left)
+            self._require_same(node, left, right, op)
+            if not isinstance(left, IntType) or left.kind == "i32":
+                # у i32 смысл битовой операции зависел бы от
+                # представления знака — только беззнаковые
+                raise self.err(
+                    node, f"{op} применим к u32/u8, не к {show(left)}"
+                )
+            return left
         # сравнения
         left = self.expr(node.left)
         right = self.expr(node.right, expected=left)

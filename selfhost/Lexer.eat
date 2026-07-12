@@ -69,7 +69,7 @@ func punct_code(b: u8) -> u32
     requires true
     ensures result <= 99
 {
-    if b == 40 { return 30 } elif b == 41 { return 31 } elif b == 123 { return 32 } elif b == 125 { return 33 } elif b == 91 { return 34 } elif b == 93 { return 35 } elif b == 44 { return 43 } elif b == 58 { return 44 } elif b == 59 { return 45 } elif b == 43 { return 49 } elif b == 42 { return 51 } elif b == 47 { return 52 } elif b == 37 { return 53 }
+    if b == 40 { return 30 } elif b == 41 { return 31 } elif b == 123 { return 32 } elif b == 125 { return 33 } elif b == 91 { return 34 } elif b == 93 { return 35 } elif b == 44 { return 43 } elif b == 58 { return 44 } elif b == 59 { return 45 } elif b == 43 { return 49 } elif b == 42 { return 51 } elif b == 47 { return 52 } elif b == 37 { return 53 } elif b == 38 { return 56 } elif b == 124 { return 57 } elif b == 94 { return 58 }
     return 99
 }
 
@@ -142,6 +142,16 @@ struct Lexer {
         return self.tc[ti / 65536][ti % 65536]
     }
 
+    # `>>` на месте закрывающего '>' типа: первый '>' съеден,
+    # остаток — GT колонкой правее (расщепление как в Rust и Java).
+    func split_shr(var self, ti: u32)
+        requires ti < 131072
+        ensures true
+    {
+        self.tk[ti / 65536][ti % 65536] = 37
+        self.tc[ti / 65536][ti % 65536] = self.tc[ti / 65536][ti % 65536] + 1
+    }
+
     func tok_vs(var self, ti: u32) -> u32
         requires ti < 131072
         ensures true
@@ -187,7 +197,7 @@ struct Lexer {
     # --- запись токенов в пул -------------------------------------------
 
     func emit_plain(var self, k: u32)
-        requires k <= 55
+        requires k <= 60
         ensures true
     {
         if self.ntok >= 131072 {
@@ -208,7 +218,7 @@ struct Lexer {
 
     # Токен со значением: байты val[0..vlen] копируются в sbuf.
     func emit_value(var self, k: u32)
-        requires k <= 55
+        requires k <= 60
         ensures true
     {
         if self.sblen >= 130816 {
@@ -523,6 +533,14 @@ struct Lexer {
             } else {
                 self.emit_plain(39)
             }
+            return
+        }
+        if b == 60 and st == 13 { # <<
+            self.emit_plain(59)
+            return
+        }
+        if b == 62 and st == 14 { # >>
+            self.emit_plain(60)
             return
         }
         if b == 62 and st == 9 { # ->

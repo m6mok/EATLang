@@ -26,6 +26,7 @@ _CMP_OPS = {
 }
 _ADD_OPS = {T.PLUS: "+", T.MINUS: "-"}
 _MUL_OPS = {T.STAR: "*", T.SLASH: "/", T.PERCENT: "%"}
+_SHIFT_OPS = {T.SHL: "<<", T.SHR: ">>"}
 
 
 class Parser:
@@ -58,6 +59,16 @@ class Parser:
         if self.at(type_):
             return self.advance()
         return None
+
+    def expect_gt(self) -> Token:
+        """Закрывающий '>' типа. `>>` вложенных дженериков
+        (Result<u32, str<8>>) лексер видит как сдвиг — расщепляем
+        на два '>' (как в Rust и Java)."""
+        if self.at(T.SHR):
+            tok = self.peek()
+            self.tokens[self.pos] = Token(T.GT, ">", tok.line, tok.col + 1)
+            return Token(T.GT, ">", tok.line, tok.col)
+        return self.expect(T.GT, "'>'")
 
     def expect(self, type_: T, what: str) -> Token:
         if not self.at(type_):
@@ -252,19 +263,19 @@ class Parser:
         if name.value == "str":
             self.expect(T.LT, "'<' (ёмкость строки: str<N>)")
             capacity = self.parse_const_expr()
-            self.expect(T.GT, "'>'")
+            self.expect_gt()
             return ast.StrType(name.line, name.col, capacity)
         if name.value == "Result":
             self.expect(T.LT, "'<'")
             ok = self.parse_type()
             self.expect(T.COMMA, "','")
             err = self.parse_type()
-            self.expect(T.GT, "'>'")
+            self.expect_gt()
             return ast.ResultType(name.line, name.col, ok, err)
         if name.value == "Option":
             self.expect(T.LT, "'<'")
             inner = self.parse_type()
-            self.expect(T.GT, "'>'")
+            self.expect_gt()
             return ast.OptionType(name.line, name.col, inner)
         return ast.TypeName(name.line, name.col, name.value)
 
@@ -471,12 +482,50 @@ class Parser:
         return self.parse_cmp()
 
     def parse_cmp(self) -> ast.Expr:
-        left = self.parse_add()
+        left = self.parse_bitor()
         if self.peek().type in _CMP_OPS:
             tok = self.advance()
-            right = self.parse_add()
+            right = self.parse_bitor()
             return ast.BinOp(
                 tok.line, tok.col, _CMP_OPS[tok.type], left, right
+            )
+        return left
+
+    # Битовые операторы слабее арифметики и сильнее сравнений (как в
+    # Rust): `x & 128 != 0` читается `(x & 128) != 0`, `1 << i + 1` —
+    # `1 << (i + 1)`.
+
+    def parse_bitor(self) -> ast.Expr:
+        left = self.parse_bitxor()
+        while self.at(T.PIPE):
+            tok = self.advance()
+            right = self.parse_bitxor()
+            left = ast.BinOp(tok.line, tok.col, "|", left, right)
+        return left
+
+    def parse_bitxor(self) -> ast.Expr:
+        left = self.parse_bitand()
+        while self.at(T.CARET):
+            tok = self.advance()
+            right = self.parse_bitand()
+            left = ast.BinOp(tok.line, tok.col, "^", left, right)
+        return left
+
+    def parse_bitand(self) -> ast.Expr:
+        left = self.parse_shift()
+        while self.at(T.AMP):
+            tok = self.advance()
+            right = self.parse_shift()
+            left = ast.BinOp(tok.line, tok.col, "&", left, right)
+        return left
+
+    def parse_shift(self) -> ast.Expr:
+        left = self.parse_add()
+        while self.peek().type in _SHIFT_OPS:
+            tok = self.advance()
+            right = self.parse_add()
+            left = ast.BinOp(
+                tok.line, tok.col, _SHIFT_OPS[tok.type], left, right
             )
         return left
 

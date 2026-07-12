@@ -16,6 +16,8 @@ _TWO_CHAR = {
     "!=": T.NE,
     "<=": T.LE,
     ">=": T.GE,
+    "<<": T.SHL,
+    ">>": T.SHR,
 }
 
 _ONE_CHAR = {
@@ -37,6 +39,9 @@ _ONE_CHAR = {
     "*": T.STAR,
     "/": T.SLASH,
     "%": T.PERCENT,
+    "&": T.AMP,
+    "|": T.PIPE,
+    "^": T.CARET,
 }
 
 _ESCAPES = {"n": "\n", "t": "\t", "\\": "\\", '"': '"', "'": "'", "0": "\0"}

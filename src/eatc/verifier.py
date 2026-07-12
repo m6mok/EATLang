@@ -273,6 +273,7 @@ class Verifier:
             "div": "div_safe",
             "bounds": "in_bounds",
             "cast": "cast_ok",
+            "shift": "shift_ok",
         }.get(kind)
         if attr is not None:
             setattr(node, attr, self.checks[key][0])
@@ -1202,6 +1203,10 @@ class Verifier:
                     env=env,
                     floor_zero=floor_zero,
                 )
+            if node.op in ("&", "|", "^", "<<", ">>"):
+                return self._bitwise(
+                    node, node.op, left, right, node.left.ty.kind, annotate
+                )
             return None  # сравнение в числовом контексте не встречается
         if isinstance(node, ast.Call):
             return self._iv_call(node, env, annotate)
@@ -1331,6 +1336,49 @@ class Verifier:
         bound = max(abs(right[0]), abs(right[1])) - 1
         lo = 0 if left[0] >= 0 else -bound
         return _inter((lo, bound), clamp) or clamp
+
+    def _bitwise(self, node, op: str, left, right, kind: str, annotate) -> Iv:
+        """Битовые операции беззнаковых. & | ^ тотальны; интервалы —
+        из неравенств a&b <= min(a,b), max(a,b) <= a|b <= a+b,
+        a^b <= a+b (верны для неотрицательных). Сдвиги: << — умножение
+        на 2^n с проверкой переполнения, >> — деление (тотален);
+        сдвиг на ширину типа и больше — trap (свой вид проверки)."""
+        clamp = _range(kind)
+        if op in ("<<", ">>"):
+            width = 8 if kind == "u8" else 32
+            shift_ok = right is not None and right[1] < width
+            if annotate:
+                self._mark("shift", node, shift_ok)
+            if op == "<<" and annotate:
+                self._mark(
+                    "overflow",
+                    node,
+                    shift_ok
+                    and left is not None
+                    and left[1] * 2 ** right[1] <= clamp[1],
+                )
+            if not shift_ok or left is None:
+                return clamp
+            if op == "<<":
+                raw = (left[0] * 2 ** right[0], left[1] * 2 ** right[1])
+            else:
+                raw = (left[0] // 2 ** right[1], left[1] // 2 ** right[0])
+            return _inter(raw, clamp) or clamp
+        if left is None or right is None:
+            return clamp
+        if left[0] == left[1] and right[0] == right[1]:
+            # обе стороны — константы: точное значение
+            exact = {"&": left[0] & right[0], "|": left[0] | right[0]}.get(
+                op, left[0] ^ right[0]
+            )
+            return (exact, exact)
+        if op == "&":
+            raw = (0, min(left[1], right[1]))
+        elif op == "|":
+            raw = (max(left[0], right[0]), min(left[1] + right[1], clamp[1]))
+        else:  # ^
+            raw = (0, min(left[1] + right[1], clamp[1]))
+        return _inter(raw, clamp) or clamp
 
     # --- вызовы --------------------------------------------------------------
 

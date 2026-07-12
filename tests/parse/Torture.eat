@@ -31,6 +31,27 @@ struct Deep {
     }
 }
 
+struct Wrap {
+    oo: Option<Option<u8>>
+    ro: Result<Option<u8>, str<4>>
+}
+
+func bit_exprs(a: u32, b: u32) -> u32
+    requires a & 128 != 0 or a | b >= 1
+    ensures true
+{
+    let m1: u32 = a & b | 3 ^ b & 1
+    let m2: u32 = 1 << 4 + 1
+    let m3: u32 = a << 2 >> 1
+    let m4: bool = a & 15 == b >> 2
+    let m5: u32 = (a | b) & (a ^ b)
+    var acc: u32 = m1 | m2 ^ m3
+    if m4 {
+        acc = acc & 4095
+    }
+    return acc & (m5 | 1)
+}
+
 func edge_exprs(a: i32, b: i32) -> i32
     requires not (a < 0) and (b > 1 or a == 0)
     ensures true

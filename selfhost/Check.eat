@@ -1998,6 +1998,14 @@ struct Check {
         if not self.compat(left, self.tres) {
             self.fail_node(n, "разные типы (неявных преобразований нет)")
         }
+        if op >= 16 { # битовые: только беззнаковые
+            if self.yk[left] != 1 and self.yk[left] != 2 {
+                self.fail_node(n, "битовые операции применимы к u32/u8")
+            }
+            self.tres = left
+            self.xdone()
+            return
+        }
         if op >= 10 { # арифметика
             if self.yk[left] > 2 {
                 self.fail_node(n, "арифметика применима к целым")

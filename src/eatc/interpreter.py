@@ -206,33 +206,41 @@ class Interpreter:
         site: ast.Node,
     ):
         self.frames.append([{}])
-        if self_value is not None:
-            self.declare("self", Slot(self_value))
-        arg_i = 0
-        for param in func.params:
-            if param.name == "self":
-                continue
-            value = deepcopy(args[arg_i])
-            arg_i += 1
-            kind = self._kind(param.type)
-            cap = self._cap(param.type)
-            self._fit(site, kind, value)
-            self._fit_cap(site, cap, value)
-            self.declare(param.name, Slot(value, kind, cap))
-        if func.requires is not None:
-            if not self.eval(func.requires):
-                raise self.trap(site, f"нарушен requires функции {func.name}")
-        result = None
         try:
-            self.exec_block(func.body)
-        except ReturnSignal as ret:
-            result = deepcopy(ret.value)
-        if func.ensures is not None:
-            self.declare("result", Slot(result))
-            if not self.eval(func.ensures):
-                raise self.trap(site, f"нарушен ensures функции {func.name}")
-        self.frames.pop()
-        return result
+            if self_value is not None:
+                self.declare("self", Slot(self_value))
+            arg_i = 0
+            for param in func.params:
+                if param.name == "self":
+                    continue
+                value = deepcopy(args[arg_i])
+                arg_i += 1
+                kind = self._kind(param.type)
+                cap = self._cap(param.type)
+                self._fit(site, kind, value)
+                self._fit_cap(site, cap, value)
+                self.declare(param.name, Slot(value, kind, cap))
+            if func.requires is not None:
+                if not self.eval(func.requires):
+                    raise self.trap(
+                        site, f"нарушен requires функции {func.name}"
+                    )
+            result = None
+            try:
+                self.exec_block(func.body)
+            except ReturnSignal as ret:
+                result = deepcopy(ret.value)
+            if func.ensures is not None:
+                self.declare("result", Slot(result))
+                if not self.eval(func.ensures):
+                    raise self.trap(
+                        site, f"нарушен ensures функции {func.name}"
+                    )
+            return result
+        finally:
+            # кадр снимается и при trap'е: иначе внешние finally
+            # чистили бы чужие области видимости
+            self.frames.pop()
 
     # --- инструкции --------------------------------------------------------
 
@@ -469,9 +477,24 @@ class Interpreter:
             return left - right
         if op == "*":
             return left * right
+        if op == "&":
+            return left & right
+        if op == "|":
+            return left | right
+        if op == "^":
+            return left ^ right
+        if op in ("<<", ">>"):
+            return self._shift(node, op, left, right)
         if op == "/":
             return self._trunc_div(node, left, right)
         return self._trunc_mod(node, left, right)
+
+    def _shift(self, node, op: str, left: int, right: int) -> int:
+        kind = node.left.ty.kind
+        width = 8 if kind == "u8" else 32
+        if right >= width:
+            raise self.trap(node, f"сдвиг на {right} ≥ ширины {kind}")
+        return left << right if op == "<<" else left >> right
 
     def _trunc_div(self, node, left: int, right: int) -> int:
         if right == 0:

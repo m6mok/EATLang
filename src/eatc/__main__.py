@@ -165,6 +165,7 @@ def cmd_ir(path: str) -> int:
 _KIND_LABEL = {
     "overflow": "переполнение",
     "div": "деление",
+    "shift": "сдвиг",
     "bounds": "границы",
     "cast": "cast",
     "requires": "requires",

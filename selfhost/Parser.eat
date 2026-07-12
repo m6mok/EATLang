@@ -621,12 +621,7 @@ struct Parser {
             self.advance()
             self.complete()
         } elif ph == 3 {
-            if self.tk_at() != 37 {
-                self.fail("ожидалось '>'")
-                return
-            }
-            self.advance()
-            self.complete()
+            self.close_gt()
         } elif ph == 4 {
             if self.tk_at() != 43 {
                 self.fail("ожидалось ','")
@@ -636,20 +631,28 @@ struct Parser {
             self.fp[f] = 5
             self.start_type(self.fnod[f])
         } elif ph == 5 {
-            if self.tk_at() != 37 {
-                self.fail("ожидалось '>'")
-                return
-            }
-            self.advance()
-            self.complete()
+            self.close_gt()
         } else {
-            if self.tk_at() != 37 {
-                self.fail("ожидалось '>'")
-                return
-            }
-            self.advance()
-            self.complete()
+            self.close_gt()
         }
+    }
+
+    # Закрывающий '>' типа; `>>` вложенных дженериков расщепляется.
+    func close_gt(var self)
+        requires true
+        ensures true
+    {
+        if self.tk_at() == 60 {
+            self.lex.split_shr(self.cur)
+            self.complete()
+            return
+        }
+        if self.tk_at() != 37 {
+            self.fail("ожидалось '>'")
+            return
+        }
+        self.advance()
+        self.complete()
     }
 
     func type_start(var self)
@@ -1787,12 +1790,12 @@ struct Parser {
     }
 
     func expr_binop(var self, oc: u32)
-        requires oc >= 1 and oc <= 14
+        requires oc >= 1 and oc <= 20
         ensures true
     {
         let fl: u32 = self.cur_flags()
         let p: u32 = prec_of(oc)
-        if fl / 2 % 2 == 1 and p < 5 {
+        if fl / 2 % 2 == 1 and p < 9 {
             # const-выражение: только + - * / %
             self.end_expr()
             return
