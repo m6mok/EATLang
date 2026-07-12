@@ -1,0 +1,29 @@
+# Нагрузочный тест: доступ к полям структуры и вызов метода.
+# Базовая порция — 500 000 итераций с двумя записями полей; REPEAT масштабирует.
+
+const REPEAT: u32 = 1
+
+struct Cell {
+    a: u32
+    b: u32
+
+    func mix(self) -> u32
+        requires true
+        ensures true
+    {
+        return (self.a + self.b) % 65536
+    }
+}
+
+func main() {
+    var c: Cell = Cell { a: 1, b: 2 }
+    for _ in 0..REPEAT {
+        for _ in 0..500 {
+            for i in 0..1000 {
+                c.a = (c.a * 31 + c.b + i) % 65536
+                c.b = (c.b + c.a) % 65536
+            }
+        }
+    }
+    print("checksum {c.mix()}")
+}
