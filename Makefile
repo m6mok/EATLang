@@ -28,6 +28,14 @@ MODULES_EXAMPLE = $(RT) examples/modules/ByteUtil.eat examples/modules/Main.eat
 run_modules:
 	$(EATC) run $(MODULES_EXAMPLE)
 
+# Эмулятор MOS 6502 (examples/mos6502): все официальные опкоды,
+# собственный тест-ROM в test-блоках; программа — байты со stdin
+MOS6502_EXAMPLE = $(RT) examples/mos6502/Cpu6502.eat \
+	examples/mos6502/Tests.eat examples/mos6502/Main.eat
+
+run_mos6502:
+	cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE)
+
 # Проба self-host лексера: все кирпичи разом, вход — собственный исходник
 LEXER_PROBE = $(RT) examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
 
@@ -37,6 +45,15 @@ run_lexer_probe:
 # Регрессионный набор верификатора (tests/verify/, docs/VERIFICATION_PLAN.md)
 verify_suite:
 	uv run python tests/verify_suite.py
+
+# Нагрузочное тестирование (tests/bench/): пайплайн компилятора на
+# синтетических модулях, интерпретатор против бинарника, стресс лимитов
+# SPEC.md §6, self-hosted лексер/парсер против Python-эталона.
+bench:
+	uv run python tests/bench/bench.py
+
+bench_quick:
+	uv run python tests/bench/bench.py --quick
 
 # Self-hosted компилятор (selfhost/, docs/SELFHOST.md): дифференциальная
 # сверка с эталоном на каждом .eat репозитория + интерпретатор == бинарник.
@@ -275,6 +292,11 @@ verify: build_all_examples
 	@./build/Modules > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Modules" || exit 1
+	@$(EATC) build $(MOS6502_EXAMPLE) -o build/Mos6502 > /dev/null
+	@cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE) > /tmp/eat_interp.txt
+	@cat examples/mos6502/mul13x11.rom | ./build/Mos6502 > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED Mos6502" || exit 1
 	@$(EATC) build $(LEXER_PROBE) -o build/Lexer > /dev/null
 	@cat examples/lexer/LexMain.eat | $(EATC) run $(LEXER_PROBE) > /tmp/eat_interp.txt
 	@cat examples/lexer/LexMain.eat | ./build/Lexer > /tmp/eat_native.txt

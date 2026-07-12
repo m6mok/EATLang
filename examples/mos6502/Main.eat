@@ -1,0 +1,78 @@
+# Точка входа эмулятора: программа — сырые байты со stdin, грузится
+# в $0600 (как easy6502), PC=$0600, SP=$FD. Работа до BRK с нулевым
+# вектором, неофициального опкода или перехода сам-на-себя (jam).
+# Отчёт: регистры, флаги NV-BDIZC и первые 16 байт страницы $0200 —
+# соглашение тест-программ: результаты пишутся в $0200.
+
+const LOAD: u32 = 1536
+
+func hex_digit(v: u32) -> char
+    requires v <= 15
+    ensures true
+{
+    if v < 10 {
+        return char(u8(v + 48))
+    }
+    return char(u8(v + 87)) # a..f
+}
+
+func write_hex8(v: u32)
+    requires v <= 255
+    ensures true
+{
+    write("{hex_digit(v >> 4)}{hex_digit(v & 15)}")
+}
+
+func write_hex16(v: u32)
+    requires v <= 65535
+    ensures true
+{
+    write_hex8(v >> 8)
+    write_hex8(v & 255)
+}
+
+func main() {
+    var cpu: Cpu = cpu_new()
+    var nb: u32 = 0
+    var eof: bool = false
+    for _ in 0..63488 {
+        if not eof {
+            match read_byte() {
+                Ok(b) {
+                    cpu.wr(LOAD + nb, u32(b))
+                    nb = nb + 1
+                }
+                Err(_) {
+                    eof = true
+                }
+            }
+        }
+    }
+    cpu.pc = LOAD
+    # Реактивная модель: единственный бесконечный цикл — в main.
+    # Останов гарантируют BRK (нулевой вектор), неофициальный опкод
+    # и jam-детектор перехода сам-на-себя.
+    loop {
+        if cpu.halted {
+            break
+        }
+        cpu.step()
+    }
+    write("A=")
+    write_hex8(cpu.a)
+    write(" X=")
+    write_hex8(cpu.x)
+    write(" Y=")
+    write_hex8(cpu.y)
+    write(" SP=")
+    write_hex8(cpu.sp)
+    write(" PC=")
+    write_hex16(cpu.pc)
+    print(" P={cpu.n}{cpu.v}1x{cpu.d}{cpu.i}{cpu.z}{cpu.c} steps={cpu.steps} bytes={nb}")
+    write("0200:")
+    for k in 0..16 {
+        write(" ")
+        write_hex8(cpu.rd(512 + u32(k)))
+    }
+    print("")
+}
