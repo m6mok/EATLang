@@ -1620,6 +1620,23 @@ class Verifier:
             if isinstance(aty, StrType) and aty.capacity is not None:
                 return (0, aty.capacity)
             return (0, 4096)
+        if name == "write_span":
+            # граница вызова: off + len <= N — то же обязательство
+            # bounds, что у индексации (codegen: node.in_bounds)
+            off = self._iv(node.args[1], env, annotate=False)
+            ln = self._iv(node.args[2], env, annotate=False)
+            if annotate:
+                size = getattr(node, "arr_size", None)
+                ok = (
+                    size is not None
+                    and off is not None
+                    and ln is not None
+                    and off[0] >= 0
+                    and ln[0] >= 0
+                    and off[1] + ln[1] <= size
+                )
+                self._mark("bounds", node, ok)
+            return None
         if name in self.checker.funcs:
             func, _ = self._func_by_key(name)
             sig = self.checker.funcs[name]
