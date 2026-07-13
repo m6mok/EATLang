@@ -89,6 +89,8 @@ BUILTINS = {
         "read_byte", [], ResultType(U8, EnumType("IoError"))
     ),
     "write_byte": FuncSig("write_byte", [("b", U8)], None),
+    "write_err_byte": FuncSig("write_err_byte", [("b", U8)], None),
+    "exit": FuncSig("exit", [("code", U32)], None),
     "parse_i32": FuncSig(
         "parse_i32",
         [("s", StrType(None))],
@@ -97,6 +99,15 @@ BUILTINS = {
 }
 
 _FORMATTABLE = (IntType, BoolType, CharType, StrType)
+
+
+def _is_exit_stmt(stmt) -> bool:
+    """call-statement exit(...): управление не возвращается (правило 10)."""
+    return (
+        isinstance(stmt, ast.ExprStmt)
+        and isinstance(stmt.expr, ast.Call)
+        and stmt.expr.name == "exit"
+    )
 
 
 class TypeChecker:
@@ -117,6 +128,8 @@ class TypeChecker:
         self.self_type: StructType | None = None
         self.result_type: Type | None = None  # доступен только в ensures
         self.loop_depth = 0
+        self.break_counts: list[int] = []  # break'ов у каждого активного цикла
+        self.exit_seen = False  # exit: не более одного на программу
         self.edges: set = set()
 
     # --- инфраструктура -------------------------------------------------
@@ -435,8 +448,10 @@ class TypeChecker:
                     stmt, "недостижимый код после return/break (правило 10)"
                 )
             self.check_stmt(stmt)
-            finished = self._stmt_returns(stmt) or isinstance(
-                stmt, ast.BreakStmt
+            finished = (
+                self._stmt_returns(stmt)
+                or isinstance(stmt, ast.BreakStmt)
+                or _is_exit_stmt(stmt)
             )
         if new_scope:
             self.pop_scope()
@@ -466,7 +481,11 @@ class TypeChecker:
                 self.check_block(stmt.els)
             return
         if isinstance(stmt, ast.ForStmt):
+            self.loop_depth += 1
+            self.break_counts.append(0)
             self.check_for(stmt)
+            self.break_counts.pop()
+            self.loop_depth -= 1
             return
         if isinstance(stmt, ast.LoopStmt):
             if self.current_key != "main":
@@ -476,7 +495,9 @@ class TypeChecker:
                     "остальное имеет границу)",
                 )
             self.loop_depth += 1
+            self.break_counts.append(0)
             self.check_block(stmt.body)
+            self.break_counts.pop()
             self.loop_depth -= 1
             return
         if isinstance(stmt, ast.MatchStmt):
@@ -487,7 +508,14 @@ class TypeChecker:
             return
         if isinstance(stmt, ast.BreakStmt):
             if self.loop_depth == 0:
-                raise self.err(stmt, "break вне loop")
+                raise self.err(stmt, "break вне цикла")
+            # break привязан к внутреннему циклу — стиль MISRA:
+            # не более одного раннего выхода на цикл
+            self.break_counts[-1] += 1
+            if self.break_counts[-1] > 1:
+                raise self.err(
+                    stmt, "не более одного break на цикл (правило 1)"
+                )
             return
         if isinstance(stmt, ast.AssertStmt):
             self._expect_bool(stmt.cond, "assert")
@@ -838,6 +866,15 @@ class TypeChecker:
             return self._char_cast(node)
         if node.name == "len":
             return self._len(node)
+        if node.name == "exit":
+            # завершение процесса: только из main (как loop) и один раз
+            if self.current_key != "main":
+                raise self.err(node, "exit допустим только в main")
+            if self.exit_seen:
+                raise self.err(
+                    node, "exit допустим не более одного раза на программу"
+                )
+            self.exit_seen = True
         sig = BUILTINS.get(node.name) or self.funcs.get(node.name)
         if sig is None:
             raise self.err(node, f"неизвестная функция {node.name}")

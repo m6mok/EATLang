@@ -23,9 +23,10 @@ struct RtStr {
         ensures true
     {
         for i in 0..256 {
-            if i < self.ln {
-                write_byte(self.buf[i])
+            if i >= self.ln {
+                break
             }
+            write_byte(self.buf[i])
         }
     }
 
@@ -54,11 +55,14 @@ struct RtStr {
         let base: u32 = self.ln
         let ol: u32 = o.ln
         for i in 0..256 {
+            if i >= ol {
+                break
+            }
             # маска — доказательство: (base & 255) + i не переполняется,
             # guard j < 256 доказывает границы; при i < ol assert выше
             # гарантирует base + i < 256, так что маска ничего не меняет
             let j: u32 = (base & 255) + i
-            if i < ol and j < 256 {
+            if j < 256 {
                 self.buf[j] = o.buf[i]
             }
         }
@@ -100,18 +104,22 @@ struct RtStr {
         var n: u32 = 0
         var x: u32 = v
         for _ in 0..10 {
-            if n == 0 or x > 0 {
-                tmp[n] = u8(x % 10 + 48)
-                x = x / 10
-                n = n + 1
+            if n > 0 and x == 0 {
+                break
             }
+            tmp[n] = u8(x % 10 + 48)
+            x = x / 10
+            n = n + 1
         }
         assert self.ln + n <= 256
         let base: u32 = self.ln
         for i in 0..10 {
+            if i >= n {
+                break
+            }
             # маска — доказательство границ, как в append_str
             let j: u32 = (base & 255) + i
-            if i < n and j < 256 {
+            if j < 256 {
                 self.buf[j] = tmp[n - 1 - i]
             }
         }
@@ -142,10 +150,11 @@ struct RtStr {
         }
         var alike: bool = true
         for i in 0..256 {
-            if i < self.ln {
-                if self.buf[i] != o.buf[i] {
-                    alike = false
-                }
+            if i >= self.ln or not alike {
+                break
+            }
+            if self.buf[i] != o.buf[i] {
+                alike = false
             }
         }
         return alike
@@ -162,23 +171,24 @@ struct RtStr {
         self.ln = 0
         var st: u32 = 2
         for _ in 0..257 {
-            if st == 2 {
-                match read_byte() {
-                    Ok(b) {
-                        if b == 10 {
-                            st = 0
-                        } else {
-                            assert self.ln < 256
-                            self.buf[self.ln] = b
-                            self.ln = self.ln + 1
-                        }
+            if st != 2 {
+                break
+            }
+            match read_byte() {
+                Ok(b) {
+                    if b == 10 {
+                        st = 0
+                    } else {
+                        assert self.ln < 256
+                        self.buf[self.ln] = b
+                        self.ln = self.ln + 1
                     }
-                    Err(_) {
-                        if self.ln == 0 {
-                            st = 1
-                        } else {
-                            st = 0
-                        }
+                }
+                Err(_) {
+                    if self.ln == 0 {
+                        st = 1
+                    } else {
+                        st = 0
                     }
                 }
             }

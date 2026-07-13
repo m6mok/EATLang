@@ -6,16 +6,17 @@
 
 func main() {
     var lex: Lexer = Lexer { state: 0, line: 1, col: 1, tline: 1, tcol: 1, val: [0; 256], vlen: 0, depth: 0, failed: false, ch: 0, tk: [[0; 65536]; 2], tl: [[0; 65536]; 2], tc: [[0; 65536]; 2], tvs: [[0; 65536]; 2], tvl: [[0; 65536]; 2], tsg: [[0; 65536]; 2], tns: [[0; 65536]; 2], ntok: 0, sbuf: [[0; 65536]; 2], sblen: 0, sgk: [0; 2048], sga: [0; 2048], sgb: [0; 2048], nseg: 0 }
+    var eof: bool = false
     loop {
         match read_byte() {
             Ok(b) {
                 lex.step(b)
             }
             Err(_) {
-                break
+                eof = true
             }
         }
-        if lex.failed {
+        if eof or lex.failed {
             break
         }
     }
@@ -23,11 +24,17 @@ func main() {
     if not lex.failed {
         lex.sublex_pass()
     }
-    if not lex.failed {
+    var bad: bool = lex.failed
+    if not bad {
         var p: Parser = Parser { lex: lex, cur: 0, ret: 4294967295, bdepth: 0, failed: false, done: false, nk: [[0; 65536]; 2], nl: [[0; 65536]; 2], nc: [[0; 65536]; 2], nss: [[0; 65536]; 2], nsl: [[0; 65536]; 2], nx: [[0; 65536]; 2], ny: [[0; 65536]; 2], nfc: [[0; 65536]; 2], nlc: [[0; 65536]; 2], nns: [[0; 65536]; 2], nnode: 0, fk: [0; 64], fp: [0; 64], fnod: [0; 64], fat: [0; 64], fx: [0; 64], nf: 0, opnd: [0; 64], nos: 0, pk: [0; 64], pa: [0; 64], pb: [0; 64], pc2: [0; 64], pd2: [0; 64], pfl: [0; 64], pln: [0; 64], pcl: [0; 64], nop: 0, dstk: [0; 64], dn: 0, dcur: 0, ddepth: 0, ddone: false }
         p.parse()
         if not p.failed {
             p.dump()
+        } else {
+            bad = true
         }
+    }
+    if bad {
+        exit(1)
     }
 }

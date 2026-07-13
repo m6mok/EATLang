@@ -45,6 +45,8 @@ _RUNTIME = {
     "eat_trap": ir.FunctionType(ir.VoidType(), [I8P]),
     "eat_read_byte": ir.FunctionType(I32L, []),
     "eat_write_byte": ir.FunctionType(ir.VoidType(), [I8L]),
+    "eat_write_err_byte": ir.FunctionType(ir.VoidType(), [I8L]),
+    "eat_exit": ir.FunctionType(ir.VoidType(), [I32L]),
 }
 
 _SIGNED = {"i32"}
@@ -525,7 +527,9 @@ class Codegen:
                     else self.b.load(elem_ptr),
                 )
             self.bind(stmt.target, stmt.elem_ty, slot)
+        self.loop_exits.append(after)  # break — ранний выход из for
         self.gen_block(stmt.body)
+        self.loop_exits.pop()
         self.pop()
         if not self.b.block.is_terminated:
             nxt = self.b.add(self.b.load(idx), I32L(1))
@@ -845,6 +849,14 @@ class Codegen:
             return self.gen_read_byte(node)
         if name == "write_byte":
             self.b.call(self.rt["eat_write_byte"], [self.expr(node.args[0])])
+            return None
+        if name == "write_err_byte":
+            self.b.call(
+                self.rt["eat_write_err_byte"], [self.expr(node.args[0])]
+            )
+            return None
+        if name == "exit":
+            self.b.call(self.rt["eat_exit"], [self.expr(node.args[0])])
             return None
         if name == "read_line":
             return self.gen_read_line(node)

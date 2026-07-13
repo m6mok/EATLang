@@ -1,4 +1,5 @@
-/* Шим EATLang: три аксиомы ОС — байт из stdin, байт в stdout, trap.
+/* Шим EATLang: пять аксиом ОС — байт из stdin, байт в stdout,
+ * байт в stderr, штатный выход с кодом, trap.
  * Вся логика рантайма (строки, интерполяция, read_line, parse_i32)
  * написана на EATLang: selfhost/Rt.eat — первый модуль каждой
  * программы. Линкуется clang'ом вместе с объектным файлом. */
@@ -19,6 +20,18 @@ int32_t eat_read_byte(void) {
  * буферизацию держит libc, нормальный выход из main сбрасывает её. */
 void eat_write_byte(char b) {
     putchar((unsigned char)b);
+}
+
+/* Байт в stderr (write_err_byte): канал диагностики,
+ * не смешивается с полезным выводом фильтра stdin -> stdout. */
+void eat_write_err_byte(char b) {
+    fputc((unsigned char)b, stderr);
+}
+
+/* Штатное завершение с кодом (exit) — только из main, не более
+ * одного вызова на программу; exit() сбрасывает буферы libc. */
+void eat_exit(uint32_t code) {
+    exit((int)code);
 }
 
 /* Аварийная остановка: сообщение в stderr, код 1. */

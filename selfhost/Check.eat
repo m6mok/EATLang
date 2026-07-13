@@ -104,6 +104,10 @@ struct Check {
     self_mu: u32
     res_ty2: u32
     loopd: u32
+    # break'ов у каждого активного цикла (не более одного, правило 1)
+    brkc: [u32; 8]
+    # exit: не более одного на программу
+    nexit: u32
     # рёбра графа вызовов (код вызывающего, fi вызываемого)
     eg_c: [u32; 4096]
     eg_d: [u32; 4096]
@@ -678,7 +682,10 @@ struct Check {
         if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
             return true
         }
-        if self.span_is(a, l, "write_byte") {
+        if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
+            return true
+        }
+        if self.span_is(a, l, "exit") {
             return true
         }
         if self.span_is(a, l, "parse_i32") or self.span_is(a, l, "len") {
@@ -1611,7 +1618,10 @@ struct Check {
         if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
             return true
         }
-        if self.span_is(a, l, "write_byte") {
+        if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
+            return true
+        }
+        if self.span_is(a, l, "exit") {
             return true
         }
         return self.span_is(a, l, "parse_i32")
@@ -2137,13 +2147,31 @@ struct Check {
             self.xdone()
             return
         }
-        if self.span_is(a, l, "write_byte") {
+        if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
             if argc != 1 {
                 self.fail_node(n, "ожидается 1 аргумент")
                 return
             }
             self.xa[f] = 108
             self.xpush(self.p.nfc[n / 65536][n % 65536], 2)
+            return
+        }
+        if self.span_is(a, l, "exit") {
+            if argc != 1 {
+                self.fail_node(n, "ожидается 1 аргумент")
+                return
+            }
+            if self.cur_key != self.main_fi {
+                self.fail_node(n, "exit допустим только в main")
+                return
+            }
+            if self.nexit >= 1 {
+                self.fail_node(n, "exit допустим не более одного раза на программу")
+                return
+            }
+            self.nexit = self.nexit + 1
+            self.xa[f] = 109
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
             return
         }
         if self.span_is(a, l, "parse_i32") {
@@ -2218,6 +2246,12 @@ struct Check {
         } elif code == 108 {
             if not self.compat(2, self.tres) {
                 self.fail_node(n, "write_byte() принимает u8")
+            }
+            self.tres = 5
+            self.xdone()
+        } elif code == 109 {
+            if not self.compat(1, self.tres) {
+                self.fail_node(n, "exit() принимает u32")
             }
             self.tres = 5
             self.xdone()
@@ -2731,6 +2765,21 @@ struct Check {
         }
     }
 
+    # call-statement exit(...): управление не возвращается (правило 10).
+    func stmt_is_exit(var self, st: u32) -> bool
+        requires st < 131072
+        ensures true
+    {
+        if self.p.nk[st / 65536][st % 65536] != 25 {
+            return false
+        }
+        let cal: u32 = self.p.nfc[st / 65536][st % 65536]
+        if self.p.nk[cal / 65536][cal % 65536] != 41 {
+            return false
+        }
+        return self.span_is(self.p.nss[cal / 65536][cal % 65536], self.p.nsl[cal / 65536][cal % 65536], "exit")
+    }
+
     func q_block(var self)
         requires self.nq >= 1
         ensures true
@@ -2738,7 +2787,7 @@ struct Check {
         let f: u32 = self.nq - 1
         let last: u32 = self.qy[f]
         if last != 4294967295 {
-            if self.nrt[last / 65536][last % 65536] == 1 or self.p.nk[last / 65536][last % 65536] == 23 {
+            if self.nrt[last / 65536][last % 65536] == 1 or self.p.nk[last / 65536][last % 65536] == 23 or self.stmt_is_exit(last) {
                 if self.qx[f] / 2 % 2 == 0 {
                     self.qx[f] = self.qx[f] + 2
                 }
@@ -2790,6 +2839,7 @@ struct Check {
                 return
             }
             self.loopd = self.loopd + 1
+            self.brkc[self.loopd - 1] = 0
             self.qpush(4, cur, 4294967295, 0)
             self.start_block_frame(self.p.nfc[cur / 65536][cur % 65536], 1)
         } elif k == 20 {
@@ -2798,7 +2848,12 @@ struct Check {
             self.q_return(cur)
         } elif k == 23 {
             if self.loopd == 0 {
-                self.fail_node(cur, "break вне loop")
+                self.fail_node(cur, "break вне цикла")
+            } else {
+                self.brkc[self.loopd - 1] = self.brkc[self.loopd - 1] + 1
+                if self.brkc[self.loopd - 1] > 1 {
+                    self.fail_node(cur, "не более одного break на цикл (правило 1)")
+                }
             }
         } elif k == 24 {
             self.expect_bool(self.p.nfc[cur / 65536][cur % 65536])
@@ -2951,6 +3006,8 @@ struct Check {
         requires cur < 131072
         ensures true
     {
+        self.loopd = self.loopd + 1
+        self.brkc[self.loopd - 1] = 0
         let it: u32 = self.p.nfc[cur / 65536][cur % 65536]
         var elem: u32 = 1
         if self.p.nk[it / 65536][it % 65536] == 49 {
@@ -3007,6 +3064,7 @@ struct Check {
         requires self.nq >= 1
         ensures true
     {
+        self.loopd = self.loopd - 1
         self.pop_scope()
         self.nq = self.nq - 1
     }

@@ -411,6 +411,8 @@ class Interpreter:
                 body_scope.clear()
                 for s in stmts:
                     exec_stmt(s)
+        except BreakSignal:
+            pass  # break привязан к внутреннему циклу — этому
         finally:
             frame.pop()
             frame.pop()
@@ -585,6 +587,12 @@ class Interpreter:
         if name == "write_byte":
             self._write_bytes(chr(args[0]))
             return None
+        if name == "write_err_byte":
+            sys.stderr.buffer.write(bytes([args[0]]))
+            sys.stderr.buffer.flush()
+            return None
+        if name == "exit":
+            raise SystemExit(args[0])
         if name == "read_line":
             data = sys.stdin.buffer.readline()
             if data == b"":

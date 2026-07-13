@@ -150,6 +150,18 @@ def _sub_blocks(stmt):
             yield arm.body
 
 
+def _has_direct_break(block: ast.Block) -> bool:
+    """break, привязанный к этому циклу (во вложенные не спускаемся)."""
+    for stmt in block.stmts:
+        if isinstance(stmt, ast.BreakStmt):
+            return True
+        if isinstance(stmt, (ast.ForStmt, ast.LoopStmt)):
+            continue
+        if any(_has_direct_break(b) for b in _sub_blocks(stmt)):
+            return True
+    return False
+
+
 def _stmt_returns(stmt) -> bool:
     if isinstance(stmt, ast.ReturnStmt):
         return True
@@ -165,6 +177,14 @@ def _stmt_returns(stmt) -> bool:
 
 def _block_returns(block) -> bool:
     return any(_stmt_returns(s) for s in block.stmts)
+
+
+def _block_exits(block) -> bool:
+    """Управление не продолжается за if: ветка кончается return
+    или break (break уводит на выход цикла, минуя join этого if)."""
+    return _block_returns(block) or any(
+        isinstance(s, ast.BreakStmt) for s in block.stmts
+    )
 
 
 class State:
@@ -574,12 +594,12 @@ class Verifier:
             b_env = neg_env.copy()
             self._refine(b_env, cond, True)
             out = self._flow_block(block, b_env)
-            if not _block_returns(block):
+            if not _block_exits(block):
                 branches.append(out)
             self._refine(neg_env, cond, False)
         if stmt.els is not None:
             out = self._flow_block(stmt.els, neg_env)
-            if not _block_returns(stmt.els):
+            if not _block_exits(stmt.els):
                 branches.append(out)
         else:
             branches.append(neg_env)
@@ -632,6 +652,15 @@ class Verifier:
             if eiv is not None:
                 body_env.ivs[stmt.target] = eiv
         self._flow_block(stmt.body, body_env)
+        if _has_direct_break(stmt.body):
+            # ранний выход: цикл мог остановиться после любого витка,
+            # ускорение «ровно n витков» неприменимо — забываем всё
+            # изменённое телом (факты по виткам внутри body_env верны)
+            out = env.copy()
+            out.kill(stmt.target)
+            for p in _assigned_paths(stmt.body):
+                out.kill(p)
+            return out
         out = body_env.copy()
         out.kill(stmt.target)
         for p, iv in after.items():
