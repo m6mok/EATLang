@@ -562,7 +562,9 @@ def darwin_sections(binary):
         line = line.strip()
         if line.startswith("Section __"):
             name, _, val = line.partition(":")
-            secs[name.split()[1]] = int(val)
+            key = name.split()[1]
+            # __const бывает и в __TEXT, и в __DATA_CONST — суммируем
+            secs[key] = secs.get(key, 0) + int(val)
     return secs
 
 

@@ -297,10 +297,19 @@ class Codegen:
                 "llvm.memcpy", [i8p, i8p, i64]
             )
             self.intr_cache["llvm.memcpy"] = memcpy
-        # sizeof через gep(null, 1): без обращения к target data
-        null = ir.Constant(dst_ptr.type, None)
-        one = ir.Constant(ir.IntType(32), 1)
-        size = self.b.ptrtoint(self.b.gep(null, [one]), i64)
+        if isinstance(ty, StrType):
+            # копия str по фактической длине: 4 (поле ln) + ln байт.
+            # Хвост буфера за ln никто не читает (инвариант Rt.eat),
+            # а источником может быть ужатый глобал литерала короче
+            # 260 байт — полная копия читала бы за его пределами
+            lnp = self.b.gep(src, [I32L(0), I32L(0)], inbounds=True)
+            ln = self.b.load(lnp)
+            size = self.b.zext(self.b.add(ln, I32L(4)), i64)
+        else:
+            # sizeof через gep(null, 1): без обращения к target data
+            null = ir.Constant(dst_ptr.type, None)
+            one = ir.Constant(ir.IntType(32), 1)
+            size = self.b.ptrtoint(self.b.gep(null, [one]), i64)
         self.b.call(
             memcpy,
             [
@@ -773,6 +782,14 @@ class Codegen:
         return self.ll(cty)(cval)
 
     def gen_strlit(self, node: ast.StrLit):
+        # односегментный (или пустой) литерал — прямой ужатый глобал:
+        # вызываемый читает по ссылке (readonly), сборка в рантайме
+        # (init + append_str) не нужна; копии str идут по длине
+        segs = node.segments
+        if not segs:
+            return self.cstr_str("")
+        if len(segs) == 1 and isinstance(segs[0], str):
+            return self.cstr_str(segs[0])
         out = self.alloca(STR_LL, name="str")
         self.b.call(self.rtm("init"), [out])
         for seg in node.segments:
