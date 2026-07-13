@@ -4606,7 +4606,7 @@ struct Ir {
         var i: u32 = 0
         if self.aggr == 1 {
             self.o_ty(self.rett)
-            write("* %\".1\"")
+            write("* noalias nofree nonnull %\".1\"")
             i = 1
         }
         if self.c.fown[fi] != 4294967295 {
@@ -4615,7 +4615,7 @@ struct Ir {
             }
             i = i + 1
             self.o_ty(self.sty2)
-            write("* %\".{i}\"")
+            write("* nofree nonnull %\".{i}\"")
         }
         for k in 0..8 {
             if k >= self.c.fpc[fi] {
@@ -4628,7 +4628,7 @@ struct Ir {
             let pt: u32 = self.c.pty[self.c.fps[fi] + k]
             self.o_ty(pt)
             if self.is_agg(pt) {
-                write("*")
+                write("* nofree nonnull")
             }
             write(" %\".{i}\"")
         }

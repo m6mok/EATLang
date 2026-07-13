@@ -328,6 +328,25 @@ class Codegen:
         # разворачивается (исключений нет, trap завершает процесс)
         fn.attributes.add("norecurse")
         fn.attributes.add("nounwind")
+        # указательные аргументы — всегда alloca вызывающего: не null,
+        # кучи нет (nofree); слот агрегатного возврата — свежая alloca
+        # на каждый вызов, ни с чем не алиасится. noalias на параметры
+        # ставить нельзя: получатель var self может совпасть с
+        # аргументом (s.append_str(s)).
+        ai = 0
+        if agg_ret:
+            for attr in ("noalias", "nofree", "nonnull"):
+                fn.args[0].add_attribute(attr)
+            ai = 1
+        if struct is not None:
+            for attr in ("nofree", "nonnull"):
+                fn.args[ai].add_attribute(attr)
+            ai += 1
+        for _, pty in sig.params:
+            if self.is_agg(pty):
+                for attr in ("nofree", "nonnull"):
+                    fn.args[ai].add_attribute(attr)
+            ai += 1
         return fn
 
     def gen_func(self, func: ast.FuncDecl, key, sig, struct) -> None:
@@ -778,7 +797,8 @@ class Codegen:
                 # nsw/nuw отдаёт доказательство верификатора оптимизатору
                 # (только build-путь: в `eatc ir` фактов верификатора нет)
                 plain = {"+": self.b.add, "-": self.b.sub, "*": self.b.mul}
-                return plain[op](left, right, flags=("nsw" if signed else "nuw",))
+                wrap = ("nsw",) if signed else ("nuw",)
+                return plain[op](left, right, flags=wrap)
             name = {
                 ("+", True): "llvm.sadd.with.overflow",
                 ("-", True): "llvm.ssub.with.overflow",
