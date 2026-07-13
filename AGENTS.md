@@ -18,6 +18,7 @@ Python-бутстрап (`src/eatc/`) — эталон, с которым всё
 | [docs/GUIDE.md](docs/GUIDE.md) | как писать на языке: синтаксис, контракты, что не скомпилируется |
 | [docs/SELFHOST.md](docs/SELFHOST.md) | архитектура self-hosted компилятора, фазы 1–6 |
 | [docs/VERIFICATION_PLAN.md](docs/VERIFICATION_PLAN.md) | статический верификатор: каталог кейсов `tests/verify/` |
+| [docs/TRACKS.md](docs/TRACKS.md) | треки работ: производительность, МК, язык — что дальше и почему |
 
 ## Главные правила
 
