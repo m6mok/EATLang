@@ -15,6 +15,7 @@ EXAMPLES = \
 	examples/if_statement/Elif.eat \
 	examples/iterator/Iterator.eat \
 	examples/struct/Struct.eat \
+	examples/alias/Alias.eat \
 	examples/all/All.eat
 
 # Компиляция всех примеров: парсинг, проверки Power of 10, типы,
@@ -270,6 +271,9 @@ run_iterator:
 
 run_struct:
 	$(EATC) run examples/struct/Struct.eat
+
+run_alias:
+	$(EATC) run examples/alias/Alias.eat
 
 run_all:
 	$(EATC) run examples/all/All.eat

@@ -2,8 +2,11 @@
 
 Модель значений: скаляры (целые, bool, char, enum) — регистры LLVM;
 агрегаты (str, массивы, struct, Result, Option) живут в alloca на
-стеке, выражение возвращает указатель. Копия на каждой точке
-связывания — как в интерпретаторе. Кучи нет: ни одного malloc.
+стеке, выражение возвращает указатель. Копия — на точках связывания
+(let/присваивание); параметры и не-var self читаются по ссылке без
+копии, перекрытие с var self-получателем закрывает копия на месте
+вызова (наблюдаемая семантика — by-value, SPEC §5.4). Кучи нет:
+ни одного malloc.
 
 Все trap'ы (контракты, переполнение, деление на ноль, границы)
 компилируются в проверку + вызов eat_trap из runtime.c.
@@ -12,9 +15,22 @@
 import subprocess
 import sys
 from pathlib import Path
+from types import MappingProxyType
 
 import llvmlite.binding as llvm
 import llvmlite.ir as ir
+
+# readonly и nocapture — валидные LLVM-атрибуты указательного аргумента,
+# но их нет в whitelist'е llvmlite; расширяем (False — печать без типа,
+# порядок печати остаётся сортированным)
+if "readonly" not in ir.values.ArgumentAttributes._known:
+    ir.values.ArgumentAttributes._known = MappingProxyType(
+        dict(
+            ir.values.ArgumentAttributes._known,
+            readonly=False,
+            nocapture=False,
+        )
+    )
 
 from . import ast_nodes as ast
 from .errors import EatError
@@ -331,21 +347,32 @@ class Codegen:
         fn.attributes.add("nounwind")
         # указательные аргументы — всегда alloca вызывающего: не null,
         # кучи нет (nofree); слот агрегатного возврата — свежая alloca
-        # на каждый вызов, ни с чем не алиасится. noalias на параметры
-        # ставить нельзя: получатель var self может совпасть с
-        # аргументом (s.append_str(s)).
+        # на каждый вызов. Агрегаты идут по ссылке без копии у
+        # вызываемого: параметры и не-var self неизменяемы (readonly),
+        # единственный писатель в чужую память — var self, а его
+        # перекрытие с аргументом (s.append_str(s)) закрывает копия
+        # на месте вызова (emit_call) — поэтому noalias корректен на
+        # всех указательных аргументах. nocapture — в языке нет
+        # указателей, сохранить адрес нельзя; без него LLVM считает
+        # адрес утёкшим и не промоутит агрегаты вызывающего
+        # (просадка ×2.6 на StrBench).
         ai = 0
         if agg_ret:
-            for attr in ("noalias", "nofree", "nonnull"):
+            for attr in ("noalias", "nocapture", "nofree", "nonnull"):
                 fn.args[0].add_attribute(attr)
             ai = 1
         if struct is not None:
-            for attr in ("nofree", "nonnull"):
+            attrs = ("noalias", "nocapture", "nofree", "nonnull")
+            if not sig.var_self:
+                attrs = attrs + ("readonly",)
+            for attr in attrs:
                 fn.args[ai].add_attribute(attr)
             ai += 1
         for _, pty in sig.params:
             if self.is_agg(pty):
-                for attr in ("nofree", "nonnull"):
+                for attr in (
+                    "noalias", "nocapture", "nofree", "nonnull", "readonly"
+                ):
                     fn.args[ai].add_attribute(attr)
             ai += 1
         return fn
@@ -376,20 +403,16 @@ class Codegen:
             self.ret_slot = None
         if struct is not None:
             self_ty = StructType(struct)
-            if sig.var_self:
-                # var self мутирует получателя — работаем по указателю
-                # вызывающего, без локальной копии
-                self.bind("self", self_ty, fn.args[arg_i])
-            else:
-                self.bind(
-                    "self", self_ty, self.materialize(self_ty, fn.args[arg_i])
-                )
+            # получатель — по указателю вызывающего, без копии: не-var
+            # self неизменяем, перекрытие var self с аргументами
+            # закрывает caller-копия в emit_call
+            self.bind("self", self_ty, fn.args[arg_i])
             arg_i += 1
         for pname, pty in sig.params:
             arg = fn.args[arg_i]
             arg_i += 1
             if self.is_agg(pty):
-                self.bind(pname, pty, self.materialize(pty, arg))
+                self.bind(pname, pty, arg)
             else:
                 slot = self.alloca(self.ll(pty), name=pname)
                 self.b.store(arg, slot)
@@ -930,6 +953,16 @@ class Codegen:
         self.copy_into(pty, dst, self.expr(node.args[0]))
         return out
 
+    def lvalue_root(self, node: ast.Expr) -> str | None:
+        """Корень lvalue-пути (`a`, `a.f`, `a[i]` → "a"); None — rvalue."""
+        while isinstance(node, (ast.FieldAccess, ast.Index)):
+            node = node.obj
+        if isinstance(node, ast.Name):
+            return node.ident
+        if isinstance(node, ast.SelfExpr):
+            return "self"
+        return None
+
     def emit_call(self, node, fn, sig, prefix_args: list):
         args = list(prefix_args)
         agg_ret = sig.ret is not None and self.is_agg(sig.ret)
@@ -937,8 +970,21 @@ class Codegen:
         if agg_ret:
             out = self.alloca(self.ll(sig.ret), name="call.ret")
             args.insert(0, out)
+        # агрегаты передаются по ссылке без копии; перекрытие аргумента
+        # с var self-получателем (общий корень lvalue-пути) страхует
+        # копия здесь — наблюдаемая семантика остаётся by-value
+        recv_root = None
+        if sig.var_self and isinstance(node, ast.MethodCall):
+            recv_root = self.lvalue_root(node.obj)
         for arg in node.args:
-            args.append(self.expr(arg))
+            value = self.expr(arg)
+            if (
+                recv_root is not None
+                and self.is_agg(arg.ty)
+                and self.lvalue_root(arg) == recv_root
+            ):
+                value = self.materialize(arg.ty, value)
+            args.append(value)
         result = self.b.call(fn, args)
         if sig.ret is None:
             return None

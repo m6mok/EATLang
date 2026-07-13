@@ -1,0 +1,52 @@
+# Перекрытие var self-получателя с аргументом (SPEC §5.4).
+#
+# Параметры семантически by-value: absorb видит снапшот o, даже когда
+# аргумент — сам получатель (p.absorb(p)). Копию у вызываемого
+# компилятор элидирует; при общем корне lvalue-пути копию делает
+# вызывающий. Этот пример прибивает семантику дифференциальной
+# сверкой: интерпретатор и бинарник обязаны напечатать одно и то же.
+
+struct Pair {
+    a: u32
+    b: u32
+
+    func absorb(var self, o: Pair)
+        requires o.a <= 1000 and o.b <= 1000
+        ensures true
+    {
+        self.a = o.b
+        self.b = o.a
+    }
+
+    func sum(self) -> u32
+        requires self.a <= 1000 and self.b <= 1000
+        ensures result <= 2000
+    {
+        return self.a + self.b
+    }
+}
+
+test absorb_self_snapshot {
+    var p: Pair = Pair { a: 1, b: 2 }
+    p.absorb(p)
+    assert p.a == 2
+    assert p.b == 1
+    assert p.sum() == 3
+}
+
+func main() {
+    var p: Pair = Pair { a: 10, b: 20 }
+    p.absorb(p)
+    print("p = {p.a} {p.b}")
+    var q: Pair = Pair { a: 3, b: 4 }
+    q.absorb(p)
+    print("q = {q.a} {q.b}")
+    # интерполяция строки с самой собой: сегмент {s} — снапшот s
+    var s: str<256> = "ab"
+    s = "{s}+{s}"
+    print(s)
+    let t: str<256> = "xy"
+    if s == s and t == t {
+        print("eq self ok")
+    }
+}

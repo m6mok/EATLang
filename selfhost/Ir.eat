@@ -3030,6 +3030,47 @@ struct Ir {
         self.nx3 = self.nx3 - 1
     }
 
+    # Корень lvalue-пути (a, a.f, a[i] → узел name/self); NONE — rvalue.
+    func lv_root(self, n: u32) -> u32
+        requires n < 131072
+        ensures true
+    {
+        var m: u32 = n
+        for _ in 0..32 {
+            let k: u32 = self.c.p.nk[m / 65536][m % 65536]
+            if k != 43 and k != 44 {
+                break
+            }
+            m = self.c.p.nfc[m / 65536][m % 65536]
+        }
+        let k2: u32 = self.c.p.nk[m / 65536][m % 65536]
+        if k2 == 37 or k2 == 38 {
+            return m
+        }
+        return 4294967295
+    }
+
+    # Перекрытие lvalue-путей: общий корень (a и a.f/a[i]; self и self).
+    func lv_overlap(var self, an: u32, bn: u32) -> bool
+        requires an < 131072 and bn < 131072
+        ensures true
+    {
+        let r1: u32 = self.lv_root(an)
+        let r2: u32 = self.lv_root(bn)
+        if r1 == 4294967295 or r2 == 4294967295 {
+            return false
+        }
+        let k1: u32 = self.c.p.nk[r1 / 65536][r1 % 65536]
+        let k2: u32 = self.c.p.nk[r2 / 65536][r2 % 65536]
+        if k1 == 38 and k2 == 38 {
+            return true
+        }
+        if k1 != 37 or k2 != 37 {
+            return false
+        }
+        return self.c.span_eq(self.c.p.nss[r1 / 65536][r1 % 65536], self.c.p.nsl[r1 / 65536][r1 % 65536], self.c.p.nss[r2 / 65536][r2 % 65536], self.c.p.nsl[r2 / 65536][r2 % 65536])
+    }
+
     func xmeth(var self, f: u32, n: u32)
         requires f < 64 and n < 131072
         ensures true
@@ -3056,9 +3097,18 @@ struct Ir {
             self.ert = self.xd3[f]
             self.nx3 = self.nx3 - 1
         } else {
-            # очередной аргумент метода
+            # очередной аргумент метода: агрегат идёт по ссылке; перекрытие
+            # с var self-получателем страхует копия (семантика by-value)
             let mfi: u32 = self.xb3[f]
-            self.ag_push(self.c.pty[self.c.fps[mfi] + self.xf3[f]])
+            let pt2: u32 = self.c.pty[self.c.fps[mfi] + self.xf3[f]]
+            if self.c.fvs[mfi] == 1 and self.is_agg(pt2) {
+                if self.lv_overlap(self.c.nth_child(n, self.xf3[f] + 1), obj) {
+                    self.set2er()
+                    self.materialize(pt2)
+                    self.serrr(pt2)
+                }
+            }
+            self.ag_push(pt2)
             self.xf3[f] = self.xf3[f] + 1
             if self.xf3[f] >= self.c.fpc[mfi] {
                 self.xufin(f)
@@ -4480,15 +4530,11 @@ struct Ir {
         if own != 4294967295 {
             self.sty2 = self.c.intern(8, 4294967295, 4294967295, self.c.sn_s[own], self.c.sn_l[own])
             ai = ai + 1
-            if self.c.fvs[fi] == 1 {
-                self.set1(0, ai, 0)
-                self.bindv(4294967295, 0, self.sty2)
-            } else {
-                self.set2(0, ai, 0)
-                self.materialize(self.sty2)
-                self.set1rr()
-                self.bindv(4294967295, 0, self.sty2)
-            }
+            # получатель — по указателю вызывающего, без копии: не-var
+            # self неизменяем, перекрытие var self с аргументом
+            # закрывает caller-копия на месте вызова (xmeth)
+            self.set1(0, ai, 0)
+            self.bindv(4294967295, 0, self.sty2)
         }
         for k in 0..8 {
             if k >= self.c.fpc[fi] or self.failed {
@@ -4505,9 +4551,8 @@ struct Ir {
     {
         let pt: u32 = self.c.pty[pi]
         if self.is_agg(pt) {
-            self.set2(0, ai, 0)
-            self.materialize(pt)
-            self.set1rr()
+            # агрегатный параметр читается по ссылке (см. xmeth)
+            self.set1(0, ai, 0)
             self.bindv(self.c.pn_s[pi], self.c.pn_l[pi], pt)
             return
         }
@@ -4668,7 +4713,7 @@ struct Ir {
         var i: u32 = 0
         if self.aggr == 1 {
             self.o_ty(self.rett)
-            write("* noalias nofree nonnull %\".1\"")
+            write("* noalias nocapture nofree nonnull %\".1\"")
             i = 1
         }
         if self.c.fown[fi] != 4294967295 {
@@ -4677,7 +4722,11 @@ struct Ir {
             }
             i = i + 1
             self.o_ty(self.sty2)
-            write("* nofree nonnull %\".{i}\"")
+            if self.c.fvs[fi] == 1 {
+                write("* noalias nocapture nofree nonnull %\".{i}\"")
+            } else {
+                write("* noalias nocapture nofree nonnull readonly %\".{i}\"")
+            }
         }
         for k in 0..8 {
             if k >= self.c.fpc[fi] {
@@ -4690,7 +4739,7 @@ struct Ir {
             let pt: u32 = self.c.pty[self.c.fps[fi] + k]
             self.o_ty(pt)
             if self.is_agg(pt) {
-                write("* nofree nonnull")
+                write("* noalias nocapture nofree nonnull readonly")
             }
             write(" %\".{i}\"")
         }
