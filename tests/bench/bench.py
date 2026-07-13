@@ -459,7 +459,10 @@ def stage_binary(name, mods, quick):
         print(f"  {name} {state} — пропуск (соберите: make verify_selfhost)")
         return None
     print(f"  {name} {state} — сборка Python-бутстрапом...")
-    r = run_timed(eatc("build", *(str(s) for s in srcs), "-o", str(binary)))
+    # пути относительно корня: они попадают в trap-сообщения, и
+    # абсолютные раздували бы данные против сборки из make
+    r = run_timed(eatc("build", *(str(s.relative_to(ROOT)) for s in srcs),
+                       "-o", str(binary)))
     if r.rc != 0:
         fail(f"compiler: сборка {name}: {r.err.decode()[:200]}")
         return None
@@ -520,9 +523,9 @@ def bench_compiler(quick: bool):
 MOS_SRCS = ["Cpu6502.eat", "Tests.eat", "Main.eat"]
 
 
-def example_binary(name, srcs, quick):
+def example_binary(name, srcs, quick, flags=()):
     """build/<name> из списка исходников; та же логика свежести,
-    что у stage_binary."""
+    что у stage_binary. flags — доп. флаги eatc build (--trap-codes)."""
     binary = ROOT / "build" / name
     deps = srcs + [ROOT / "src" / "eatc" / "runtime.c"]
     fresh = binary.exists() and \
@@ -534,7 +537,10 @@ def example_binary(name, srcs, quick):
         print(f"  {name} {state} — пропуск (соберите: make verify)")
         return None
     print(f"  {name} {state} — сборка Python-бутстрапом...")
-    r = run_timed(eatc("build", *(str(s) for s in srcs), "-o", str(binary)))
+    # относительные пути — см. stage_binary (trap-сообщения)
+    r = run_timed(eatc("build", *flags,
+                       *(str(s.relative_to(ROOT)) for s in srcs),
+                       "-o", str(binary)))
     if r.rc != 0:
         fail(f"size: сборка {name}: {r.err.decode()[:200]}")
         return None
@@ -586,18 +592,24 @@ def bench_size(quick: bool):
         binary = stage_binary(name, mods, quick)
         if binary is not None:
             targets.append((name, binary))
-    mos = example_binary(
-        "Mos6502",
-        [RT] + [ROOT / "examples" / "mos6502" / m for m in MOS_SRCS],
-        quick)
+    mos_srcs = [RT] + [ROOT / "examples" / "mos6502" / m for m in MOS_SRCS]
+    hello_srcs = [RT, ROOT / "examples" / "hello_world" / "HelloWorld.eat"]
+    ir_srcs = [RT] + [ROOT / "selfhost" / m for m in SELF_STAGES[-1][2]]
+    mos = example_binary("Mos6502", mos_srcs, quick)
     if mos is not None:
         targets.append(("Mos6502", mos))
-    hello = example_binary(
-        "HelloWorld",
-        [RT, ROOT / "examples" / "hello_world" / "HelloWorld.eat"],
-        quick)
+    hello = example_binary("HelloWorld", hello_srcs, quick)
     if hello is not None:
         targets.append(("HelloWorld", hello))
+    # режим trap-кодов (--trap-codes): вклад trap-строк во флеш
+    for label, bname, srcs in (
+        ("SelfIr (trap-коды)", "SelfIrTc", ir_srcs),
+        ("Mos6502 (trap-коды)", "Mos6502Tc", mos_srcs),
+        ("HelloWorld (trap-коды)", "HelloWorldTc", hello_srcs),
+    ):
+        b = example_binary(bname, srcs, quick, flags=("--trap-codes",))
+        if b is not None:
+            targets.append((label, b))
 
     def kb(n):
         return f"{n / 1024:.1f} КБ" if n is not None else "-"
