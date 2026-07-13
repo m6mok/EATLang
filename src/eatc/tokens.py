@@ -38,6 +38,7 @@ class T(Enum):
     AND = auto()
     OR = auto()
     NOT = auto()
+    EXTERN = auto()
 
     # пунктуация и операторы
     LPAREN = auto()
@@ -102,6 +103,7 @@ KEYWORDS = {
     "and": T.AND,
     "or": T.OR,
     "not": T.NOT,
+    "extern": T.EXTERN,
 }
 
 

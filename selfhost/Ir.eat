@@ -2148,7 +2148,11 @@ struct Ir {
             self.wty(rt2)
             self.lb_lit(" @\"")
         }
-        self.w_mangle(fi)
+        if self.fn_ext(fi) {
+            self.lb_sb(self.c.fn_s[fi], self.c.fn_l[fi])
+        } else {
+            self.w_mangle(fi)
+        }
         self.lb_lit("\"(")
         for j in 0..8 {
             if j >= cnt {
@@ -4657,6 +4661,15 @@ struct Ir {
         return found
     }
 
+    # Функция объявлена как extern (узел вида 50)?
+    func fn_ext(var self, fi: u32) -> bool
+        requires fi < 1024
+        ensures true
+    {
+        let d: u32 = self.c.fnd[fi]
+        return self.c.p.nk[d / 65536][d % 65536] == 50
+    }
+
     func gen_fn(var self, fi: u32)
         requires fi < 1024
         ensures true
@@ -4902,6 +4915,39 @@ struct Ir {
         write(") norecurse nounwind\n{{\n")
         self.p_blocks()
         write("}}\n")
+    }
+
+    # extern: declare с именем как написано (без eat_-манглинга),
+    # nounwind; массивы — указатель read-only (граница доверия v1).
+    func p_extern(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        self.p_sep()
+        write("declare ")
+        if self.c.fret[fi] == 4294967295 {
+            write("void")
+        } else {
+            self.o_ty(self.c.fret[fi])
+        }
+        write(" @\"")
+        self.o_sb(self.c.fn_s[fi], self.c.fn_l[fi])
+        write("\"(")
+        for k in 0..8 {
+            if k >= self.c.fpc[fi] {
+                break
+            }
+            if k > 0 {
+                write(", ")
+            }
+            let pt: u32 = self.c.pty[self.c.fps[fi] + k]
+            self.o_ty(pt)
+            if self.is_agg(pt) {
+                write("* noalias nocapture nofree nonnull readonly")
+            }
+            write(" %\".{k + 1}\"")
+        }
+        write(") nounwind\n")
     }
 
     func p_args(var self, fi: u32)
@@ -5212,6 +5258,8 @@ struct Ir {
             let k: u32 = self.c.p.nk[d / 65536][d % 65536]
             if k == 6 {
                 self.gen_fn(self.c.func_by_node(d))
+            } elif k == 50 {
+                self.p_extern(self.c.func_by_node(d))
             } elif k == 4 {
                 var m: u32 = self.c.p.nfc[d / 65536][d % 65536]
                 for _ in 0..512 {

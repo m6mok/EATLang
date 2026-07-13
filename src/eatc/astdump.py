@@ -69,11 +69,15 @@ class Dumper:
             raise AssertionError(f"неизвестное объявление: {node}")
 
     def func(self, d: int, node: ast.FuncDecl) -> None:
-        method = 1 if node.is_method else 0
-        self.emit(
-            d,
-            f"func {node.line}:{node.col} name={node.name} method={method}",
-        )
+        if node.is_extern:
+            self.emit(d, f"extern {node.line}:{node.col} name={node.name}")
+        else:
+            method = 1 if node.is_method else 0
+            self.emit(
+                d,
+                f"func {node.line}:{node.col} name={node.name} "
+                f"method={method}",
+            )
         for p in node.params:
             mut = 1 if p.mutable else 0
             self.emit(d + 1, f"param {p.line}:{p.col} name={p.name} mut={mut}")
@@ -88,7 +92,8 @@ class Dumper:
         if node.ensures is not None:
             self.emit(d + 1, "ensures")
             self.expr(d + 2, node.ensures)
-        self.block(d + 1, node.body)
+        if node.body is not None:
+            self.block(d + 1, node.body)
 
     # --- типы --------------------------------------------------------------
 

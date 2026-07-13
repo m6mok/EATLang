@@ -253,8 +253,9 @@ class FuncDecl(Node):
     ret: Node | None
     requires: Expr | None
     ensures: Expr | None
-    body: Block
+    body: Block | None  # None — extern-функция (тела нет)
     is_method: bool = False
+    is_extern: bool = False  # C-функция за границей доверия (SPEC §7)
 
 
 @dataclass

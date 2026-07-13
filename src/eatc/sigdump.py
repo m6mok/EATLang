@@ -57,8 +57,9 @@ def dump_signatures(
             ctype, value = tc.consts[decl.name]
             lines.append(f"const {decl.name} {pos} :: {show(ctype)} = {value}")
         elif isinstance(decl, ast.FuncDecl):
+            kw = "extern" if decl.is_extern else "func"
             lines.append(
-                f"func {decl.name} {pos} {_sig_str(tc.funcs[decl.name])}"
+                f"{kw} {decl.name} {pos} {_sig_str(tc.funcs[decl.name])}"
             )
         elif isinstance(decl, ast.StructDecl):
             lines.append(f"struct {decl.name} {pos}")

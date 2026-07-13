@@ -314,7 +314,7 @@ class Verifier:
         order = self._topo_order()
         for key in order:
             func, struct = self._func_by_key(key)
-            if func is not None:
+            if func is not None and func.body is not None:
                 self._analyze_func(func, key, struct)
         for decl in self.program.decls:
             if isinstance(decl, ast.TestBlock):

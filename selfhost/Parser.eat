@@ -179,7 +179,7 @@ struct Parser {
     # --- пул узлов -------------------------------------------------------
 
     func alloc(var self, k: u32, ln: u32, cl: u32) -> u32
-        requires k <= 49
+        requires k <= 50
         ensures result < 131072
     {
         if self.nnode >= 131072 {
@@ -374,6 +374,8 @@ struct Parser {
             self.start_const(att)
         } elif k == 10 {
             self.start_test(att)
+        } elif k == 62 {
+            self.start_extern(att)
         } else {
             self.fail("на верхнем уровне допустимы только func, struct, enum, const, test")
         }
@@ -401,6 +403,34 @@ struct Parser {
         }
         self.advance()
         self.push_frame(1, 0, node, att, instruct)
+    }
+
+    # extern func: заголовок как у функции, узел 50, тела нет.
+    func start_extern(var self, att: u32)
+        requires true
+        ensures true
+    {
+        let ln: u32 = self.t_line()
+        let cl: u32 = self.t_col()
+        self.advance()
+        if self.tk_at() != 4 {
+            self.fail("ожидалось func")
+            return
+        }
+        self.advance()
+        if self.tk_at() != 3 {
+            self.fail("ожидалось имя функции")
+            return
+        }
+        let node: u32 = self.alloc(50, ln, cl)
+        self.set_str(node, self.cur)
+        self.advance()
+        if self.tk_at() != 30 {
+            self.fail("ожидалось '('")
+            return
+        }
+        self.advance()
+        self.push_frame(1, 0, node, att, 0)
     }
 
     func step_func(var self)
@@ -436,8 +466,13 @@ struct Parser {
         } elif ph == 6 {
             self.func_param_next()
         } elif ph == 9 {
-            self.fp[f] = 10
-            self.start_block(self.fnod[f])
+            let nd: u32 = self.fnod[f]
+            if self.nk[nd / 65536][nd % 65536] == 50 {
+                self.func_finish()
+            } else {
+                self.fp[f] = 10
+                self.start_block(nd)
+            }
         } else {
             self.func_finish()
         }

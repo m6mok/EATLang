@@ -254,6 +254,12 @@ class Interpreter:
         self_value,
         site: ast.Node,
     ):
+        if func.is_extern:
+            raise self.trap(
+                site,
+                f"extern {func.name} доступен только в бинарнике "
+                "(интерпретатор не линкует C)",
+            )
         self.frames.append([{}])
         try:
             if self_value is not None:

@@ -241,7 +241,7 @@ struct Lexer {
     # --- запись токенов в пул -------------------------------------------
 
     func emit_plain(var self, k: u32)
-        requires k <= 61
+        requires k <= 62
         ensures true
     {
         if self.ntok >= 131072 {
@@ -262,7 +262,7 @@ struct Lexer {
 
     # Токен со значением: байты val[0..vlen] копируются в sbuf.
     func emit_value(var self, k: u32)
-        requires k <= 61
+        requires k <= 62
         ensures true
     {
         if self.sblen >= 130816 {

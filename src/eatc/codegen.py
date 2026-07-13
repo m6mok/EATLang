@@ -361,14 +361,39 @@ class Codegen:
                     sig = self.checker.structs[decl.name].methods[m.name]
                     decls.append((m, f"{decl.name}.{m.name}", sig, decl.name))
         for func, key, sig, struct in decls:
-            self.funcs[key] = self.declare_func(key, sig, struct)
+            if func.is_extern:
+                self.funcs[key] = self.declare_extern(key, sig)
+            else:
+                self.funcs[key] = self.declare_func(key, sig, struct)
         for func, key, sig, struct in decls:
-            self.gen_func(func, key, sig, struct)
+            if not func.is_extern:
+                self.gen_func(func, key, sig, struct)
         self.gen_entry()
         return self.module
 
     def mangle(self, key: str) -> str:
         return "eat_" + key.replace(".", "__")
+
+    def declare_extern(self, key: str, sig):
+        """extern-функция: declare с именем как написано (без eat_-
+        манглинга — C-реализация линкуется по этому символу). Границу
+        типов сузил тайпчекер: скаляры и [u8|u16|u32; N]. Массивы —
+        по указателю, read-only (v1: C не пишет в память программы);
+        norecurse не ставим — про C-код это не доказано."""
+        args: list[ir.Type] = []
+        for _, pty in sig.params:
+            llt = self.ll(pty)
+            args.append(ir.PointerType(llt) if self.is_agg(pty) else llt)
+        ret_ll = ir.VoidType() if sig.ret is None else self.ll(sig.ret)
+        fn = ir.Function(self.module, ir.FunctionType(ret_ll, args), name=key)
+        fn.attributes.add("nounwind")
+        for i, (_, pty) in enumerate(sig.params):
+            if self.is_agg(pty):
+                for attr in (
+                    "noalias", "nocapture", "nofree", "nonnull", "readonly"
+                ):
+                    fn.args[i].add_attribute(attr)
+        return fn
 
     def declare_func(self, key: str, sig, struct: str | None):
         args: list[ir.Type] = []

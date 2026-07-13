@@ -115,6 +115,8 @@ class Parser:
         tok = self.peek()
         if tok.type == T.FUNC:
             return self.parse_func()
+        if tok.type == T.EXTERN:
+            return self.parse_extern()
         if tok.type == T.STRUCT:
             return self.parse_struct()
         if tok.type == T.ENUM:
@@ -188,6 +190,40 @@ class Parser:
         return ast.TestBlock(tok.line, tok.col, name.value, body)
 
     # --- функции ------------------------------------------------------------
+
+    def parse_extern(self) -> ast.FuncDecl:
+        # extern func имя(...) [-> тип] [requires] [ensures] — без тела:
+        # реализация на C линкуется с бинарником (SPEC §7)
+        tok = self.expect(T.EXTERN, "extern")
+        self.expect(T.FUNC, "func")
+        name = self.expect(T.IDENT, "имя функции")
+        self.expect(T.LPAREN, "'('")
+        params = self.parse_params(False)
+        self.expect(T.RPAREN, "')'")
+        ret = None
+        if self.accept(T.ARROW):
+            ret = self.parse_type()
+        self.skip_newlines()
+        requires = None
+        if self.accept(T.REQUIRES):
+            requires = self.parse_expr()
+            self.skip_newlines()
+        ensures = None
+        if self.accept(T.ENSURES):
+            ensures = self.parse_expr()
+            self.skip_newlines()
+        return ast.FuncDecl(
+            tok.line,
+            tok.col,
+            name.value,
+            params,
+            ret,
+            requires,
+            ensures,
+            None,
+            False,
+            True,
+        )
 
     def parse_func(self, in_struct: bool = False) -> ast.FuncDecl:
         tok = self.expect(T.FUNC, "func")

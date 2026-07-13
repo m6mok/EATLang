@@ -1,0 +1,17 @@
+# Смоук extern: объявления без тела, вызовы, контракты
+extern func gpio_set(pin: u32, on: bool)
+    requires pin <= 29
+
+extern func systick_ms() -> u32
+    ensures true
+
+extern func spi_write(data: [u8; 16], n: u32)
+    requires n <= 16
+
+func main() {
+    gpio_set(25, true)
+    let t: u32 = systick_ms()
+    let buf: [u8; 16] = [0; 16]
+    spi_write(buf, 4)
+    print("{t}")
+}

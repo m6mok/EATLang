@@ -873,7 +873,7 @@ struct Check {
             let k: u32 = self.p.nk[d / 65536][d % 65536]
             if k == 1 {
                 self.col_const(d)
-            } elif k == 6 {
+            } elif k == 6 or k == 50 {
                 self.declare_top(d)
                 self.add_func(d, 4294967295)
             } elif k == 2 {
@@ -1331,6 +1331,9 @@ struct Check {
             return
         }
         self.main_fi = mi
+        if self.p.nk[self.fnd[mi] / 65536][self.fnd[mi] % 65536] == 50 {
+            self.fail_node(self.fnd[mi], "main не может быть extern")
+        }
         if self.fpc[mi] != 0 or self.fret[mi] != 4294967295 {
             self.fail_node(self.fnd[mi], "main не принимает параметров и ничего не возвращает")
         }
@@ -1521,9 +1524,13 @@ struct Check {
                 write("-")
             }
             write("{self.cvm[ci]}\n")
-        } elif k == 6 {
+        } elif k == 6 or k == 50 {
             let fi: u32 = self.func_by_node(d)
-            write("func ")
+            if k == 50 {
+                write("extern ")
+            } else {
+                write("func ")
+            }
             self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
             write(" {ln}:{cl} ")
             self.write_sig(fi)
@@ -3541,6 +3548,12 @@ struct Check {
         if self.failed {
             return
         }
+        if self.p.nk[d / 65536][d % 65536] == 50 {
+            self.extern_boundary(fi)
+            self.mark_params_used()
+            self.pop_scope()
+            return
+        }
         self.run_block_machine(body, 0)
         if self.failed {
             return
@@ -3553,6 +3566,56 @@ struct Check {
         self.self_ty2 = 4294967295
     }
 
+    # Граница с C (SPEC §7): параметры — скаляры или [u8|u16|u32; N],
+    # возврат — только скаляр.
+    func extern_boundary(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        let d: u32 = self.fnd[fi]
+        for k in 0..8 {
+            if k >= self.fpc[fi] or self.failed {
+                break
+            }
+            let t: u32 = self.pty[self.fps[fi] + k]
+            if not self.extern_ok(t, true) {
+                self.fail_node(d, "extern: на границе с C допустимы скаляры и [u8|u16|u32; N]")
+            }
+        }
+        let rt: u32 = self.fret[fi]
+        if rt != 4294967295 and not self.extern_ok(rt, false) {
+            self.fail_node(d, "extern: возврат через границу с C — только скаляр")
+        }
+    }
+
+    func extern_ok(var self, t: u32, arrays: bool) -> bool
+        requires t < 512
+        ensures true
+    {
+        let k: u32 = self.yk[t]
+        if k <= 4 or k == 12 {
+            return true
+        }
+        if arrays and k == 7 {
+            let ek: u32 = self.yk[self.ya[t]]
+            return ek == 1 or ek == 2 or ek == 12
+        }
+        return false
+    }
+
+    # Параметры extern «использует» C-реализация — не считаем мёртвыми.
+    func mark_params_used(var self)
+        requires true
+        ensures true
+    {
+        for v in 0..256 {
+            if v >= self.nsv {
+                break
+            }
+            self.sv_u[v] = 1
+        }
+    }
+
     func run_bodies(var self)
         requires true
         ensures true
@@ -3563,7 +3626,7 @@ struct Check {
                 break
             }
             let k: u32 = self.p.nk[d / 65536][d % 65536]
-            if k == 6 {
+            if k == 6 or k == 50 {
                 self.check_func_body(self.func_by_node(d))
             } elif k == 4 {
                 var m: u32 = self.p.nfc[d / 65536][d % 65536]

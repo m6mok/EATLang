@@ -11,9 +11,10 @@
 # 35 str       36 seg       37 name      38 self      39 binop
 # 40 unary     41 call      42 method    43 member    44 index
 # 45 structlit 46 fld       47 arraylit  48 arrayfill 49 range
+# 50 extern (функция без тела, реализация на C; SPEC §7)
 
 func write_nkind(k: u32)
-    requires k <= 49
+    requires k <= 50
     ensures true
 {
     if k < 25 {
@@ -31,10 +32,10 @@ func write_nkind_a(k: u32)
 }
 
 func write_nkind_b(k: u32)
-    requires k >= 25 and k <= 49
+    requires k >= 25 and k <= 50
     ensures true
 {
-    if k == 25 { write("exprstmt") } elif k == 26 { write("discard") } elif k == 27 { write("typename") } elif k == 28 { write("arraytype") } elif k == 29 { write("strtype") } elif k == 30 { write("resulttype") } elif k == 31 { write("optiontype") } elif k == 32 { write("int") } elif k == 33 { write("bool") } elif k == 34 { write("char") } elif k == 35 { write("str") } elif k == 36 { write("seg") } elif k == 37 { write("name") } elif k == 38 { write("self") } elif k == 39 { write("binop") } elif k == 40 { write("unary") } elif k == 41 { write("call") } elif k == 42 { write("method") } elif k == 43 { write("member") } elif k == 44 { write("index") } elif k == 45 { write("structlit") } elif k == 46 { write("fld") } elif k == 47 { write("arraylit") } elif k == 48 { write("arrayfill") } else { write("range") }
+    if k == 25 { write("exprstmt") } elif k == 26 { write("discard") } elif k == 27 { write("typename") } elif k == 28 { write("arraytype") } elif k == 29 { write("strtype") } elif k == 30 { write("resulttype") } elif k == 31 { write("optiontype") } elif k == 32 { write("int") } elif k == 33 { write("bool") } elif k == 34 { write("char") } elif k == 35 { write("str") } elif k == 36 { write("seg") } elif k == 37 { write("name") } elif k == 38 { write("self") } elif k == 39 { write("binop") } elif k == 40 { write("unary") } elif k == 41 { write("call") } elif k == 42 { write("method") } elif k == 43 { write("member") } elif k == 44 { write("index") } elif k == 45 { write("structlit") } elif k == 46 { write("fld") } elif k == 47 { write("arraylit") } elif k == 48 { write("arrayfill") } elif k == 49 { write("range") } else { write("extern") }
 }
 
 # Узлы без собственной позиции (кортежи в эталоне и обёртки).
@@ -62,7 +63,7 @@ func has_name(k: u32) -> bool
     if k == 11 or k == 18 or k == 27 {
         return true
     }
-    return k == 41 or k == 42 or k == 43 or k == 45 or k == 46
+    return k == 41 or k == 42 or k == 43 or k == 45 or k == 46 or k == 50
 }
 
 # --- операторы выражений ------------------------------------------------

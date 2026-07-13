@@ -53,7 +53,8 @@ def check_program(program: ast.Program, filename: str) -> dict:
 
     total_stmts = 0
     for func in funcs:
-        n = count_stmts(func.body)
+        # extern: тела нет — правило 4 не применимо, контракты обязательны
+        n = count_stmts(func.body) if func.body is not None else 0
         total_stmts += n
         if n > MAX_STMTS_PER_FUNC:
             raise EatError(

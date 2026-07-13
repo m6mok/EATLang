@@ -194,6 +194,8 @@ class TypeChecker:
                 self.filename, 1, 1, "нет функции main — точки входа"
             )
         main = self.funcs["main"]
+        if main.node is not None and main.node.is_extern:
+            raise self.err(main.node, "main не может быть extern")
         if main.params or main.ret is not None:
             raise self.err(
                 main.node,
@@ -428,6 +430,14 @@ class TypeChecker:
             self.result_type = sig.ret
             self._expect_bool(func.ensures, "ensures")
             self.result_type = None
+        if func.is_extern:
+            # тела нет: параметры «использует» C-реализация
+            self._check_extern_boundary(func, sig)
+            for info in self.scopes[-1].values():
+                info.used = True
+            self.pop_scope()
+            self.current = None
+            return
         self.check_block(func.body, new_scope=False)
         if sig.ret is not None and not self._block_returns(func.body):
             raise self.err(
@@ -437,6 +447,32 @@ class TypeChecker:
         self.pop_scope()
         self.current = None
         self.self_type = None
+
+    def _check_extern_boundary(self, func: ast.FuncDecl, sig) -> None:
+        """Граница с C (SPEC §7): параметры — скаляры или массивы
+        беззнаковых ([u8|u16|u32; N], по указателю, read-only);
+        возврат — только скаляр."""
+        for pname, ptype in sig.params:
+            ok = isinstance(ptype, (IntType, BoolType, CharType)) or (
+                isinstance(ptype, ArrayType)
+                and isinstance(ptype.elem, IntType)
+                and ptype.elem.kind != "i32"
+            )
+            if not ok:
+                raise self.err(
+                    func,
+                    f"extern {func.name}: параметр {pname} — на границе "
+                    f"с C допустимы скаляры и [u8|u16|u32; N], "
+                    f"не {show(ptype)}",
+                )
+        if sig.ret is not None and not isinstance(
+            sig.ret, (IntType, BoolType, CharType)
+        ):
+            raise self.err(
+                func,
+                f"extern {func.name}: возврат через границу с C — "
+                f"только скаляр, не {show(sig.ret)}",
+            )
 
     def check_test(self, test: ast.TestBlock) -> None:
         self.current = FuncSig(f"test {test.name}", [], None)
