@@ -109,14 +109,12 @@ struct RtStr {
         assert self.ln + n <= 256
         let base: u32 = self.ln
         for i in 0..10 {
-            if i >= n {
+            # маска — доказательство границ, guard в break — тело
+            # без ветвлений (как в append_str)
+            if i >= n or (base & 255) + i >= 256 {
                 break
             }
-            # маска — доказательство границ, как в append_str
-            let j: u32 = (base & 255) + i
-            if j < 256 {
-                self.buf[j] = tmp[n - 1 - i]
-            }
+            self.buf[(base & 255) + i] = tmp[n - 1 - i]
         }
         self.ln = base + n
     }
@@ -143,16 +141,14 @@ struct RtStr {
         if self.ln != o.ln {
             return false
         }
-        var alike: bool = true
-        for i in 0..256 {
-            if i >= self.ln or not alike {
+        var i: u32 = 0
+        for _ in 0..256 {
+            if i >= self.ln or self.buf[i] != o.buf[i] {
                 break
             }
-            if self.buf[i] != o.buf[i] {
-                alike = false
-            }
+            i = i + 1
         }
-        return alike
+        return i >= self.ln
     }
 
     # --- ввод строки (read_byte — аксиома) ---------------------------------
@@ -203,11 +199,11 @@ struct RtStr {
     {
         var i: u32 = 0
         for _ in 0..256 {
-            if i < self.ln {
-                if self.buf[i] == 32 or self.buf[i] == 9 {
-                    i = i + 1
-                }
+            # ранний выход: конец строки или первый значимый байт
+            if i >= self.ln or (self.buf[i] != 32 and self.buf[i] != 9) {
+                break
             }
+            i = i + 1
         }
         return i
     }
@@ -219,11 +215,11 @@ struct RtStr {
     {
         var h: u32 = self.ln
         for _ in 0..256 {
-            if h > 0 {
-                if self.buf[h - 1] == 32 or self.buf[h - 1] == 9 {
-                    h = h - 1
-                }
+            # ранний выход: начало строки или значимый байт справа
+            if h == 0 or (self.buf[h - 1] != 32 and self.buf[h - 1] != 9) {
+                break
             }
+            h = h - 1
         }
         return h
     }
@@ -248,25 +244,26 @@ struct RtStr {
         var mag: u32 = 0
         var st: u32 = 0
         for _ in 0..256 {
-            if lo < hi and st == 0 {
-                let b: u8 = self.buf[lo]
-                if b < 48 or b > 57 {
-                    st = 2
+            if lo >= hi or st != 0 {
+                break
+            }
+            let b: u8 = self.buf[lo]
+            if b < 48 or b > 57 {
+                st = 2
+            } else {
+                let d: u32 = u32(b) - 48
+                if mag > (4294967295 - d) / 10 {
+                    st = 3
                 } else {
-                    let d: u32 = u32(b) - 48
-                    if mag > (4294967295 - d) / 10 {
-                        st = 3
-                    } else {
-                        mag = mag * 10 + d
-                        if neg {
-                            if mag > 2147483648 {
-                                st = 3
-                            }
-                        } elif mag > 2147483647 {
+                    mag = mag * 10 + d
+                    if neg {
+                        if mag > 2147483648 {
                             st = 3
                         }
-                        lo = lo + 1
+                    } elif mag > 2147483647 {
+                        st = 3
                     }
+                    lo = lo + 1
                 }
             }
         }
@@ -290,10 +287,11 @@ struct RtStr {
         }
         var mag: u32 = 0
         for _ in 0..256 {
-            if lo < hi {
-                mag = mag * 10 + (u32(self.buf[lo]) - 48)
-                lo = lo + 1
+            if lo >= hi {
+                break
             }
+            mag = mag * 10 + (u32(self.buf[lo]) - 48)
+            lo = lo + 1
         }
         if neg {
             if mag == 2147483648 {
