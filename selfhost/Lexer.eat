@@ -187,6 +187,30 @@ struct Lexer {
         return self.sbuf[i / 65536][i % 65536]
     }
 
+    # Спан пула значений в stdout батчем (write_span); спан может
+    # пересекать границу банка — не более одного раза (l <= 256).
+    func w_span(var self, a: u32, l: u32)
+        requires a <= 131072 and l <= 131072
+        ensures true
+    {
+        var pos: u32 = a
+        var left: u32 = l
+        for _ in 0..2 {
+            if left == 0 {
+                break
+            }
+            let bk: u32 = (pos >> 16) & 1
+            let off: u32 = pos & 65535
+            var run: u32 = 65536 - off
+            if left < run {
+                run = left
+            }
+            write_span(self.sbuf[bk], off, run)
+            pos = pos + run
+            left = left - run
+        }
+    }
+
     func sb_set(var self, i: u32, b: u8)
         requires i < 131072
         ensures true

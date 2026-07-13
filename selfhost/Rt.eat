@@ -22,12 +22,7 @@ struct RtStr {
         requires true
         ensures true
     {
-        for i in 0..256 {
-            if i >= self.ln {
-                break
-            }
-            write_byte(self.buf[i])
-        }
+        write_span(self.buf, 0, self.ln)
     }
 
     func print(self)

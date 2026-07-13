@@ -1,5 +1,5 @@
-/* Шим EATLang: пять аксиом ОС — байт из stdin, байт в stdout,
- * байт в stderr, штатный выход с кодом, trap.
+/* Шим EATLang: шесть аксиом ОС — байт из stdin, байт в stdout,
+ * диапазон байтов в stdout, байт в stderr, штатный выход с кодом, trap.
  * Вся логика рантайма (строки, интерполяция, read_line, parse_i32)
  * написана на EATLang: selfhost/Rt.eat — первый модуль каждой
  * программы. Линкуется clang'ом вместе с объектным файлом. */
@@ -31,6 +31,20 @@ int32_t eat_read_byte(void) {
  * flockfile/funlockfile на каждый байт — до 2/3 цены putchar. */
 void eat_write_byte(char b) {
     putc_unlocked((unsigned char)b, stdout);
+}
+
+/* Диапазон байтов в stdout одним вызовом (write_span): батч-вывод
+ * для рантайма и эмиттеров — вместо вызова на каждый байт.
+ * Короткие спаны — putc_unlocked: fwrite берёт блокировку потока
+ * (~десятки нс на вызов), что дороже побайтной записи имён. */
+void eat_write_span(const uint8_t *p, uint32_t n) {
+    if (n < 32) {
+        for (uint32_t i = 0; i < n; i++) {
+            putc_unlocked(p[i], stdout);
+        }
+    } else {
+        fwrite(p, 1, n, stdout);
+    }
 }
 
 /* Байт в stderr (write_err_byte): канал диагностики,

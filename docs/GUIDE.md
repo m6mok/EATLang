@@ -258,6 +258,11 @@ func main() {
 Встроенные функции: `print(s)`, `read_line() -> Result<str<256>,
 IoError>`, `parse_i32(s) -> Result<i32, ParseError>`, `len(x) -> u32`.
 
+Байтовый вывод: `write_byte(b: u8)` — один байт;
+`write_span(a: [u8; N], off: u32, len: u32)` — диапазон
+`a[off..off+len)` одним вызовом ОС (батч: на порядки дешевле цикла
+`write_byte` для длинных диапазонов; `off + len > N` — trap).
+
 ## 8. Тесты — часть языка
 
 `test`-блоки исполняются **при каждой сборке**; упавший `assert` или

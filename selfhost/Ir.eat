@@ -1034,7 +1034,7 @@ struct Ir {
     # 6 переполнение при касте (e1 — вид цели), 7 сдвиг ≥ ширины
     # (e1 — вид целого).
     func trap_glob(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32) -> u32
-        requires mk <= 7
+        requires mk <= 8
         ensures result < 65536
     {
         self.g_begin()
@@ -1062,9 +1062,11 @@ struct Ir {
             self.g_lit("переполнение при ")
             self.g_kind(e1)
             self.g_lit("()")
-        } else {
+        } elif mk == 7 {
             self.g_lit("сдвиг ≥ ширины ")
             self.g_kind(e1)
+        } else {
+            self.g_lit("write_span вне границ массива")
         }
         self.g_b(0)
         return self.g_commit(0)
@@ -1873,6 +1875,20 @@ struct Ir {
         self.line_fin()
     }
 
+    # call void @"eat_write_span"(i8* v1, i32 v2)
+    func e_wspan(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_write_span\"(i8* ")
+        self.wr1()
+        self.lb_lit(", i32 ")
+        self.wr2()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
     # call void @"eat_str_append_{nm}"({STR}* v1, {at} v2)
     func e_rt_si(var self, nm: str<8>, at: str<8>)
         requires true
@@ -2146,7 +2162,7 @@ struct Ir {
 
     # w1 — i1: если истина, аварийная остановка.
     func trap_if(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32)
-        requires mk <= 7
+        requires mk <= 8
         ensures true
     {
         let bk2: u32 = self.w1k
@@ -2808,6 +2824,11 @@ struct Ir {
         } elif self.c.span_is(a, l, "parse_i32") {
             self.xa3[f] = 3
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "write_span") {
+            self.xa3[f] = 8
+            self.xf3[f] = 0
+            self.xg3[f] = self.nag
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "len") {
             self.xcall_len(f, n)
         } elif self.c.span_is(a, l, "i32") {
@@ -2899,6 +2920,14 @@ struct Ir {
             self.e_exit()
             self.ert = 5
             self.nx3 = self.nx3 - 1
+        } elif code == 8 {
+            self.ag_push(1)
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= 3 {
+                self.xwspan(f, n)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f]))
+            }
         } elif code == 4 {
             # len строки: load текущей длины
             self.set1er()
@@ -2921,6 +2950,52 @@ struct Ir {
                 self.xpush2(self.c.nth_child(n, self.xf3[f]))
             }
         }
+    }
+
+    # write_span: аргументы (массив, off, len) в ag[base..base+3);
+    # границы off > N или len > N - off — trap (как codegen.py).
+    func xwspan(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let base: u32 = self.xg3[f]
+        let arg0: u32 = self.c.p.nfc[n / 65536][n % 65536]
+        let at: u32 = self.c.nty[arg0 / 65536][arg0 % 65536]
+        let sz: u32 = self.c.yb[at]
+        # rem = sub N, off
+        self.set1(2, 0, sz)
+        self.set2(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+        self.e_bin(2, 1)
+        let mk1: u32 = self.rrk
+        let ma1: u32 = self.rra
+        let mb1: u32 = self.rrb
+        # bad1 = icmp ugt off, N
+        self.set1(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+        self.set2(2, 0, sz)
+        self.e_icmp(9, 1)
+        let bk1: u32 = self.rrk
+        let ba1: u32 = self.rra
+        let bb1: u32 = self.rrb
+        # bad2 = icmp ugt len, rem
+        self.set1(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
+        self.set2(mk1, ma1, mb1)
+        self.e_icmp(9, 1)
+        # bad = or bad1, bad2
+        self.set2rr()
+        self.set1(bk1, ba1, bb1)
+        self.e_bin(9, 3)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 8, 0, 0)
+        # ptr = gep [N x i8] arr, 0, off
+        self.set1(self.agk[base], self.aga[base], self.agb[base])
+        self.set2(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+        self.e_gepi(at)
+        self.set1rr()
+        self.set2(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
+        self.e_wspan()
+        self.nag = base
+        self.ert = 5
+        self.nx3 = self.nx3 - 1
     }
 
     # Завершение вызова функции/метода: аргументы в ag[xg3..nag).
@@ -4500,20 +4575,27 @@ struct Ir {
         }
     }
 
+    # Строка-инструкция из банкованного буфера батчами по банкам:
+    # длинная строка (инлайн-типы) может пересечь до 64 границ.
     func o_lb(var self, a: u32, l: u32)
-        requires true
+        requires a <= 4194304 and l <= 4194304
         ensures true
     {
-        for h in 0..64 {
-            if h * 256 >= l {
+        var pos: u32 = a
+        var left: u32 = l
+        for _ in 0..65 {
+            if left == 0 {
                 break
             }
-            for j in 0..256 {
-                let i: u32 = h * 256 + j
-                if i < l {
-                    write_byte(self.lb_at(a + i))
-                }
+            let bk: u32 = (pos >> 16) & 63
+            let off: u32 = pos & 65535
+            var run: u32 = 65536 - off
+            if left < run {
+                run = left
             }
+            write_span(self.lb[bk], off, run)
+            pos = pos + run
+            left = left - run
         }
     }
 
@@ -4521,41 +4603,21 @@ struct Ir {
         requires true
         ensures true
     {
-        for i in 0..128 {
-            if i >= l {
-                break
-            }
-            write_byte(self.nb[a + i])
-        }
+        write_span(self.nb, a, l)
     }
 
     func o_tp(var self, a: u32, l: u32)
         requires true
         ensures true
     {
-        for h in 0..64 {
-            if h * 256 >= l {
-                break
-            }
-            for j in 0..256 {
-                let i: u32 = h * 256 + j
-                if i < l {
-                    write_byte(self.tp[a + i])
-                }
-            }
-        }
+        write_span(self.tp, a, l)
     }
 
     func o_sb(var self, a: u32, l: u32)
         requires true
         ensures true
     {
-        for i in 0..256 {
-            if i >= l {
-                break
-            }
-            write_byte(self.c.p.lex.sb_at(a + i))
-        }
+        self.c.p.lex.w_span(a, l)
     }
 
     func o_ty(var self, t: u32)
@@ -4860,6 +4922,8 @@ struct Ir {
         write("declare void @\"eat_write_byte\"(i8 %\".1\") nounwind\n")
         self.p_sep()
         write("declare void @\"eat_write_err_byte\"(i8 %\".1\") nounwind\n")
+        self.p_sep()
+        write("declare void @\"eat_write_span\"(i8* %\".1\", i32 %\".2\") nounwind\n")
         self.p_sep()
         write("declare void @\"eat_exit\"(i32 %\".1\") noreturn nounwind\n")
     }

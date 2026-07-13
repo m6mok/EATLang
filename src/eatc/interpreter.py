@@ -587,6 +587,12 @@ class Interpreter:
         if name == "write_byte":
             self._write_bytes(chr(args[0]))
             return None
+        if name == "write_span":
+            obj, off, ln = args
+            if off + ln > len(obj):
+                raise self.trap(node, "write_span вне границ массива")
+            self._write_bytes("".join(chr(b) for b in obj[off:off + ln]))
+            return None
         if name == "write_err_byte":
             sys.stderr.buffer.write(bytes([args[0]]))
             sys.stderr.buffer.flush()

@@ -206,12 +206,7 @@ struct Check {
         requires true
         ensures true
     {
-        for i in 0..256 {
-            if i >= l {
-                break
-            }
-            write_byte(self.p.lex.sb_at(a + i))
-        }
+        self.p.lex.w_span(a, l)
     }
 
     # Имя узла (nss/nsl).
@@ -745,7 +740,7 @@ struct Check {
         if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
             return true
         }
-        if self.span_is(a, l, "exit") {
+        if self.span_is(a, l, "write_span") or self.span_is(a, l, "exit") {
             return true
         }
         if self.span_is(a, l, "parse_i32") or self.span_is(a, l, "len") {
@@ -1710,7 +1705,7 @@ struct Check {
         if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
             return true
         }
-        if self.span_is(a, l, "exit") {
+        if self.span_is(a, l, "write_span") or self.span_is(a, l, "exit") {
             return true
         }
         return self.span_is(a, l, "parse_i32")
@@ -2255,21 +2250,7 @@ struct Check {
             return
         }
         if self.span_is(a, l, "exit") {
-            if argc != 1 {
-                self.fail_node(n, "ожидается 1 аргумент")
-                return
-            }
-            if self.cur_key != self.main_fi {
-                self.fail_node(n, "exit допустим только в main")
-                return
-            }
-            if self.nexit >= 1 {
-                self.fail_node(n, "exit допустим не более одного раза на программу")
-                return
-            }
-            self.nexit = self.nexit + 1
-            self.xa[f] = 109
-            self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+            self.xs_exit_start(f, n, argc)
             return
         }
         if self.span_is(a, l, "parse_i32") {
@@ -2279,6 +2260,10 @@ struct Check {
             }
             self.xa[f] = 107
             self.xpush(self.p.nfc[n / 65536][n % 65536], self.ty_sq)
+            return
+        }
+        if self.span_is(a, l, "write_span") {
+            self.xs_ws_start(f, n, argc)
             return
         }
         let fi: u32 = self.find_func(a, l)
@@ -2297,6 +2282,42 @@ struct Check {
         } else {
             self.xpush(self.p.nfc[n / 65536][n % 65536], self.pty[self.fps[fi]])
         }
+    }
+
+    # exit(code): только в main и не более одного раза (машина — код 109).
+    func xs_exit_start(var self, f: u32, n: u32, argc: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if argc != 1 {
+            self.fail_node(n, "ожидается 1 аргумент")
+            return
+        }
+        if self.cur_key != self.main_fi {
+            self.fail_node(n, "exit допустим только в main")
+            return
+        }
+        if self.nexit >= 1 {
+            self.fail_node(n, "exit допустим не более одного раза на программу")
+            return
+        }
+        self.nexit = self.nexit + 1
+        self.xa[f] = 109
+        self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+    }
+
+    # write_span(a, off, len): три аргумента, машина — код 110.
+    func xs_ws_start(var self, f: u32, n: u32, argc: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if argc != 3 {
+            self.fail_node(n, "write_span(): ровно три аргумента")
+            return
+        }
+        self.xa[f] = 110
+        self.xb[f] = 0
+        self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
     }
 
     func xs_call_next(var self, f: u32, n: u32)
@@ -2353,6 +2374,22 @@ struct Check {
             }
             self.tres = 5
             self.xdone()
+        } elif code == 110 {
+            let wi: u32 = self.xb[f]
+            if wi == 0 {
+                if self.yk[self.tres] != 7 or self.ya[self.tres] != 2 {
+                    self.fail_node(n, "write_span() пишет из массива u8")
+                }
+            } elif not self.compat(1, self.tres) {
+                self.fail_node(n, "write_span(): смещение и длина — u32")
+            }
+            if wi >= 2 {
+                self.tres = 5
+                self.xdone()
+            } else {
+                self.xb[f] = wi + 1
+                self.xpush(self.nth_child(n, wi + 1), 1)
+            }
         } else {
             self.xs_user_arg(f, n, code)
         }

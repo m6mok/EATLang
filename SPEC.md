@@ -245,6 +245,7 @@ self-hosting компилятор без динамической памяти.
 | `read_line() -> Result<str<256>, IoError>` | чтение строки из stdin |
 | `read_byte() -> Result<u8, IoError>` | байт из stdin; `Err(Eof)` в конце потока |
 | `write_byte(b: u8)` | один байт в stdout — примитив, через который выражается вывод |
+| `write_span(a: [u8; N], off: u32, len: u32)` | байты `a[off..off+len)` в stdout одним вызовом ОС (батч-вывод); `off + len > N` — trap |
 | `write_err_byte(b: u8)` | один байт в stderr — канал диагностики, не смешивается с выводом фильтра |
 | `exit(code: u32)` | штатное завершение процесса с кодом; допустим **только в `main`** и **не более одного** вызова на программу (по аналогии с `loop`); код после `exit` в том же блоке недостижим (правило 10) |
 | `parse_i32(s: str) -> Result<i32, ParseError>` | разбор целого |
@@ -252,8 +253,9 @@ self-hosting компилятор без динамической памяти.
 
 Встроенные enum: `IoError { Eof, Fail }`, `ParseError { Empty, BadChar, Overflow }`.
 
-Аксиомы языка — `read_byte`, `write_byte`, `write_err_byte`, `exit`
-и trap (примитивы ОС, шим `runtime.c` из пяти функций). Остальные
+Аксиомы языка — `read_byte`, `write_byte`, `write_span`,
+`write_err_byte`, `exit`
+и trap (примитивы ОС, шим `runtime.c` из шести функций). Остальные
 встроенные — `print`, `write`,
 интерполяция, `==` строк, `read_line`, `parse_i32` — реализованы на
 EATLang в рантайм-модуле `selfhost/Rt.eat`, который идёт первым модулем

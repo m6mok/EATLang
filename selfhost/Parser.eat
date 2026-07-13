@@ -2214,12 +2214,7 @@ struct Parser {
         requires true
         ensures true
     {
-        for i in 0..256 {
-            if i >= l {
-                break
-            }
-            write_byte(self.lex.sb_at(a + i))
-        }
+        self.lex.w_span(a, l)
     }
 
     func write_span_esc(var self, a: u32, l: u32)

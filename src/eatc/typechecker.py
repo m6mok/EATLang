@@ -89,6 +89,13 @@ BUILTINS = {
         "read_byte", [], ResultType(U8, EnumType("IoError"))
     ),
     "write_byte": FuncSig("write_byte", [("b", U8)], None),
+    # сигнатура-заглушка для правила 6: настоящая проверка — _write_span
+    # (размер массива — свободный параметр, как у len)
+    "write_span": FuncSig(
+        "write_span",
+        [("a", ArrayType(U8, 0)), ("off", U32), ("len", U32)],
+        None,
+    ),
     "write_err_byte": FuncSig("write_err_byte", [("b", U8)], None),
     "exit": FuncSig("exit", [("code", U32)], None),
     "parse_i32": FuncSig(
@@ -866,6 +873,8 @@ class TypeChecker:
             return self._char_cast(node)
         if node.name == "len":
             return self._len(node)
+        if node.name == "write_span":
+            return self._write_span(node)
         if node.name == "exit":
             # завершение процесса: только из main (как loop) и один раз
             if self.current_key != "main":
@@ -914,6 +923,26 @@ class TypeChecker:
                 "(сузьте явно через u8())",
             )
         return CHAR
+
+    def _write_span(self, node: ast.Call) -> Type:
+        if len(node.args) != 3:
+            raise self.err(node, "write_span(): ровно три аргумента")
+        arr = self.expr(node.args[0])
+        if not (isinstance(arr, ArrayType) and arr.elem == U8):
+            raise self.err(
+                node,
+                "write_span() пишет из массива u8, "
+                f"не из {show(arr)}",
+            )
+        for i in (1, 2):
+            t = self.expr(node.args[i], expected=U32)
+            if t != U32:
+                raise self.err(
+                    node,
+                    f"write_span(): смещение и длина — u32, не {show(t)}",
+                )
+        node.arr_size = arr.size  # для кодогенерации: проверка границ
+        return VOID
 
     def _len(self, node: ast.Call) -> Type:
         if len(node.args) != 1:

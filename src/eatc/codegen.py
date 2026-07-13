@@ -46,6 +46,7 @@ _RUNTIME = {
     "eat_read_byte": ir.FunctionType(I32L, []),
     "eat_write_byte": ir.FunctionType(ir.VoidType(), [I8L]),
     "eat_write_err_byte": ir.FunctionType(ir.VoidType(), [I8L]),
+    "eat_write_span": ir.FunctionType(ir.VoidType(), [I8P, I32L]),
     "eat_exit": ir.FunctionType(ir.VoidType(), [I32L]),
 }
 
@@ -888,6 +889,8 @@ class Codegen:
         if name == "write_byte":
             self.b.call(self.rt["eat_write_byte"], [self.expr(node.args[0])])
             return None
+        if name == "write_span":
+            return self.gen_write_span(node)
         if name == "write_err_byte":
             self.b.call(
                 self.rt["eat_write_err_byte"], [self.expr(node.args[0])]
@@ -940,6 +943,26 @@ class Codegen:
         if sig.ret is None:
             return None
         return out if agg_ret else result
+
+    def gen_write_span(self, node: ast.Call):
+        """write_span(a, off, len): байты a[off..off+len) в stdout одним
+        вызовом аксиомы. Границы: off > N или len > N - off — trap
+        (sub при off > N заворачивается, но тогда первое условие уже
+        истинно; u64 не нужен)."""
+        arr = self.expr(node.args[0])
+        off = self.expr(node.args[1])
+        ln = self.expr(node.args[2])
+        size = I32L(node.arr_size)
+        if not getattr(node, "in_bounds", False):
+            rem = self.b.sub(size, off)
+            bad = self.b.or_(
+                self.b.icmp_unsigned(">", off, size),
+                self.b.icmp_unsigned(">", ln, rem),
+            )
+            self.trap_if(bad, node, "write_span вне границ массива")
+        ptr = self.b.gep(arr, [I32L(0), off], inbounds=True)
+        self.b.call(self.rt["eat_write_span"], [ptr, ln])
+        return None
 
     def gen_read_byte(self, node: ast.Call):
         raw = self.b.call(self.rt["eat_read_byte"], [])
