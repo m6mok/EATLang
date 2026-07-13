@@ -267,9 +267,17 @@ struct Ir {
     }
 
     func lb_tp(var self, a: u32, l: u32)
-        requires true
+        requires a <= 65536 and l <= 65536
         ensures true
     {
+        # строки типов пишутся при каждой инструкции — горячий путь;
+        # ёмкость проверяется один раз, копия — без ветвления на байт
+        # (маска — доказательство границ, как в Rt.append_str)
+        if self.lbl + l > 4194304 {
+            self.fail("переполнен буфер текста функции")
+            return
+        }
+        let base: u32 = self.lbl
         for h in 0..64 {
             if h * 256 >= l {
                 break
@@ -277,10 +285,12 @@ struct Ir {
             for j in 0..256 {
                 let i: u32 = h * 256 + j
                 if i < l {
-                    self.lb_b(self.tp[a + i])
+                    let p: u32 = (base & 4194303) + i
+                    self.lb[(p >> 16) & 63][p & 65535] = self.tp[(a + i) & 65535]
                 }
             }
         }
+        self.lbl = self.lbl + l
     }
 
     func line_new(var self)
@@ -4498,7 +4508,7 @@ struct Ir {
             for j in 0..256 {
                 let i: u32 = h * 256 + j
                 if i < l {
-                    write("{char(self.lb_at(a + i))}")
+                    write_byte(self.lb_at(a + i))
                 }
             }
         }
@@ -4512,7 +4522,7 @@ struct Ir {
             if i >= l {
                 break
             }
-            write("{char(self.nb[a + i])}")
+            write_byte(self.nb[a + i])
         }
     }
 
@@ -4527,7 +4537,7 @@ struct Ir {
             for j in 0..256 {
                 let i: u32 = h * 256 + j
                 if i < l {
-                    write("{char(self.tp[a + i])}")
+                    write_byte(self.tp[a + i])
                 }
             }
         }
@@ -4541,7 +4551,7 @@ struct Ir {
             if i >= l {
                 break
             }
-            write("{char(self.c.p.lex.sb_at(a + i))}")
+            write_byte(self.c.p.lex.sb_at(a + i))
         }
     }
 
@@ -4713,7 +4723,7 @@ struct Ir {
         if d < 10 {
             write("{d}")
         } else {
-            write("{char(u8(d + 87))}")
+            write_byte(u8(d + 87))
         }
     }
 
@@ -4722,7 +4732,7 @@ struct Ir {
         ensures true
     {
         if b >= 32 and b <= 126 and b != 34 and b != 92 {
-            write("{char(b)}")
+            write_byte(b)
             return
         }
         write("\\")

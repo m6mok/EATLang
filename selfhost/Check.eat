@@ -205,7 +205,7 @@ struct Check {
             if i >= l {
                 break
             }
-            write("{char(self.p.lex.sb_at(a + i))}")
+            write_byte(self.p.lex.sb_at(a + i))
         }
     }
 
@@ -3906,7 +3906,7 @@ struct Check {
         for i in 0..300 {
             let b: u32 = self.key_byte(code, i)
             if b != 999 {
-                write("{char(u8(b))}")
+                write_byte(u8(b))
             }
         }
     }

@@ -2218,7 +2218,7 @@ struct Parser {
             if i >= l {
                 break
             }
-            write("{char(self.lex.sb_at(a + i))}")
+            write_byte(self.lex.sb_at(a + i))
         }
     }
 

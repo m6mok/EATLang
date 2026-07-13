@@ -78,7 +78,7 @@ func write_esc(b: u8)
     requires true
     ensures true
 {
-    if b == 92 { write("\\\\") } elif b == 10 { write("\\n") } elif b == 9 { write("\\t") } elif b == 13 { write("\\r") } elif b == 0 { write("\\0") } else { write("{char(b)}") }
+    if b == 92 { write("\\\\") } elif b == 10 { write("\\n") } elif b == 9 { write("\\t") } elif b == 13 { write("\\r") } elif b == 0 { write("\\0") } else { write_byte(b) }
 }
 
 # Хранит ли токен данного вида значение (INT, STRING, CHAR, IDENT).
