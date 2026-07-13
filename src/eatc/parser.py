@@ -9,6 +9,7 @@ from dataclasses import fields
 from . import ast_nodes as ast
 from .errors import CapacityError, EatError
 from .limits import (
+    MAX_AST_NODES,
     MAX_BLOCK_DEPTH,
     MAX_EXPR_DEPTH,
     MAX_PARAMS,
@@ -94,10 +95,19 @@ class Parser:
 
     def parse_program(self) -> ast.Program:
         first = self.peek()
+        start_nodes = ast.alloc_count()
         program = ast.Program(first.line, first.col, [])
         self.skip_newlines()
         while not self.at(T.EOF):
             program.decls.append(self.parse_top_decl())
+            if ast.alloc_count() - start_nodes > MAX_AST_NODES:
+                raise CapacityError(
+                    self.filename,
+                    self.peek().line,
+                    self.peek().col,
+                    "узлов AST в файле",
+                    MAX_AST_NODES,
+                )
             self.skip_newlines()
         return program
 

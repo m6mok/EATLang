@@ -75,8 +75,8 @@ struct Check {
     total_stmts: u32
     # --- фаза 3b: тайпчекер тел -----------------------------------------
     # аннотации узлов: тип выражения и «возвращает» (достижимость)
-    nty: [u32; 65536]
-    nrt: [u32; 65536]
+    nty: [[u32; 65536]; 2]
+    nrt: [[u32; 65536]; 2]
     # границы for-диапазонов: узел, старт (sign, mag), конец (sign, mag)
     rb_n: [u32; 512]
     rb_ss: [u32; 512]
@@ -151,10 +151,10 @@ struct Check {
     }
 
     func fail_node(var self, n: u32, m: str<128>)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        self.fail_at(self.p.nl[n], self.p.nc[n], m)
+        self.fail_at(self.p.nl[n / 65536][n % 65536], self.p.nc[n / 65536][n % 65536], m)
     }
 
     func span_eq(var self, a1: u32, l1: u32, a2: u32, l2: u32) -> bool
@@ -204,10 +204,10 @@ struct Check {
 
     # Имя узла (nss/nsl).
     func nspan_is(var self, n: u32, kw: str<16>) -> bool
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        return self.span_is(self.p.nss[n], self.p.nsl[n], kw)
+        return self.span_is(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536], kw)
     }
 
     # --- пул типов --------------------------------------------------------
@@ -345,11 +345,11 @@ struct Check {
 
     # Имя простого типа: индекс в пуле; struct/enum — интернируются.
     func resolve_name(var self, n: u32) -> u32
-        requires n < 65536
+        requires n < 131072
         ensures result < 512
     {
-        let a: u32 = self.p.nss[n]
-        let l: u32 = self.p.nsl[n]
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
         if self.span_is(a, l, "i32") {
             return 0
         }
@@ -381,7 +381,7 @@ struct Check {
     # Разрешить узел типа AST → индекс типа. Явный стек кадров:
     # (узел, фаза, результат первого ребёнка).
     func resolve(var self, root: u32) -> u32
-        requires root < 65536
+        requires root < 131072
         ensures result < 512
     {
         var s1: [u32; 32] = [0; 32]
@@ -396,7 +396,7 @@ struct Check {
                 let f: u32 = sp - 1
                 let n: u32 = s1[f]
                 let ph: u32 = s2[f]
-                let k: u32 = self.p.nk[n]
+                let k: u32 = self.p.nk[n / 65536][n % 65536]
                 if k == 27 {
                     ret = self.resolve_name(n)
                     sp = f
@@ -406,13 +406,13 @@ struct Check {
                         if sp >= 32 {
                             self.fail_node(n, "слишком глубокий тип")
                         } else {
-                            s1[sp] = self.p.nfc[n]
+                            s1[sp] = self.p.nfc[n / 65536][n % 65536]
                             s2[sp] = 0
                             sp = sp + 1
                         }
                     } else {
                         s3[f] = ret
-                        self.const_eval(self.p.nns[self.p.nfc[n]])
+                        self.const_eval(self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][self.p.nfc[n / 65536][n % 65536] % 65536])
                         let sz: u32 = self.cem
                         if self.ces == 1 or sz == 0 or sz > 65536 {
                             self.fail_node(n, "размер массива вне (0, 65536]")
@@ -421,7 +421,7 @@ struct Check {
                         sp = f
                     }
                 } elif k == 29 {
-                    self.const_eval(self.p.nfc[n])
+                    self.const_eval(self.p.nfc[n / 65536][n % 65536])
                     let cap: u32 = self.cem
                     if self.ces == 1 or cap == 0 or cap > 256 {
                         self.fail_node(n, "ёмкость строки вне (0, 256]")
@@ -431,13 +431,13 @@ struct Check {
                 } elif k == 30 {
                     if ph == 0 {
                         s2[f] = 1
-                        s1[sp] = self.p.nfc[n]
+                        s1[sp] = self.p.nfc[n / 65536][n % 65536]
                         s2[sp] = 0
                         sp = sp + 1
                     } elif ph == 1 {
                         s3[f] = ret
                         s2[f] = 2
-                        s1[sp] = self.p.nns[self.p.nfc[n]]
+                        s1[sp] = self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][self.p.nfc[n / 65536][n % 65536] % 65536]
                         s2[sp] = 0
                         sp = sp + 1
                     } else {
@@ -447,7 +447,7 @@ struct Check {
                 } elif k == 31 {
                     if ph == 0 {
                         s2[f] = 1
-                        s1[sp] = self.p.nfc[n]
+                        s1[sp] = self.p.nfc[n / 65536][n % 65536]
                         s2[sp] = 0
                         sp = sp + 1
                     } else {
@@ -467,7 +467,7 @@ struct Check {
     # Результат — в self.ces (знак) / self.cem (величина).
 
     func const_eval(var self, root: u32)
-        requires root < 65536
+        requires root < 131072
         ensures true
     {
         var s1: [u32; 32] = [0; 32]
@@ -484,14 +484,14 @@ struct Check {
                 let f: u32 = sp - 1
                 let n: u32 = s1[f]
                 let ph: u32 = s2[f]
-                let k: u32 = self.p.nk[n]
+                let k: u32 = self.p.nk[n / 65536][n % 65536]
                 if k == 32 {
-                    vs[nv] = self.p.ny[n]
-                    vm[nv] = self.p.nx[n]
+                    vs[nv] = self.p.ny[n / 65536][n % 65536]
+                    vm[nv] = self.p.nx[n / 65536][n % 65536]
                     nv = nv + 1
                     sp = f
                 } elif k == 37 {
-                    let ci: u32 = self.find_const(self.p.nss[n], self.p.nsl[n])
+                    let ci: u32 = self.find_const(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
                     if ci == 4294967295 {
                         self.fail_node(n, "не константа времени компиляции (правило 2)")
                     } else {
@@ -500,10 +500,10 @@ struct Check {
                         nv = nv + 1
                     }
                     sp = f
-                } elif k == 40 and self.p.nx[n] == 15 {
+                } elif k == 40 and self.p.nx[n / 65536][n % 65536] == 15 {
                     if ph == 0 {
                         s2[f] = 1
-                        s1[sp] = self.p.nfc[n]
+                        s1[sp] = self.p.nfc[n / 65536][n % 65536]
                         s2[sp] = 0
                         sp = sp + 1
                     } else {
@@ -512,15 +512,15 @@ struct Check {
                         }
                         sp = f
                     }
-                } elif k == 39 and self.p.nx[n] >= 10 and self.p.nx[n] <= 14 {
+                } elif k == 39 and self.p.nx[n / 65536][n % 65536] >= 10 and self.p.nx[n / 65536][n % 65536] <= 14 {
                     if ph == 0 {
                         s2[f] = 1
-                        s1[sp] = self.p.nfc[n]
+                        s1[sp] = self.p.nfc[n / 65536][n % 65536]
                         s2[sp] = 0
                         sp = sp + 1
                     } elif ph == 1 {
                         s2[f] = 2
-                        s1[sp] = self.p.nns[self.p.nfc[n]]
+                        s1[sp] = self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][self.p.nfc[n / 65536][n % 65536] % 65536]
                         s2[sp] = 0
                         sp = sp + 1
                     } else {
@@ -545,10 +545,10 @@ struct Check {
     # Знаковая арифметика (sign, mag); / и % — семантика floor (эталон
     # считает константы средствами Python). Результат в ces/cem.
     func const_binop(var self, n: u32, s1: u32, m1: u32, s2: u32, m2: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        let op: u32 = self.p.nx[n]
+        let op: u32 = self.p.nx[n / 65536][n % 65536]
         if op == 10 {
             self.sadd(n, s1, m1, s2, m2)
         } elif op == 11 {
@@ -598,7 +598,7 @@ struct Check {
     }
 
     func sadd(var self, n: u32, s1: u32, m1: u32, s2: u32, m2: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         if s1 == s2 {
@@ -700,10 +700,10 @@ struct Check {
     }
 
     func declare_top(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        if self.top_taken(self.p.nss[n], self.p.nsl[n]) {
+        if self.top_taken(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]) {
             self.fail_node(n, "имя уже занято")
         }
     }
@@ -713,10 +713,10 @@ struct Check {
         requires true
         ensures true
     {
-        var d: u32 = self.p.nfc[0]
-        for _ in 0..65536 {
+        var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
             if d != 4294967295 and not self.failed {
-                let k: u32 = self.p.nk[d]
+                let k: u32 = self.p.nk[d / 65536][d % 65536]
                 if k == 4 {
                     self.declare_top(d)
                     self.reg_struct(d)
@@ -724,13 +724,13 @@ struct Check {
                     self.declare_top(d)
                     self.reg_enum(d)
                 }
-                d = self.p.nns[d]
+                d = self.p.nns[d / 65536][d % 65536]
             }
         }
     }
 
     func reg_struct(var self, d: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
         if self.nstr >= 128 {
@@ -738,8 +738,8 @@ struct Check {
             return
         }
         let i: u32 = self.nstr
-        self.sn_s[i] = self.p.nss[d]
-        self.sn_l[i] = self.p.nsl[d]
+        self.sn_s[i] = self.p.nss[d / 65536][d % 65536]
+        self.sn_l[i] = self.p.nsl[d / 65536][d % 65536]
         self.snd[i] = d
         self.sgs[i] = 0
         self.sgc[i] = 0
@@ -747,7 +747,7 @@ struct Check {
     }
 
     func reg_enum(var self, d: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
         if self.nenu >= 64 {
@@ -755,25 +755,25 @@ struct Check {
             return
         }
         let i: u32 = self.nenu
-        self.en_s[i] = self.p.nss[d]
-        self.en_l[i] = self.p.nsl[d]
+        self.en_s[i] = self.p.nss[d / 65536][d % 65536]
+        self.en_l[i] = self.p.nsl[d / 65536][d % 65536]
         self.evs[i] = 0
         self.evc[i] = 0
         self.nenu = i + 1
         # повтор варианта — ошибка
-        var v: u32 = self.p.nfc[d]
+        var v: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..256 {
             if v != 4294967295 {
-                var w: u32 = self.p.nns[v]
+                var w: u32 = self.p.nns[v / 65536][v % 65536]
                 for _ in 0..256 {
                     if w != 4294967295 {
-                        if self.span_eq(self.p.nss[v], self.p.nsl[v], self.p.nss[w], self.p.nsl[w]) {
+                        if self.span_eq(self.p.nss[v / 65536][v % 65536], self.p.nsl[v / 65536][v % 65536], self.p.nss[w / 65536][w % 65536], self.p.nsl[w / 65536][w % 65536]) {
                             self.fail_node(d, "enum: повтор варианта")
                         }
-                        w = self.p.nns[w]
+                        w = self.p.nns[w / 65536][w % 65536]
                     }
                 }
-                v = self.p.nns[v]
+                v = self.p.nns[v / 65536][v % 65536]
             }
         }
     }
@@ -783,10 +783,10 @@ struct Check {
         requires true
         ensures true
     {
-        var d: u32 = self.p.nfc[0]
-        for _ in 0..65536 {
+        var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
             if d != 4294967295 and not self.failed {
-                let k: u32 = self.p.nk[d]
+                let k: u32 = self.p.nk[d / 65536][d % 65536]
                 if k == 1 {
                     self.col_const(d)
                 } elif k == 6 {
@@ -797,13 +797,13 @@ struct Check {
                 } elif k == 4 {
                     self.col_struct(d)
                 }
-                d = self.p.nns[d]
+                d = self.p.nns[d / 65536][d % 65536]
             }
         }
     }
 
     func col_const(var self, d: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
         self.declare_top(d)
@@ -811,8 +811,8 @@ struct Check {
             self.fail_node(d, "слишком много const (предел 128)")
             return
         }
-        let ty: u32 = self.resolve(self.p.nfc[d])
-        self.const_eval(self.p.nns[self.p.nfc[d]])
+        let ty: u32 = self.resolve(self.p.nfc[d / 65536][d % 65536])
+        self.const_eval(self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][self.p.nfc[d / 65536][d % 65536] % 65536])
         if self.failed {
             return
         }
@@ -821,8 +821,8 @@ struct Check {
             return
         }
         let i: u32 = self.ncon
-        self.cn_s[i] = self.p.nss[d]
-        self.cn_l[i] = self.p.nsl[d]
+        self.cn_s[i] = self.p.nss[d / 65536][d % 65536]
+        self.cn_l[i] = self.p.nsl[d / 65536][d % 65536]
         self.cty[i] = ty
         self.cvs[i] = self.ces
         self.cvm[i] = self.cem
@@ -831,7 +831,7 @@ struct Check {
 
     # Сигнатура функции d в таблицу (owner — struct | NONE).
     func add_func(var self, d: u32, owner: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
         if self.nfun >= 1024 {
@@ -840,33 +840,33 @@ struct Check {
         }
         let i: u32 = self.nfun
         self.nfun = i + 1
-        self.fn_s[i] = self.p.nss[d]
-        self.fn_l[i] = self.p.nsl[d]
+        self.fn_s[i] = self.p.nss[d / 65536][d % 65536]
+        self.fn_l[i] = self.p.nsl[d / 65536][d % 65536]
         self.fown[i] = owner
         self.fnd[i] = d
         self.fret[i] = 4294967295
         self.fvs[i] = 0
         self.fps[i] = self.npar
         self.fpc[i] = 0
-        var c: u32 = self.p.nfc[d]
+        var c: u32 = self.p.nfc[d / 65536][d % 65536]
         var first: bool = true
         for _ in 0..64 {
             if c != 4294967295 and not self.failed {
-                let ck: u32 = self.p.nk[c]
+                let ck: u32 = self.p.nk[c / 65536][c % 65536]
                 if ck == 7 {
-                    if self.p.nss[c] == 4294967295 {
+                    if self.p.nss[c / 65536][c % 65536] == 4294967295 {
                         # self: в параметры не входит, даёт var_self
                         if first {
-                            self.fvs[i] = self.p.nx[c]
+                            self.fvs[i] = self.p.nx[c / 65536][c % 65536]
                         }
                     } else {
                         if self.npar >= 1024 {
                             self.fail_node(c, "слишком много параметров")
                         } else {
                             let pi: u32 = self.npar
-                            self.pn_s[pi] = self.p.nss[c]
-                            self.pn_l[pi] = self.p.nsl[c]
-                            self.pty[pi] = self.resolve(self.p.nfc[c])
+                            self.pn_s[pi] = self.p.nss[c / 65536][c % 65536]
+                            self.pn_l[pi] = self.p.nsl[c / 65536][c % 65536]
+                            self.pty[pi] = self.resolve(self.p.nfc[c / 65536][c % 65536])
                             self.pnd[pi] = c
                             self.npar = pi + 1
                             self.fpc[i] = self.fpc[i] + 1
@@ -874,78 +874,78 @@ struct Check {
                     }
                     first = false
                 } elif ck == 8 {
-                    self.fret[i] = self.resolve(self.p.nfc[c])
+                    self.fret[i] = self.resolve(self.p.nfc[c / 65536][c % 65536])
                 }
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
     }
 
     func col_enum(var self, d: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
-        let ei: u32 = self.find_enum(self.p.nss[d], self.p.nsl[d])
+        let ei: u32 = self.find_enum(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
         if ei == 4294967295 {
             return
         }
         self.evs[ei] = self.nvar
-        var v: u32 = self.p.nfc[d]
+        var v: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..256 {
             if v != 4294967295 and not self.failed {
                 if self.nvar >= 256 {
                     self.fail_node(d, "слишком много вариантов enum")
                 } else {
                     let wi: u32 = self.nvar
-                    self.wn_s[wi] = self.p.nss[v]
-                    self.wn_l[wi] = self.p.nsl[v]
-                    if self.p.nfc[v] != 4294967295 {
-                        self.wpl[wi] = self.resolve(self.p.nfc[v])
+                    self.wn_s[wi] = self.p.nss[v / 65536][v % 65536]
+                    self.wn_l[wi] = self.p.nsl[v / 65536][v % 65536]
+                    if self.p.nfc[v / 65536][v % 65536] != 4294967295 {
+                        self.wpl[wi] = self.resolve(self.p.nfc[v / 65536][v % 65536])
                     } else {
                         self.wpl[wi] = 4294967295
                     }
                     self.nvar = wi + 1
                     self.evc[ei] = self.evc[ei] + 1
                 }
-                v = self.p.nns[v]
+                v = self.p.nns[v / 65536][v % 65536]
             }
         }
     }
 
     func col_struct(var self, d: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
-        let si: u32 = self.find_struct(self.p.nss[d], self.p.nsl[d])
+        let si: u32 = self.find_struct(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
         if si == 4294967295 {
             return
         }
         self.sgs[si] = self.ngld
-        var c: u32 = self.p.nfc[d]
+        var c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..512 {
             if c != 4294967295 and not self.failed {
-                let ck: u32 = self.p.nk[c]
+                let ck: u32 = self.p.nk[c / 65536][c % 65536]
                 if ck == 5 {
                     self.col_field(si, c)
                 } elif ck == 6 {
-                    if self.p.nx[c] != 1 {
+                    if self.p.nx[c / 65536][c % 65536] != 1 {
                         self.fail_node(c, "функция внутри struct обязана иметь self первым параметром")
                     } else {
                         self.add_func(c, si)
                     }
                 }
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
     }
 
     func col_field(var self, si: u32, c: u32)
-        requires si < 128 and c < 65536
+        requires si < 128 and c < 131072
         ensures true
     {
         # повтор поля — ошибка
-        let a: u32 = self.p.nss[c]
-        let l: u32 = self.p.nsl[c]
+        let a: u32 = self.p.nss[c / 65536][c % 65536]
+        let l: u32 = self.p.nsl[c / 65536][c % 65536]
         for i in 0..512 {
             if i >= self.sgs[si] and i < self.ngld {
                 if self.span_eq(self.gn_s[i], self.gn_l[i], a, l) {
@@ -960,7 +960,7 @@ struct Check {
         let gi: u32 = self.ngld
         self.gn_s[gi] = a
         self.gn_l[gi] = l
-        self.gty[gi] = self.resolve(self.p.nfc[c])
+        self.gty[gi] = self.resolve(self.p.nfc[c / 65536][c % 65536])
         self.ngld = gi + 1
         self.sgc[si] = self.sgc[si] + 1
     }
@@ -1143,10 +1143,10 @@ struct Check {
         if self.fpc[i] > 0 or self.fown[i] != 4294967295 {
             has_par = true
         }
-        var c: u32 = self.p.nfc[d]
+        var c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..64 {
             if c != 4294967295 {
-                let ck: u32 = self.p.nk[c]
+                let ck: u32 = self.p.nk[c / 65536][c % 65536]
                 if ck == 8 {
                     has_ret = true
                 } elif ck == 9 {
@@ -1154,7 +1154,7 @@ struct Check {
                 } elif ck == 10 {
                     has_ens = true
                 }
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
         if has_par and not has_req {
@@ -1168,7 +1168,7 @@ struct Check {
 
     # Число statements в поддереве функции (вид узла — инструкция).
     func count_stmts(var self, root: u32) -> u32
-        requires root < 65536
+        requires root < 131072
         ensures true
     {
         var cnt: u32 = 0
@@ -1176,16 +1176,16 @@ struct Check {
         var st: [u32; 64] = [0; 64]
         var sp: u32 = 0
         var done: bool = false
-        for _ in 0..65536 {
+        for _ in 0..131072 {
             if not done {
-                let k: u32 = self.p.nk[cur]
+                let k: u32 = self.p.nk[cur / 65536][cur % 65536]
                 if is_stmt_kind(k) {
                     cnt = cnt + 1
                 }
-                if self.p.nfc[cur] != 4294967295 and sp < 64 {
+                if self.p.nfc[cur / 65536][cur % 65536] != 4294967295 and sp < 64 {
                     st[sp] = cur
                     sp = sp + 1
-                    cur = self.p.nfc[cur]
+                    cur = self.p.nfc[cur / 65536][cur % 65536]
                 } else {
                     var moved: bool = false
                     for _ in 0..64 {
@@ -1193,8 +1193,8 @@ struct Check {
                             if cur == root or sp == 0 {
                                 done = true
                                 moved = true
-                            } elif self.p.nns[cur] != 4294967295 {
-                                cur = self.p.nns[cur]
+                            } elif self.p.nns[cur / 65536][cur % 65536] != 4294967295 {
+                                cur = self.p.nns[cur / 65536][cur % 65536]
                                 moved = true
                             } else {
                                 sp = sp - 1
@@ -1385,27 +1385,27 @@ struct Check {
         requires true
         ensures true
     {
-        var d: u32 = self.p.nfc[0]
-        for _ in 0..65536 {
+        var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
             if d != 4294967295 {
                 self.dump_decl(d)
-                d = self.p.nns[d]
+                d = self.p.nns[d / 65536][d % 65536]
             }
         }
         write("stats funcs={self.nfun} structs={self.nstr} stmts={self.total_stmts}\n")
     }
 
     func dump_decl(var self, d: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
-        let k: u32 = self.p.nk[d]
-        let ln: u32 = self.p.nl[d]
-        let cl: u32 = self.p.nc[d]
+        let k: u32 = self.p.nk[d / 65536][d % 65536]
+        let ln: u32 = self.p.nl[d / 65536][d % 65536]
+        let cl: u32 = self.p.nc[d / 65536][d % 65536]
         if k == 1 {
-            let ci: u32 = self.find_const(self.p.nss[d], self.p.nsl[d])
+            let ci: u32 = self.find_const(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
             write("const ")
-            self.write_span2(self.p.nss[d], self.p.nsl[d])
+            self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
             write(" {ln}:{cl} :: ")
             self.write_type(self.cty[ci])
             write(" = ")
@@ -1416,7 +1416,7 @@ struct Check {
         } elif k == 6 {
             let fi: u32 = self.func_by_node(d)
             write("func ")
-            self.write_span2(self.p.nss[d], self.p.nsl[d])
+            self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
             write(" {ln}:{cl} ")
             self.write_sig(fi)
             write("\n")
@@ -1426,19 +1426,19 @@ struct Check {
             self.dump_enum(d, ln, cl)
         } elif k == 11 {
             write("test ")
-            self.write_span2(self.p.nss[d], self.p.nsl[d])
+            self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
             write(" {ln}:{cl}\n")
         }
     }
 
     func dump_struct(var self, d: u32, ln: u32, cl: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
         write("struct ")
-        self.write_span2(self.p.nss[d], self.p.nsl[d])
+        self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
         write(" {ln}:{cl}\n")
-        let si: u32 = self.find_struct(self.p.nss[d], self.p.nsl[d])
+        let si: u32 = self.find_struct(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
         let gs: u32 = self.sgs[si]
         for g in 0..512 {
             if g < self.sgc[si] {
@@ -1449,30 +1449,30 @@ struct Check {
                 write("\n")
             }
         }
-        var c: u32 = self.p.nfc[d]
+        var c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..512 {
             if c != 4294967295 {
-                if self.p.nk[c] == 6 {
+                if self.p.nk[c / 65536][c % 65536] == 6 {
                     let fi: u32 = self.func_by_node(c)
                     write("  method ")
-                    self.write_span2(self.p.nss[c], self.p.nsl[c])
-                    write(" {self.p.nl[c]}:{self.p.nc[c]} ")
+                    self.write_span2(self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536])
+                    write(" {self.p.nl[c / 65536][c % 65536]}:{self.p.nc[c / 65536][c % 65536]} ")
                     self.write_sig(fi)
                     write("\n")
                 }
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
     }
 
     func dump_enum(var self, d: u32, ln: u32, cl: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
         write("enum ")
-        self.write_span2(self.p.nss[d], self.p.nsl[d])
+        self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
         write(" {ln}:{cl}\n")
-        let ei: u32 = self.find_enum(self.p.nss[d], self.p.nsl[d])
+        let ei: u32 = self.find_enum(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
         let ws: u32 = self.evs[ei]
         for w in 0..256 {
             if w < self.evc[ei] {
@@ -1516,8 +1516,8 @@ struct Check {
         self.cur_key = 4294967295
         self.self_ty2 = 4294967295
         self.res_ty2 = 4294967295
-        for n in 0..65536 {
-            self.nty[n] = 4294967295
+        for n in 0..131072 {
+            self.nty[n / 65536][n % 65536] = 4294967295
         }
     }
 
@@ -1565,7 +1565,7 @@ struct Check {
 
     # Объявить переменную (sv_s = NONE — self). «_» не заносится.
     func declare(var self, nd: u32, a: u32, l: u32, ty: u32, mut: u32)
-        requires nd < 65536 and ty < 512
+        requires nd < 131072 and ty < 512
         ensures true
     {
         if self.span_is(a, l, "_") {
@@ -1596,8 +1596,8 @@ struct Check {
         self.sv_t[v] = ty
         self.sv_m[v] = mut
         self.sv_u[v] = 0
-        self.sv_ln[v] = self.p.nl[nd]
-        self.sv_cl[v] = self.p.nc[nd]
+        self.sv_ln[v] = self.p.nl[nd / 65536][nd % 65536]
+        self.sv_cl[v] = self.p.nc[nd / 65536][nd % 65536]
         self.nsv = v + 1
     }
 
@@ -1699,35 +1699,35 @@ struct Check {
     # Результат кадра — self.tres; аннотация nty ставится при завершении.
 
     func nth_child(var self, n: u32, i: u32) -> u32
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        var c: u32 = self.p.nfc[n]
+        var c: u32 = self.p.nfc[n / 65536][n % 65536]
         for k in 0..64 {
             if k < i and c != 4294967295 {
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
         return c
     }
 
     func nchildren(var self, n: u32) -> u32
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        var c: u32 = self.p.nfc[n]
+        var c: u32 = self.p.nfc[n / 65536][n % 65536]
         var cnt: u32 = 0
         for _ in 0..64 {
             if c != 4294967295 {
                 cnt = cnt + 1
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
         return cnt
     }
 
     func xpush(var self, n: u32, exp: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         if self.nxq >= 64 {
@@ -1749,7 +1749,7 @@ struct Check {
     {
         let f: u32 = self.nxq - 1
         let n: u32 = self.xn[f]
-        self.nty[n] = self.tres
+        self.nty[n / 65536][n % 65536] = self.tres
         if self.tres == 5 {
             if f != 0 or self.xvoid == 0 {
                 self.fail_node(n, "функция ничего не возвращает — это не значение")
@@ -1760,7 +1760,7 @@ struct Check {
 
     # Типизировать выражение root; результат в tres (и nty[root]).
     func expr_check(var self, root: u32, exp: u32, voidok: u32)
-        requires root < 65536
+        requires root < 131072
         ensures true
     {
         self.xvoid = voidok
@@ -1777,7 +1777,7 @@ struct Check {
     }
 
     func expect_bool(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         self.expr_check(n, 3, 0)
@@ -1792,7 +1792,7 @@ struct Check {
     {
         let f: u32 = self.nxq - 1
         let n: u32 = self.xn[f]
-        let k: u32 = self.p.nk[n]
+        let k: u32 = self.p.nk[n / 65536][n % 65536]
         if k == 32 or k == 33 or k == 34 or k == 37 or k == 38 {
             self.xs_leaf(n, k)
         } elif k == 35 {
@@ -1821,7 +1821,7 @@ struct Check {
     }
 
     func xs_leaf(var self, n: u32, k: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         if k == 32 {
@@ -1830,7 +1830,7 @@ struct Check {
             if exp != 4294967295 and self.yk[exp] <= 2 {
                 t = exp
             }
-            if not self.int_fits(t, self.p.ny[n], self.p.nx[n]) {
+            if not self.int_fits(t, self.p.ny[n / 65536][n % 65536], self.p.nx[n / 65536][n % 65536]) {
                 self.fail_node(n, "литерал не помещается в тип")
             }
             self.tres = t
@@ -1856,11 +1856,11 @@ struct Check {
     }
 
     func xs_name(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        let a: u32 = self.p.nss[n]
-        let l: u32 = self.p.nsl[n]
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
         if self.res_ty2 != 4294967295 and self.span_is(a, l, "result") {
             self.tres = self.res_ty2
             return
@@ -1885,11 +1885,11 @@ struct Check {
     }
 
     func xs_str(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         if self.xp[f] == 0 {
-            self.xa[f] = self.p.nfc[n]
+            self.xa[f] = self.p.nfc[n / 65536][n % 65536]
             self.xb[f] = 0
             self.xp[f] = 1
         } elif self.xp[f] == 2 {
@@ -1909,11 +1909,11 @@ struct Check {
                     self.tres = self.intern(6, self.xb[f], 4294967295, 4294967295, 0)
                 }
                 self.xdone()
-            } elif self.p.nk[c] == 36 {
-                self.xb[f] = self.xb[f] + self.p.nsl[c]
-                self.xa[f] = self.p.nns[c]
+            } elif self.p.nk[c / 65536][c % 65536] == 36 {
+                self.xb[f] = self.xb[f] + self.p.nsl[c / 65536][c % 65536]
+                self.xa[f] = self.p.nns[c / 65536][c % 65536]
             } else {
-                self.xa[f] = self.p.nns[c]
+                self.xa[f] = self.p.nns[c / 65536][c % 65536]
                 self.xp[f] = 2
                 self.xpush(c, 4294967295)
             }
@@ -1921,16 +1921,16 @@ struct Check {
     }
 
     func xs_unary(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let op: u32 = self.p.nx[n]
+        let op: u32 = self.p.nx[n / 65536][n % 65536]
         if self.xp[f] == 0 {
             self.xp[f] = 1
             if op == 3 {
-                self.xpush(self.p.nfc[n], 3)
+                self.xpush(self.p.nfc[n / 65536][n % 65536], 3)
             } else {
-                self.xpush(self.p.nfc[n], self.xe[f])
+                self.xpush(self.p.nfc[n / 65536][n % 65536], self.xe[f])
             }
         } else {
             if op == 3 {
@@ -1949,21 +1949,21 @@ struct Check {
     }
 
     func xs_binop(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let op: u32 = self.p.nx[n]
+        let op: u32 = self.p.nx[n / 65536][n % 65536]
         let ph: u32 = self.xp[f]
         if op <= 2 { # or, and
             if ph == 0 {
                 self.xp[f] = 1
-                self.xpush(self.p.nfc[n], 3)
+                self.xpush(self.p.nfc[n / 65536][n % 65536], 3)
             } elif ph == 1 {
                 if self.tres != 3 {
                     self.fail_node(n, "операнд and/or: ожидается bool")
                 }
                 self.xp[f] = 2
-                self.xpush(self.p.nns[self.p.nfc[n]], 3)
+                self.xpush(self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][self.p.nfc[n / 65536][n % 65536] % 65536], 3)
             } else {
                 if self.tres != 3 {
                     self.fail_node(n, "операнд and/or: ожидается bool")
@@ -1981,18 +1981,18 @@ struct Check {
                 }
             }
             self.xp[f] = 1
-            self.xpush(self.p.nfc[n], hint)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], hint)
         } elif ph == 1 {
             self.xa[f] = self.tres
             self.xp[f] = 2
-            self.xpush(self.p.nns[self.p.nfc[n]], self.tres)
+            self.xpush(self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][self.p.nfc[n / 65536][n % 65536] % 65536], self.tres)
         } else {
             self.xs_binop_fin(n, op, self.xa[f])
         }
     }
 
     func xs_binop_fin(var self, n: u32, op: u32, left: u32)
-        requires n < 65536 and left < 512
+        requires n < 131072 and left < 512
         ensures true
     {
         if not self.compat(left, self.tres) {
@@ -2055,7 +2055,7 @@ struct Check {
     # Вызов: коды xa — 100+каст(0/1/2), 104 char, 105 len, 106 print/write,
     # 107 parse_i32, иначе fi пользовательской функции.
     func xs_call(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         if self.xp[f] == 0 {
@@ -2066,11 +2066,11 @@ struct Check {
     }
 
     func xs_call_start(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let a: u32 = self.p.nss[n]
-        let l: u32 = self.p.nsl[n]
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
         let argc: u32 = self.nchildren(n)
         self.xp[f] = 1
         if self.span_is(a, l, "i32") or self.span_is(a, l, "u32") or self.span_is(a, l, "u8") {
@@ -2085,7 +2085,7 @@ struct Check {
                 code = 102
             }
             self.xa[f] = code
-            self.xpush(self.p.nfc[n], 4294967295)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
             return
         }
         if self.span_is(a, l, "char") {
@@ -2094,7 +2094,7 @@ struct Check {
                 return
             }
             self.xa[f] = 104
-            self.xpush(self.p.nfc[n], 2)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 2)
             return
         }
         if self.span_is(a, l, "len") {
@@ -2103,25 +2103,25 @@ struct Check {
                 return
             }
             self.xa[f] = 105
-            self.xpush(self.p.nfc[n], 4294967295)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
             return
         }
         self.xs_call_start2(f, n, argc)
     }
 
     func xs_call_start2(var self, f: u32, n: u32, argc: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let a: u32 = self.p.nss[n]
-        let l: u32 = self.p.nsl[n]
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
         if self.span_is(a, l, "print") or self.span_is(a, l, "write") {
             if argc != 1 {
                 self.fail_node(n, "ожидается 1 аргумент")
                 return
             }
             self.xa[f] = 106
-            self.xpush(self.p.nfc[n], self.ty_sq)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], self.ty_sq)
             return
         }
         if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
@@ -2143,7 +2143,7 @@ struct Check {
                 return
             }
             self.xa[f] = 108
-            self.xpush(self.p.nfc[n], 2)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 2)
             return
         }
         if self.span_is(a, l, "parse_i32") {
@@ -2152,7 +2152,7 @@ struct Check {
                 return
             }
             self.xa[f] = 107
-            self.xpush(self.p.nfc[n], self.ty_sq)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], self.ty_sq)
             return
         }
         let fi: u32 = self.find_func(a, l)
@@ -2169,12 +2169,12 @@ struct Check {
         if argc == 0 {
             self.xs_user_fin(fi)
         } else {
-            self.xpush(self.p.nfc[n], self.pty[self.fps[fi]])
+            self.xpush(self.p.nfc[n / 65536][n % 65536], self.pty[self.fps[fi]])
         }
     }
 
     func xs_call_next(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let code: u32 = self.xa[f]
@@ -2228,7 +2228,7 @@ struct Check {
 
     # Очередной аргумент пользовательской функции готов.
     func xs_user_arg(var self, f: u32, n: u32, fi: u32)
-        requires f < 64 and n < 65536 and fi < 1024
+        requires f < 64 and n < 131072 and fi < 1024
         ensures true
     {
         let i: u32 = self.xb[f]
@@ -2308,14 +2308,14 @@ struct Check {
     # Метод / конструктор варианта enum. Фазы: 0 старт; 1 объект готов;
     # 2+ аргументы; 9 аргумент конструктора готов.
     func xs_method(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp[f]
-        let obj: u32 = self.p.nfc[n]
+        let obj: u32 = self.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
-            if self.p.nk[obj] == 37 {
-                if self.is_enum_name(self.p.nss[obj], self.p.nsl[obj]) {
+            if self.p.nk[obj / 65536][obj % 65536] == 37 {
+                if self.is_enum_name(self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536]) {
                     self.xs_enum_ctor(f, n, obj)
                     return
                 }
@@ -2336,10 +2336,10 @@ struct Check {
     }
 
     func xs_enum_ctor(var self, f: u32, n: u32, obj: u32)
-        requires f < 64 and n < 65536 and obj < 65536
+        requires f < 64 and n < 131072 and obj < 131072
         ensures true
     {
-        let w: u32 = self.variant_of(self.p.nss[obj], self.p.nsl[obj], self.p.nss[n], self.p.nsl[n])
+        let w: u32 = self.variant_of(self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536], self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
         if w == 4294967295 {
             self.fail_node(n, "у enum нет такого варианта")
             return
@@ -2353,13 +2353,13 @@ struct Check {
             return
         }
         self.xa[f] = self.wpl[w]
-        self.xb[f] = self.intern(9, 4294967295, 4294967295, self.p.nss[obj], self.p.nsl[obj])
+        self.xb[f] = self.intern(9, 4294967295, 4294967295, self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536])
         self.xp[f] = 9
-        self.xpush(self.p.nns[obj], self.wpl[w])
+        self.xpush(self.p.nns[obj / 65536][obj % 65536], self.wpl[w])
     }
 
     func xs_method_obj(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         if self.yk[self.tres] != 8 {
@@ -2371,7 +2371,7 @@ struct Check {
         for i in 0..1024 {
             if i < self.nfun and mfi == 4294967295 {
                 if self.fown[i] == si {
-                    if self.span_eq(self.fn_s[i], self.fn_l[i], self.p.nss[n], self.p.nsl[n]) {
+                    if self.span_eq(self.fn_s[i], self.fn_l[i], self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]) {
                         mfi = i
                     }
                 }
@@ -2399,7 +2399,7 @@ struct Check {
     }
 
     func xs_marg(var self, f: u32, n: u32, mfi: u32)
-        requires f < 64 and n < 65536 and mfi < 1024
+        requires f < 64 and n < 131072 and mfi < 1024
         ensures true
     {
         let i: u32 = self.xb[f]
@@ -2417,16 +2417,16 @@ struct Check {
 
     # Метод с var self: получатель обязан быть изменяемым lvalue.
     func check_receiver(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        var base: u32 = self.p.nfc[n]
+        var base: u32 = self.p.nfc[n / 65536][n % 65536]
         for _ in 0..32 {
-            if self.p.nk[base] == 43 or self.p.nk[base] == 44 {
-                base = self.p.nfc[base]
+            if self.p.nk[base / 65536][base % 65536] == 43 or self.p.nk[base / 65536][base % 65536] == 44 {
+                base = self.p.nfc[base / 65536][base % 65536]
             }
         }
-        let bk: u32 = self.p.nk[base]
+        let bk: u32 = self.p.nk[base / 65536][base % 65536]
         if bk == 38 {
             if self.self_mu != 1 {
                 self.fail_node(n, "метод с var self внутри немутирующего метода")
@@ -2434,7 +2434,7 @@ struct Check {
             return
         }
         if bk == 37 {
-            let v: u32 = self.lookup(self.p.nss[base], self.p.nsl[base])
+            let v: u32 = self.lookup(self.p.nss[base / 65536][base % 65536], self.p.nsl[base / 65536][base % 65536])
             if v == 4294967295 or self.sv_m[v] != 1 {
                 self.fail_node(n, "метод с var self: получатель — let (неизменяем)")
             }
@@ -2444,19 +2444,19 @@ struct Check {
     }
 
     func xs_member(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let obj: u32 = self.p.nfc[n]
+        let obj: u32 = self.p.nfc[n / 65536][n % 65536]
         if self.xp[f] == 0 {
-            if self.p.nk[obj] == 37 {
-                if self.is_enum_name(self.p.nss[obj], self.p.nsl[obj]) {
-                    let w: u32 = self.variant_of(self.p.nss[obj], self.p.nsl[obj], self.p.nss[n], self.p.nsl[n])
+            if self.p.nk[obj / 65536][obj % 65536] == 37 {
+                if self.is_enum_name(self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536]) {
+                    let w: u32 = self.variant_of(self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536], self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
                     if w == 4294967295 {
                         self.fail_node(n, "у enum нет такого варианта")
                         return
                     }
-                    self.tres = self.intern(9, 4294967295, 4294967295, self.p.nss[obj], self.p.nsl[obj])
+                    self.tres = self.intern(9, 4294967295, 4294967295, self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536])
                     self.xdone()
                     return
                 }
@@ -2469,7 +2469,7 @@ struct Check {
                 return
             }
             let si: u32 = self.find_struct(self.ys[self.tres], self.yl[self.tres])
-            let g: u32 = self.field_of(si, self.p.nss[n], self.p.nsl[n])
+            let g: u32 = self.field_of(si, self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
             if g == 4294967295 {
                 self.fail_node(n, "у struct нет такого поля")
                 return
@@ -2495,17 +2495,17 @@ struct Check {
     }
 
     func xs_index(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp[f]
         if ph == 0 {
             self.xp[f] = 1
-            self.xpush(self.p.nfc[n], 4294967295)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
         } elif ph == 1 {
             self.xa[f] = self.tres
             self.xp[f] = 2
-            self.xpush(self.p.nns[self.p.nfc[n]], 1)
+            self.xpush(self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][self.p.nfc[n / 65536][n % 65536] % 65536], 1)
         } else {
             if self.yk[self.tres] > 2 {
                 self.fail_node(n, "индекс — целое")
@@ -2525,12 +2525,12 @@ struct Check {
 
     # Struct-литерал: xa — текущий fld-ребёнок, xb — тип текущего поля.
     func xs_slit(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp[f]
         if ph == 0 {
-            let si: u32 = self.find_struct(self.p.nss[n], self.p.nsl[n])
+            let si: u32 = self.find_struct(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
             if si == 4294967295 {
                 self.fail_node(n, "неизвестный struct")
                 return
@@ -2539,7 +2539,7 @@ struct Check {
             if self.failed {
                 return
             }
-            self.xa[f] = self.p.nfc[n]
+            self.xa[f] = self.p.nfc[n / 65536][n % 65536]
             self.xp[f] = 1
         } elif ph == 2 {
             if not self.compat(self.xb[f], self.tres) {
@@ -2549,42 +2549,42 @@ struct Check {
         } else {
             let c: u32 = self.xa[f]
             if c == 4294967295 {
-                self.tres = self.intern(8, 4294967295, 4294967295, self.p.nss[n], self.p.nsl[n])
+                self.tres = self.intern(8, 4294967295, 4294967295, self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
                 self.xdone()
                 return
             }
-            let si2: u32 = self.find_struct(self.p.nss[n], self.p.nsl[n])
-            let g: u32 = self.field_of(si2, self.p.nss[c], self.p.nsl[c])
-            self.xa[f] = self.p.nns[c]
+            let si2: u32 = self.find_struct(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+            let g: u32 = self.field_of(si2, self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536])
+            self.xa[f] = self.p.nns[c / 65536][c % 65536]
             self.xb[f] = self.gty[g]
             self.xp[f] = 2
-            self.xpush(self.p.nfc[c], self.gty[g])
+            self.xpush(self.p.nfc[c / 65536][c % 65536], self.gty[g])
         }
     }
 
     # Литерал: без повторов, без лишних, все поля struct на месте.
     func slit_fields_ok(var self, n: u32, si: u32)
-        requires n < 65536 and si < 128
+        requires n < 131072 and si < 128
         ensures true
     {
-        var c: u32 = self.p.nfc[n]
+        var c: u32 = self.p.nfc[n / 65536][n % 65536]
         var cnt: u32 = 0
         for _ in 0..512 {
             if c != 4294967295 and not self.failed {
-                var w: u32 = self.p.nns[c]
+                var w: u32 = self.p.nns[c / 65536][c % 65536]
                 for _ in 0..512 {
                     if w != 4294967295 {
-                        if self.span_eq(self.p.nss[c], self.p.nsl[c], self.p.nss[w], self.p.nsl[w]) {
+                        if self.span_eq(self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536], self.p.nss[w / 65536][w % 65536], self.p.nsl[w / 65536][w % 65536]) {
                             self.fail_node(n, "поле повторяется в литерале")
                         }
-                        w = self.p.nns[w]
+                        w = self.p.nns[w / 65536][w % 65536]
                     }
                 }
-                if self.field_of(si, self.p.nss[c], self.p.nsl[c]) == 4294967295 {
+                if self.field_of(si, self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536]) == 4294967295 {
                     self.fail_node(n, "лишнее поле в литерале")
                 }
                 cnt = cnt + 1
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
         if cnt != self.sgc[si] and not self.failed {
@@ -2594,7 +2594,7 @@ struct Check {
 
     # Массив-литерал: xa — текущий ребёнок, xb — тип первого элемента.
     func xs_alit(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp[f]
@@ -2604,18 +2604,18 @@ struct Check {
             if exp != 4294967295 and self.yk[exp] == 7 {
                 hint = self.ya[exp]
             }
-            self.xa[f] = self.p.nfc[n]
+            self.xa[f] = self.p.nfc[n / 65536][n % 65536]
             self.xp[f] = 1
-            self.xpush(self.p.nfc[n], hint)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], hint)
         } elif ph == 1 {
             self.xb[f] = self.tres
-            self.xa[f] = self.p.nns[self.xa[f]]
+            self.xa[f] = self.p.nns[self.xa[f] / 65536][self.xa[f] % 65536]
             self.xp[f] = 2
         } elif ph == 3 {
             if not self.compat(self.xb[f], self.tres) {
                 self.fail_node(n, "элементы массива разных типов")
             }
-            self.xa[f] = self.p.nns[self.xa[f]]
+            self.xa[f] = self.p.nns[self.xa[f] / 65536][self.xa[f] % 65536]
             self.xp[f] = 2
         } else {
             let c: u32 = self.xa[f]
@@ -2636,12 +2636,12 @@ struct Check {
     }
 
     func xs_afill(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let exp: u32 = self.xe[f]
         if self.xp[f] == 0 {
-            self.const_eval(self.p.nns[self.p.nfc[n]])
+            self.const_eval(self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][self.p.nfc[n / 65536][n % 65536] % 65536])
             if self.failed {
                 return
             }
@@ -2655,7 +2655,7 @@ struct Check {
                 hint = self.ya[exp]
             }
             self.xp[f] = 1
-            self.xpush(self.p.nfc[n], hint)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], hint)
         } else {
             if exp != 4294967295 and self.yk[exp] == 7 {
                 if self.yb[exp] != self.xb[f] {
@@ -2672,7 +2672,7 @@ struct Check {
     # Биты aux блока: 1 своя область, 2 finished, 4 «возвращает».
 
     func qpush(var self, k: u32, node: u32, cursor: u32, aux: u32)
-        requires k <= 4 and node < 65536
+        requires k <= 4 and node < 131072
         ensures true
     {
         if self.nq >= 128 {
@@ -2688,17 +2688,17 @@ struct Check {
     }
 
     func start_block_frame(var self, body: u32, ns: u32)
-        requires body < 65536 and ns <= 1
+        requires body < 131072 and ns <= 1
         ensures true
     {
         if ns == 1 {
             self.push_scope()
         }
-        self.qpush(0, body, self.p.nfc[body], ns)
+        self.qpush(0, body, self.p.nfc[body / 65536][body % 65536], ns)
     }
 
     func run_block_machine(var self, body: u32, ns: u32)
-        requires body < 65536 and ns <= 1
+        requires body < 131072 and ns <= 1
         ensures true
     {
         self.nq = 0
@@ -2738,12 +2738,12 @@ struct Check {
         let f: u32 = self.nq - 1
         let last: u32 = self.qy[f]
         if last != 4294967295 {
-            if self.nrt[last] == 1 or self.p.nk[last] == 23 {
+            if self.nrt[last / 65536][last % 65536] == 1 or self.p.nk[last / 65536][last % 65536] == 23 {
                 if self.qx[f] / 2 % 2 == 0 {
                     self.qx[f] = self.qx[f] + 2
                 }
             }
-            if self.nrt[last] == 1 {
+            if self.nrt[last / 65536][last % 65536] == 1 {
                 if self.qx[f] / 4 % 2 == 0 {
                     self.qx[f] = self.qx[f] + 4
                 }
@@ -2752,7 +2752,7 @@ struct Check {
         }
         let cur: u32 = self.qp[f]
         if cur == 4294967295 {
-            self.nrt[self.qn[f]] = self.qx[f] / 4 % 2
+            self.nrt[self.qn[f] / 65536][self.qn[f] % 65536] = self.qx[f] / 4 % 2
             if self.qx[f] % 2 == 1 {
                 self.pop_scope()
             }
@@ -2763,24 +2763,24 @@ struct Check {
             self.fail_node(cur, "недостижимый код после return/break (правило 10)")
             return
         }
-        self.qp[f] = self.p.nns[cur]
+        self.qp[f] = self.p.nns[cur / 65536][cur % 65536]
         self.qy[f] = cur
         self.check_stmt(cur)
     }
 
     func check_stmt(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let k: u32 = self.p.nk[cur]
+        let k: u32 = self.p.nk[cur / 65536][cur % 65536]
         if k == 13 {
             self.q_let(cur)
         } elif k == 14 {
             self.q_assign(cur)
         } elif k == 15 {
-            self.expect_bool(self.p.nfc[cur])
+            self.expect_bool(self.p.nfc[cur / 65536][cur % 65536])
             if not self.failed {
-                self.qpush(1, cur, self.p.nns[self.p.nfc[cur]], 0)
+                self.qpush(1, cur, self.p.nns[self.p.nfc[cur / 65536][cur % 65536] / 65536][self.p.nfc[cur / 65536][cur % 65536] % 65536], 0)
             }
         } elif k == 18 {
             self.q_for_start(cur)
@@ -2791,7 +2791,7 @@ struct Check {
             }
             self.loopd = self.loopd + 1
             self.qpush(4, cur, 4294967295, 0)
-            self.start_block_frame(self.p.nfc[cur], 1)
+            self.start_block_frame(self.p.nfc[cur / 65536][cur % 65536], 1)
         } elif k == 20 {
             self.q_match_start(cur)
         } elif k == 22 {
@@ -2801,14 +2801,14 @@ struct Check {
                 self.fail_node(cur, "break вне loop")
             }
         } elif k == 24 {
-            self.expect_bool(self.p.nfc[cur])
+            self.expect_bool(self.p.nfc[cur / 65536][cur % 65536])
         } elif k == 25 {
-            self.expr_check(self.p.nfc[cur], 4294967295, 1)
+            self.expr_check(self.p.nfc[cur / 65536][cur % 65536], 4294967295, 1)
             if not self.failed and self.tres != 5 {
                 self.fail_node(cur, "результат отброшен молча; используйте значение или discard (правило 7)")
             }
         } else {
-            self.expr_check(self.p.nfc[cur], 4294967295, 1)
+            self.expr_check(self.p.nfc[cur / 65536][cur % 65536], 4294967295, 1)
             if not self.failed and self.tres == 5 {
                 self.fail_node(cur, "discard бессмыслен: функция ничего не возвращает")
             }
@@ -2816,15 +2816,15 @@ struct Check {
     }
 
     func q_let(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let ty: u32 = self.resolve(self.p.nfc[cur])
+        let ty: u32 = self.resolve(self.p.nfc[cur / 65536][cur % 65536])
         if self.failed {
             return
         }
-        self.nty[cur] = ty
-        self.expr_check(self.p.nns[self.p.nfc[cur]], ty, 0)
+        self.nty[cur / 65536][cur % 65536] = ty
+        self.expr_check(self.p.nns[self.p.nfc[cur / 65536][cur % 65536] / 65536][self.p.nfc[cur / 65536][cur % 65536] % 65536], ty, 0)
         if self.failed {
             return
         }
@@ -2832,14 +2832,14 @@ struct Check {
             self.fail_node(cur, "тип значения не совпадает (неявных преобразований нет)")
             return
         }
-        self.declare(cur, self.p.nss[cur], self.p.nsl[cur], ty, self.p.nx[cur])
+        self.declare(cur, self.p.nss[cur / 65536][cur % 65536], self.p.nsl[cur / 65536][cur % 65536], ty, self.p.nx[cur / 65536][cur % 65536])
     }
 
     func q_assign(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let tgt: u32 = self.p.nfc[cur]
+        let tgt: u32 = self.p.nfc[cur / 65536][cur % 65536]
         self.expr_check(tgt, 4294967295, 0)
         if self.failed {
             return
@@ -2847,11 +2847,11 @@ struct Check {
         let tt: u32 = self.tres
         var base: u32 = tgt
         for _ in 0..32 {
-            if self.p.nk[base] == 43 or self.p.nk[base] == 44 {
-                base = self.p.nfc[base]
+            if self.p.nk[base / 65536][base % 65536] == 43 or self.p.nk[base / 65536][base % 65536] == 44 {
+                base = self.p.nfc[base / 65536][base % 65536]
             }
         }
-        let bk: u32 = self.p.nk[base]
+        let bk: u32 = self.p.nk[base / 65536][base % 65536]
         if bk == 38 {
             let v: u32 = self.lookup_self()
             if v == 4294967295 or self.sv_m[v] != 1 {
@@ -2859,7 +2859,7 @@ struct Check {
                 return
             }
         } elif bk == 37 {
-            let v2: u32 = self.lookup(self.p.nss[base], self.p.nsl[base])
+            let v2: u32 = self.lookup(self.p.nss[base / 65536][base % 65536], self.p.nsl[base / 65536][base % 65536])
             if v2 == 4294967295 {
                 self.fail_node(base, "неизвестное имя")
                 return
@@ -2872,7 +2872,7 @@ struct Check {
             self.fail_node(cur, "некорректная цель присваивания")
             return
         }
-        self.expr_check(self.p.nns[tgt], tt, 0)
+        self.expr_check(self.p.nns[tgt / 65536][tgt % 65536], tt, 0)
         if not self.failed and not self.compat(tt, self.tres) {
             self.fail_node(cur, "тип значения не совпадает (неявных преобразований нет)")
         }
@@ -2885,43 +2885,43 @@ struct Check {
         let f: u32 = self.nq - 1
         let cur: u32 = self.qp[f]
         if cur == 4294967295 {
-            self.nrt[self.qn[f]] = self.if_returns(self.qn[f])
+            self.nrt[self.qn[f] / 65536][self.qn[f] % 65536] = self.if_returns(self.qn[f])
             self.nq = f
             return
         }
-        self.qp[f] = self.p.nns[cur]
-        let k: u32 = self.p.nk[cur]
+        self.qp[f] = self.p.nns[cur / 65536][cur % 65536]
+        let k: u32 = self.p.nk[cur / 65536][cur % 65536]
         if k == 12 {
             self.start_block_frame(cur, 1)
         } elif k == 16 {
-            self.expect_bool(self.p.nfc[cur])
+            self.expect_bool(self.p.nfc[cur / 65536][cur % 65536])
             if not self.failed {
-                self.start_block_frame(self.p.nns[self.p.nfc[cur]], 1)
+                self.start_block_frame(self.p.nns[self.p.nfc[cur / 65536][cur % 65536] / 65536][self.p.nfc[cur / 65536][cur % 65536] % 65536], 1)
             }
         } elif k == 17 {
-            self.start_block_frame(self.p.nfc[cur], 1)
+            self.start_block_frame(self.p.nfc[cur / 65536][cur % 65536], 1)
         }
     }
 
     func if_returns(var self, n: u32) -> u32
-        requires n < 65536
+        requires n < 131072
         ensures result <= 1
     {
         var has_else: bool = false
         var all: u32 = 1
-        var c: u32 = self.p.nfc[n]
+        var c: u32 = self.p.nfc[n / 65536][n % 65536]
         for _ in 0..64 {
             if c != 4294967295 {
-                let k: u32 = self.p.nk[c]
+                let k: u32 = self.p.nk[c / 65536][c % 65536]
                 if k == 12 {
-                    all = all * self.nrt[c]
+                    all = all * self.nrt[c / 65536][c % 65536]
                 } elif k == 16 {
-                    all = all * self.nrt[self.p.nns[self.p.nfc[c]]]
+                    all = all * self.nrt[self.p.nns[self.p.nfc[c / 65536][c % 65536] / 65536][self.p.nfc[c / 65536][c % 65536] % 65536] / 65536][self.p.nns[self.p.nfc[c / 65536][c % 65536] / 65536][self.p.nfc[c / 65536][c % 65536] % 65536] % 65536]
                 } elif k == 17 {
                     has_else = true
-                    all = all * self.nrt[self.p.nfc[c]]
+                    all = all * self.nrt[self.p.nfc[c / 65536][c % 65536] / 65536][self.p.nfc[c / 65536][c % 65536] % 65536]
                 }
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
         if has_else {
@@ -2948,16 +2948,16 @@ struct Check {
     }
 
     func q_for_start(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let it: u32 = self.p.nfc[cur]
+        let it: u32 = self.p.nfc[cur / 65536][cur % 65536]
         var elem: u32 = 1
-        if self.p.nk[it] == 49 {
-            self.const_eval(self.p.nfc[it])
+        if self.p.nk[it / 65536][it % 65536] == 49 {
+            self.const_eval(self.p.nfc[it / 65536][it % 65536])
             let s1: u32 = self.ces
             let m1: u32 = self.cem
-            self.const_eval(self.p.nns[self.p.nfc[it]])
+            self.const_eval(self.p.nns[self.p.nfc[it / 65536][it % 65536] / 65536][self.p.nfc[it / 65536][it % 65536] % 65536])
             if self.failed {
                 return
             }
@@ -2996,11 +2996,11 @@ struct Check {
                 return
             }
         }
-        self.nty[cur] = elem
+        self.nty[cur / 65536][cur % 65536] = elem
         self.push_scope()
-        self.declare(cur, self.p.nss[cur], self.p.nsl[cur], elem, 0)
+        self.declare(cur, self.p.nss[cur / 65536][cur % 65536], self.p.nsl[cur / 65536][cur % 65536], elem, 0)
         self.qpush(2, cur, 4294967295, 0)
-        self.start_block_frame(self.p.nns[it], 0)
+        self.start_block_frame(self.p.nns[it / 65536][it % 65536], 0)
     }
 
     func q_for_end(var self)
@@ -3020,14 +3020,14 @@ struct Check {
     }
 
     func q_return(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
         var ret: u32 = 4294967295
         if self.cur_key < 2048 {
             ret = self.fret[self.cur_key]
         }
-        let value: u32 = self.p.nfc[cur]
+        let value: u32 = self.p.nfc[cur / 65536][cur % 65536]
         if ret == 4294967295 {
             if value != 4294967295 {
                 self.fail_node(cur, "функция ничего не возвращает")
@@ -3040,16 +3040,16 @@ struct Check {
                 self.fail_node(cur, "тип возврата не совпадает")
             }
         }
-        self.nrt[cur] = 1
+        self.nrt[cur / 65536][cur % 65536] = 1
     }
 
     # --- match ------------------------------------------------------------
 
     func q_match_start(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let subj: u32 = self.p.nfc[cur]
+        let subj: u32 = self.p.nfc[cur / 65536][cur % 65536]
         self.expr_check(subj, 4294967295, 0)
         if self.failed {
             return
@@ -3059,7 +3059,7 @@ struct Check {
             self.fail_node(subj, "match возможен по Result, Option или enum")
             return
         }
-        self.qpush(3, cur, self.p.nns[subj], self.tres)
+        self.qpush(3, cur, self.p.nns[subj / 65536][subj % 65536], self.tres)
     }
 
     func q_match(var self)
@@ -3070,13 +3070,13 @@ struct Check {
         if self.qy[f] == 1 {
             self.pop_scope()
             self.qy[f] = 4294967295
-            self.qp[f] = self.p.nns[self.qp[f]]
+            self.qp[f] = self.p.nns[self.qp[f] / 65536][self.qp[f] % 65536]
             return
         }
         let cur: u32 = self.qp[f]
         if cur == 4294967295 {
             self.exhaust_check(self.qn[f], self.qx[f])
-            self.nrt[self.qn[f]] = self.arms_return(self.qn[f])
+            self.nrt[self.qn[f] / 65536][self.qn[f] % 65536] = self.arms_return(self.qn[f])
             self.nq = f
             return
         }
@@ -3084,18 +3084,18 @@ struct Check {
     }
 
     func q_arm(var self, f: u32, arm: u32)
-        requires f < 128 and arm < 65536
+        requires f < 128 and arm < 131072
         ensures true
     {
         let dom: u32 = self.qx[f]
         # повтор варианта
-        var w: u32 = self.p.nns[self.p.nfc[self.qn[f]]]
+        var w: u32 = self.p.nns[self.p.nfc[self.qn[f] / 65536][self.qn[f] % 65536] / 65536][self.p.nfc[self.qn[f] / 65536][self.qn[f] % 65536] % 65536]
         for _ in 0..64 {
             if w != 4294967295 and w != arm {
-                if self.span_eq(self.p.nss[w], self.p.nsl[w], self.p.nss[arm], self.p.nsl[arm]) {
+                if self.span_eq(self.p.nss[w / 65536][w % 65536], self.p.nsl[w / 65536][w % 65536], self.p.nss[arm / 65536][arm % 65536], self.p.nsl[arm / 65536][arm % 65536]) {
                     self.fail_node(arm, "вариант повторяется")
                 }
-                w = self.p.nns[w]
+                w = self.p.nns[w / 65536][w % 65536]
             } elif w == arm {
                 w = 4294967295
             }
@@ -3104,8 +3104,8 @@ struct Check {
         if self.failed {
             return
         }
-        self.nty[arm] = payload
-        let bind: u32 = self.p.nx[arm]
+        self.nty[arm / 65536][arm % 65536] = payload
+        let bind: u32 = self.p.nx[arm / 65536][arm % 65536]
         if payload == 4294967295 and bind != 4294967295 {
             self.fail_node(arm, "вариант не несёт значения")
             return
@@ -3116,19 +3116,19 @@ struct Check {
         }
         self.push_scope()
         if payload != 4294967295 {
-            self.declare(arm, bind, self.p.ny[arm], payload, 0)
+            self.declare(arm, bind, self.p.ny[arm / 65536][arm % 65536], payload, 0)
         }
         self.qy[f] = 1
-        self.start_block_frame(self.p.nfc[arm], 0)
+        self.start_block_frame(self.p.nfc[arm / 65536][arm % 65536], 0)
     }
 
     # Тип нагрузки варианта арма в домене dom; ошибка — не вариант.
     func arm_payload(var self, dom: u32, arm: u32) -> u32
-        requires dom < 512 and arm < 65536
+        requires dom < 512 and arm < 131072
         ensures true
     {
-        let va: u32 = self.p.nss[arm]
-        let vl: u32 = self.p.nsl[arm]
+        let va: u32 = self.p.nss[arm / 65536][arm % 65536]
+        let vl: u32 = self.p.nsl[arm / 65536][arm % 65536]
         let dk: u32 = self.yk[dom]
         if dk == 10 {
             if self.span_is(va, vl, "Ok") {
@@ -3162,24 +3162,24 @@ struct Check {
     }
 
     func has_arm16(var self, m: u32, kw: str<16>) -> bool
-        requires m < 65536
+        requires m < 131072
         ensures true
     {
-        var a: u32 = self.p.nns[self.p.nfc[m]]
+        var a: u32 = self.p.nns[self.p.nfc[m / 65536][m % 65536] / 65536][self.p.nfc[m / 65536][m % 65536] % 65536]
         var found: bool = false
         for _ in 0..64 {
             if a != 4294967295 {
-                if self.span_is(self.p.nss[a], self.p.nsl[a], kw) {
+                if self.span_is(self.p.nss[a / 65536][a % 65536], self.p.nsl[a / 65536][a % 65536], kw) {
                     found = true
                 }
-                a = self.p.nns[a]
+                a = self.p.nns[a / 65536][a % 65536]
             }
         }
         return found
     }
 
     func exhaust_check(var self, m: u32, dom: u32)
-        requires m < 65536 and dom < 512
+        requires m < 131072 and dom < 512
         ensures true
     {
         let dk: u32 = self.yk[dom]
@@ -3210,7 +3210,7 @@ struct Check {
     }
 
     func exhaust_builtin(var self, m: u32, dom: u32)
-        requires m < 65536 and dom < 512
+        requires m < 131072 and dom < 512
         ensures true
     {
         if self.span_is(self.ys[dom], self.yl[dom], "IoError") {
@@ -3229,32 +3229,32 @@ struct Check {
     }
 
     func has_arm_span(var self, m: u32, a: u32, l: u32) -> bool
-        requires m < 65536
+        requires m < 131072
         ensures true
     {
-        var c: u32 = self.p.nns[self.p.nfc[m]]
+        var c: u32 = self.p.nns[self.p.nfc[m / 65536][m % 65536] / 65536][self.p.nfc[m / 65536][m % 65536] % 65536]
         var found: bool = false
         for _ in 0..64 {
             if c != 4294967295 {
-                if self.span_eq(self.p.nss[c], self.p.nsl[c], a, l) {
+                if self.span_eq(self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536], a, l) {
                     found = true
                 }
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
         return found
     }
 
     func arms_return(var self, m: u32) -> u32
-        requires m < 65536
+        requires m < 131072
         ensures result <= 1
     {
         var all: u32 = 1
-        var c: u32 = self.p.nns[self.p.nfc[m]]
+        var c: u32 = self.p.nns[self.p.nfc[m / 65536][m % 65536] / 65536][self.p.nfc[m / 65536][m % 65536] % 65536]
         for _ in 0..64 {
             if c != 4294967295 {
-                all = all * self.nrt[self.p.nfc[c]]
-                c = self.p.nns[c]
+                all = all * self.nrt[self.p.nfc[c / 65536][c % 65536] / 65536][self.p.nfc[c / 65536][c % 65536] % 65536]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
         return all
@@ -3284,20 +3284,20 @@ struct Check {
             }
         }
         var body: u32 = 4294967295
-        var c: u32 = self.p.nfc[d]
+        var c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..64 {
             if c != 4294967295 and not self.failed {
-                let ck: u32 = self.p.nk[c]
+                let ck: u32 = self.p.nk[c / 65536][c % 65536]
                 if ck == 9 {
-                    self.expect_bool(self.p.nfc[c])
+                    self.expect_bool(self.p.nfc[c / 65536][c % 65536])
                 } elif ck == 10 {
                     self.res_ty2 = self.fret[fi]
-                    self.expect_bool(self.p.nfc[c])
+                    self.expect_bool(self.p.nfc[c / 65536][c % 65536])
                     self.res_ty2 = 4294967295
                 } elif ck == 12 {
                     body = c
                 }
-                c = self.p.nns[c]
+                c = self.p.nns[c / 65536][c % 65536]
             }
         }
         if self.failed {
@@ -3307,7 +3307,7 @@ struct Check {
         if self.failed {
             return
         }
-        if self.fret[fi] != 4294967295 and self.nrt[body] == 0 {
+        if self.fret[fi] != 4294967295 and self.nrt[body / 65536][body % 65536] == 0 {
             self.fail_node(d, "не все пути возвращают значение")
             return
         }
@@ -3319,32 +3319,32 @@ struct Check {
         requires true
         ensures true
     {
-        var d: u32 = self.p.nfc[0]
-        for _ in 0..65536 {
+        var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
             if d != 4294967295 and not self.failed {
-                let k: u32 = self.p.nk[d]
+                let k: u32 = self.p.nk[d / 65536][d % 65536]
                 if k == 6 {
                     self.check_func_body(self.func_by_node(d))
                 } elif k == 4 {
-                    var m: u32 = self.p.nfc[d]
+                    var m: u32 = self.p.nfc[d / 65536][d % 65536]
                     for _ in 0..512 {
                         if m != 4294967295 and not self.failed {
-                            if self.p.nk[m] == 6 {
+                            if self.p.nk[m / 65536][m % 65536] == 6 {
                                 self.check_func_body(self.func_by_node(m))
                             }
-                            m = self.p.nns[m]
+                            m = self.p.nns[m / 65536][m % 65536]
                         }
                     }
                 } elif k == 11 {
                     self.check_test_body(d)
                 }
-                d = self.p.nns[d]
+                d = self.p.nns[d / 65536][d % 65536]
             }
         }
     }
 
     func check_test_body(var self, d: u32)
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
         if self.ttn >= 64 {
@@ -3352,13 +3352,13 @@ struct Check {
             return
         }
         let ti: u32 = self.ttn
-        self.tt_s[ti] = self.p.nss[d]
-        self.tt_l[ti] = self.p.nsl[d]
+        self.tt_s[ti] = self.p.nss[d / 65536][d % 65536]
+        self.tt_l[ti] = self.p.nsl[d / 65536][d % 65536]
         self.ttn = ti + 1
         self.cur_key = 2048 + ti
         self.self_ty2 = 4294967295
         self.res_ty2 = 4294967295
-        self.run_block_machine(self.p.nfc[d], 1)
+        self.run_block_machine(self.p.nfc[d / 65536][d % 65536], 1)
     }
 
     # --- правило 1: DAG вызовов и глубина стека ------------------------------
@@ -3500,7 +3500,7 @@ struct Check {
     }
 
     func tprint(var self, n: u32, d: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         for i in 0..64 {
@@ -3508,15 +3508,15 @@ struct Check {
                 write("  ")
             }
         }
-        let k: u32 = self.p.nk[n]
+        let k: u32 = self.p.nk[n / 65536][n % 65536]
         write_nkind(k)
         if has_pos(k) {
-            write(" {self.p.nl[n]}:{self.p.nc[n]}")
+            write(" {self.p.nl[n / 65536][n % 65536]}:{self.p.nc[n / 65536][n % 65536]}")
         }
         self.textras(n, k)
-        if self.nty[n] != 4294967295 {
+        if self.nty[n / 65536][n % 65536] != 4294967295 {
             write(" :: ")
-            self.write_type(self.nty[n])
+            self.write_type(self.nty[n / 65536][n % 65536])
             if k == 18 {
                 let r: u32 = self.range_of(n)
                 if r != 4294967295 {
@@ -3536,56 +3536,56 @@ struct Check {
     }
 
     func textras(var self, n: u32, k: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         if k == 6 {
             write(" name=")
-            self.write_span2(self.p.nss[n], self.p.nsl[n])
-            write(" method={self.p.nx[n]}")
+            self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+            write(" method={self.p.nx[n / 65536][n % 65536]}")
         } elif k == 7 {
             write(" name=")
-            if self.p.nss[n] == 4294967295 {
+            if self.p.nss[n / 65536][n % 65536] == 4294967295 {
                 write("self")
             } else {
-                self.write_span2(self.p.nss[n], self.p.nsl[n])
+                self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
             }
-            write(" mut={self.p.nx[n]}")
+            write(" mut={self.p.nx[n / 65536][n % 65536]}")
         } elif k == 13 {
             write(" name=")
-            self.write_span2(self.p.nss[n], self.p.nsl[n])
-            write(" mut={self.p.nx[n]}")
+            self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+            write(" mut={self.p.nx[n / 65536][n % 65536]}")
         } elif k == 21 {
             write(" name=")
-            self.write_span2(self.p.nss[n], self.p.nsl[n])
-            if self.p.nx[n] != 4294967295 {
+            self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+            if self.p.nx[n / 65536][n % 65536] != 4294967295 {
                 write(" bind=")
-                self.write_span2(self.p.nx[n], self.p.ny[n])
+                self.write_span2(self.p.nx[n / 65536][n % 65536], self.p.ny[n / 65536][n % 65536])
             }
         } elif k == 32 {
             write(" val=")
-            if self.p.ny[n] == 1 {
+            if self.p.ny[n / 65536][n % 65536] == 1 {
                 write("-")
             }
-            write("{self.p.nx[n]}")
+            write("{self.p.nx[n / 65536][n % 65536]}")
         } elif k == 33 {
-            if self.p.nx[n] == 1 {
+            if self.p.nx[n / 65536][n % 65536] == 1 {
                 write(" val=true")
             } else {
                 write(" val=false")
             }
         } elif k == 34 or k == 36 {
             write(" val=")
-            self.wesc_span(self.p.nss[n], self.p.nsl[n])
+            self.wesc_span(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
         } elif k == 37 {
             write(" val=")
-            self.write_span2(self.p.nss[n], self.p.nsl[n])
+            self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
         } elif k == 39 or k == 40 {
             write(" op=")
-            write_opname(self.p.nx[n])
+            write_opname(self.p.nx[n / 65536][n % 65536])
         } elif has_name(k) {
             write(" name=")
-            self.write_span2(self.p.nss[n], self.p.nsl[n])
+            self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
         }
     }
 
@@ -3612,11 +3612,11 @@ struct Check {
         for _ in 0..131072 {
             if not done {
                 self.tprint(cur, dpt)
-                if self.p.nfc[cur] != 4294967295 and sp < 64 {
+                if self.p.nfc[cur / 65536][cur % 65536] != 4294967295 and sp < 64 {
                     st[sp] = cur
                     sp = sp + 1
                     dpt = dpt + 1
-                    cur = self.p.nfc[cur]
+                    cur = self.p.nfc[cur / 65536][cur % 65536]
                 } else {
                     var moved: bool = false
                     for _ in 0..64 {
@@ -3624,8 +3624,8 @@ struct Check {
                             if sp == 0 {
                                 done = true
                                 moved = true
-                            } elif self.p.nns[cur] != 4294967295 {
-                                cur = self.p.nns[cur]
+                            } elif self.p.nns[cur / 65536][cur % 65536] != 4294967295 {
+                                cur = self.p.nns[cur / 65536][cur % 65536]
                                 moved = true
                             } else {
                                 sp = sp - 1

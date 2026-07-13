@@ -70,6 +70,9 @@ class Codegen:
         }
         self.cstr_cache: dict[bytes, ir.GlobalVariable] = {}
         self.strlit_cache: dict[bytes, ir.GlobalVariable] = {}
+        # declare_intrinsic ищет глобал по манглированному имени на
+        # каждый арифметический оператор — кэшируем результат
+        self.intr_cache: dict[tuple, ir.Function] = {}
         self.gname_n = 0  # общий счётчик имён @"str.N" обоих видов
         # enum с нагрузкой: {i32 tag, слот на каждый вариант с нагрузкой}
         self.payload_enums: set = {
@@ -229,9 +232,12 @@ class Codegen:
             return
         i8p = I8L.as_pointer()
         i64 = ir.IntType(64)
-        memcpy = self.module.declare_intrinsic(
-            "llvm.memcpy", [i8p, i8p, i64]
-        )
+        memcpy = self.intr_cache.get("llvm.memcpy")
+        if memcpy is None:
+            memcpy = self.module.declare_intrinsic(
+                "llvm.memcpy", [i8p, i8p, i64]
+            )
+            self.intr_cache["llvm.memcpy"] = memcpy
         # sizeof через gep(null, 1): без обращения к target data
         null = ir.Constant(dst_ptr.type, None)
         one = ir.Constant(ir.IntType(32), 1)
@@ -761,9 +767,15 @@ class Codegen:
                 ("-", False): "llvm.usub.with.overflow",
                 ("*", False): "llvm.umul.with.overflow",
             }[(op, signed)]
-            pair_ty = ir.LiteralStructType([left.type, I1L])
-            fnty = ir.FunctionType(pair_ty, [left.type, left.type])
-            intr = self.module.declare_intrinsic(name, [left.type], fnty=fnty)
+            key = (name, str(left.type))
+            intr = self.intr_cache.get(key)
+            if intr is None:
+                pair_ty = ir.LiteralStructType([left.type, I1L])
+                fnty = ir.FunctionType(pair_ty, [left.type, left.type])
+                intr = self.module.declare_intrinsic(
+                    name, [left.type], fnty=fnty
+                )
+                self.intr_cache[key] = intr
             pair = self.b.call(intr, [left, right])
             self.trap_if(
                 self.b.extract_value(pair, 1),
@@ -1099,12 +1111,20 @@ def compile_binary(
         pass  # новые llvmlite инициализируются сами
     ref = llvm.parse_assembly(str(module))
     ref.verify()
-    machine = llvm.Target.from_default_triple().create_target_machine()
+    machine = llvm.Target.from_default_triple().create_target_machine(opt=2)
     report = _memory_report(cg, checker, machine)
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     ll_path = out.with_suffix(".ll")
     ll_path.write_text(str(module), encoding="utf-8")
+    # Оптимизация — только на пути IR → объектный код: .ll выше уже
+    # записан неоптимизированным (канон дифф-сверки и отладки), а
+    # текстовую эмиссию `eatc ir` фикспойнт бутстрапа требует
+    # байт-в-байт — её не трогаем.
+    pto = llvm.create_pipeline_tuning_options(speed_level=2)
+    pb = llvm.create_pass_builder(machine, pto)
+    mpm = pb.getModulePassManager()
+    mpm.run(ref, pb)
     obj_path = out.with_suffix(".o")
     obj_path.write_bytes(machine.emit_object(ref))
     runtime = Path(__file__).parent / "runtime.c"

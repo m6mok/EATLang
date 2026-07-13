@@ -6,8 +6,8 @@
 связывания (аргумент, let, присваивание, return).
 """
 
+import operator
 import sys
-from copy import deepcopy
 from dataclasses import dataclass
 
 from . import ast_nodes as ast
@@ -61,6 +61,44 @@ class StructRT:
     methods: dict  # имя -> ast.FuncDecl
 
 
+# Бинарные операции без trap-путей — прямые C-функции operator.*;
+# and/or (ленивость), сдвиги и деление (trap) остаются в _eval_binop.
+_BINOP_FNS = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "+": operator.add,
+    "-": operator.sub,
+    "*": operator.mul,
+    "&": operator.and_,
+    "|": operator.or_,
+    "^": operator.xor,
+}
+
+
+def _copy_value(v):
+    """Копия by-value. int/bool/str неизменяемы в Python — как есть;
+    рекурсивно копируются только составные (list, struct и обёртки
+    с потенциально составной нагрузкой)."""
+    t = type(v)
+    if t is list:
+        return [_copy_value(x) for x in v]
+    if t is StructValue:
+        return StructValue(
+            v.name, {k: _copy_value(x) for k, x in v.fields.items()}
+        )
+    if t is Tagged:
+        p = _copy_value(v.payload)
+        return v if p is v.payload else Tagged(v.tag, p)
+    if t is EnumValue:
+        p = _copy_value(v.payload)
+        return v if p is v.payload else EnumValue(v.enum, v.variant, p)
+    return v
+
+
 class Interpreter:
     def __init__(self, program: ast.Program, filename: str):
         self.program = program
@@ -106,6 +144,17 @@ class Interpreter:
         if isinstance(tnode, ast.StrType):
             return self._const_eval(tnode.capacity)
         return None
+
+    def _meta(self, tnode) -> tuple:
+        """(kind, cap) типа — кэш на самом узле: узлы типов
+        перечитываются на каждый вызов/let горячего пути."""
+        if tnode is None:
+            return (None, None)
+        meta = getattr(tnode, "interp_meta", None)
+        if meta is None:
+            meta = (self._kind(tnode), self._cap(tnode))
+            tnode.interp_meta = meta
+        return meta
 
     def _const_eval(self, expr: ast.Expr) -> int:
         if isinstance(expr, ast.IntLit):
@@ -213,15 +262,20 @@ class Interpreter:
             for param in func.params:
                 if param.name == "self":
                     continue
-                value = deepcopy(args[arg_i])
+                value = _copy_value(args[arg_i])
                 arg_i += 1
-                kind = self._kind(param.type)
-                cap = self._cap(param.type)
-                self._fit(site, kind, value)
-                self._fit_cap(site, cap, value)
+                kind, cap = self._meta(param.type)
+                if kind is not None:
+                    self._fit(site, kind, value)
+                if cap is not None:
+                    self._fit_cap(site, cap, value)
                 self.declare(param.name, Slot(value, kind, cap))
-            if func.requires is not None:
-                if not self.eval(func.requires):
+            req = func.requires
+            # `requires true` — тривиальный контракт, не тратим eval
+            if req is not None and not (
+                type(req) is ast.BoolLit and req.value
+            ):
+                if not self.eval(req):
                     raise self.trap(
                         site, f"нарушен requires функции {func.name}"
                     )
@@ -229,10 +283,13 @@ class Interpreter:
             try:
                 self.exec_block(func.body)
             except ReturnSignal as ret:
-                result = deepcopy(ret.value)
-            if func.ensures is not None:
+                result = _copy_value(ret.value)
+            ens = func.ensures
+            if ens is not None and not (
+                type(ens) is ast.BoolLit and ens.value
+            ):
                 self.declare("result", Slot(result))
-                if not self.eval(func.ensures):
+                if not self.eval(ens):
                     raise self.trap(
                         site, f"нарушен ensures функции {func.name}"
                     )
@@ -253,61 +310,61 @@ class Interpreter:
             self.pop_scope()
 
     def exec_stmt(self, stmt: ast.Stmt) -> None:
-        if isinstance(stmt, ast.LetStmt):
-            value = deepcopy(self.eval(stmt.value))
-            kind = self._kind(stmt.type)
-            cap = self._cap(stmt.type)
+        handler = self._EXEC.get(type(stmt))
+        if handler is None:
+            raise self.trap(stmt, "неизвестная инструкция")
+        handler(self, stmt)
+
+    def _exec_let(self, stmt: ast.LetStmt) -> None:
+        value = _copy_value(self.eval(stmt.value))
+        kind, cap = self._meta(stmt.type)
+        if kind is not None:
             self._fit(stmt, kind, value)
+        if cap is not None:
             self._fit_cap(stmt, cap, value)
-            self.declare(stmt.name, Slot(value, kind, cap))
+        self.declare(stmt.name, Slot(value, kind, cap))
+
+    def _exec_if(self, stmt: ast.IfStmt) -> None:
+        if self.eval(stmt.cond):
+            self.exec_block(stmt.then)
             return
-        if isinstance(stmt, ast.AssignStmt):
-            self.exec_assign(stmt)
-            return
-        if isinstance(stmt, ast.IfStmt):
-            if self.eval(stmt.cond):
-                self.exec_block(stmt.then)
+        for cond, blk in stmt.elifs:
+            if self.eval(cond):
+                self.exec_block(blk)
                 return
-            for cond, blk in stmt.elifs:
-                if self.eval(cond):
-                    self.exec_block(blk)
-                    return
-            if stmt.els is not None:
-                self.exec_block(stmt.els)
-            return
-        if isinstance(stmt, ast.ForStmt):
-            self.exec_for(stmt)
-            return
-        if isinstance(stmt, ast.LoopStmt):
-            try:
-                while True:
-                    self.exec_block(stmt.body)
-            except BreakSignal:
-                return
-        if isinstance(stmt, ast.MatchStmt):
-            self.exec_match(stmt)
-            return
-        if isinstance(stmt, ast.ReturnStmt):
-            value = self.eval(stmt.value) if stmt.value is not None else None
-            raise ReturnSignal(value)
-        if isinstance(stmt, ast.BreakStmt):
-            raise BreakSignal()
-        if isinstance(stmt, ast.AssertStmt):
-            if not self.eval(stmt.cond):
-                raise self.trap(stmt, "assert не выполнен")
-            return
-        if isinstance(stmt, (ast.ExprStmt, ast.DiscardStmt)):
-            self.eval(stmt.expr)
-            return
-        raise self.trap(stmt, "неизвестная инструкция")
+        if stmt.els is not None:
+            self.exec_block(stmt.els)
+
+    def _exec_loop(self, stmt: ast.LoopStmt) -> None:
+        try:
+            while True:
+                self.exec_block(stmt.body)
+        except BreakSignal:
+            pass
+
+    def _exec_return(self, stmt: ast.ReturnStmt) -> None:
+        value = self.eval(stmt.value) if stmt.value is not None else None
+        raise ReturnSignal(value)
+
+    def _exec_break(self, stmt: ast.BreakStmt) -> None:
+        raise BreakSignal()
+
+    def _exec_assert(self, stmt: ast.AssertStmt) -> None:
+        if not self.eval(stmt.cond):
+            raise self.trap(stmt, "assert не выполнен")
+
+    def _exec_expr(self, stmt) -> None:
+        self.eval(stmt.expr)
 
     def exec_assign(self, stmt: ast.AssignStmt) -> None:
-        value = deepcopy(self.eval(stmt.value))
+        value = _copy_value(self.eval(stmt.value))
         target = stmt.target
-        if isinstance(target, ast.Name):
+        if type(target) is ast.Name:
             slot = self.slot(target, target.ident)
-            self._fit(stmt, slot.kind, value)
-            self._fit_cap(stmt, slot.cap, value)
+            if slot.kind is not None:
+                self._fit(stmt, slot.kind, value)
+            if slot.cap is not None:
+                self._fit_cap(stmt, slot.cap, value)
             slot.value = value
             return
         if isinstance(target, ast.FieldAccess):
@@ -333,13 +390,30 @@ class Interpreter:
             items = range(start, end)
         else:
             items = self.eval(stmt.iterable)
-        for item in items:
-            self.push_scope()
-            self.declare(stmt.target, Slot(deepcopy(item)))
-            try:
-                self.exec_block(stmt.body)
-            finally:
-                self.pop_scope()
+        # скоупы витка (переменная цикла + тело) создаются один раз
+        # и переиспользуются: не 2 dict-аллокации на каждый виток
+        frame = self.frames[-1]
+        loop_scope: dict = {}
+        body_scope: dict = {}
+        frame.append(loop_scope)
+        frame.append(body_scope)
+        target = stmt.target
+        stmts = stmt.body.stmts
+        exec_stmt = self.exec_stmt
+        tslot = None
+        if target != "_":
+            tslot = Slot(None)
+            loop_scope[target] = tslot
+        try:
+            for item in items:
+                if tslot is not None:
+                    tslot.value = _copy_value(item)
+                body_scope.clear()
+                for s in stmts:
+                    exec_stmt(s)
+        finally:
+            frame.pop()
+            frame.pop()
 
     def exec_match(self, stmt: ast.MatchStmt) -> None:
         subject = self.eval(stmt.subject)
@@ -353,7 +427,7 @@ class Interpreter:
                 continue
             self.push_scope()
             if arm.binding is not None:
-                self.declare(arm.binding, Slot(deepcopy(payload)))
+                self.declare(arm.binding, Slot(_copy_value(payload)))
             try:
                 self.exec_block(arm.body)
             finally:
@@ -364,65 +438,65 @@ class Interpreter:
     # --- выражения -----------------------------------------------------------
 
     def eval(self, node: ast.Expr):
-        if isinstance(node, ast.IntLit):
-            return node.value
-        if isinstance(node, ast.BoolLit):
-            return node.value
-        if isinstance(node, ast.CharLit):
-            return node.value
-        if isinstance(node, ast.StrLit):
-            return self._eval_str(node)
-        if isinstance(node, ast.SelfExpr):
-            return self.slot(node, "self").value
-        if isinstance(node, ast.Name):
-            return self.slot(node, node.ident).value
-        if isinstance(node, ast.UnaryOp):
-            return self._eval_unary(node)
-        if isinstance(node, ast.BinOp):
-            return self._eval_binop(node)
-        if isinstance(node, ast.Call):
-            return self._eval_call(node)
-        if isinstance(node, ast.MethodCall):
-            # Enum.Variant(x) — конструктор варианта с нагрузкой
-            if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
-                payload = deepcopy(self.eval(node.args[0]))
-                return EnumValue(node.obj.ident, node.name, payload)
-            obj = self.eval(node.obj)
-            assert isinstance(obj, StructValue)
-            method = self.structs[obj.name].methods[node.name]
-            args = [self.eval(a) for a in node.args]
-            # var self: метод мутирует получателя — передаём сам объект
-            var_self = bool(method.params) and method.params[0].mutable
-            return self.call_func(
-                method, args, obj if var_self else deepcopy(obj), node
-            )
-        if isinstance(node, ast.FieldAccess):
-            if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
-                return EnumValue(node.obj.ident, node.name)
-            obj = self.eval(node.obj)
-            assert isinstance(obj, StructValue)
-            return obj.fields[node.name]
-        if isinstance(node, ast.Index):
-            obj = self.eval(node.obj)
-            index = self.eval(node.index)
-            self._check_bounds(node, obj, index)
-            return obj[index]
-        if isinstance(node, ast.StructLit):
-            rt = self.structs[node.name]
-            fields = {}
-            for fname, fexpr in node.fields:
-                value = deepcopy(self.eval(fexpr))
-                kind, cap = rt.fields[fname]
-                self._fit(fexpr, kind, value)
-                self._fit_cap(fexpr, cap, value)
-                fields[fname] = value
-            return StructValue(node.name, fields)
-        if isinstance(node, ast.ArrayLit):
-            return [deepcopy(self.eval(e)) for e in node.elems]
-        if isinstance(node, ast.ArrayFill):
-            value = self.eval(node.value)
-            return [deepcopy(value) for _ in range(node.size)]
-        raise self.trap(node, "неизвестное выражение")
+        handler = self._EVAL.get(type(node))
+        if handler is None:
+            raise self.trap(node, "неизвестное выражение")
+        return handler(self, node)
+
+    def _eval_lit(self, node):
+        return node.value
+
+    def _eval_self(self, node: ast.SelfExpr):
+        return self.slot(node, "self").value
+
+    def _eval_name(self, node: ast.Name):
+        return self.slot(node, node.ident).value
+
+    def _eval_methodcall(self, node: ast.MethodCall):
+        # Enum.Variant(x) — конструктор варианта с нагрузкой
+        if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
+            payload = _copy_value(self.eval(node.args[0]))
+            return EnumValue(node.obj.ident, node.name, payload)
+        obj = self.eval(node.obj)
+        assert isinstance(obj, StructValue)
+        method = self.structs[obj.name].methods[node.name]
+        args = [self.eval(a) for a in node.args]
+        # var self: метод мутирует получателя — передаём сам объект
+        var_self = bool(method.params) and method.params[0].mutable
+        return self.call_func(
+            method, args, obj if var_self else _copy_value(obj), node
+        )
+
+    def _eval_fieldaccess(self, node: ast.FieldAccess):
+        if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
+            return EnumValue(node.obj.ident, node.name)
+        obj = self.eval(node.obj)
+        assert isinstance(obj, StructValue)
+        return obj.fields[node.name]
+
+    def _eval_index(self, node: ast.Index):
+        obj = self.eval(node.obj)
+        index = self.eval(node.index)
+        self._check_bounds(node, obj, index)
+        return obj[index]
+
+    def _eval_structlit(self, node: ast.StructLit):
+        rt = self.structs[node.name]
+        fields = {}
+        for fname, fexpr in node.fields:
+            value = _copy_value(self.eval(fexpr))
+            kind, cap = rt.fields[fname]
+            self._fit(fexpr, kind, value)
+            self._fit_cap(fexpr, cap, value)
+            fields[fname] = value
+        return StructValue(node.name, fields)
+
+    def _eval_arraylit(self, node: ast.ArrayLit):
+        return [_copy_value(self.eval(e)) for e in node.elems]
+
+    def _eval_arrayfill(self, node: ast.ArrayFill):
+        value = self.eval(node.value)
+        return [_copy_value(value) for _ in range(node.size)]
 
     def _eval_str(self, node: ast.StrLit) -> str:
         # Строка — байты (как в рантайме): литерал из исходника
@@ -459,30 +533,9 @@ class Interpreter:
             return self.eval(node.left) or self.eval(node.right)
         left = self.eval(node.left)
         right = self.eval(node.right)
-        if op == "==":
-            return left == right
-        if op == "!=":
-            return left != right
-        if op == "<":
-            return left < right
-        if op == "<=":
-            return left <= right
-        if op == ">":
-            return left > right
-        if op == ">=":
-            return left >= right
-        if op == "+":
-            return left + right
-        if op == "-":
-            return left - right
-        if op == "*":
-            return left * right
-        if op == "&":
-            return left & right
-        if op == "|":
-            return left | right
-        if op == "^":
-            return left ^ right
+        fn = _BINOP_FNS.get(op)
+        if fn is not None:
+            return fn(left, right)
         if op in ("<<", ">>"):
             return self._shift(node, op, left, right)
         if op == "/":
@@ -569,3 +622,37 @@ class Interpreter:
         if not lo <= value <= hi:
             return err("Overflow")
         return Tagged("Ok", value)
+
+    # --- диспетчеры (type(node) -> метод, вместо цепочек isinstance) --------
+
+    _EVAL = {
+        ast.IntLit: _eval_lit,
+        ast.BoolLit: _eval_lit,
+        ast.CharLit: _eval_lit,
+        ast.StrLit: _eval_str,
+        ast.SelfExpr: _eval_self,
+        ast.Name: _eval_name,
+        ast.UnaryOp: _eval_unary,
+        ast.BinOp: _eval_binop,
+        ast.Call: _eval_call,
+        ast.MethodCall: _eval_methodcall,
+        ast.FieldAccess: _eval_fieldaccess,
+        ast.Index: _eval_index,
+        ast.StructLit: _eval_structlit,
+        ast.ArrayLit: _eval_arraylit,
+        ast.ArrayFill: _eval_arrayfill,
+    }
+
+    _EXEC = {
+        ast.LetStmt: _exec_let,
+        ast.AssignStmt: exec_assign,
+        ast.IfStmt: _exec_if,
+        ast.ForStmt: exec_for,
+        ast.LoopStmt: _exec_loop,
+        ast.MatchStmt: exec_match,
+        ast.ReturnStmt: _exec_return,
+        ast.BreakStmt: _exec_break,
+        ast.AssertStmt: _exec_assert,
+        ast.ExprStmt: _exec_expr,
+        ast.DiscardStmt: _exec_expr,
+    }

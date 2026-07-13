@@ -25,16 +25,16 @@ struct Parser {
     failed: bool
     done: bool
     # пул узлов AST
-    nk: [u32; 65536]
-    nl: [u32; 65536]
-    nc: [u32; 65536]
-    nss: [u32; 65536]
-    nsl: [u32; 65536]
-    nx: [u32; 65536]
-    ny: [u32; 65536]
-    nfc: [u32; 65536]
-    nlc: [u32; 65536]
-    nns: [u32; 65536]
+    nk: [[u32; 65536]; 2]
+    nl: [[u32; 65536]; 2]
+    nc: [[u32; 65536]; 2]
+    nss: [[u32; 65536]; 2]
+    nsl: [[u32; 65536]; 2]
+    nx: [[u32; 65536]; 2]
+    ny: [[u32; 65536]; 2]
+    nfc: [[u32; 65536]; 2]
+    nlc: [[u32; 65536]; 2]
+    nns: [[u32; 65536]; 2]
     nnode: u32
     # стек кадров
     fk: [u32; 64]
@@ -178,70 +178,70 @@ struct Parser {
 
     func alloc(var self, k: u32, ln: u32, cl: u32) -> u32
         requires k <= 49
-        ensures result < 65536
+        ensures result < 131072
     {
-        if self.nnode >= 65536 {
-            self.fail("слишком много узлов AST (предел 65536)")
+        if self.nnode >= 131072 {
+            self.fail("слишком много узлов AST (предел 131072)")
             return 0
         }
         let n: u32 = self.nnode
-        self.nk[n] = k
-        self.nl[n] = ln
-        self.nc[n] = cl
-        self.nss[n] = 4294967295
-        self.nsl[n] = 0
-        self.nx[n] = 0
-        self.ny[n] = 0
-        self.nfc[n] = 4294967295
-        self.nlc[n] = 4294967295
-        self.nns[n] = 4294967295
+        self.nk[n / 65536][n % 65536] = k
+        self.nl[n / 65536][n % 65536] = ln
+        self.nc[n / 65536][n % 65536] = cl
+        self.nss[n / 65536][n % 65536] = 4294967295
+        self.nsl[n / 65536][n % 65536] = 0
+        self.nx[n / 65536][n % 65536] = 0
+        self.ny[n / 65536][n % 65536] = 0
+        self.nfc[n / 65536][n % 65536] = 4294967295
+        self.nlc[n / 65536][n % 65536] = 4294967295
+        self.nns[n / 65536][n % 65536] = 4294967295
         self.nnode = n + 1
         return n
     }
 
     # Строковый payload узла — значение токена ti.
     func set_str(var self, n: u32, ti: u32)
-        requires n < 65536 and ti < 131072
+        requires n < 131072 and ti < 131072
         ensures true
     {
-        self.nss[n] = self.lex.tok_vs(ti)
-        self.nsl[n] = self.lex.tok_vl(ti)
+        self.nss[n / 65536][n % 65536] = self.lex.tok_vs(ti)
+        self.nsl[n / 65536][n % 65536] = self.lex.tok_vl(ti)
     }
 
     func append_child(var self, p: u32, c: u32)
-        requires p < 65536 and c < 65536
+        requires p < 131072 and c < 131072
         ensures true
     {
-        if self.nfc[p] == 4294967295 {
-            self.nfc[p] = c
+        if self.nfc[p / 65536][p % 65536] == 4294967295 {
+            self.nfc[p / 65536][p % 65536] = c
         } else {
-            self.nns[self.nlc[p]] = c
+            self.nns[self.nlc[p / 65536][p % 65536] / 65536][self.nlc[p / 65536][p % 65536] % 65536] = c
         }
-        self.nlc[p] = c
+        self.nlc[p / 65536][p % 65536] = c
     }
 
     # Поле struct-декларации: после последнего поля, до методов
     # (эталон печатает поля, затем методы). nx[struct] — последнее поле.
     func insert_field(var self, s: u32, f: u32)
-        requires s < 65536 and f < 65536
+        requires s < 131072 and f < 131072
         ensures true
     {
-        let last: u32 = self.nx[s]
+        let last: u32 = self.nx[s / 65536][s % 65536]
         if last == 4294967295 {
-            let head: u32 = self.nfc[s]
-            self.nns[f] = head
-            self.nfc[s] = f
+            let head: u32 = self.nfc[s / 65536][s % 65536]
+            self.nns[f / 65536][f % 65536] = head
+            self.nfc[s / 65536][s % 65536] = f
             if head == 4294967295 {
-                self.nlc[s] = f
+                self.nlc[s / 65536][s % 65536] = f
             }
         } else {
-            self.nns[f] = self.nns[last]
-            self.nns[last] = f
-            if self.nlc[s] == last {
-                self.nlc[s] = f
+            self.nns[f / 65536][f % 65536] = self.nns[last / 65536][last % 65536]
+            self.nns[last / 65536][last % 65536] = f
+            if self.nlc[s / 65536][s % 65536] == last {
+                self.nlc[s / 65536][s % 65536] = f
             }
         }
-        self.nx[s] = f
+        self.nx[s / 65536][s % 65536] = f
     }
 
     # --- кадры -----------------------------------------------------------
@@ -491,12 +491,12 @@ struct Parser {
             self.fail("self (var в параметрах — только у self)")
             return
         }
-        if self.fx[f] % 2 == 0 or self.nfc[self.fnod[f]] != 4294967295 {
+        if self.fx[f] % 2 == 0 or self.nfc[self.fnod[f] / 65536][self.fnod[f] % 65536] != 4294967295 {
             self.fail("self допустим только первым параметром метода struct")
             return
         }
         let p: u32 = self.alloc(7, self.t_line(), self.t_col())
-        self.nx[p] = mut
+        self.nx[p / 65536][p % 65536] = mut
         self.advance()
         self.append_child(self.fnod[f], p)
         self.fx[f] = self.fx[f] + 256
@@ -578,10 +578,10 @@ struct Parser {
         let f: u32 = self.nf - 1
         let node: u32 = self.fnod[f]
         if self.fx[f] % 2 == 1 {
-            let fc: u32 = self.nfc[node]
+            let fc: u32 = self.nfc[node / 65536][node % 65536]
             if fc != 4294967295 {
-                if self.nk[fc] == 7 and self.nss[fc] == 4294967295 {
-                    self.nx[node] = 1
+                if self.nk[fc / 65536][fc % 65536] == 7 and self.nss[fc / 65536][fc % 65536] == 4294967295 {
+                    self.nx[node / 65536][node % 65536] = 1
                 }
             }
         }
@@ -826,7 +826,7 @@ struct Parser {
         }
         let n: u32 = self.alloc(13, ln, cl)
         self.set_str(n, self.cur)
-        self.nx[n] = mut
+        self.nx[n / 65536][n % 65536] = mut
         self.advance()
         if self.tk_at() != 44 {
             self.fail("ожидалось ':' (тип обязателен)")
@@ -886,7 +886,7 @@ struct Parser {
             }
         } elif ph == 2 {
             self.fp[f] = 1
-            self.start_block(self.nlc[node])
+            self.start_block(self.nlc[node / 65536][node % 65536])
         } else {
             self.complete()
         }
@@ -925,7 +925,7 @@ struct Parser {
         if ph == 0 {
             if self.tk_at() == 47 {
                 self.advance()
-                let r: u32 = self.alloc(49, self.nl[self.ret], self.nc[self.ret])
+                let r: u32 = self.alloc(49, self.nl[self.ret / 65536][self.ret % 65536], self.nc[self.ret / 65536][self.ret % 65536])
                 self.append_child(r, self.ret)
                 self.fx[f] = r
                 self.fp[f] = 1
@@ -976,7 +976,7 @@ struct Parser {
         let node: u32 = self.fnod[f]
         if self.tk_at() == 33 {
             self.advance()
-            if self.nfc[node] == self.nlc[node] {
+            if self.nfc[node / 65536][node % 65536] == self.nlc[node / 65536][node % 65536] {
                 self.fail("match без веток")
                 return
             }
@@ -989,7 +989,7 @@ struct Parser {
         }
         let arm: u32 = self.alloc(21, self.t_line(), self.t_col())
         self.set_str(arm, self.cur)
-        self.nx[arm] = 4294967295
+        self.nx[arm / 65536][arm % 65536] = 4294967295
         self.advance()
         if self.tk_at() == 30 {
             self.advance()
@@ -997,8 +997,8 @@ struct Parser {
                 self.fail("ожидалось имя или '_'")
                 return
             }
-            self.nx[arm] = self.lex.tok_vs(self.cur)
-            self.ny[arm] = self.lex.tok_vl(self.cur)
+            self.nx[arm / 65536][arm % 65536] = self.lex.tok_vs(self.cur)
+            self.ny[arm / 65536][arm % 65536] = self.lex.tok_vl(self.cur)
             self.advance()
             if self.tk_at() != 31 {
                 self.fail("ожидалось ')'")
@@ -1039,7 +1039,7 @@ struct Parser {
         requires true
         ensures true
     {
-        let rk: u32 = self.nk[self.ret]
+        let rk: u32 = self.nk[self.ret / 65536][self.ret % 65536]
         if rk != 41 and rk != 42 {
             self.fail("discard применим только к вызову функции")
             return
@@ -1062,19 +1062,19 @@ struct Parser {
         }
         if self.tk_at() == 42 {
             let tgt: u32 = self.ret
-            let tk2: u32 = self.nk[tgt]
+            let tk2: u32 = self.nk[tgt / 65536][tgt % 65536]
             if tk2 != 37 and tk2 != 43 and tk2 != 44 {
                 self.fail("слева от '=' должна быть переменная, поле или элемент")
                 return
             }
-            self.nk[node] = 14
+            self.nk[node / 65536][node % 65536] = 14
             self.append_child(node, tgt)
             self.advance()
             self.fp[f] = 1
             self.push_expr(node, 1, 0)
             return
         }
-        let rk: u32 = self.nk[self.ret]
+        let rk: u32 = self.nk[self.ret / 65536][self.ret % 65536]
         if rk != 41 and rk != 42 {
             self.fail("выражение-инструкция должно быть вызовом (правило 7, discard)")
             return
@@ -1141,7 +1141,7 @@ struct Parser {
         }
         let n: u32 = self.alloc(4, ln, cl)
         self.set_str(n, self.cur)
-        self.nx[n] = 4294967295
+        self.nx[n / 65536][n % 65536] = 4294967295
         self.advance()
         if self.tk_at() != 32 {
             self.fail("ожидалось '{{'")
@@ -1243,7 +1243,7 @@ struct Parser {
         let k: u32 = self.tk_at()
         if k == 33 {
             self.advance()
-            if self.nfc[node] == 4294967295 {
+            if self.nfc[node / 65536][node % 65536] == 4294967295 {
                 self.fail("enum не имеет вариантов")
                 return
             }
@@ -1320,7 +1320,7 @@ struct Parser {
     }
 
     func push_opnd(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         if self.nos >= 64 {
@@ -1333,7 +1333,7 @@ struct Parser {
 
     func pop_opnd(var self) -> u32
         requires true
-        ensures result < 65536
+        ensures result < 131072
     {
         if self.nos == 0 {
             self.fail("внутренняя ошибка: пустой стек операндов")
@@ -1405,17 +1405,17 @@ struct Parser {
             if self.failed {
                 return
             }
-            if self.nk[v] == 32 {
+            if self.nk[v / 65536][v % 65536] == 32 {
                 # -литерал — одно число (иначе INT_MIN невыразим)
-                if self.nx[v] > 0 {
-                    self.ny[v] = 1 - self.ny[v]
+                if self.nx[v / 65536][v % 65536] > 0 {
+                    self.ny[v / 65536][v % 65536] = 1 - self.ny[v / 65536][v % 65536]
                 }
-                self.nl[v] = ln
-                self.nc[v] = cl
+                self.nl[v / 65536][v % 65536] = ln
+                self.nc[v / 65536][v % 65536] = cl
                 self.push_opnd(v)
             } else {
                 let un: u32 = self.alloc(40, ln, cl)
-                self.nx[un] = 15
+                self.nx[un / 65536][un % 65536] = 15
                 self.append_child(un, v)
                 self.push_opnd(un)
             }
@@ -1424,13 +1424,13 @@ struct Parser {
         if code == 3 {
             let v2: u32 = self.pop_opnd()
             let un2: u32 = self.alloc(40, ln, cl)
-            self.nx[un2] = 3
+            self.nx[un2 / 65536][un2 % 65536] = 3
             self.append_child(un2, v2)
             self.push_opnd(un2)
             return
         }
         let bn: u32 = self.alloc(39, ln, cl)
-        self.nx[bn] = code
+        self.nx[bn / 65536][bn % 65536] = code
         let r: u32 = self.pop_opnd()
         let l: u32 = self.pop_opnd()
         self.append_child(bn, l)
@@ -1533,14 +1533,14 @@ struct Parser {
         if k == 0 {
             let mag: u32 = self.tok_u32()
             let n: u32 = self.alloc(32, ln, cl)
-            self.nx[n] = mag
+            self.nx[n / 65536][n % 65536] = mag
             self.advance()
             self.push_opnd(n)
             self.set_phase(1)
         } elif k == 25 or k == 26 {
             let n2: u32 = self.alloc(33, ln, cl)
             if k == 25 {
-                self.nx[n2] = 1
+                self.nx[n2 / 65536][n2 % 65536] = 1
             }
             self.advance()
             self.push_opnd(n2)
@@ -1660,8 +1660,8 @@ struct Parser {
         if sg == 4294967295 {
             if self.lex.tok_vl(ti) > 0 {
                 let seg: u32 = self.alloc(36, 0, 0)
-                self.nss[seg] = self.lex.tok_vs(ti)
-                self.nsl[seg] = self.lex.tok_vl(ti)
+                self.nss[seg / 65536][seg % 65536] = self.lex.tok_vs(ti)
+                self.nsl[seg / 65536][seg % 65536] = self.lex.tok_vl(ti)
                 self.append_child(node, seg)
             }
             self.push_opnd(node)
@@ -1685,7 +1685,7 @@ struct Parser {
     # Прикрепить литеральные сегменты от si; вернуть индекс следующего
     # сегмента-выражения (NONE, если сегменты кончились).
     func seg_scan(var self, node: u32, si: u32, send: u32) -> u32
-        requires node < 65536
+        requires node < 131072
         ensures true
     {
         var nxt: u32 = 4294967295
@@ -1694,8 +1694,8 @@ struct Parser {
             if i < send and nxt == 4294967295 {
                 if self.lex.sgk[i] == 0 {
                     let sn: u32 = self.alloc(36, 0, 0)
-                    self.nss[sn] = self.lex.sga[i]
-                    self.nsl[sn] = self.lex.sgb[i]
+                    self.nss[sn / 65536][sn % 65536] = self.lex.sga[i]
+                    self.nsl[sn / 65536][sn % 65536] = self.lex.sgb[i]
                     self.append_child(node, sn)
                     i = i + 1
                 } else {
@@ -1924,7 +1924,7 @@ struct Parser {
     {
         let e: u32 = self.nop - 1
         let val: u32 = self.pop_opnd()
-        self.append_child(self.nlc[self.pa[e]], val)
+        self.append_child(self.nlc[self.pa[e] / 65536][self.pa[e] % 65536], val)
     }
 
     # После значения поля: '}' закрывает литерал, иначе — новое поле.
@@ -2009,7 +2009,7 @@ struct Parser {
         if ts == 4 {
             self.reduce_sent()
             let e: u32 = self.nop - 1
-            if self.pk[e] == 4 and self.nfc[self.pa[e]] == 4294967295 {
+            if self.pk[e] == 4 and self.nfc[self.pa[e] / 65536][self.pa[e] % 65536] == 4294967295 {
                 let fill: u32 = self.alloc(48, self.pln[e], self.pcl[e])
                 let v: u32 = self.pop_opnd()
                 self.append_child(fill, v)
@@ -2088,7 +2088,7 @@ struct Parser {
         ensures true
     {
         self.print_node(self.dcur, self.ddepth)
-        let fc: u32 = self.nfc[self.dcur]
+        let fc: u32 = self.nfc[self.dcur / 65536][self.dcur % 65536]
         if fc != 4294967295 {
             if self.dn >= 64 {
                 self.fail("дамп: превышена глубина дерева")
@@ -2106,8 +2106,8 @@ struct Parser {
                 if self.dn == 0 {
                     self.ddone = true
                     moved = true
-                } elif self.nns[self.dcur] != 4294967295 {
-                    self.dcur = self.nns[self.dcur]
+                } elif self.nns[self.dcur / 65536][self.dcur % 65536] != 4294967295 {
+                    self.dcur = self.nns[self.dcur / 65536][self.dcur % 65536]
                     moved = true
                 } else {
                     self.dn = self.dn - 1
@@ -2119,7 +2119,7 @@ struct Parser {
     }
 
     func print_node(var self, n: u32, d: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         for i in 0..64 {
@@ -2127,66 +2127,66 @@ struct Parser {
                 write("  ")
             }
         }
-        let k: u32 = self.nk[n]
+        let k: u32 = self.nk[n / 65536][n % 65536]
         write_nkind(k)
         if has_pos(k) {
-            write(" {self.nl[n]}:{self.nc[n]}")
+            write(" {self.nl[n / 65536][n % 65536]}:{self.nc[n / 65536][n % 65536]}")
         }
         self.node_extras(n, k)
         write("\n")
     }
 
     func node_extras(var self, n: u32, k: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         if k == 6 {
             write(" name=")
-            self.write_span(self.nss[n], self.nsl[n])
-            write(" method={self.nx[n]}")
+            self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
+            write(" method={self.nx[n / 65536][n % 65536]}")
         } elif k == 7 {
             write(" name=")
-            if self.nss[n] == 4294967295 {
+            if self.nss[n / 65536][n % 65536] == 4294967295 {
                 write("self")
             } else {
-                self.write_span(self.nss[n], self.nsl[n])
+                self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
             }
-            write(" mut={self.nx[n]}")
+            write(" mut={self.nx[n / 65536][n % 65536]}")
         } elif k == 13 {
             write(" name=")
-            self.write_span(self.nss[n], self.nsl[n])
-            write(" mut={self.nx[n]}")
+            self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
+            write(" mut={self.nx[n / 65536][n % 65536]}")
         } elif k == 21 {
             write(" name=")
-            self.write_span(self.nss[n], self.nsl[n])
-            if self.nx[n] != 4294967295 {
+            self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
+            if self.nx[n / 65536][n % 65536] != 4294967295 {
                 write(" bind=")
-                self.write_span(self.nx[n], self.ny[n])
+                self.write_span(self.nx[n / 65536][n % 65536], self.ny[n / 65536][n % 65536])
             }
         } elif k == 32 {
             write(" val=")
-            if self.ny[n] == 1 {
+            if self.ny[n / 65536][n % 65536] == 1 {
                 write("-")
             }
-            write("{self.nx[n]}")
+            write("{self.nx[n / 65536][n % 65536]}")
         } elif k == 33 {
-            if self.nx[n] == 1 {
+            if self.nx[n / 65536][n % 65536] == 1 {
                 write(" val=true")
             } else {
                 write(" val=false")
             }
         } elif k == 34 or k == 36 {
             write(" val=")
-            self.write_span_esc(self.nss[n], self.nsl[n])
+            self.write_span_esc(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
         } elif k == 37 {
             write(" val=")
-            self.write_span(self.nss[n], self.nsl[n])
+            self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
         } elif k == 39 or k == 40 {
             write(" op=")
-            write_opname(self.nx[n])
+            write_opname(self.nx[n / 65536][n % 65536])
         } elif has_name(k) {
             write(" name=")
-            self.write_span(self.nss[n], self.nsl[n])
+            self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
         }
     }
 

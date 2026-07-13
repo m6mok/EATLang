@@ -218,7 +218,7 @@ eatc: build/eatc
 # Язык из EAT: компилятор компилирует сам себя, clang линкует
 build/eatc-self: build/eatc
 	cat $(SELFHOST_IR) | ./build/eatc > build/eatc-self.ll
-	clang build/eatc-self.ll src/eatc/runtime.c -o build/eatc-self \
+	clang -O2 build/eatc-self.ll src/eatc/runtime.c -o build/eatc-self \
 		-Wno-override-module $(STACK_FLAGS)
 
 eatc_self: build/eatc-self
@@ -238,7 +238,7 @@ compile: $(COMPILER)
 # Линковка: IR + шим аксиом ОС (runtime.c) → нативный бинарник
 link:
 	@test -f "$(LL)" || { echo "нет $(LL) — сначала make compile SRC=..."; exit 1; }
-	@clang $(LL) src/eatc/runtime.c -o $(BIN) -Wno-override-module $(STACK_FLAGS)
+	@clang -O2 $(LL) src/eatc/runtime.c -o $(BIN) -Wno-override-module $(STACK_FLAGS)
 	@echo "$(BIN)"
 
 # Запуск слинкованной программы (stdin проходит насквозь)

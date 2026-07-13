@@ -2,11 +2,23 @@
 
 from dataclasses import dataclass, field
 
+# Счётчик созданных узлов — парсер сверяет дельту с MAX_AST_NODES
+# (SPEC §6): та же alloc-семантика, что у пула self-hosted парсера.
+_alloc_count = 0
+
+
+def alloc_count() -> int:
+    return _alloc_count
+
 
 @dataclass
 class Node:
     line: int
     col: int
+
+    def __post_init__(self) -> None:
+        global _alloc_count
+        _alloc_count += 1
 
 
 # --- типы ---------------------------------------------------------------

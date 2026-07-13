@@ -1792,6 +1792,7 @@ struct Ir {
         self.line_fin()
     }
 
+
     # call void @"eat_str_append_{nm}"({STR}* v1, {at} v2)
     func e_rt_si(var self, nm: str<8>, at: str<8>)
         requires true
@@ -2173,7 +2174,7 @@ struct Ir {
     # --- машина выражений -----------------------------------------------------
 
     func xpush2(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         if self.nx3 >= 64 {
@@ -2193,7 +2194,7 @@ struct Ir {
     }
 
     func expr_run(var self, root: u32)
-        requires root < 65536
+        requires root < 131072
         ensures true
     {
         self.nx3 = 0
@@ -2214,7 +2215,7 @@ struct Ir {
     {
         let f: u32 = self.nx3 - 1
         let n: u32 = self.xn3[f]
-        let k: u32 = self.c.p.nk[n]
+        let k: u32 = self.c.p.nk[n / 65536][n % 65536]
         if k == 32 or k == 33 or k == 34 or k == 37 or k == 38 {
             self.xleaf(n, k)
         } elif k == 35 {
@@ -2241,17 +2242,17 @@ struct Ir {
     }
 
     func xleaf(var self, n: u32, k: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
         if k == 32 {
-            self.ser(2, self.c.p.ny[n], self.c.p.nx[n])
-            self.ert = self.c.nty[n]
+            self.ser(2, self.c.p.ny[n / 65536][n % 65536], self.c.p.nx[n / 65536][n % 65536])
+            self.ert = self.c.nty[n / 65536][n % 65536]
         } elif k == 33 {
-            self.ser(2, 0, self.c.p.nx[n])
+            self.ser(2, 0, self.c.p.nx[n / 65536][n % 65536])
             self.ert = 3
         } elif k == 34 {
-            self.ser(2, 0, u32(self.c.p.lex.sb_at(self.c.p.nss[n])))
+            self.ser(2, 0, u32(self.c.p.lex.sb_at(self.c.p.nss[n / 65536][n % 65536])))
             self.ert = 4
         } elif k == 38 {
             let v: u32 = self.lookup_self2()
@@ -2264,11 +2265,11 @@ struct Ir {
     }
 
     func xname(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        let a: u32 = self.c.p.nss[n]
-        let l: u32 = self.c.p.nsl[n]
+        let a: u32 = self.c.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.c.p.nsl[n / 65536][n % 65536]
         if self.res_on == 1 {
             if self.c.span_is(a, l, "result") {
                 if self.is_agg(self.rett) {
@@ -2301,18 +2302,18 @@ struct Ir {
     }
 
     func xstr(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp3[f]
         if ph == 0 {
             self.nm_lit("str")
-            self.e_alloca_n(self.c.nty[n])
+            self.e_alloca_n(self.c.nty[n / 65536][n % 65536])
             self.xb3[f] = self.rra
             self.xc3[f] = self.rrb
             self.set1rr()
             self.e_rt_s("init")
-            self.xa3[f] = self.c.p.nfc[n]
+            self.xa3[f] = self.c.p.nfc[n / 65536][n % 65536]
             self.xp3[f] = 1
             return
         }
@@ -2324,13 +2325,13 @@ struct Ir {
         let cur: u32 = self.xa3[f]
         if cur == 4294967295 {
             self.ser(1, self.xb3[f], self.xc3[f])
-            self.ert = self.c.nty[n]
+            self.ert = self.c.nty[n / 65536][n % 65536]
             self.nx3 = self.nx3 - 1
             return
         }
-        self.xa3[f] = self.c.p.nns[cur]
-        if self.c.p.nk[cur] == 36 {
-            let g: u32 = self.cstr_seg(self.c.p.nss[cur], self.c.p.nsl[cur])
+        self.xa3[f] = self.c.p.nns[cur / 65536][cur % 65536]
+        if self.c.p.nk[cur / 65536][cur % 65536] == 36 {
+            let g: u32 = self.cstr_seg(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536])
             self.set1(1, self.xb3[f], self.xc3[f])
             self.set2(3, g, 0)
             self.e_as()
@@ -2376,15 +2377,15 @@ struct Ir {
     }
 
     func xun(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         if self.xp3[f] == 0 {
             self.xp3[f] = 1
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
             return
         }
-        if self.c.p.nx[n] == 3 {
+        if self.c.p.nx[n / 65536][n % 65536] == 3 {
             self.set1er()
             self.e_not()
             self.serrr(3)
@@ -2400,7 +2401,7 @@ struct Ir {
             self.set1(pk, pa, pb)
             self.e_exv(2, 1)
             self.set1rr()
-            self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 2, 0, 0)
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, 0, 0)
             self.set1(pk, pa, pb)
             self.e_exv(2, 0)
             self.serrr(0)
@@ -2409,10 +2410,10 @@ struct Ir {
     }
 
     func xbin(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let op: u32 = self.c.p.nx[n]
+        let op: u32 = self.c.p.nx[n / 65536][n % 65536]
         if op <= 2 {
             self.xsc(f, n, op)
             return
@@ -2420,14 +2421,14 @@ struct Ir {
         let ph: u32 = self.xp3[f]
         if ph == 0 {
             self.xp3[f] = 1
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif ph == 1 {
             self.xa3[f] = self.erk
             self.xb3[f] = self.era
             self.xc3[f] = self.erb
             self.xd3[f] = self.ert
             self.xp3[f] = 2
-            self.xpush2(self.c.p.nns[self.c.p.nfc[n]])
+            self.xpush2(self.c.p.nns[self.c.p.nfc[n / 65536][n % 65536] / 65536][self.c.p.nfc[n / 65536][n % 65536] % 65536])
         } else {
             self.xbfin(f, n, op)
         }
@@ -2435,13 +2436,13 @@ struct Ir {
 
     # Короткое замыкание and/or (op: 1 or, 2 and).
     func xsc(var self, f: u32, n: u32, op: u32)
-        requires f < 64 and n < 65536 and op <= 2
+        requires f < 64 and n < 131072 and op <= 2
         ensures true
     {
         let ph: u32 = self.xp3[f]
         if ph == 0 {
             self.xp3[f] = 1
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
             return
         }
         if ph == 1 {
@@ -2467,7 +2468,7 @@ struct Ir {
             }
             self.cb = rhs
             self.xp3[f] = 2
-            self.xpush2(self.c.p.nns[self.c.p.nfc[n]])
+            self.xpush2(self.c.p.nns[self.c.p.nfc[n / 65536][n % 65536] / 65536][self.c.p.nfc[n / 65536][n % 65536] % 65536])
             return
         }
         let re: u32 = self.cb
@@ -2482,7 +2483,7 @@ struct Ir {
     }
 
     func xbfin(var self, f: u32, n: u32, op: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let lt: u32 = self.xd3[f]
@@ -2533,7 +2534,7 @@ struct Ir {
 
     # Арифметика с проверками; левый операнд в кадре, правый в er.
     func xarith(var self, f: u32, n: u32, op: u32)
-        requires f < 64 and n < 65536 and op >= 10 and op <= 14
+        requires f < 64 and n < 131072 and op >= 10 and op <= 14
         ensures true
     {
         let lt: u32 = self.xd3[f]
@@ -2555,7 +2556,7 @@ struct Ir {
             self.set1(pk, pa, pb)
             self.e_exv(iid, 1)
             self.set1rr()
-            self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 2, lk, 0)
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, lk, 0)
             self.set1(pk, pa, pb)
             self.e_exv(iid, 0)
             self.serrr(lt)
@@ -2569,7 +2570,7 @@ struct Ir {
     # Битовые операции: & | ^ — одна инструкция; сдвиги — с проверками
     # (рисунок инструкций и trap'ов — байт-в-байт как у эталона).
     func xbit(var self, f: u32, n: u32, op: u32)
-        requires f < 64 and n < 65536 and op >= 16 and op <= 20
+        requires f < 64 and n < 131072 and op >= 16 and op <= 20
         ensures true
     {
         let lt: u32 = self.xd3[f]
@@ -2594,7 +2595,7 @@ struct Ir {
     # Сдвиг: trap при n ≥ ширины типа; << дополнительно трапит вынос
     # битов (обратный lshr обязан восстановить операнд).
     func xshift(var self, f: u32, n: u32, op: u32, lt: u32)
-        requires f < 64 and n < 65536 and lt < 512
+        requires f < 64 and n < 131072 and lt < 512
         ensures true
     {
         let lk: u32 = self.c.yk[lt]
@@ -2609,7 +2610,7 @@ struct Ir {
         self.set2(2, 0, width)
         self.e_icmp(10, lt)
         self.set1rr()
-        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 7, lk, 0)
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 7, lk, 0)
         if op == 20 { # >>
             self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
             self.set2(rk, ra, rb)
@@ -2630,7 +2631,7 @@ struct Ir {
         self.set2(self.xa3[f], self.xb3[f], self.xc3[f])
         self.e_icmp(2, lt)
         self.set1rr()
-        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 2, lk, 0)
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, lk, 0)
         self.erk = sk
         self.era = sa
         self.erb = sb
@@ -2638,7 +2639,7 @@ struct Ir {
     }
 
     func xdiv(var self, f: u32, n: u32, op: u32, lt: u32)
-        requires f < 64 and n < 65536 and lt < 512
+        requires f < 64 and n < 131072 and lt < 512
         ensures true
     {
         let rk: u32 = self.erk
@@ -2648,7 +2649,7 @@ struct Ir {
         self.set2(2, 0, 0)
         self.e_icmp(1, lt)
         self.set1rr()
-        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 3, 0, 0)
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 3, 0, 0)
         var o: u32 = 6
         if op == 14 {
             o = 7
@@ -2667,7 +2668,7 @@ struct Ir {
             self.set1(c1k, c1a, c1b)
             self.e_bin(8, 3)
             self.set1rr()
-            self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 2, 0, 0)
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, 0, 0)
             o = 4
             if op == 14 {
                 o = 5
@@ -2682,7 +2683,7 @@ struct Ir {
     # --- вызовы -----------------------------------------------------------
 
     func xcall(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         if self.xp3[f] == 0 {
@@ -2693,18 +2694,18 @@ struct Ir {
     }
 
     func xcall_start(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let a: u32 = self.c.p.nss[n]
-        let l: u32 = self.c.p.nsl[n]
+        let a: u32 = self.c.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.c.p.nsl[n / 65536][n % 65536]
         self.xp3[f] = 1
         if self.c.span_is(a, l, "print") {
             self.xa3[f] = 1
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "write") {
             self.xa3[f] = 2
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "read_byte") {
             self.xrbyte(n)
             self.nx3 = self.nx3 - 1
@@ -2713,34 +2714,34 @@ struct Ir {
             self.nx3 = self.nx3 - 1
         } elif self.c.span_is(a, l, "write_byte") {
             self.xa3[f] = 5
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "parse_i32") {
             self.xa3[f] = 3
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "len") {
             self.xcall_len(f, n)
         } elif self.c.span_is(a, l, "i32") {
             self.xa3[f] = 100
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "u32") {
             self.xa3[f] = 101
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "u8") {
             self.xa3[f] = 102
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "char") {
             self.xa3[f] = 104
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } else {
             self.xcall_user(f, n, a, l)
         }
     }
 
     func xcall_len(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let at: u32 = self.c.nty[self.c.p.nfc[n]]
+        let at: u32 = self.c.nty[self.c.p.nfc[n / 65536][n % 65536] / 65536][self.c.p.nfc[n / 65536][n % 65536] % 65536]
         if self.c.yk[at] == 7 {
             # len массива — константа, аргумент не вычисляется
             self.ser(2, 0, self.c.yb[at])
@@ -2749,11 +2750,11 @@ struct Ir {
             return
         }
         self.xa3[f] = 4
-        self.xpush2(self.c.p.nfc[n])
+        self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
     }
 
     func xcall_user(var self, f: u32, n: u32, a: u32, l: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let fi: u32 = self.c.find_func(a, l)
@@ -2772,12 +2773,12 @@ struct Ir {
             self.xufin(f)
         } else {
             self.xf3[f] = 0
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         }
     }
 
     func xcall_next(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let code: u32 = self.xa3[f]
@@ -2855,14 +2856,14 @@ struct Ir {
     }
 
     func xmeth(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp3[f]
-        let obj: u32 = self.c.p.nfc[n]
+        let obj: u32 = self.c.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
-            if self.c.p.nk[obj] == 37 {
-                if self.c.is_enum_name(self.c.p.nss[obj], self.c.p.nsl[obj]) {
+            if self.c.p.nk[obj / 65536][obj % 65536] == 37 {
+                if self.c.is_enum_name(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536]) {
                     self.xctor(f, n, obj)
                     return
                 }
@@ -2893,7 +2894,7 @@ struct Ir {
     }
 
     func xmeth_obj(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let st2: u32 = self.ert
@@ -2902,7 +2903,7 @@ struct Ir {
         for i in 0..1024 {
             if i < self.c.nfun and mfi == 4294967295 {
                 if self.c.fown[i] == si {
-                    if self.c.span_eq(self.c.fn_s[i], self.c.fn_l[i], self.c.p.nss[n], self.c.p.nsl[n]) {
+                    if self.c.span_eq(self.c.fn_s[i], self.c.fn_l[i], self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]) {
                         mfi = i
                     }
                 }
@@ -2934,16 +2935,16 @@ struct Ir {
 
     # Конструктор варианта enum с нагрузкой: E.V(x).
     func xctor(var self, f: u32, n: u32, obj: u32)
-        requires f < 64 and n < 65536 and obj < 65536
+        requires f < 64 and n < 131072 and obj < 131072
         ensures true
     {
-        let ei: u32 = self.c.find_enum(self.c.p.nss[obj], self.c.p.nsl[obj])
-        let w: u32 = self.c.variant_of(self.c.p.nss[obj], self.c.p.nsl[obj], self.c.p.nss[n], self.c.p.nsl[n])
-        let ety: u32 = self.c.nty[n]
+        let ei: u32 = self.c.find_enum(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536])
+        let w: u32 = self.c.variant_of(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536], self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
+        let ety: u32 = self.c.nty[n / 65536][n % 65536]
         let m: u32 = self.nbn
-        self.nb_sb(self.c.p.nss[obj], self.c.p.nsl[obj])
+        self.nb_sb(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536])
         self.nb_b(46)
-        self.nb_sb(self.c.p.nss[n], self.c.p.nsl[n])
+        self.nb_sb(self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
         self.dedup(m)
         self.e_alloca_n(ety)
         self.xb3[f] = self.rra
@@ -2959,7 +2960,7 @@ struct Ir {
         self.xe3[f] = self.rra
         self.xa3[f] = self.c.wpl[w]
         self.xp3[f] = 9
-        self.xpush2(self.c.p.nns[obj])
+        self.xpush2(self.c.p.nns[obj / 65536][obj % 65536])
     }
 
     # Тег встроенного enum-варианта.
@@ -2977,13 +2978,13 @@ struct Ir {
     }
 
     func xmem(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let obj: u32 = self.c.p.nfc[n]
+        let obj: u32 = self.c.p.nfc[n / 65536][n % 65536]
         if self.xp3[f] == 0 {
-            if self.c.p.nk[obj] == 37 {
-                if self.c.is_enum_name(self.c.p.nss[obj], self.c.p.nsl[obj]) {
+            if self.c.p.nk[obj / 65536][obj % 65536] == 37 {
+                if self.c.is_enum_name(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536]) {
                     self.xmem_enum(n, obj)
                     self.nx3 = self.nx3 - 1
                     return
@@ -2995,7 +2996,7 @@ struct Ir {
         }
         let st2: u32 = self.ert
         let si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
-        let g: u32 = self.c.field_of(si, self.c.p.nss[n], self.c.p.nsl[n])
+        let g: u32 = self.c.field_of(si, self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
         self.set1er()
         self.e_gepc(st2, g - self.c.sgs[si])
         let ft: u32 = self.c.gty[g]
@@ -3011,24 +3012,24 @@ struct Ir {
 
     # Литерал варианта без нагрузки: E.V.
     func xmem_enum(var self, n: u32, obj: u32)
-        requires n < 65536 and obj < 65536
+        requires n < 131072 and obj < 131072
         ensures true
     {
-        let ety: u32 = self.c.nty[n]
-        let ei: u32 = self.c.find_enum(self.c.p.nss[obj], self.c.p.nsl[obj])
+        let ety: u32 = self.c.nty[n / 65536][n % 65536]
+        let ei: u32 = self.c.find_enum(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536])
         if ei == 4294967295 {
-            self.ser(2, 0, self.builtin_vtag(self.c.p.nss[n], self.c.p.nsl[n]))
+            self.ser(2, 0, self.builtin_vtag(self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]))
             self.ert = ety
             return
         }
-        let w: u32 = self.c.variant_of(self.c.p.nss[obj], self.c.p.nsl[obj], self.c.p.nss[n], self.c.p.nsl[n])
+        let w: u32 = self.c.variant_of(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536], self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
         let tag: u32 = w - self.c.evs[ei]
         if self.enum_pay(ety) {
             # вариант без нагрузки внутри enum с нагрузкой — агрегат с тегом
             let m: u32 = self.nbn
-            self.nb_sb(self.c.p.nss[obj], self.c.p.nsl[obj])
+            self.nb_sb(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536])
             self.nb_b(46)
-            self.nb_sb(self.c.p.nss[n], self.c.p.nsl[n])
+            self.nb_sb(self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
             self.dedup(m)
             self.e_alloca_n(ety)
             let os: u32 = self.rra
@@ -3061,7 +3062,7 @@ struct Ir {
     # Указатель на элемент с проверкой границ. База — (bk,ba,bb) типа bt,
     # индекс — er (уже i32). Результат — rr.
     func idx_gep(var self, n: u32, bk: u32, ba: u32, bb: u32, bt: u32)
-        requires n < 65536 and bt < 512
+        requires n < 131072 and bt < 512
         ensures true
     {
         let ik: u32 = self.erk
@@ -3094,7 +3095,7 @@ struct Ir {
         self.set1(lk2, la2, lb2)
         self.e_bin(9, 3)
         self.set1rr()
-        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 4, 0, 0)
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 4, 0, 0)
         self.set1(bk, ba, bb)
         self.set2(ik, ia, ib)
         if self.c.yk[bt] == 7 {
@@ -3105,20 +3106,20 @@ struct Ir {
     }
 
     func xidx(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp3[f]
         if ph == 0 {
             self.xp3[f] = 1
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif ph == 1 {
             self.xa3[f] = self.erk
             self.xb3[f] = self.era
             self.xc3[f] = self.erb
             self.xd3[f] = self.ert
             self.xp3[f] = 2
-            self.xpush2(self.c.p.nns[self.c.p.nfc[n]])
+            self.xpush2(self.c.p.nns[self.c.p.nfc[n / 65536][n % 65536] / 65536][self.c.p.nfc[n / 65536][n % 65536] % 65536])
         } else {
             self.widen()
             let bt: u32 = self.xd3[f]
@@ -3137,16 +3138,16 @@ struct Ir {
     }
 
     func xslit(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp3[f]
         if ph == 0 {
-            self.nm_sb(self.c.p.nss[n], self.c.p.nsl[n])
-            self.e_alloca_n(self.c.nty[n])
+            self.nm_sb(self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
+            self.e_alloca_n(self.c.nty[n / 65536][n % 65536])
             self.xa3[f] = self.rra
             self.xb3[f] = self.rrb
-            self.xc3[f] = self.c.p.nfc[n]
+            self.xc3[f] = self.c.p.nfc[n / 65536][n % 65536]
             self.xp3[f] = 1
             return
         }
@@ -3160,32 +3161,32 @@ struct Ir {
         let cur: u32 = self.xc3[f]
         if cur == 4294967295 {
             self.ser(1, self.xa3[f], self.xb3[f])
-            self.ert = self.c.nty[n]
+            self.ert = self.c.nty[n / 65536][n % 65536]
             self.nx3 = self.nx3 - 1
             return
         }
-        let si: u32 = self.c.find_struct(self.c.p.nss[n], self.c.p.nsl[n])
-        let g: u32 = self.c.field_of(si, self.c.p.nss[cur], self.c.p.nsl[cur])
+        let si: u32 = self.c.find_struct(self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
+        let g: u32 = self.c.field_of(si, self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536])
         self.set1(1, self.xa3[f], self.xb3[f])
-        self.e_gepc(self.c.nty[n], g - self.c.sgs[si])
+        self.e_gepc(self.c.nty[n / 65536][n % 65536], g - self.c.sgs[si])
         self.xd3[f] = self.rra
         self.xe3[f] = self.c.gty[g]
-        self.xc3[f] = self.c.p.nns[cur]
+        self.xc3[f] = self.c.p.nns[cur / 65536][cur % 65536]
         self.xp3[f] = 2
-        self.xpush2(self.c.p.nfc[cur])
+        self.xpush2(self.c.p.nfc[cur / 65536][cur % 65536])
     }
 
     func xalit(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         let ph: u32 = self.xp3[f]
         if ph == 0 {
             self.nm_lit("arr")
-            self.e_alloca_n(self.c.nty[n])
+            self.e_alloca_n(self.c.nty[n / 65536][n % 65536])
             self.xa3[f] = self.rra
             self.xb3[f] = self.rrb
-            self.xc3[f] = self.c.p.nfc[n]
+            self.xc3[f] = self.c.p.nfc[n / 65536][n % 65536]
             self.xd3[f] = 0
             self.xp3[f] = 1
             return
@@ -3193,37 +3194,37 @@ struct Ir {
         if ph == 2 {
             self.set1(0, self.xe3[f], 0)
             self.set2er()
-            self.copy_into(self.c.ya[self.c.nty[n]])
+            self.copy_into(self.c.ya[self.c.nty[n / 65536][n % 65536]])
             self.xp3[f] = 1
             return
         }
         let cur: u32 = self.xc3[f]
         if cur == 4294967295 {
             self.ser(1, self.xa3[f], self.xb3[f])
-            self.ert = self.c.nty[n]
+            self.ert = self.c.nty[n / 65536][n % 65536]
             self.nx3 = self.nx3 - 1
             return
         }
         self.set1(1, self.xa3[f], self.xb3[f])
-        self.e_gepc(self.c.nty[n], self.xd3[f])
+        self.e_gepc(self.c.nty[n / 65536][n % 65536], self.xd3[f])
         self.xe3[f] = self.rra
         self.xd3[f] = self.xd3[f] + 1
-        self.xc3[f] = self.c.p.nns[cur]
+        self.xc3[f] = self.c.p.nns[cur / 65536][cur % 65536]
         self.xp3[f] = 2
         self.xpush2(cur)
     }
 
     func xafill(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
         if self.xp3[f] == 0 {
             self.nm_lit("arr.fill")
-            self.e_alloca_n(self.c.nty[n])
+            self.e_alloca_n(self.c.nty[n / 65536][n % 65536])
             self.xa3[f] = self.rra
             self.xb3[f] = self.rrb
             self.xp3[f] = 1
-            self.xpush2(self.c.p.nfc[n])
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
             return
         }
         self.xafill_fin(f, n)
@@ -3231,10 +3232,10 @@ struct Ir {
     }
 
     func xafill_fin(var self, f: u32, n: u32)
-        requires f < 64 and n < 65536
+        requires f < 64 and n < 131072
         ensures true
     {
-        let t: u32 = self.c.nty[n]
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
         let et: u32 = self.c.ya[t]
         let vk: u32 = self.erk
         let va: u32 = self.era
@@ -3283,10 +3284,10 @@ struct Ir {
     # --- встроенные функции ---------------------------------------------------
 
     func xrbyte(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        let t: u32 = self.c.nty[n]
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
         self.e_rbyte()
         let wk: u32 = self.rrk
         let wa: u32 = self.rra
@@ -3337,10 +3338,10 @@ struct Ir {
     }
 
     func xrline(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        let t: u32 = self.c.nty[n]
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
         self.nm_lit("line")
         self.e_alloca_n(self.c.ty_sq)
         let ts2: u32 = self.rra
@@ -3390,10 +3391,10 @@ struct Ir {
 
     # er — строка-аргумент parse_i32.
     func xpi(var self, n: u32)
-        requires n < 65536
+        requires n < 131072
         ensures true
     {
-        let t: u32 = self.c.nty[n]
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
         let sk2: u32 = self.erk
         let sa2: u32 = self.era
         let sb2: u32 = self.erb
@@ -3470,13 +3471,13 @@ struct Ir {
 
     # er — значение-аргумент каста; code: 100 i32, 101 u32, 102 u8, 104 char.
     func xcast(var self, n: u32, code: u32)
-        requires n < 65536 and code >= 100
+        requires n < 131072 and code >= 100
         ensures true
     {
         let st2: u32 = self.ert
         let sk2: u32 = self.c.yk[st2]
         if code == 104 or sk2 == 4 {
-            self.ert = self.c.nty[n]
+            self.ert = self.c.nty[n / 65536][n % 65536]
             return
         }
         if sk2 == 2 {
@@ -3486,7 +3487,7 @@ struct Ir {
             }
             self.set1er()
             self.e_cvt(0, 2, 0)
-            self.serrr(self.c.nty[n])
+            self.serrr(self.c.nty[n / 65536][n % 65536])
             return
         }
         if code == 100 {
@@ -3495,7 +3496,7 @@ struct Ir {
                 self.set2(2, 0, 2147483647)
                 self.e_icmp(9, st2)
                 self.set1rr()
-                self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 6, 0, 0)
+                self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 0, 0)
             }
             self.ert = 0
             return
@@ -3506,7 +3507,7 @@ struct Ir {
                 self.set2(2, 0, 0)
                 self.e_icmp(3, st2)
                 self.set1rr()
-                self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 6, 1, 0)
+                self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 1, 0)
             }
             self.ert = 1
             return
@@ -3515,7 +3516,7 @@ struct Ir {
     }
 
     func xcast_u8(var self, n: u32, st2: u32, sk2: u32)
-        requires n < 65536 and st2 < 512
+        requires n < 131072 and st2 < 512
         ensures true
     {
         if sk2 == 0 {
@@ -3537,7 +3538,7 @@ struct Ir {
             self.e_icmp(9, st2)
         }
         self.set1rr()
-        self.trap_if(self.c.p.nl[n], self.c.p.nc[n], 6, 2, 0)
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 2, 0)
         self.set1er()
         self.e_cvt(1, st2, 2)
         self.serrr(2)
@@ -3547,29 +3548,29 @@ struct Ir {
 
     # Указатель на цель присваивания; результат — lvk/lva/lvb.
     func lvalue(var self, tgt: u32)
-        requires tgt < 65536
+        requires tgt < 131072
         ensures true
     {
         var path: [u32; 32] = [0; 32]
         var np: u32 = 0
         var cur: u32 = tgt
         for _ in 0..32 {
-            let k: u32 = self.c.p.nk[cur]
+            let k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
             if k == 43 or k == 44 {
                 path[np] = cur
                 np = np + 1
-                cur = self.c.p.nfc[cur]
+                cur = self.c.p.nfc[cur / 65536][cur % 65536]
             }
         }
         var bt: u32 = 0
-        if self.c.p.nk[cur] == 38 {
+        if self.c.p.nk[cur / 65536][cur % 65536] == 38 {
             let v: u32 = self.lookup_self2()
             self.lvk = self.vkk[v]
             self.lva = self.vka[v]
             self.lvb = self.vkb[v]
             bt = self.vty[v]
         } else {
-            let v2: u32 = self.lookupv(self.c.p.nss[cur], self.c.p.nsl[cur])
+            let v2: u32 = self.lookupv(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536])
             self.lvk = self.vkk[v2]
             self.lva = self.vka[v2]
             self.lvb = self.vkb[v2]
@@ -3584,12 +3585,12 @@ struct Ir {
 
     # Один шаг пути lvalue: поле или индекс. Возвращает тип уровня.
     func lv_step(var self, nd: u32, bt: u32) -> u32
-        requires nd < 65536 and bt < 512
+        requires nd < 131072 and bt < 512
         ensures result < 512
     {
-        if self.c.p.nk[nd] == 43 {
+        if self.c.p.nk[nd / 65536][nd % 65536] == 43 {
             let si: u32 = self.c.find_struct(self.c.ys[bt], self.c.yl[bt])
-            let g: u32 = self.c.field_of(si, self.c.p.nss[nd], self.c.p.nsl[nd])
+            let g: u32 = self.c.field_of(si, self.c.p.nss[nd / 65536][nd % 65536], self.c.p.nsl[nd / 65536][nd % 65536])
             self.set1(self.lvk, self.lva, self.lvb)
             self.e_gepc(bt, g - self.c.sgs[si])
             self.lvk = self.rrk
@@ -3600,7 +3601,7 @@ struct Ir {
         let bk: u32 = self.lvk
         let ba: u32 = self.lva
         let bb: u32 = self.lvb
-        self.expr_run(self.c.p.nns[self.c.p.nfc[nd]])
+        self.expr_run(self.c.p.nns[self.c.p.nfc[nd / 65536][nd % 65536] / 65536][self.c.p.nfc[nd / 65536][nd % 65536] % 65536])
         self.widen()
         self.idx_gep(nd, bk, ba, bb, bt)
         self.lvk = self.rrk
@@ -3615,7 +3616,7 @@ struct Ir {
     # --- машина инструкций ------------------------------------------------------
 
     func spush(var self, k: u32, nd: u32, cur: u32)
-        requires k <= 4 and nd < 65536
+        requires k <= 4 and nd < 131072
         ensures true
     {
         if self.ns4 >= 64 {
@@ -3636,15 +3637,15 @@ struct Ir {
     }
 
     func start_blk(var self, body: u32)
-        requires body < 65536
+        requires body < 131072
         ensures true
     {
         self.push_sc()
-        self.spush(0, body, self.c.p.nfc[body])
+        self.spush(0, body, self.c.p.nfc[body / 65536][body % 65536])
     }
 
     func st_run(var self, body: u32)
-        requires body < 65536
+        requires body < 131072
         ensures true
     {
         self.ns4 = 0
@@ -3693,15 +3694,15 @@ struct Ir {
             self.ns4 = f
             return
         }
-        self.sp4[f] = self.c.p.nns[cur]
+        self.sp4[f] = self.c.p.nns[cur / 65536][cur % 65536]
         self.s_stmt(cur)
     }
 
     func s_stmt(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let k: u32 = self.c.p.nk[cur]
+        let k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
         if k == 13 {
             self.s_let(cur)
         } elif k == 14 {
@@ -3721,31 +3722,31 @@ struct Ir {
         } elif k == 24 {
             self.s_assert(cur)
         } else {
-            self.expr_run(self.c.p.nfc[cur])
+            self.expr_run(self.c.p.nfc[cur / 65536][cur % 65536])
         }
     }
 
     func s_let(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let t: u32 = self.c.nty[cur]
-        self.expr_run(self.c.p.nns[self.c.p.nfc[cur]])
+        let t: u32 = self.c.nty[cur / 65536][cur % 65536]
+        self.expr_run(self.c.p.nns[self.c.p.nfc[cur / 65536][cur % 65536] / 65536][self.c.p.nfc[cur / 65536][cur % 65536] % 65536])
         if self.failed {
             return
         }
         self.set2er()
         self.materialize(t)
         self.set1rr()
-        self.bindv(self.c.p.nss[cur], self.c.p.nsl[cur], t)
+        self.bindv(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536], t)
     }
 
     func s_assign(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let tgt: u32 = self.c.p.nfc[cur]
-        self.expr_run(self.c.p.nns[tgt])
+        let tgt: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
+        self.expr_run(self.c.p.nns[tgt / 65536][tgt % 65536])
         if self.failed {
             return
         }
@@ -3755,28 +3756,28 @@ struct Ir {
         self.lvalue(tgt)
         self.set1(self.lvk, self.lva, self.lvb)
         self.set2(vk, va, vb)
-        self.copy_into(self.c.nty[tgt])
+        self.copy_into(self.c.nty[tgt / 65536][tgt % 65536])
     }
 
     func s_assert(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        self.expr_run(self.c.p.nfc[cur])
+        self.expr_run(self.c.p.nfc[cur / 65536][cur % 65536])
         if self.failed {
             return
         }
         self.set1er()
         self.e_not()
         self.set1rr()
-        self.trap_if(self.c.p.nl[cur], self.c.p.nc[cur], 5, 0, 0)
+        self.trap_if(self.c.p.nl[cur / 65536][cur % 65536], self.c.p.nc[cur / 65536][cur % 65536], 5, 0, 0)
     }
 
     func s_ret(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let v: u32 = self.c.p.nfc[cur]
+        let v: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         if v != 4294967295 {
             self.expr_run(v)
             if self.failed {
@@ -3790,11 +3791,11 @@ struct Ir {
     }
 
     func s_if_start(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
         let mrg: u32 = self.blk_new("if.end")
-        self.spush(1, cur, self.c.p.nfc[cur])
+        self.spush(1, cur, self.c.p.nfc[cur / 65536][cur % 65536])
         self.sa4[self.ns4 - 1] = mrg
         self.sb4[self.ns4 - 1] = 4294967295
     }
@@ -3824,22 +3825,22 @@ struct Ir {
             self.ns4 = f
             return
         }
-        let k: u32 = self.c.p.nk[cur]
+        let k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
         if k == 17 {
             self.sc4[f] = 2
             self.sp4[f] = 4294967295
-            self.start_blk(self.c.p.nfc[cur])
+            self.start_blk(self.c.p.nfc[cur / 65536][cur % 65536])
             return
         }
         var cnd: u32 = cur
         var blk2: u32 = 0
         if k == 16 {
-            cnd = self.c.p.nfc[cur]
-            blk2 = self.c.p.nns[cnd]
-            self.sp4[f] = self.c.p.nns[cur]
+            cnd = self.c.p.nfc[cur / 65536][cur % 65536]
+            blk2 = self.c.p.nns[cnd / 65536][cnd % 65536]
+            self.sp4[f] = self.c.p.nns[cur / 65536][cur % 65536]
         } else {
-            blk2 = self.c.p.nns[cur]
-            self.sp4[f] = self.c.p.nns[blk2]
+            blk2 = self.c.p.nns[cur / 65536][cur % 65536]
+            self.sp4[f] = self.c.p.nns[blk2 / 65536][blk2 % 65536]
         }
         let tb: u32 = self.blk_new("if.then")
         let eb: u32 = self.blk_new("if.else")
@@ -3856,10 +3857,10 @@ struct Ir {
     }
 
     func s_for_start(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let it: u32 = self.c.p.nfc[cur]
+        let it: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         self.nm_lit("for.i")
         self.e_alloca_n(0)
         let is2: u32 = self.rra
@@ -3893,15 +3894,15 @@ struct Ir {
         self.sb4[self.ns4 - 1] = il2
         self.sc4[self.ns4 - 1] = condb
         self.sd4[self.ns4 - 1] = afterb
-        self.start_blk(self.c.p.nns[it])
+        self.start_blk(self.c.p.nns[it / 65536][it % 65536])
     }
 
     # Инициализация счётчика и предел (u1) / источник (u2, uty).
     func s_for_src(var self, cur: u32, it: u32, is2: u32, il2: u32)
-        requires cur < 65536 and it < 65536
+        requires cur < 131072 and it < 131072
         ensures true
     {
-        if self.c.p.nk[it] == 49 {
+        if self.c.p.nk[it / 65536][it % 65536] == 49 {
             let ri: u32 = self.c.range_of(cur)
             self.set1(2, self.c.rb_ss[ri], self.c.rb_sm[ri])
             self.set2(1, is2, il2)
@@ -3940,27 +3941,27 @@ struct Ir {
 
     # Слот переменной цикла; w1 — текущее значение счётчика (i32).
     func s_for_slot(var self, cur: u32, it: u32)
-        requires cur < 65536 and it < 65536
+        requires cur < 131072 and it < 131072
         ensures true
     {
-        if self.c.span_is(self.c.p.nss[cur], self.c.p.nsl[cur], "_") {
+        if self.c.span_is(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536], "_") {
             return
         }
         let ck: u32 = self.w1k
         let ca: u32 = self.w1a
         let cb2: u32 = self.w1b
-        let elem: u32 = self.c.nty[cur]
-        if self.c.p.nk[it] == 49 {
-            self.nm_sb(self.c.p.nss[cur], self.c.p.nsl[cur])
+        let elem: u32 = self.c.nty[cur / 65536][cur % 65536]
+        if self.c.p.nk[it / 65536][it % 65536] == 49 {
+            self.nm_sb(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536])
             self.e_alloca_n(0)
             self.set2rr()
             self.set1(ck, ca, cb2)
             self.e_store(0)
             self.set1rr()
-            self.bindv(self.c.p.nss[cur], self.c.p.nsl[cur], elem)
+            self.bindv(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536], elem)
             return
         }
-        self.nm_sb(self.c.p.nss[cur], self.c.p.nsl[cur])
+        self.nm_sb(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536])
         self.e_alloca_n(elem)
         let ss2: u32 = self.rra
         let sl2: u32 = self.rrb
@@ -3983,7 +3984,7 @@ struct Ir {
             self.e_store(elem)
         }
         self.set1(1, ss2, sl2)
-        self.bindv(self.c.p.nss[cur], self.c.p.nsl[cur], elem)
+        self.bindv(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536], elem)
     }
 
     func s_for(var self)
@@ -4008,7 +4009,7 @@ struct Ir {
     }
 
     func s_loop_start(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
         let bodyb: u32 = self.blk_new("loop")
@@ -4024,7 +4025,7 @@ struct Ir {
         self.spush(4, cur, 4294967295)
         self.sa4[self.ns4 - 1] = bodyb
         self.sb4[self.ns4 - 1] = afterb
-        self.start_blk(self.c.p.nfc[cur])
+        self.start_blk(self.c.p.nfc[cur / 65536][cur % 65536])
     }
 
     func s_loop(var self)
@@ -4039,10 +4040,10 @@ struct Ir {
     }
 
     func s_match_start(var self, cur: u32)
-        requires cur < 65536
+        requires cur < 131072
         ensures true
     {
-        let subj: u32 = self.c.p.nfc[cur]
+        let subj: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         self.expr_run(subj)
         if self.failed {
             return
@@ -4075,7 +4076,7 @@ struct Ir {
         let si2: u32 = self.e_switch(dead)
         self.cb = dead
         self.e_unr()
-        self.spush(3, cur, self.c.p.nns[subj])
+        self.spush(3, cur, self.c.p.nns[subj / 65536][subj % 65536])
         self.sa4[self.ns4 - 1] = sk2
         self.sb4[self.ns4 - 1] = sa2
         self.sc4[self.ns4 - 1] = sb2
@@ -4101,18 +4102,18 @@ struct Ir {
             self.ns4 = f
             return
         }
-        self.sp4[f] = self.c.p.nns[cur]
+        self.sp4[f] = self.c.p.nns[cur / 65536][cur % 65536]
         self.s_arm(f, cur)
     }
 
     # Значение кейса варианта арма в домене dom.
     func arm_tag(var self, dom: u32, arm: u32) -> u32
-        requires dom < 512 and arm < 65536
+        requires dom < 512 and arm < 131072
         ensures true
     {
         let dk: u32 = self.c.yk[dom]
-        let va: u32 = self.c.p.nss[arm]
-        let vl: u32 = self.c.p.nsl[arm]
+        let va: u32 = self.c.p.nss[arm / 65536][arm % 65536]
+        let vl: u32 = self.c.p.nsl[arm / 65536][arm % 65536]
         if dk == 10 {
             if self.c.span_is(va, vl, "Ok") {
                 return 0
@@ -4135,12 +4136,12 @@ struct Ir {
 
     # Слот нагрузки варианта арма в домене dom.
     func arm_slot(var self, dom: u32, arm: u32) -> u32
-        requires dom < 512 and arm < 65536
+        requires dom < 512 and arm < 131072
         ensures true
     {
         let dk: u32 = self.c.yk[dom]
         if dk == 10 {
-            if self.c.span_is(self.c.p.nss[arm], self.c.p.nsl[arm], "Ok") {
+            if self.c.span_is(self.c.p.nss[arm / 65536][arm % 65536], self.c.p.nsl[arm / 65536][arm % 65536], "Ok") {
                 return 1
             }
             return 2
@@ -4148,32 +4149,32 @@ struct Ir {
         if dk == 11 {
             return 1
         }
-        let w: u32 = self.c.variant_of(self.c.ys[dom], self.c.yl[dom], self.c.p.nss[arm], self.c.p.nsl[arm])
+        let w: u32 = self.c.variant_of(self.c.ys[dom], self.c.yl[dom], self.c.p.nss[arm / 65536][arm % 65536], self.c.p.nsl[arm / 65536][arm % 65536])
         return self.slot_of(dom, w)
     }
 
     func s_arm(var self, f: u32, arm: u32)
-        requires f < 64 and arm < 65536
+        requires f < 64 and arm < 131072
         ensures true
     {
         let dom: u32 = self.sd4[f]
-        let ab: u32 = self.blk_arm(self.c.p.nss[arm], self.c.p.nsl[arm])
+        let ab: u32 = self.blk_arm(self.c.p.nss[arm / 65536][arm % 65536], self.c.p.nsl[arm / 65536][arm % 65536])
         self.case_add(self.sf4[f], self.arm_tag(dom, arm), ab)
         self.cb = ab
         self.push_sc()
-        let payload: u32 = self.c.nty[arm]
-        let bind: u32 = self.c.p.nx[arm]
+        let payload: u32 = self.c.nty[arm / 65536][arm % 65536]
+        let bind: u32 = self.c.p.nx[arm / 65536][arm % 65536]
         if payload != 4294967295 and bind != 4294967295 {
-            if not self.c.span_is(bind, self.c.p.ny[arm], "_") {
+            if not self.c.span_is(bind, self.c.p.ny[arm / 65536][arm % 65536], "_") {
                 self.s_arm_bind(f, arm, dom, payload, bind)
             }
         }
         self.sg4[f] = 1
-        self.start_blk(self.c.p.nfc[arm])
+        self.start_blk(self.c.p.nfc[arm / 65536][arm % 65536])
     }
 
     func s_arm_bind(var self, f: u32, arm: u32, dom: u32, payload: u32, bind: u32)
-        requires f < 64 and arm < 65536 and dom < 512 and payload < 512
+        requires f < 64 and arm < 131072 and dom < 512 and payload < 512
         ensures true
     {
         self.set1(self.sa4[f], self.sb4[f], self.sc4[f])
@@ -4187,7 +4188,7 @@ struct Ir {
         }
         self.materialize(payload)
         self.set1rr()
-        self.bindv(bind, self.c.p.ny[arm], payload)
+        self.bindv(bind, self.c.p.ny[arm / 65536][arm % 65536], payload)
     }
 
     # --- генерация функции ------------------------------------------------------
@@ -4216,17 +4217,17 @@ struct Ir {
 
     # k-й ребёнок вида kind у декларации d; NONE.
     func find_child(var self, d: u32, kind: u32) -> u32
-        requires d < 65536
+        requires d < 131072
         ensures true
     {
-        var cc: u32 = self.c.p.nfc[d]
+        var cc: u32 = self.c.p.nfc[d / 65536][d % 65536]
         var found: u32 = 4294967295
         for _ in 0..64 {
             if cc != 4294967295 {
-                if self.c.p.nk[cc] == kind and found == 4294967295 {
+                if self.c.p.nk[cc / 65536][cc % 65536] == kind and found == 4294967295 {
                     found = cc
                 }
-                cc = self.c.p.nns[cc]
+                cc = self.c.p.nns[cc / 65536][cc % 65536]
             }
         }
         return found
@@ -4351,14 +4352,14 @@ struct Ir {
         if rq == 4294967295 {
             return
         }
-        self.expr_run(self.c.p.nfc[rq])
+        self.expr_run(self.c.p.nfc[rq / 65536][rq % 65536])
         if self.failed {
             return
         }
         self.set1er()
         self.e_not()
         self.set1rr()
-        self.trap_if(self.c.p.nl[d], self.c.p.nc[d], 0, self.c.fn_s[fi], self.c.fn_l[fi])
+        self.trap_if(self.c.p.nl[d / 65536][d % 65536], self.c.p.nc[d / 65536][d % 65536], 0, self.c.fn_s[fi], self.c.fn_l[fi])
     }
 
     func gen_ens(var self, fi: u32)
@@ -4373,7 +4374,7 @@ struct Ir {
         if self.rett != 4294967295 {
             self.res_on = 1
         }
-        self.expr_run(self.c.p.nfc[en])
+        self.expr_run(self.c.p.nfc[en / 65536][en % 65536])
         self.res_on = 0
         if self.failed {
             return
@@ -4381,7 +4382,7 @@ struct Ir {
         self.set1er()
         self.e_not()
         self.set1rr()
-        self.trap_if(self.c.p.nl[d], self.c.p.nc[d], 1, self.c.fn_s[fi], self.c.fn_l[fi])
+        self.trap_if(self.c.p.nl[d / 65536][d % 65536], self.c.p.nc[d / 65536][d % 65536], 1, self.c.fn_s[fi], self.c.fn_l[fi])
     }
 
     # --- печать модуля -----------------------------------------------------------
@@ -4771,24 +4772,24 @@ struct Ir {
             self.tyl[t] = 4294967295
         }
         self.p_head()
-        var d: u32 = self.c.p.nfc[0]
-        for _ in 0..65536 {
+        var d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
             if d != 4294967295 and not self.failed {
-                let k: u32 = self.c.p.nk[d]
+                let k: u32 = self.c.p.nk[d / 65536][d % 65536]
                 if k == 6 {
                     self.gen_fn(self.c.func_by_node(d))
                 } elif k == 4 {
-                    var m: u32 = self.c.p.nfc[d]
+                    var m: u32 = self.c.p.nfc[d / 65536][d % 65536]
                     for _ in 0..512 {
                         if m != 4294967295 and not self.failed {
-                            if self.c.p.nk[m] == 6 {
+                            if self.c.p.nk[m / 65536][m % 65536] == 6 {
                                 self.gen_fn(self.c.func_by_node(m))
                             }
-                            m = self.c.p.nns[m]
+                            m = self.c.p.nns[m / 65536][m % 65536]
                         }
                     }
                 }
-                d = self.c.p.nns[d]
+                d = self.c.p.nns[d / 65536][d % 65536]
             }
         }
         if not self.failed {

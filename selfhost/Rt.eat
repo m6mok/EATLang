@@ -52,12 +52,17 @@ struct RtStr {
     {
         assert self.ln + o.ln <= 256
         let base: u32 = self.ln
+        let ol: u32 = o.ln
         for i in 0..256 {
-            if i < o.ln {
-                self.buf[base + i] = o.buf[i]
+            # маска — доказательство: (base & 255) + i не переполняется,
+            # guard j < 256 доказывает границы; при i < ol assert выше
+            # гарантирует base + i < 256, так что маска ничего не меняет
+            let j: u32 = (base & 255) + i
+            if i < ol and j < 256 {
+                self.buf[j] = o.buf[i]
             }
         }
-        self.ln = base + o.ln
+        self.ln = base + ol
     }
 
     func append_char(var self, c: char)
@@ -104,8 +109,10 @@ struct RtStr {
         assert self.ln + n <= 256
         let base: u32 = self.ln
         for i in 0..10 {
-            if i < n {
-                self.buf[base + i] = tmp[n - 1 - i]
+            # маска — доказательство границ, как в append_str
+            let j: u32 = (base & 255) + i
+            if i < n and j < 256 {
+                self.buf[j] = tmp[n - 1 - i]
             }
         }
         self.ln = base + n
