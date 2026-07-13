@@ -1,0 +1,48 @@
+# Нагрузочный тест: передача агрегатов (трек 1, этап A).
+# Не-var метод-получатель и агрегатный параметр: до этапа A каждый
+# вызов копировал 260-байтную структуру у вызываемого, после — читает
+# по ссылке. Рантаймный индекс в at/at2 не даёт SROA выкинуть копию,
+# мутация b в цикле не даёт LICM вынести её из цикла — «до» честно
+# платит 2 x 260 байт на итерацию. Базовая порция — 250 000 итераций
+# по два агрегатных вызова (500 000 передач); REPEAT масштабирует.
+
+const REPEAT: u32 = 1
+
+struct Big {
+    ln: u32
+    buf: [u8; 256]
+
+    func at(self, k: u32) -> u32
+        requires true
+        ensures true
+    {
+        return u32(self.buf[k & 255]) + self.ln
+    }
+}
+
+func at2(b: Big, k: u32) -> u32
+    requires true
+    ensures true
+{
+    return u32(b.buf[k & 255])
+}
+
+test agg_pass {
+    var b: Big = Big { ln: 1, buf: [7; 256] }
+    assert b.at(0) == 8
+    assert at2(b, 511) == 7
+    b.buf[255] = 9
+    assert at2(b, 255) == 9
+}
+
+func main() {
+    var b: Big = Big { ln: 1, buf: [7; 256] }
+    var acc: u32 = 0
+    for _ in 0..REPEAT {
+        for i in 0..250000 {
+            b.buf[i & 255] = u8(i & 255)
+            acc = (acc + b.at(i) + at2(b, i + 13)) % 65536
+        }
+    }
+    print("checksum {acc}")
+}

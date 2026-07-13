@@ -56,6 +56,7 @@ RUNTIME_PROGRAMS = [
     ("CallBench", 500_000, 256, 32),
     ("ArrayBench", 520_192, 256, 32),
     ("StructBench", 500_000, 256, 32),
+    ("AggBench", 500_000, 64, 8),
     ("StrBench", 1_280_000, 8, 2),
 ]
 RUNTIME_QUICK = {"ArithBench", "StrBench"}
