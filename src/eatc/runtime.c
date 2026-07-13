@@ -21,14 +21,16 @@ int32_t eat_read_byte(void) {
     if (interactive) {
         fflush(stdout);
     }
-    int c = getchar();
+    int c = getc_unlocked(stdin);
     return c == EOF ? -1 : (c & 0xff);
 }
 
 /* Байт в stdout (write_byte) — единственный примитив вывода;
- * буферизацию держит libc, нормальный выход из main сбрасывает её. */
+ * буферизацию держит libc, нормальный выход из main сбрасывает её.
+ * Программы EATLang однопоточны по построению, поэтому _unlocked:
+ * flockfile/funlockfile на каждый байт — до 2/3 цены putchar. */
 void eat_write_byte(char b) {
-    putchar((unsigned char)b);
+    putc_unlocked((unsigned char)b, stdout);
 }
 
 /* Байт в stderr (write_err_byte): канал диагностики,

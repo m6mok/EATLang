@@ -443,10 +443,10 @@ def stage_binary(name, mods, quick):
     бинарник молча выдаёт err: в stdout — поэтому пересборка (полный
     режим) или пропуск с подсказкой (быстрый)."""
     binary = ROOT / "build" / name
-    srcs = [RT, ROOT / "src" / "eatc" / "runtime.c"] + \
-        [ROOT / "selfhost" / m for m in mods]
+    srcs = [RT] + [ROOT / "selfhost" / m for m in mods]
+    deps = srcs + [ROOT / "src" / "eatc" / "runtime.c"]
     fresh = binary.exists() and \
-        binary.stat().st_mtime >= max(s.stat().st_mtime for s in srcs)
+        binary.stat().st_mtime >= max(d.stat().st_mtime for d in deps)
     if fresh:
         return binary
     state = "устарел" if binary.exists() else "не собран"
