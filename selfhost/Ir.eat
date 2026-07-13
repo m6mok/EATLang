@@ -4594,7 +4594,7 @@ struct Ir {
         self.o_mangle(fi)
         write("\"(")
         self.p_args(fi)
-        write(")\n{{\n")
+        write(") norecurse nounwind\n{{\n")
         self.p_blocks()
         write("}}\n")
     }
@@ -4853,15 +4853,15 @@ struct Ir {
         write("\n")
         self.fst = 1
         self.p_sep()
-        write("declare void @\"eat_trap\"(i8* %\".1\")\n")
+        write("declare void @\"eat_trap\"(i8* %\".1\") cold noreturn nounwind\n")
         self.p_sep()
-        write("declare i32 @\"eat_read_byte\"()\n")
+        write("declare i32 @\"eat_read_byte\"() nounwind\n")
         self.p_sep()
-        write("declare void @\"eat_write_byte\"(i8 %\".1\")\n")
+        write("declare void @\"eat_write_byte\"(i8 %\".1\") nounwind\n")
         self.p_sep()
-        write("declare void @\"eat_write_err_byte\"(i8 %\".1\")\n")
+        write("declare void @\"eat_write_err_byte\"(i8 %\".1\") nounwind\n")
         self.p_sep()
-        write("declare void @\"eat_exit\"(i32 %\".1\")\n")
+        write("declare void @\"eat_exit\"(i32 %\".1\") noreturn nounwind\n")
     }
 
     func p_main(var self)
@@ -4869,7 +4869,7 @@ struct Ir {
         ensures true
     {
         self.p_sep()
-        write("define i32 @\"main\"()\n")
+        write("define i32 @\"main\"() norecurse nounwind\n")
         write("{{\n")
         write("entry:\n")
         write("  call void @\"eat_main\"()\n")

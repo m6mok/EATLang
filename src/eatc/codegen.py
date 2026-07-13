@@ -70,6 +70,13 @@ class Codegen:
             name: ir.Function(self.module, ftype, name=name)
             for name, ftype in _RUNTIME.items()
         }
+        # аксиомы не разворачивают стек; trap/exit не возвращаются,
+        # trap-пути холодные — LLVM выносит их из горячего кода
+        for fn in self.rt.values():
+            fn.attributes.add("nounwind")
+        self.rt["eat_trap"].attributes.add("noreturn")
+        self.rt["eat_trap"].attributes.add("cold")
+        self.rt["eat_exit"].attributes.add("noreturn")
         self.cstr_cache: dict[bytes, ir.GlobalVariable] = {}
         self.strlit_cache: dict[bytes, ir.GlobalVariable] = {}
         # declare_intrinsic ищет глобал по манглированному имени на
@@ -316,7 +323,12 @@ class Codegen:
         else:
             ret_ll = self.ll(sig.ret)
         ftype = ir.FunctionType(ret_ll, args)
-        return ir.Function(self.module, ftype, name=self.mangle(key))
+        fn = ir.Function(self.module, ftype, name=self.mangle(key))
+        # рекурsии в языке нет по построению (правило 1), стек не
+        # разворачивается (исключений нет, trap завершает процесс)
+        fn.attributes.add("norecurse")
+        fn.attributes.add("nounwind")
+        return fn
 
     def gen_func(self, func: ast.FuncDecl, key, sig, struct) -> None:
         fn = self.funcs[key]
@@ -397,6 +409,8 @@ class Codegen:
 
     def gen_entry(self) -> None:
         fn = ir.Function(self.module, ir.FunctionType(I32L, []), name="main")
+        fn.attributes.add("norecurse")
+        fn.attributes.add("nounwind")
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.call(self.funcs["main"], [])
         b.ret(I32L(0))
@@ -760,9 +774,11 @@ class Codegen:
         signed = kind in _SIGNED
         if op in ("+", "-", "*"):
             if getattr(node, "no_overflow", False):
-                # переполнение доказуемо невозможно — обычная инструкция
+                # переполнение доказуемо невозможно — обычная инструкция;
+                # nsw/nuw отдаёт доказательство верификатора оптимизатору
+                # (только build-путь: в `eatc ir` фактов верификатора нет)
                 plain = {"+": self.b.add, "-": self.b.sub, "*": self.b.mul}
-                return plain[op](left, right)
+                return plain[op](left, right, flags=("nsw" if signed else "nuw",))
             name = {
                 ("+", True): "llvm.sadd.with.overflow",
                 ("-", True): "llvm.ssub.with.overflow",
@@ -825,14 +841,16 @@ class Codegen:
             )
         if op == ">>":
             return self.b.lshr(left, right)
+        if getattr(node, "no_overflow", False):
+            # вынос битов доказуемо невозможен — nuw для оптимизатора
+            return self.b.shl(left, right, flags=("nuw",))
         res = self.b.shl(left, right)
-        if not getattr(node, "no_overflow", False):
-            back = self.b.lshr(res, right)
-            self.trap_if(
-                self.b.icmp_unsigned("!=", back, left),
-                node,
-                f"переполнение {kind}",
-            )
+        back = self.b.lshr(res, right)
+        self.trap_if(
+            self.b.icmp_unsigned("!=", back, left),
+            node,
+            f"переполнение {kind}",
+        )
         return res
 
     # --- вызовы --------------------------------------------------------------
