@@ -22,6 +22,7 @@ from .types import (
     I32,
     INT_RANGES,
     U8,
+    U16,
     U32,
     VOID,
     ArrayType,
@@ -38,7 +39,7 @@ from .types import (
     show,
 )
 
-_INT_CASTS = {"i32": I32, "u32": U32, "u8": U8}
+_INT_CASTS = {"i32": I32, "u32": U32, "u16": U16, "u8": U8}
 
 BUILTIN_ENUMS = {
     "IoError": ["Eof", "Fail"],
@@ -797,7 +798,7 @@ class TypeChecker:
             operand = self.expr(node.operand, expected=hint)
             if not isinstance(operand, IntType) or operand.kind == "i32":
                 raise self.err(
-                    node, f"~ применим к u32/u8, не к {show(operand)}"
+                    node, f"~ применим к u32/u16/u8, не к {show(operand)}"
                 )
             return operand
         operand = self.expr(node.operand, expected=expected)
@@ -832,7 +833,7 @@ class TypeChecker:
                 # у i32 смысл битовой операции зависел бы от
                 # представления знака — только беззнаковые
                 raise self.err(
-                    node, f"{op} применим к u32/u8, не к {show(left)}"
+                    node, f"{op} применим к u32/u16/u8, не к {show(left)}"
                 )
             return left
         # сравнения

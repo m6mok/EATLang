@@ -48,6 +48,7 @@ from .types import (
 )
 
 I32L = ir.IntType(32)
+I16L = ir.IntType(16)
 I8L = ir.IntType(8)
 I1L = ir.IntType(1)
 STR_CAP = 256
@@ -145,7 +146,9 @@ class Codegen:
 
     def ll(self, t: Type) -> ir.Type:
         if isinstance(t, IntType):
-            return I8L if t.kind == "u8" else I32L
+            if t.kind == "u8":
+                return I8L
+            return I16L if t.kind == "u16" else I32L
         if isinstance(t, BoolType):
             return I1L
         if isinstance(t, CharType):
@@ -731,7 +734,7 @@ class Codegen:
         return self.b.gep(base, path, inbounds=True)
 
     def widen_index(self, ty: Type, value):
-        if isinstance(ty, IntType) and ty.kind == "u8":
+        if isinstance(ty, IntType) and ty.kind in ("u8", "u16"):
             return self.b.zext(value, I32L)
         return value
 
@@ -808,7 +811,11 @@ class Codegen:
             elif ty.kind == "i32":
                 self.b.call(self.rtm("append_i32"), [out, value])
             else:  # u32, u8
-                wide = self.b.zext(value, I32L) if ty.kind == "u8" else value
+                wide = (
+                    self.b.zext(value, I32L)
+                    if ty.kind in ("u8", "u16")
+                    else value
+                )
                 self.b.call(self.rtm("append_u32"), [out, wide])
         return out
 
@@ -928,7 +935,7 @@ class Codegen:
         """Сдвиги беззнаковых. Сдвиг ≥ ширины типа в LLVM — яд,
         поэтому trap до инструкции; << дополнительно трапит вынос
         битов: обратный lshr обязан восстановить операнд."""
-        width = 8 if kind == "u8" else 32
+        width = {"u8": 8, "u16": 16}.get(kind, 32)
         if not getattr(node, "shift_ok", False):
             self.trap_if(
                 self.b.icmp_unsigned(">=", right, right.type(width)),
@@ -980,7 +987,7 @@ class Codegen:
             return self.gen_parse_i32(node)
         if name == "len":
             return self.gen_len(node)
-        if name in ("i32", "u32", "u8", "char"):
+        if name in ("i32", "u32", "u16", "u8", "char"):
             return self.gen_cast(node)
         sig = self.checker.funcs[name]
         return self.emit_call(node, self.funcs[name], sig, [])
@@ -1129,10 +1136,20 @@ class Codegen:
         src = source_ty.kind
         proven = getattr(node, "cast_ok", False)
         if src == "u8":
-            wide = self.b.zext(value, I32L)
             if target == "u8":
                 return value
-            return wide  # в i32/u32 всегда помещается
+            if target == "u16":
+                return self.b.zext(value, I16L)
+            return self.b.zext(value, I32L)  # в i32/u32 всегда помещается
+        if src == "u16":
+            if target == "u16":
+                return value
+            if target == "u8":
+                if not proven:
+                    bad = self.b.icmp_unsigned(">", value, I16L(255))
+                    self.trap_if(bad, node, "переполнение при u8()")
+                return self.b.trunc(value, I8L)
+            return self.b.zext(value, I32L)  # в i32/u32 всегда помещается
         # src — i32 или u32 (регистр i32)
         if target == "i32" and src == "u32":
             if not proven:
@@ -1142,6 +1159,16 @@ class Codegen:
             if not proven:
                 bad = self.b.icmp_signed("<", value, I32L(0))
                 self.trap_if(bad, node, "переполнение при u32()")
+        elif target == "u16":
+            if not proven:
+                if src == "i32":
+                    low = self.b.icmp_signed("<", value, I32L(0))
+                    high = self.b.icmp_signed(">", value, I32L(65535))
+                    bad = self.b.or_(low, high)
+                else:
+                    bad = self.b.icmp_unsigned(">", value, I32L(65535))
+                self.trap_if(bad, node, "переполнение при u16()")
+            return self.b.trunc(value, I16L)
         elif target == "u8":
             if not proven:
                 if src == "i32":

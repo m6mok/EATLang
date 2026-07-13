@@ -7,7 +7,7 @@
 # Виды: 0 i32, 1 u32, 2 u8, 3 bool, 4 char, 5 void,
 # 6 str (ya: ёмкость | NONE), 7 массив (ya: элемент, yb: размер),
 # 8 struct (ys/yl: имя), 9 enum (ys/yl), 10 Result (ya, yb),
-# 11 Option (ya). Все обходы деревьев — явные стеки (рекурсии нет).
+# 11 Option (ya), 12 u16 (добавлен позже — коды не перенумеровываются). Все обходы деревьев — явные стеки (рекурсии нет).
 #
 # Знаковые константы — пары (sign, mag): sign 1 — отрицательное.
 
@@ -233,8 +233,16 @@ struct Check {
         self.ntype = 6
     }
 
+    # Индекс типа u16 (вид 12 интернируется по требованию).
+    func u16_ty(var self) -> u32
+        requires true
+        ensures result < 512
+    {
+        return self.intern(12, 4294967295, 4294967295, 4294967295, 0)
+    }
+
     func intern(var self, k: u32, a: u32, b: u32, s: u32, l: u32) -> u32
-        requires k <= 11
+        requires k <= 12
         ensures result < 512
     {
         var found: u32 = 4294967295
@@ -415,6 +423,9 @@ struct Check {
         }
         if self.span_is(a, l, "u8") {
             return 2
+        }
+        if self.span_is(a, l, "u16") {
+            return self.u16_ty()
         }
         if self.span_is(a, l, "bool") {
             return 3
@@ -702,6 +713,9 @@ struct Check {
         if k == 2 {
             return (s == 0 or m == 0) and m <= 255
         }
+        if k == 12 {
+            return (s == 0 or m == 0) and m <= 65535
+        }
         return true
     }
 
@@ -750,6 +764,9 @@ struct Check {
             return true
         }
         if self.span_is(a, l, "u8") or self.span_is(a, l, "str") {
+            return true
+        }
+        if self.span_is(a, l, "u16") {
             return true
         }
         if self.span_is(a, l, "char") or self.span_is(a, l, "Result") {
@@ -1347,6 +1364,28 @@ struct Check {
 
     # --- дамп типа (итеративный принтер) -----------------------------------
 
+    # Имя скалярного вида (правило 4: вынос из write_type).
+    func write_scalar_kind(var self, k: u32)
+        requires k <= 5 or k == 12
+        ensures true
+    {
+        if k == 0 {
+            write("i32")
+        } elif k == 1 {
+            write("u32")
+        } elif k == 2 {
+            write("u8")
+        } elif k == 12 {
+            write("u16")
+        } elif k == 3 {
+            write("bool")
+        } elif k == 4 {
+            write("char")
+        } else {
+            write("void")
+        }
+    }
+
     func write_type(var self, root: u32)
         requires root < 512
         ensures true
@@ -1364,23 +1403,8 @@ struct Check {
             let t: u32 = s1[f]
             let ph: u32 = s2[f]
             let k: u32 = self.yk[t]
-            if k == 0 {
-                write("i32")
-                sp = f
-            } elif k == 1 {
-                write("u32")
-                sp = f
-            } elif k == 2 {
-                write("u8")
-                sp = f
-            } elif k == 3 {
-                write("bool")
-                sp = f
-            } elif k == 4 {
-                write("char")
-                sp = f
-            } elif k == 5 {
-                write("void")
+            if k <= 5 or k == 12 {
+                self.write_scalar_kind(k)
                 sp = f
             } elif k == 6 {
                 if self.ya[t] == 4294967295 {
@@ -1927,7 +1951,7 @@ struct Check {
         if k == 32 {
             let exp: u32 = self.xe[self.nxq - 1]
             var t: u32 = 0
-            if exp != 4294967295 and self.yk[exp] <= 2 {
+            if exp != 4294967295 and (self.yk[exp] <= 2 or self.yk[exp] == 12) {
                 t = exp
             }
             if not self.int_fits(t, self.p.ny[n / 65536][n % 65536], self.p.nx[n / 65536][n % 65536]) {
@@ -1995,7 +2019,7 @@ struct Check {
         } elif self.xp[f] == 2 {
             # выражение-сегмент готово: интерполируемый тип?
             let tk: u32 = self.yk[self.tres]
-            if tk > 4 and tk != 6 {
+            if tk > 4 and tk != 6 and tk != 12 {
                 self.fail_node(n, "нельзя интерполировать в строку (нет текстового представления)")
             }
             self.xb[f] = self.xb[f] % 2147483648 + 2147483648
@@ -2040,8 +2064,8 @@ struct Check {
                 self.tres = 3
             } elif op == 21 {
                 # как у битовых бинарных: только беззнаковые
-                if self.yk[self.tres] != 1 and self.yk[self.tres] != 2 {
-                    self.fail_node(n, "~ применим к u32/u8")
+                if self.yk[self.tres] != 1 and self.yk[self.tres] != 2 and self.yk[self.tres] != 12 {
+                    self.fail_node(n, "~ применим к u32/u16/u8")
                 }
             } else {
                 if self.tres != 0 {
@@ -2081,7 +2105,7 @@ struct Check {
         if ph == 0 {
             var hint: u32 = 4294967295
             if op >= 10 {
-                if self.xe[f] != 4294967295 and self.yk[self.xe[f]] <= 2 {
+                if self.xe[f] != 4294967295 and (self.yk[self.xe[f]] <= 2 or self.yk[self.xe[f]] == 12) {
                     hint = self.xe[f]
                 }
             }
@@ -2104,15 +2128,15 @@ struct Check {
             self.fail_node(n, "разные типы (неявных преобразований нет)")
         }
         if op >= 16 { # битовые: только беззнаковые
-            if self.yk[left] != 1 and self.yk[left] != 2 {
-                self.fail_node(n, "битовые операции применимы к u32/u8")
+            if self.yk[left] != 1 and self.yk[left] != 2 and self.yk[left] != 12 {
+                self.fail_node(n, "битовые операции применимы к u32/u16/u8")
             }
             self.tres = left
             self.xdone()
             return
         }
         if op >= 10 { # арифметика
-            if self.yk[left] > 2 {
+            if self.yk[left] > 2 and self.yk[left] != 12 {
                 self.fail_node(n, "арифметика применима к целым")
             }
             self.tres = left
@@ -2120,12 +2144,12 @@ struct Check {
             return
         }
         if op >= 6 { # < <= > >=
-            if self.yk[left] > 2 {
+            if self.yk[left] > 2 and self.yk[left] != 12 {
                 self.fail_node(n, "порядок определён для целых")
             }
         } else { # == !=
             let tk: u32 = self.yk[left]
-            if tk > 4 and tk != 6 and tk != 9 {
+            if tk > 4 and tk != 6 and tk != 9 and tk != 12 {
                 self.fail_node(n, "== не определено для этого типа")
             }
             if tk == 9 {
@@ -2181,7 +2205,7 @@ struct Check {
         let l: u32 = self.p.nsl[n / 65536][n % 65536]
         let argc: u32 = self.nchildren(n)
         self.xp[f] = 1
-        if self.span_is(a, l, "i32") or self.span_is(a, l, "u32") or self.span_is(a, l, "u8") {
+        if self.span_is(a, l, "i32") or self.span_is(a, l, "u32") or self.span_is(a, l, "u8") or self.span_is(a, l, "u16") {
             if argc != 1 {
                 self.fail_node(n, "каст: ровно один аргумент")
                 return
@@ -2191,6 +2215,8 @@ struct Check {
                 code = 101
             } elif self.span_is(a, l, "u8") {
                 code = 102
+            } elif self.span_is(a, l, "u16") {
+                code = 103
             }
             self.xa[f] = code
             self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
@@ -2330,15 +2356,19 @@ struct Check {
         ensures true
     {
         let code: u32 = self.xa[f]
-        if code == 100 or code == 101 or code == 102 {
+        if code == 100 or code == 101 or code == 102 or code == 103 {
             let sk: u32 = self.yk[self.tres]
             if sk == 4 {
                 if code != 102 {
                     self.fail_node(n, "каст не применим к char — код символа даёт u8(c)")
                 }
                 self.tres = 2
-            } elif sk <= 2 {
-                self.tres = code - 100
+            } elif sk <= 2 or sk == 12 {
+                if code == 103 {
+                    self.tres = self.u16_ty()
+                } else {
+                    self.tres = code - 100
+                }
             } else {
                 self.fail_node(n, "каст преобразует целые")
                 self.tres = 0
@@ -2679,7 +2709,7 @@ struct Check {
             self.xp[f] = 2
             self.xpush(self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][self.p.nfc[n / 65536][n % 65536] % 65536], 1)
         } else {
-            if self.yk[self.tres] > 2 {
+            if self.yk[self.tres] > 2 and self.yk[self.tres] != 12 {
                 self.fail_node(n, "индекс — целое")
             }
             let ok2: u32 = self.xa[f]

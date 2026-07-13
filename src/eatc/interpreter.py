@@ -525,7 +525,7 @@ class Interpreter:
             return not value
         if node.op == "~":
             # инверсия в ширине типа: ~x == маска - x, из типа не выходит
-            mask = 255 if node.operand.ty.kind == "u8" else 4294967295
+            mask = INT_RANGES[node.operand.ty.kind][1]
             return value ^ mask
         result = -value
         self._fit(node, "i32", result)
@@ -550,7 +550,7 @@ class Interpreter:
 
     def _shift(self, node, op: str, left: int, right: int) -> int:
         kind = node.left.ty.kind
-        width = 8 if kind == "u8" else 32
+        width = {"u8": 8, "u16": 16}.get(kind, 32)
         if right >= width:
             raise self.trap(node, f"сдвиг на {right} ≥ ширины {kind}")
         return left << right if op == "<<" else left >> right

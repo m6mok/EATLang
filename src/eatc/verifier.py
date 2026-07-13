@@ -8,7 +8,7 @@
   - отсутствие переполнения (+ - * и унарный минус);
   - деление на ноль (и краевой случай INT_MIN / -1);
   - выход за границы массива;
-  - допустимость сужающих преобразований i32()/u32()/u8();
+  - допустимость сужающих преобразований i32()/u32()/u16()/u8();
   - requires на каждом месте вызова (снятие проверки — только если
     доказаны ВСЕ вызовы функции, либо requires — тавтология);
   - ensures на каждом return;
@@ -44,7 +44,7 @@ from . import ast_nodes as ast
 from .types import INT_RANGES, ArrayType, CharType, IntType, StrType
 
 Iv = tuple[int, int]
-_CASTS = ("i32", "u32", "u8")
+_CASTS = ("i32", "u32", "u16", "u8")
 _CHAR_IV: Iv = (0, 255)  # char — ровно один байт
 
 
@@ -1199,7 +1199,7 @@ class Verifier:
             inner = self._iv(node.operand, env, annotate)
             if node.op == "~":
                 # ~x = маска - x: линейно убывает, интервал точный
-                mask = 255 if node.ty.kind == "u8" else 4294967295
+                mask = INT_RANGES[node.ty.kind][1]
                 if inner is None:
                     return self._ty_range(node.ty)
                 lo, hi = inner
@@ -1381,7 +1381,7 @@ class Verifier:
         сдвиг на ширину типа и больше — trap (свой вид проверки)."""
         clamp = _range(kind)
         if op in ("<<", ">>"):
-            width = 8 if kind == "u8" else 32
+            width = {"u8": 8, "u16": 16}.get(kind, 32)
             shift_ok = right is not None and right[1] < width
             if annotate:
                 self._mark("shift", node, shift_ok)

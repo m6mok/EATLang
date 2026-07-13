@@ -10,7 +10,7 @@ class Type:
 
 @dataclass(frozen=True)
 class IntType(Type):
-    kind: str  # "i32" | "u32" | "u8"
+    kind: str  # "i32" | "u32" | "u16" | "u8"
 
 
 @dataclass(frozen=True)
@@ -64,6 +64,7 @@ class VoidType(Type):
 
 I32 = IntType("i32")
 U32 = IntType("u32")
+U16 = IntType("u16")
 U8 = IntType("u8")
 BOOL = BoolType()
 CHAR = CharType()
@@ -72,6 +73,7 @@ VOID = VoidType()
 INT_RANGES = {
     "i32": (-(2**31), 2**31 - 1),
     "u32": (0, 2**32 - 1),
+    "u16": (0, 65535),
     "u8": (0, 255),
 }
 

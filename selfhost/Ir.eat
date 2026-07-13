@@ -627,6 +627,14 @@ struct Ir {
         return has
     }
 
+    # Индекс интернированного типа u16 (вид 12; уже создан фазой Check).
+    func u16t(var self) -> u32
+        requires true
+        ensures result < 512
+    {
+        return self.c.u16_ty()
+    }
+
     func is_agg(var self, t: u32) -> bool
         requires t < 512
         ensures true
@@ -675,13 +683,15 @@ struct Ir {
     }
 
     func ty_scalar(var self, k: u32)
-        requires k <= 6
+        requires k <= 6 or k == 12
         ensures true
     {
         if k == 0 or k == 1 {
             self.tp_lit("i32")
         } elif k == 2 or k == 4 {
             self.tp_lit("i8")
+        } elif k == 12 {
+            self.tp_lit("i16")
         } elif k == 3 {
             self.tp_lit("i1")
         } elif k == 5 {
@@ -762,7 +772,7 @@ struct Ir {
         let t: u32 = self.yb1[f]
         let ph: u32 = self.yb2[f]
         let k: u32 = self.c.yk[t]
-        if k <= 6 {
+        if k <= 6 or k == 12 {
             self.ty_scalar(k)
             self.ybp = f
         } elif k == 7 {
@@ -1023,13 +1033,15 @@ struct Ir {
     }
 
     func g_kind(var self, k: u32)
-        requires k <= 2
+        requires k <= 2 or k == 12
         ensures true
     {
         if k == 0 {
             self.g_lit("i32")
         } elif k == 1 {
             self.g_lit("u32")
+        } elif k == 12 {
+            self.g_lit("u16")
         } else {
             self.g_lit("u8")
         }
@@ -1647,10 +1659,12 @@ struct Ir {
     }
 
     func w_it(var self, id: u32)
-        requires id >= 1 and id <= 9
+        requires id >= 1 and id <= 12
         ensures true
     {
-        if id >= 7 {
+        if id >= 10 {
+            self.lb_lit("i16")
+        } elif id >= 7 {
             self.lb_lit("i8")
         } else {
             self.lb_lit("i32")
@@ -1658,16 +1672,16 @@ struct Ir {
     }
 
     func w_iname(var self, id: u32)
-        requires id >= 1 and id <= 9
+        requires id >= 1 and id <= 12
         ensures true
     {
-        if id == 1 or id == 4 or id == 7 {
+        if id == 1 or id == 4 or id == 7 or id == 10 {
             if id == 1 {
                 self.lb_lit("sadd")
             } else {
                 self.lb_lit("uadd")
             }
-        } elif id == 2 or id == 5 or id == 8 {
+        } elif id == 2 or id == 5 or id == 8 or id == 11 {
             if id == 2 {
                 self.lb_lit("ssub")
             } else {
@@ -1684,7 +1698,7 @@ struct Ir {
 
     # v1, v2 — операнды; вызов llvm.*.with.overflow.*.
     func e_ov(var self, id: u32)
-        requires id >= 1 and id <= 9
+        requires id >= 1 and id <= 12
         ensures true
     {
         self.rpre()
@@ -1708,7 +1722,7 @@ struct Ir {
 
     # v1 — пара {int, i1}.
     func e_exv(var self, id: u32, idx: u32)
-        requires id >= 1 and id <= 9 and idx <= 1
+        requires id >= 1 and id <= 12 and idx <= 1
         ensures true
     {
         self.rpre()
@@ -2560,6 +2574,12 @@ struct Ir {
             self.set1(1, self.xb3[f], self.xc3[f])
             self.set2rr()
             self.e_rt_si("u32", "i32")
+        } elif tk == 12 {
+            self.set1er()
+            self.e_cvt(0, self.u16t(), 0)
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2rr()
+            self.e_rt_si("u32", "i32")
         } else {
             self.set1(1, self.xb3[f], self.xc3[f])
             self.set2er()
@@ -2741,6 +2761,8 @@ struct Ir {
                 iid = op - 6
             } elif lk == 2 {
                 iid = op - 3
+            } elif lk == 12 {
+                iid = op
             }
             self.use_intr(iid)
             self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
@@ -2801,6 +2823,8 @@ struct Ir {
         var width: u32 = 32
         if lk == 2 {
             width = 8
+        } elif lk == 12 {
+            width = 16
         }
         self.set1(rk, ra, rb)
         self.set2(2, 0, width)
@@ -2935,6 +2959,9 @@ struct Ir {
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "u8") {
             self.xa3[f] = 102
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "u16") {
+            self.xa3[f] = 103
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "char") {
             self.xa3[f] = 104
@@ -3359,7 +3386,7 @@ struct Ir {
         }
     }
 
-    # er — индексное значение: u8 расширяется до i32.
+    # er — индексное значение: u8/u16 расширяются до i32.
     func widen(var self)
         requires true
         ensures true
@@ -3367,6 +3394,10 @@ struct Ir {
         if self.c.yk[self.ert] == 2 {
             self.set1er()
             self.e_cvt(0, 2, 0)
+            self.serrr(0)
+        } elif self.c.yk[self.ert] == 12 {
+            self.set1er()
+            self.e_cvt(0, self.u16t(), 0)
             self.serrr(0)
         }
     }
@@ -3781,7 +3812,8 @@ struct Ir {
         self.e_store(self.c.yb[t])
     }
 
-    # er — значение-аргумент каста; code: 100 i32, 101 u32, 102 u8, 104 char.
+    # er — значение-аргумент каста; code: 100 i32, 101 u32, 102 u8,
+    # 103 u16, 104 char.
     func xcast(var self, n: u32, code: u32)
         requires n < 131072 and code >= 100
         ensures true
@@ -3797,9 +3829,23 @@ struct Ir {
                 self.ert = 2
                 return
             }
+            if code == 103 {
+                self.set1er()
+                self.e_cvt(0, 2, self.u16t())
+                self.serrr(self.u16t())
+                return
+            }
             self.set1er()
             self.e_cvt(0, 2, 0)
             self.serrr(self.c.nty[n / 65536][n % 65536])
+            return
+        }
+        if sk2 == 12 {
+            self.xcast_from_u16(n, st2, code)
+            return
+        }
+        if code == 103 {
+            self.xcast_u16(n, st2, sk2)
             return
         }
         if code == 100 {
@@ -3825,6 +3871,62 @@ struct Ir {
             return
         }
         self.xcast_u8(n, st2, sk2)
+    }
+
+    # Источник u16: в u16 — как есть, в u8 — trap >255 и trunc,
+    # в i32/u32 — zext (всегда помещается).
+    func xcast_from_u16(var self, n: u32, st2: u32, code: u32)
+        requires n < 131072 and st2 < 512
+        ensures true
+    {
+        if code == 103 {
+            self.ert = st2
+            return
+        }
+        if code == 102 {
+            self.set1er()
+            self.set2(2, 0, 255)
+            self.e_icmp(9, st2)
+            self.set1rr()
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 2, 0)
+            self.set1er()
+            self.e_cvt(1, st2, 2)
+            self.serrr(2)
+            return
+        }
+        self.set1er()
+        self.e_cvt(0, st2, 0)
+        self.serrr(self.c.nty[n / 65536][n % 65536])
+    }
+
+    # Цель u16, источник i32/u32: trap вне [0, 65535] и trunc.
+    func xcast_u16(var self, n: u32, st2: u32, sk2: u32)
+        requires n < 131072 and st2 < 512
+        ensures true
+    {
+        if sk2 == 0 {
+            self.set1er()
+            self.set2(2, 0, 0)
+            self.e_icmp(3, st2)
+            let lk2: u32 = self.rrk
+            let la2: u32 = self.rra
+            let lb2: u32 = self.rrb
+            self.set1er()
+            self.set2(2, 0, 65535)
+            self.e_icmp(5, st2)
+            self.set2rr()
+            self.set1(lk2, la2, lb2)
+            self.e_bin(9, 3)
+        } else {
+            self.set1er()
+            self.set2(2, 0, 65535)
+            self.e_icmp(9, st2)
+        }
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 12, 0)
+        self.set1er()
+        self.e_cvt(1, st2, self.u16t())
+        self.serrr(self.u16t())
     }
 
     func xcast_u8(var self, n: u32, st2: u32, sk2: u32)
@@ -4983,10 +5085,12 @@ struct Ir {
     }
 
     func p_it(var self, id: u32)
-        requires id >= 1 and id <= 9
+        requires id >= 1 and id <= 12
         ensures true
     {
-        if id >= 7 {
+        if id >= 10 {
+            write("i16")
+        } elif id >= 7 {
             write("i8")
         } else {
             write("i32")
@@ -4994,7 +5098,7 @@ struct Ir {
     }
 
     func p_iname(var self, id: u32)
-        requires id >= 1 and id <= 9
+        requires id >= 1 and id <= 12
         ensures true
     {
         if id == 1 {
@@ -5003,9 +5107,9 @@ struct Ir {
             write("ssub")
         } elif id == 3 {
             write("smul")
-        } elif id == 4 or id == 7 {
+        } elif id == 4 or id == 7 or id == 10 {
             write("uadd")
-        } elif id == 5 or id == 8 {
+        } elif id == 5 or id == 8 or id == 11 {
             write("usub")
         } else {
             write("umul")
