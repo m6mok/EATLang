@@ -2999,17 +2999,7 @@ struct Ir {
     {
         let st2: u32 = self.ert
         let si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
-        var mfi: u32 = 4294967295
-        for i in 0..1024 {
-            if i >= self.c.nfun or mfi != 4294967295 {
-                break
-            }
-            if self.c.fown[i] == si {
-                if self.c.span_eq(self.c.fn_s[i], self.c.fn_l[i], self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]) {
-                    mfi = i
-                }
-            }
-        }
+        let mfi: u32 = self.c.fh_find(si, self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
         self.xb3[f] = mfi
         self.xg3[f] = self.nag
         let ek: u32 = self.erk

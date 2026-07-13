@@ -118,6 +118,9 @@ struct Check {
     ttn: u32
     # ранги ключей сортировки рёбер: erk[код] — номер в порядке имён
     erk: [u32; 4096]
+    # хеш-индекс таблицы функций: open addressing по ключу
+    # (владелец, имя), слот — индекс функции или NONE
+    fhx: [u32; 2048]
     # машина выражений: кадры (узел, фаза, ожидаемый тип, aux)
     xn: [u32; 64]
     xp: [u32; 64]
@@ -320,23 +323,67 @@ struct Check {
         return found
     }
 
+    func fh_hash(var self, own: u32, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        var h: u32 = own % 8191 + 1
+        for i in 0..256 {
+            if i >= l {
+                break
+            }
+            h = (h % 131072) * 31 + u32(self.p.lex.sb_at(a + i))
+        }
+        return h
+    }
+
+    # Поиск в хеш-индексе функций: линейное пробирование до пустого
+    # слота; при дубликатах имён (ошибочные программы) порядок вставки
+    # растёт по индексу — находится тот же первый, что у скана.
+    func fh_find(var self, own: u32, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        var f: u32 = 4294967295
+        var slot: u32 = self.fh_hash(own, a, l) & 2047
+        var stop: bool = false
+        for _ in 0..2048 {
+            if stop {
+                break
+            }
+            let fi: u32 = self.fhx[slot]
+            if fi == 4294967295 {
+                stop = true
+            } elif self.fown[fi & 1023] == own and self.span_eq(self.fn_s[fi & 1023], self.fn_l[fi & 1023], a, l) {
+                f = fi
+                stop = true
+            } else {
+                slot = (slot + 1) & 2047
+            }
+        }
+        return f
+    }
+
+    func fh_insert(var self, i: u32)
+        requires i < 1024
+        ensures true
+    {
+        var slot: u32 = self.fh_hash(self.fown[i], self.fn_s[i], self.fn_l[i]) & 2047
+        for _ in 0..2048 {
+            if self.fhx[slot] == 4294967295 {
+                break
+            }
+            slot = (slot + 1) & 2047
+        }
+        self.fhx[slot] = i
+    }
+
     # Функция верхнего уровня (owner NONE) по имени.
     func find_func(var self, a: u32, l: u32) -> u32
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
-        for i in 0..1024 {
-            if i >= self.nfun or found != 4294967295 {
-                break
-            }
-            if self.fown[i] == 4294967295 {
-                if self.span_eq(self.fn_s[i], self.fn_l[i], a, l) {
-                    found = i
-                }
-            }
-        }
-        return found
+        return self.fh_find(4294967295, a, l)
     }
 
     # Запись таблицы функций по узлу AST.
@@ -872,6 +919,7 @@ struct Check {
         self.fvs[i] = 0
         self.fps[i] = self.npar
         self.fpc[i] = 0
+        self.fh_insert(i)
         var c: u32 = self.p.nfc[d / 65536][d % 65536]
         var first: bool = true
         for _ in 0..64 {
@@ -2454,17 +2502,7 @@ struct Check {
             return
         }
         let si: u32 = self.find_struct(self.ys[self.tres], self.yl[self.tres])
-        var mfi: u32 = 4294967295
-        for i in 0..1024 {
-            if i >= self.nfun or mfi != 4294967295 {
-                break
-            }
-            if self.fown[i] == si {
-                if self.span_eq(self.fn_s[i], self.fn_l[i], self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]) {
-                    mfi = i
-                }
-            }
-        }
+        let mfi: u32 = self.fh_find(si, self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
         if mfi == 4294967295 {
             self.fail_node(n, "у struct нет такого метода")
             return
