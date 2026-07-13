@@ -184,7 +184,7 @@ struct Ir {
         ensures true
     {
         if not self.failed {
-            print("err: 1:1: {m}")
+            eprint("err: 1:1: {m}")
         }
         self.failed = true
     }

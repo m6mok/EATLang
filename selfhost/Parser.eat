@@ -110,7 +110,7 @@ struct Parser {
         ensures true
     {
         if not self.failed {
-            print("err: {self.lex.tok_l(self.cur)}:{self.lex.tok_c(self.cur)}: {m}")
+            eprint("err: {self.lex.tok_l(self.cur)}:{self.lex.tok_c(self.cur)}: {m}")
         }
         self.failed = true
     }

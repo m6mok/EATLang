@@ -154,7 +154,7 @@ struct Check {
         ensures true
     {
         if not self.failed {
-            print("err: {ln}:{cl}: {m}")
+            eprint("err: {ln}:{cl}: {m}")
         }
         self.failed = true
     }

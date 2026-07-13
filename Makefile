@@ -247,8 +247,7 @@ BIN ?= build/$(PROG)
 # Компиляция: модули программы → текстовый LLVM IR
 compile: $(COMPILER)
 	@test -n "$(SRC)" || { echo 'использование: make compile SRC="Мод1.eat Main.eat"'; exit 1; }
-	@cat $(RT) $(SRC) | ./$(COMPILER) > $(LL)
-	@if head -1 $(LL) | grep -q '^err:'; then cat $(LL); rm -f $(LL); exit 1; fi
+	@cat $(RT) $(SRC) | ./$(COMPILER) > $(LL) || { rm -f $(LL); exit 1; }
 	@echo "$(LL)"
 
 # Линковка: IR + шим аксиом ОС (runtime.c) → нативный бинарник

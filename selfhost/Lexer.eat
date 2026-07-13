@@ -314,7 +314,7 @@ struct Lexer {
         ensures true
     {
         if not self.failed {
-            print("err: {self.line}:{self.col}: {m}")
+            eprint("err: {self.line}:{self.col}: {m}")
         }
         self.failed = true
     }
@@ -324,7 +324,7 @@ struct Lexer {
         ensures true
     {
         if not self.failed {
-            print("err: {self.tline}:{self.tcol}: неожиданный символ '{char(b)}'")
+            eprint("err: {self.tline}:{self.tcol}: неожиданный символ '{char(b)}'")
         }
         self.failed = true
     }
@@ -334,7 +334,7 @@ struct Lexer {
         ensures true
     {
         if not self.failed {
-            print("err: {self.line}:{self.col}: неизвестная escape-последовательность \\{char(b)}")
+            eprint("err: {self.line}:{self.col}: неизвестная escape-последовательность \\{char(b)}")
         }
         self.failed = true
     }

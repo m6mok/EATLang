@@ -303,6 +303,22 @@ struct RtStr {
     }
 }
 
+# Диагностика в stderr (write_err_byte — аксиома): строка + перевод
+# строки. Канал ошибок не смешивается с полезным выводом фильтра
+# stdin → stdout (SPEC §7); используется fail-путями компилятора.
+func eprint(s: str<256>)
+    requires true
+    ensures true
+{
+    for i in 0..256 {
+        if i >= len(s) {
+            break
+        }
+        write_err_byte(u8(s[i]))
+    }
+    write_err_byte(10)
+}
+
 # Заполнение RtStr в тестах: побайтно через append_char.
 func rt_of(a: str<16>) -> RtStr
     requires true
