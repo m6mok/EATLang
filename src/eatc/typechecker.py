@@ -791,6 +791,15 @@ class TypeChecker:
         if node.op == "not":
             self._expect_bool(node.operand, "операнд not")
             return BOOL
+        if node.op == "~":
+            # как у битовых бинарных: только беззнаковые (см. _binop)
+            hint = expected if isinstance(expected, IntType) else None
+            operand = self.expr(node.operand, expected=hint)
+            if not isinstance(operand, IntType) or operand.kind == "i32":
+                raise self.err(
+                    node, f"~ применим к u32/u8, не к {show(operand)}"
+                )
+            return operand
         operand = self.expr(node.operand, expected=expected)
         if operand != I32:
             raise self.err(

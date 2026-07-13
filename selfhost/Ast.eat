@@ -68,20 +68,20 @@ func has_name(k: u32) -> bool
 # --- операторы выражений ------------------------------------------------
 # 1 or  2 and  3 not  4 ==  5 !=  6 <  7 <=  8 >  9 >=
 # 10 +  11 -  12 *  13 /  14 %  15 унарный -
-# 16 |  17 ^  18 &  19 <<  20 >>
+# 16 |  17 ^  18 &  19 <<  20 >>  21 ~
 
 func write_opname(c: u32)
-    requires c >= 1 and c <= 20
+    requires c >= 1 and c <= 21
     ensures true
 {
-    if c == 1 { write("or") } elif c == 2 { write("and") } elif c == 3 { write("not") } elif c == 4 { write("==") } elif c == 5 { write("!=") } elif c == 6 { write("<") } elif c == 7 { write("<=") } elif c == 8 { write(">") } elif c == 9 { write(">=") } elif c == 10 { write("+") } elif c == 11 { write("-") } elif c == 12 { write("*") } elif c == 13 { write("/") } elif c == 14 { write("%") } elif c == 15 { write("-") } elif c == 16 { write("|") } elif c == 17 { write("^") } elif c == 18 { write("&") } elif c == 19 { write("<<") } else { write(">>") }
+    if c == 1 { write("or") } elif c == 2 { write("and") } elif c == 3 { write("not") } elif c == 4 { write("==") } elif c == 5 { write("!=") } elif c == 6 { write("<") } elif c == 7 { write("<=") } elif c == 8 { write(">") } elif c == 9 { write(">=") } elif c == 10 { write("+") } elif c == 11 { write("-") } elif c == 12 { write("*") } elif c == 13 { write("/") } elif c == 14 { write("%") } elif c == 15 { write("-") } elif c == 16 { write("|") } elif c == 17 { write("^") } elif c == 18 { write("&") } elif c == 19 { write("<<") } elif c == 20 { write(">>") } else { write("~") }
 }
 
 # Приоритеты (больше — сильнее): or 1, and 2, not 3, сравнения 4,
-# | 5, ^ 6, & 7, сдвиги 8, + - 9, * / % 10, унарный - 11.
+# | 5, ^ 6, & 7, сдвиги 8, + - 9, * / % 10, унарные - и ~ 11.
 # Битовые — слабее арифметики и сильнее сравнений (как в Rust).
 func prec_of(c: u32) -> u32
-    requires c >= 1 and c <= 20
+    requires c >= 1 and c <= 21
     ensures result >= 1 and result <= 11
 {
     if c <= 3 {
@@ -102,7 +102,10 @@ func prec_of(c: u32) -> u32
     if c <= 18 {
         return c - 11
     }
-    return 8
+    if c <= 20 {
+        return 8
+    }
+    return 11
 }
 
 # Код бинарной операции по виду токена; 0 — не бинарный оператор.

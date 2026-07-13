@@ -99,7 +99,7 @@ class BinOp(Expr):
 
 @dataclass
 class UnaryOp(Expr):
-    op: str  # "-" | "not"
+    op: str  # "-" | "not" | "~"
     operand: Expr
 
 

@@ -64,12 +64,29 @@ func esc_code(b: u8) -> u32
     return 256
 }
 
+# Значение hex-цифры 0..15; 99 — не hex-цифра.
+func hex_val(b: u8) -> u32
+    requires true
+    ensures result <= 15 or result == 99
+{
+    if b >= 48 and b <= 57 {
+        return u32(b) - 48
+    }
+    if b >= 97 and b <= 102 {
+        return u32(b) - 87
+    }
+    if b >= 65 and b <= 70 {
+        return u32(b) - 55
+    }
+    return 99
+}
+
 # Код одиночного знака пунктуации; 99 — не пунктуация.
 func punct_code(b: u8) -> u32
     requires true
     ensures result <= 99
 {
-    if b == 40 { return 30 } elif b == 41 { return 31 } elif b == 123 { return 32 } elif b == 125 { return 33 } elif b == 91 { return 34 } elif b == 93 { return 35 } elif b == 44 { return 43 } elif b == 58 { return 44 } elif b == 59 { return 45 } elif b == 43 { return 49 } elif b == 42 { return 51 } elif b == 47 { return 52 } elif b == 37 { return 53 } elif b == 38 { return 56 } elif b == 124 { return 57 } elif b == 94 { return 58 }
+    if b == 40 { return 30 } elif b == 41 { return 31 } elif b == 123 { return 32 } elif b == 125 { return 33 } elif b == 91 { return 34 } elif b == 93 { return 35 } elif b == 44 { return 43 } elif b == 58 { return 44 } elif b == 59 { return 45 } elif b == 43 { return 49 } elif b == 42 { return 51 } elif b == 47 { return 52 } elif b == 37 { return 53 } elif b == 38 { return 56 } elif b == 124 { return 57 } elif b == 94 { return 58 } elif b == 126 { return 61 }
     return 99
 }
 
@@ -118,6 +135,9 @@ struct Lexer {
     sga: [u32; 2048]
     sgb: [u32; 2048]
     nseg: u32
+    # hex-литерал (состояния 15/16): значение и число цифр
+    hexv: u32
+    hexn: u32
 
     # --- доступ к вложенным пулам ----------------------------------------
 
@@ -221,7 +241,7 @@ struct Lexer {
     # --- запись токенов в пул -------------------------------------------
 
     func emit_plain(var self, k: u32)
-        requires k <= 60
+        requires k <= 61
         ensures true
     {
         if self.ntok >= 131072 {
@@ -242,7 +262,7 @@ struct Lexer {
 
     # Токен со значением: байты val[0..vlen] копируются в sbuf.
     func emit_value(var self, k: u32)
-        requires k <= 60
+        requires k <= 61
         ensures true
     {
         if self.sblen >= 130816 {
@@ -447,6 +467,12 @@ struct Lexer {
             self.push_val(b)
             return
         }
+        if b == 120 and self.vlen == 1 and self.val[0] == 48 { # 0x
+            self.hexv = 0
+            self.hexn = 0
+            self.state = 15
+            return
+        }
         if is_word_byte(b) {
             self.fail("идентификатор не может начинаться с цифры")
             return
@@ -454,6 +480,85 @@ struct Lexer {
         self.emit_value(0)
         self.state = 0
         self.start_byte(b)
+    }
+
+    # Hex-литерал: первая цифра после «0x» (состояние 15).
+    func hexstart_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        let v: u32 = hex_val(b)
+        if v == 99 {
+            self.fail("ожидались шестнадцатеричные цифры после 0x")
+            return
+        }
+        self.hexv = v
+        self.hexn = 1
+        self.state = 16
+    }
+
+    # Hex-литерал: цифры и завершение (состояние 16). Предел 8 цифр
+    # (всегда влезает в u32) проверяется на первом не-hex байте —
+    # позиция ошибки как у эталона; лишние цифры дальше 8 не копятся.
+    func hex_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        let v: u32 = hex_val(b)
+        if v != 99 {
+            if self.hexn < 8 {
+                self.hexv = self.hexv * 16 + v
+            }
+            if self.hexn < 9 {
+                self.hexn = self.hexn + 1
+            }
+            return
+        }
+        if self.hexn > 8 {
+            self.fail("hex-литерал длиннее 8 цифр")
+            return
+        }
+        if is_word_byte(b) {
+            self.fail("идентификатор не может начинаться с цифры")
+            return
+        }
+        self.hex_fin()
+        self.state = 0
+        self.start_byte(b)
+    }
+
+    # Финализация hex-литерала: значение токена — десятичная запись,
+    # парсер и дампы о hex не знают (нормализация как у эталона).
+    func hex_fin(var self)
+        requires true
+        ensures true
+    {
+        var tmp: [u8; 10] = [0; 10]
+        var n: u32 = 0
+        var x: u32 = self.hexv
+        self.vlen = 0
+        if x == 0 {
+            self.push_val(48)
+            self.emit_value(0)
+            return
+        }
+        for _ in 0..10 {
+            if x == 0 {
+                break
+            }
+            if n < 10 {
+                tmp[n] = u8(x % 10 + 48)
+                n = n + 1
+            }
+            x = x / 10
+        }
+        for i in 0..10 {
+            if i >= n {
+                break
+            }
+            self.push_val(tmp[n - 1 - i])
+        }
+        self.emit_value(0)
     }
 
     func str_byte(var self, b: u8)
@@ -621,6 +726,10 @@ struct Lexer {
             self.chclose_byte(b)
         } elif self.state == 8 {
             self.comment_byte(b)
+        } elif self.state == 15 {
+            self.hexstart_byte(b)
+        } elif self.state == 16 {
+            self.hex_byte(b)
         } else {
             self.op_byte(b)
         }
@@ -662,6 +771,14 @@ struct Lexer {
             self.emit_plain(36)
         } elif self.state == 14 {
             self.emit_plain(37)
+        } elif self.state == 15 {
+            self.fail("ожидались шестнадцатеричные цифры после 0x")
+        } elif self.state == 16 {
+            if self.hexn > 8 {
+                self.fail("hex-литерал длиннее 8 цифр")
+            } else {
+                self.hex_fin()
+            }
         }
         self.state = 0
         if self.failed {

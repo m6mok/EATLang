@@ -814,7 +814,9 @@ class Codegen:
 
     def gen_unary(self, node: ast.UnaryOp):
         value = self.expr(node.operand)
-        if node.op == "not":
+        if node.op in ("not", "~"):
+            # not — xor i1; ~ — xor с -1 ширины типа: из типа
+            # не выходит, trap не нужен
             return self.b.not_(value)
         return self.arith(node, "-", I32L(0), value, "i32")
 

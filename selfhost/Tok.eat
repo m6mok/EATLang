@@ -3,10 +3,10 @@
 #
 # 0 INT      1 STRING   2 CHAR     3 IDENT
 # 4..29 ключевые слова, 30..53 пунктуация, 54 NEWLINE, 55 EOF,
-# 56..60 битовые операторы (AMP PIPE CARET SHL SHR)
+# 56..60 битовые операторы (AMP PIPE CARET SHL SHR), 61 TILDE
 
 func write_kind(k: u32)
-    requires k <= 60
+    requires k <= 61
     ensures true
 {
     if k < 30 {
@@ -24,10 +24,10 @@ func write_kind_kw(k: u32)
 }
 
 func write_kind_op(k: u32)
-    requires k >= 30 and k <= 60
+    requires k >= 30 and k <= 61
     ensures true
 {
-    if k == 30 { write("LPAREN") } elif k == 31 { write("RPAREN") } elif k == 32 { write("LBRACE") } elif k == 33 { write("RBRACE") } elif k == 34 { write("LBRACKET") } elif k == 35 { write("RBRACKET") } elif k == 36 { write("LT") } elif k == 37 { write("GT") } elif k == 38 { write("LE") } elif k == 39 { write("GE") } elif k == 40 { write("EQ") } elif k == 41 { write("NE") } elif k == 42 { write("ASSIGN") } elif k == 43 { write("COMMA") } elif k == 44 { write("COLON") } elif k == 45 { write("SEMI") } elif k == 46 { write("DOT") } elif k == 47 { write("DOTDOT") } elif k == 48 { write("ARROW") } elif k == 49 { write("PLUS") } elif k == 50 { write("MINUS") } elif k == 51 { write("STAR") } elif k == 52 { write("SLASH") } elif k == 53 { write("PERCENT") } elif k == 54 { write("NEWLINE") } elif k == 55 { write("EOF") } elif k == 56 { write("AMP") } elif k == 57 { write("PIPE") } elif k == 58 { write("CARET") } elif k == 59 { write("SHL") } else { write("SHR") }
+    if k == 30 { write("LPAREN") } elif k == 31 { write("RPAREN") } elif k == 32 { write("LBRACE") } elif k == 33 { write("RBRACE") } elif k == 34 { write("LBRACKET") } elif k == 35 { write("RBRACKET") } elif k == 36 { write("LT") } elif k == 37 { write("GT") } elif k == 38 { write("LE") } elif k == 39 { write("GE") } elif k == 40 { write("EQ") } elif k == 41 { write("NE") } elif k == 42 { write("ASSIGN") } elif k == 43 { write("COMMA") } elif k == 44 { write("COLON") } elif k == 45 { write("SEMI") } elif k == 46 { write("DOT") } elif k == 47 { write("DOTDOT") } elif k == 48 { write("ARROW") } elif k == 49 { write("PLUS") } elif k == 50 { write("MINUS") } elif k == 51 { write("STAR") } elif k == 52 { write("SLASH") } elif k == 53 { write("PERCENT") } elif k == 54 { write("NEWLINE") } elif k == 55 { write("EOF") } elif k == 56 { write("AMP") } elif k == 57 { write("PIPE") } elif k == 58 { write("CARET") } elif k == 59 { write("SHL") } elif k == 60 { write("SHR") } else { write("TILDE") }
 }
 
 # Слово (первые 16 байт лексемы) совпадает со строкой-эталоном?

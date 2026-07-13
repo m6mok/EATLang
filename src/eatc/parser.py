@@ -568,6 +568,9 @@ class Parser:
                 # (INT_MIN) был бы невыразим
                 return ast.IntLit(tok.line, tok.col, -operand.value)
             return ast.UnaryOp(tok.line, tok.col, "-", operand)
+        if self.at(T.TILDE):
+            tok = self.advance()
+            return ast.UnaryOp(tok.line, tok.col, "~", self.parse_unary())
         return self.parse_postfix()
 
     def parse_postfix(self) -> ast.Expr:

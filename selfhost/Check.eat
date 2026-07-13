@@ -2038,6 +2038,11 @@ struct Check {
                     self.fail_node(n, "операнд not: ожидается bool")
                 }
                 self.tres = 3
+            } elif op == 21 {
+                # как у битовых бинарных: только беззнаковые
+                if self.yk[self.tres] != 1 and self.yk[self.tres] != 2 {
+                    self.fail_node(n, "~ применим к u32/u8")
+                }
             } else {
                 if self.tres != 0 {
                     self.fail_node(n, "унарный минус применим к i32")

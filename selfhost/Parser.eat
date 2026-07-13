@@ -1425,10 +1425,10 @@ struct Parser {
             }
             return
         }
-        if code == 3 {
+        if code == 3 or code == 21 {
             let v2: u32 = self.pop_opnd()
             let un2: u32 = self.alloc(40, ln, cl)
-            self.nx[un2 / 65536][un2 % 65536] = 3
+            self.nx[un2 / 65536][un2 % 65536] = code
             self.append_child(un2, v2)
             self.push_opnd(un2)
             return
@@ -1589,6 +1589,9 @@ struct Parser {
             self.push_oper(4, n5, self.cur_flags() % 2, ln, cl)
         } elif k == 50 {
             self.push_oper(8, 15, self.cur_flags(), ln, cl)
+            self.advance()
+        } elif k == 61 {
+            self.push_oper(8, 21, self.cur_flags(), ln, cl)
             self.advance()
         } elif k == 29 {
             if not self.expr_not_ok() {

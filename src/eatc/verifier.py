@@ -1197,6 +1197,13 @@ class Verifier:
                 self._eval_bool(node, env, annotate)
                 return None
             inner = self._iv(node.operand, env, annotate)
+            if node.op == "~":
+                # ~x = маска - x: линейно убывает, интервал точный
+                mask = 255 if node.ty.kind == "u8" else 4294967295
+                if inner is None:
+                    return self._ty_range(node.ty)
+                lo, hi = inner
+                return (mask - hi, mask - lo)
             return self._arith(node, "-", (0, 0), inner, "i32", annotate)
         if isinstance(node, ast.BinOp):
             if node.op in ("and", "or"):

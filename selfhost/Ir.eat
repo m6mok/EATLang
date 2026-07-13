@@ -1613,6 +1613,20 @@ struct Ir {
         self.line_fin()
     }
 
+    # ~: xor <ty> v1, -1 — инверсия в ширине типа, из типа не выходит.
+    func e_bnot(var self, t: u32)
+        requires t < 512
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("xor ")
+        self.wty(t)
+        self.lb_lit(" ")
+        self.wr1()
+        self.lb_lit(", -1")
+        self.line_fin()
+    }
+
     # o: 0 zext, 1 trunc; v1 — значение.
     func e_cvt(var self, o: u32, tf: u32, tt: u32)
         requires o <= 1 and tf < 512 and tt < 512
@@ -2566,6 +2580,11 @@ struct Ir {
             self.set1er()
             self.e_not()
             self.serrr(3)
+        } elif self.c.p.nx[n / 65536][n % 65536] == 21 {
+            let bt: u32 = self.ert
+            self.set1er()
+            self.e_bnot(bt)
+            self.serrr(bt)
         } else {
             # унарный минус: 0 - x с проверкой переполнения i32
             self.use_intr(2)

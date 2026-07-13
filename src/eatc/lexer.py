@@ -42,6 +42,7 @@ _ONE_CHAR = {
     "&": T.AMP,
     "|": T.PIPE,
     "^": T.CARET,
+    "~": T.TILDE,
 }
 
 _ESCAPES = {"n": "\n", "t": "\t", "\\": "\\", '"': '"', "'": "'", "0": "\0"}
@@ -184,12 +185,33 @@ class Lexer:
         self._emit(T.CHAR, ch, line, col)
 
     def _lex_int(self, line: int, col: int) -> None:
+        if self._peek() == "0" and self._peek(1) == "x":
+            self._lex_hex(line, col)
+            return
         digits: list[str] = []
         while self.pos < len(self.src) and self._peek().isdigit():
             digits.append(self._advance())
         if self._peek().isalpha() or self._peek() == "_":
             raise self.error("идентификатор не может начинаться с цифры")
         self._emit(T.INT, "".join(digits), line, col)
+
+    def _lex_hex(self, line: int, col: int) -> None:
+        """Hex-литерал 0x…: до 8 цифр (всегда влезает в u32 — предел
+        держит паритет с self-hosted лексером, который конвертирует
+        в u32-арифметике). Значение токена нормализуется в десятичную
+        строку — парсер и дампы не знают о hex."""
+        self._advance()  # 0
+        self._advance()  # x
+        digits: list[str] = []
+        while self._peek() in "0123456789abcdefABCDEF":
+            digits.append(self._advance())
+        if not digits:
+            raise self.error("ожидались шестнадцатеричные цифры после 0x")
+        if len(digits) > 8:
+            raise self.error("hex-литерал длиннее 8 цифр")
+        if self._peek().isalpha() or self._peek() == "_":
+            raise self.error("идентификатор не может начинаться с цифры")
+        self._emit(T.INT, str(int("".join(digits), 16)), line, col)
 
     def _lex_word(self, line: int, col: int) -> None:
         chars: list[str] = []

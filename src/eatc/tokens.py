@@ -69,6 +69,7 @@ class T(Enum):
     CARET = auto()
     SHL = auto()
     SHR = auto()
+    TILDE = auto()
 
     NEWLINE = auto()
     EOF = auto()

@@ -523,6 +523,10 @@ class Interpreter:
         value = self.eval(node.operand)
         if node.op == "not":
             return not value
+        if node.op == "~":
+            # инверсия в ширине типа: ~x == маска - x, из типа не выходит
+            mask = 255 if node.operand.ty.kind == "u8" else 4294967295
+            return value ^ mask
         result = -value
         self._fit(node, "i32", result)
         return result
