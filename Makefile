@@ -233,7 +233,8 @@ MCU_QEMU = qemu-system-arm -M $(QEMU_MACHINE) -semihosting \
 	-display none -monitor none -serial stdio
 MCU_PROG = $(basename $(notdir $(lastword $(SRC))))
 MCU_DIR = build/mcu/$(BOARD)
-MCU_COMMON = mcu/common/runtime.c mcu/common/startup.c
+MCU_COMMON = mcu/common/runtime.c mcu/common/startup.c \
+	mcu/common/eabi64.c
 
 mcu:
 	@test -n "$(SRC)" || { echo 'использование: make mcu BOARD=... SRC="Мод.eat Main.eat" [EXTERN=drv.c] [INPUT=file]'; exit 1; }
@@ -250,8 +251,8 @@ mcu:
 		$(MCU_CC) -c $$f -o $(MCU_DIR)/$$(basename $$f .c).o || exit 1; \
 	done
 	ld.lld -T mcu/boards/$(BOARD)/board.ld $(MCU_DIR)/$(MCU_PROG).o \
-		$(MCU_DIR)/runtime.o $(MCU_DIR)/startup.o $(MCU_DIR)/board.o \
-		$(MCU_DIR)/input.o \
+		$(MCU_DIR)/runtime.o $(MCU_DIR)/startup.o $(MCU_DIR)/eabi64.o \
+		$(MCU_DIR)/board.o $(MCU_DIR)/input.o \
 		$(if $(EXTERN),$(patsubst %.c,$(MCU_DIR)/%.o,$(notdir $(EXTERN)))) \
 		-o $(MCU_DIR)/$(MCU_PROG).elf
 	@xcrun llvm-size $(MCU_DIR)/$(MCU_PROG).elf

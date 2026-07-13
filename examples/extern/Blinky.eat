@@ -22,4 +22,13 @@ func main() {
     }
     led_set(false)
     print("нажатий за 8 тактов: {presses}")
+    # u64 на 32-битном МК: деление/умножение/сдвиги опускаются в
+    # вызовы __aeabi_* — их закрывает libclang_rt.builtins.a (Makefile)
+    let ticks: u64 = 0x123456789ABCDEF + u64(presses)
+    let div: u64 = ticks / (u64(presses) + 3)
+    let rem: u64 = ticks % 1000000007
+    let sh: u64 = ticks >> u64(presses + 1)
+    let prod: u64 = (ticks & 0xFFFFFFFF) * (u64(presses) + 2862933555)
+    let neg: i64 = (0 - i64(ticks >> 8)) / 3
+    print("u64: {div} {rem} {sh} {prod} {neg}")
 }

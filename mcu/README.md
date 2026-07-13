@@ -29,6 +29,11 @@ make verify_mcu                           # все QEMU-платы, байт-в-
 - `common/startup.c` — вектора, `.data`/`.bss`, вызов main;
   EABI-хелперы памяти и программное деление для Cortex-M0 (thumbv6m
   без аппаратного udiv);
+- `common/eabi64.c` — 64-битные EABI-хелперы (u64/i64 в языке):
+  `__aeabi_uldivmod`/`ldivmod` на всех thumb-целях, `lmul`/`llsl`/
+  `llsr`/`lasr` для v6-M, плюс знаковое 32-битное деление
+  (`__aeabi_idiv(mod)`); готового libclang_rt.builtins.a под
+  baremetal-arm в тулчейне macOS нет — хелперы свои;
 - `common/sections.ld` — общая раскладка секций (`.ARM.exidx`
   отброшен: исключений нет);
 - `boards/<board>/` — `board.c` (UART чипа), `board.ld` (память),
