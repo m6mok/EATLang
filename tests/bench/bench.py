@@ -1,6 +1,6 @@
 """Нагрузочное тестирование EATLang (make bench / make bench_quick).
 
-Четыре секции:
+Секции:
   pipeline — скорость стадий eatc (lex/parse/typed/ir) на синтетических
              модулях ступенчатых размеров + многомодульный фронтенд;
   runtime  — бенчмарк-программы tests/bench/programs/: интерпретатор
@@ -12,7 +12,10 @@
   compiler — постоянная метрика скорости самого компилятора: фазовые
              self-hosted бинарники (SelfLex..SelfIr) компилируют
              конкатенацию собственных модулей (вход verify_bootstrap),
-             время и дампы сверяются с Python-эталоном.
+             время и дампы сверяются с Python-эталоном;
+  size     — размеры бинарников и данных (метрика для МК/флеша, трек 2):
+             файл, секции __text/__const, строковые глобалы канона и
+             доля trap-строк в них, размер канонического .ll.
 
 Запуск из корня репозитория:
   uv run python tests/bench/bench.py [--quick] [--only pipeline,stress]
@@ -22,6 +25,7 @@
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
@@ -510,6 +514,118 @@ def bench_compiler(quick: bool):
                "нативн./Python", "вывод", "дамп =="], rows)
 
 
+# ==== Секция 6: размеры бинарников и данных (метрика МК/флеша) ==========
+
+# Типичная МК-программа набора — эмулятор mos6502 (examples/)
+MOS_SRCS = ["Cpu6502.eat", "Tests.eat", "Main.eat"]
+
+
+def example_binary(name, srcs, quick):
+    """build/<name> из списка исходников; та же логика свежести,
+    что у stage_binary."""
+    binary = ROOT / "build" / name
+    deps = srcs + [ROOT / "src" / "eatc" / "runtime.c"]
+    fresh = binary.exists() and \
+        binary.stat().st_mtime >= max(d.stat().st_mtime for d in deps)
+    if fresh:
+        return binary
+    state = "устарел" if binary.exists() else "не собран"
+    if quick:
+        print(f"  {name} {state} — пропуск (соберите: make verify)")
+        return None
+    print(f"  {name} {state} — сборка Python-бутстрапом...")
+    r = run_timed(eatc("build", *(str(s) for s in srcs), "-o", str(binary)))
+    if r.rc != 0:
+        fail(f"size: сборка {name}: {r.err.decode()[:200]}")
+        return None
+    print(f"    собран за {r.secs:.2f}s")
+    return binary
+
+
+def darwin_sections(binary):
+    """Размеры секций __text/__const (байт) из `size -m`; пусто не на
+    macOS — там колонки покажут «-», общий размер файла остаётся."""
+    if sys.platform != "darwin":
+        return {}
+    r = subprocess.run(["size", "-m", str(binary)],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return {}
+    secs = {}
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("Section __"):
+            name, _, val = line.partition(":")
+            secs[name.split()[1]] = int(val)
+    return secs
+
+
+def ll_string_stats(ll_path):
+    """Канонический .ll: (строковых глобалов, из них trap, байт в trap,
+    вызовов llvm.memcpy). Trap-строки — глобалы вида
+    `stdin:line:col: error: trap: ...` — главный раздуватель данных."""
+    total = traps = trap_bytes = memcpy = 0
+    with open(ll_path, encoding="utf-8") as f:
+        for line in f:
+            if line.startswith('@"str.'):
+                total += 1
+                if "error: trap" in line:
+                    traps += 1
+                    m = re.search(r"\[(\d+) x i8\]", line)
+                    if m:
+                        trap_bytes += int(m.group(1))
+            elif "llvm.memcpy" in line:
+                memcpy += 1
+    return total, traps, trap_bytes, memcpy
+
+
+def bench_size(quick: bool):
+    section("РАЗМЕРЫ (бинарник, секции, строковые данные — метрика флеша)")
+    targets = []
+    for name, _, mods in SELF_STAGES:
+        binary = stage_binary(name, mods, quick)
+        if binary is not None:
+            targets.append((name, binary))
+    mos = example_binary(
+        "Mos6502",
+        [RT] + [ROOT / "examples" / "mos6502" / m for m in MOS_SRCS],
+        quick)
+    if mos is not None:
+        targets.append(("Mos6502", mos))
+    hello = example_binary(
+        "HelloWorld",
+        [RT, ROOT / "examples" / "hello_world" / "HelloWorld.eat"],
+        quick)
+    if hello is not None:
+        targets.append(("HelloWorld", hello))
+
+    def kb(n):
+        return f"{n / 1024:.1f} КБ" if n is not None else "-"
+
+    rows = []
+    for name, binary in targets:
+        secs = darwin_sections(binary)
+        ll = binary.with_suffix(".ll")
+        if ll.exists():
+            total, traps, tbytes, memcpy = ll_string_stats(ll)
+            ll_col = f"{ll.stat().st_size / (1 << 20):.2f} МБ"
+            str_col, trap_col = str(total), str(traps)
+            tb_col, mc_col = kb(tbytes), str(memcpy)
+        else:
+            ll_col = str_col = trap_col = tb_col = mc_col = "-"
+        rows.append([
+            name,
+            kb(binary.stat().st_size),
+            kb(secs.get("__text")),
+            kb(secs.get("__const")),
+            str_col, trap_col, tb_col, mc_col, ll_col,
+        ])
+    if rows:
+        table(["программа", "бинарник", "__text", "__const",
+               "стр-глобалов", "trap-строк", "trap-байт", "memcpy",
+               "канон .ll"], rows)
+
+
 # ==== Точка входа =======================================================
 
 def main() -> int:
@@ -518,7 +634,7 @@ def main() -> int:
                     help="быстрый прогон: меньше размеры и повторы")
     ap.add_argument("--only", default="",
                     help="секции через запятую: pipeline,runtime,"
-                         "stress,selfhost,compiler")
+                         "stress,selfhost,compiler,size")
     args = ap.parse_args()
     only = {s.strip() for s in args.only.split(",") if s.strip()}
 
@@ -542,6 +658,8 @@ def main() -> int:
         bench_selfhost(args.quick, inputs)
     if wanted("compiler"):
         bench_compiler(args.quick)
+    if wanted("size"):
+        bench_size(args.quick)
 
     section("ИТОГО")
     print(f"общее время: {time.perf_counter() - t0:.1f}s")
