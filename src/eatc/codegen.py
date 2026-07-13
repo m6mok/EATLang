@@ -1297,6 +1297,11 @@ def compile_binary(
     ll_path.write_text(
         str(module) + _trap_map_text(cg), encoding="utf-8"
     )
+    if trap_codes and cg.trap_list:
+        # таблица код -> сообщение отдельным файлом рядом с бинарником
+        out.with_suffix(".trapmap").write_text(
+            _trap_map_text(cg), encoding="utf-8"
+        )
     # Оптимизация — только на пути IR → объектный код: .ll выше уже
     # записан неоптимизированным (канон дифф-сверки и отладки), а
     # текстовую эмиссию `eatc ir` фикспойнт бутстрапа требует

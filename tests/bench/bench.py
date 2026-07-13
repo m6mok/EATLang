@@ -60,7 +60,7 @@ RUNTIME_PROGRAMS = [
     ("CallBench", 500_000, 256, 32),
     ("ArrayBench", 520_192, 256, 32),
     ("StructBench", 500_000, 256, 32),
-    ("AggBench", 500_000, 64, 8),
+    ("AggBench", 200_000, 160, 20),
     ("NumParseBench", 200_000, 64, 8),
     ("StrBench", 1_280_000, 8, 2),
 ]
@@ -390,16 +390,20 @@ def bench_selfhost(quick: bool, inputs):
             self_dump = OUT / f"self_{py_cmd}_self.txt"
             nat = run_timed([str(bins[name])], stdin_path=str(path),
                             stdout_path=str(self_dump), repeats=3)
+            # отказ пулов: rc=1 + «err: ...» в stderr (err в stdout —
+            # наследие до eprint-хелпера)
+            first = self_dump.read_bytes()[:200]
+            rej = nat.err[:200] if nat.err.startswith(b"err:") else (
+                first if first.startswith(b"err:") else None)
+            if rej is not None:
+                print(f"  {name}: вход {label} ({tokens} токенов) "
+                      f"отвергнут пулами: "
+                      f"{rej.decode().splitlines()[0][:70]}")
+                continue
             if nat.rc != 0:
                 fail(f"selfhost: {name}: rc={nat.rc} "
                      f"{nat.err.decode()[:200]}")
                 break
-            first = self_dump.read_bytes()[:200]
-            if first.startswith(b"err:"):
-                print(f"  {name}: вход {label} ({tokens} токенов) "
-                      f"отвергнут пулами: "
-                      f"{first.decode().splitlines()[0][:70]}")
-                continue
             ref_dump = OUT / f"self_{py_cmd}_ref.txt"
             py = run_timed(eatc(py_cmd, str(path)),
                            stdout_path=str(ref_dump))
@@ -492,7 +496,8 @@ def bench_compiler(quick: bool):
         nat = run_timed([str(binary)], stdin_path=str(src),
                         stdout_path=str(self_dump), repeats=stage_repeats)
         if nat.rc != 0 or self_dump.read_bytes()[:4].startswith(b"err:"):
-            fail(f"compiler: {name}: rc={nat.rc}, вывод начинается с "
+            fail(f"compiler: {name}: rc={nat.rc}, "
+                 f"stderr {nat.err[:80]!r}, вывод "
                  f"{self_dump.read_bytes()[:80]!r}")
             continue
         ref_dump = OUT / f"comp_{py_cmd}_ref.txt"
@@ -550,22 +555,33 @@ def example_binary(name, srcs, quick, flags=()):
 
 
 def darwin_sections(binary):
-    """Размеры секций __text/__const (байт) из `size -m`; пусто не на
-    macOS — там колонки покажут «-», общий размер файла остаётся."""
-    if sys.platform != "darwin":
-        return {}
-    r = subprocess.run(["size", "-m", str(binary)],
+    """Размеры секций кода/констант (байт): на macOS — `size -m`
+    (__text/__const), на linux — `size -A` (.text/.rodata под теми же
+    ключами). Пусто при ошибке — колонки покажут «-»."""
+    if sys.platform == "darwin":
+        r = subprocess.run(["size", "-m", str(binary)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            return {}
+        secs = {}
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("Section __"):
+                name, _, val = line.partition(":")
+                key = name.split()[1]
+                # __const бывает и в __TEXT, и в __DATA_CONST — сумма
+                secs[key] = secs.get(key, 0) + int(val)
+        return secs
+    r = subprocess.run(["size", "-A", str(binary)],
                        capture_output=True, text=True)
     if r.returncode != 0:
         return {}
     secs = {}
+    alias = {".text": "__text", ".rodata": "__const"}
     for line in r.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("Section __"):
-            name, _, val = line.partition(":")
-            key = name.split()[1]
-            # __const бывает и в __TEXT, и в __DATA_CONST — суммируем
-            secs[key] = secs.get(key, 0) + int(val)
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in alias:
+            secs[alias[parts[0]]] = int(parts[1])
     return secs
 
 
