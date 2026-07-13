@@ -32,6 +32,8 @@ struct Parser {
     nsl: [[u32; 65536]; 2]
     nx: [[u32; 65536]; 2]
     ny: [[u32; 65536]; 2]
+    # старшие 32 бита магнитуды int-узла (nx — младшие; прочие узлы: 0)
+    nxh: [[u32; 65536]; 2]
     nfc: [[u32; 65536]; 2]
     nlc: [[u32; 65536]; 2]
     nns: [[u32; 65536]; 2]
@@ -150,30 +152,38 @@ struct Parser {
         return same(w, vl, kw)
     }
 
-    # Значение INT-токена как u32 (лимит self-host: |литерал| < 2^32).
-    func tok_u32(var self) -> u32
+    # Значение INT-токена как u64 (лимит self-host: |литерал| < 2^64).
+    func tok_u64(var self) -> u64
         requires true
         ensures true
     {
         let vs: u32 = self.lex.tok_vs(self.cur)
         let vl: u32 = self.lex.tok_vl(self.cur)
-        if vl > 10 {
-            self.fail("целочисленный литерал больше 2^32-1")
+        if vl > 20 {
+            self.fail("целочисленный литерал больше 2^64-1")
             return 0
         }
-        var acc: u32 = 0
-        for i in 0..10 {
+        var acc: u64 = 0
+        for i in 0..20 {
             if i >= vl or self.failed {
                 break
             }
-            let d: u32 = u32(self.lex.sb_at(vs + i)) - 48
-            if acc > (4294967295 - d) / 10 {
-                self.fail("целочисленный литерал больше 2^32-1")
+            let d: u64 = u64(self.lex.sb_at(vs + i)) - 48
+            if acc > (18446744073709551615 - d) / 10 {
+                self.fail("целочисленный литерал больше 2^64-1")
             } else {
                 acc = acc * 10 + d
             }
         }
         return acc
+    }
+
+    # Магнитуда int-узла: пара (nxh, nx) — старшие и младшие 32 бита.
+    func mag(var self, n: u32) -> u64
+        requires n < 131072
+        ensures true
+    {
+        return u64(self.nxh[n / 65536][n % 65536]) << 32 | u64(self.nx[n / 65536][n % 65536])
     }
 
     # --- пул узлов -------------------------------------------------------
@@ -194,6 +204,7 @@ struct Parser {
         self.nsl[n / 65536][n % 65536] = 0
         self.nx[n / 65536][n % 65536] = 0
         self.ny[n / 65536][n % 65536] = 0
+        self.nxh[n / 65536][n % 65536] = 0
         self.nfc[n / 65536][n % 65536] = 4294967295
         self.nlc[n / 65536][n % 65536] = 4294967295
         self.nns[n / 65536][n % 65536] = 4294967295
@@ -1446,7 +1457,7 @@ struct Parser {
             }
             if self.nk[v / 65536][v % 65536] == 32 {
                 # -литерал — одно число (иначе INT_MIN невыразим)
-                if self.nx[v / 65536][v % 65536] > 0 {
+                if self.nx[v / 65536][v % 65536] > 0 or self.nxh[v / 65536][v % 65536] > 0 {
                     self.ny[v / 65536][v % 65536] = 1 - self.ny[v / 65536][v % 65536]
                 }
                 self.nl[v / 65536][v % 65536] = ln
@@ -1582,9 +1593,10 @@ struct Parser {
         let ln: u32 = self.t_line()
         let cl: u32 = self.t_col()
         if k == 0 {
-            let mag: u32 = self.tok_u32()
+            let mag: u64 = self.tok_u64()
             let n: u32 = self.alloc(32, ln, cl)
-            self.nx[n / 65536][n % 65536] = mag
+            self.nx[n / 65536][n % 65536] = u32(mag & 4294967295)
+            self.nxh[n / 65536][n % 65536] = u32(mag >> 32)
             self.advance()
             self.push_opnd(n)
             self.set_phase(1)
@@ -2226,7 +2238,8 @@ struct Parser {
             if self.ny[n / 65536][n % 65536] == 1 {
                 write("-")
             }
-            write("{self.nx[n / 65536][n % 65536]}")
+            let m: u64 = self.mag(n)
+            write("{m}")
         } elif k == 33 {
             if self.nx[n / 65536][n % 65536] == 1 {
                 write(" val=true")

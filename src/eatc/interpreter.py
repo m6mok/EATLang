@@ -534,7 +534,7 @@ class Interpreter:
             mask = INT_RANGES[node.operand.ty.kind][1]
             return value ^ mask
         result = -value
-        self._fit(node, "i32", result)
+        self._fit(node, node.ty.kind, result)
         return result
 
     def _eval_binop(self, node: ast.BinOp):
@@ -556,20 +556,26 @@ class Interpreter:
 
     def _shift(self, node, op: str, left: int, right: int) -> int:
         kind = node.left.ty.kind
-        width = {"u8": 8, "u16": 16}.get(kind, 32)
+        width = {"u8": 8, "u16": 16, "u64": 64}.get(kind, 32)
         if right >= width:
             raise self.trap(node, f"сдвиг на {right} ≥ ширины {kind}")
         return left << right if op == "<<" else left >> right
 
+    @staticmethod
+    def _tdiv(left: int, right: int) -> int:
+        # усечение к нулю в целых: float-путь терял точность на 64 битах
+        q = abs(left) // abs(right)
+        return -q if (left < 0) != (right < 0) else q
+
     def _trunc_div(self, node, left: int, right: int) -> int:
         if right == 0:
             raise self.trap(node, "деление на ноль")
-        return int(left / right)
+        return self._tdiv(left, right)
 
     def _trunc_mod(self, node, left: int, right: int) -> int:
         if right == 0:
             raise self.trap(node, "деление на ноль (остаток)")
-        return left - int(left / right) * right
+        return left - self._tdiv(left, right) * right
 
     def _check_bounds(self, node, obj, index: int) -> None:
         if not 0 <= index < len(obj):

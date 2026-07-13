@@ -13,7 +13,8 @@
 #
 # Значение (ссылка LLVM) — тройка (вид, a, b): 0 безымянное %".a",
 # 1 именованное %"nb[a..a+b]", 2 целая константа (a — знак, b — модуль),
-# 3 глобал @"str.a", 4 null. Регистры w1/w2/w3 — операнды эмиттеров,
+# 3 глобал @"str.a", 4 null, 5 широкая константа (a — знак, b — индекс
+# в пуле cwm: модуль > 2^32-1). Регистры w1/w2/w3 — операнды эмиттеров,
 # rr — результат последней инструкции, er — результат выражения.
 #
 # Глобалы @"str.N" (сегменты строк и trap-сообщения) дедуплицируются
@@ -48,7 +49,10 @@ struct Ir {
     tlk: [u32; 65536]
     tlx: [u32; 65536]
     ntl: u32
-    itr: [u32; 16]
+    itr: [u32; 32]
+    # пул широких констант (модуль > 2^32-1), дедуп линейным сканом
+    cwm: [u64; 256]
+    ncw: u32
     # буфер строк-инструкций текущей функции
     lb: [[u8; 65536]; 64]
     lbl: u32
@@ -142,6 +146,8 @@ struct Ir {
     lvk: u32
     lva: u32
     lvb: u32
+    # индекс 64-битный (widen -> idx_gep)
+    idxw: u32
     # машина выражений
     xn3: [u32; 64]
     xp3: [u32; 64]
@@ -241,6 +247,32 @@ struct Ir {
             self.lb_b(48)
         }
         for i in 0..10 {
+            if i >= cnt {
+                break
+            }
+            self.lb_b(d[cnt - 1 - i])
+        }
+    }
+
+    func lb_dec64(var self, n: u64)
+        requires true
+        ensures true
+    {
+        var d: [u8; 20] = [0; 20]
+        var m: u64 = n
+        var cnt: u32 = 0
+        for _ in 0..20 {
+            if m == 0 {
+                break
+            }
+            d[cnt] = u8(m % 10 + 48)
+            m = m / 10
+            cnt = cnt + 1
+        }
+        if cnt == 0 {
+            self.lb_b(48)
+        }
+        for i in 0..20 {
             if i >= cnt {
                 break
             }
@@ -635,6 +667,62 @@ struct Ir {
         return self.c.u16_ty()
     }
 
+    # Индекс интернированного типа u64 (вид 13; уже создан фазой Check).
+    func u64t(var self) -> u32
+        requires true
+        ensures result < 512
+    {
+        return self.c.u64_ty()
+    }
+
+    # Индекс интернированного типа i64 (вид 14; уже создан фазой Check).
+    func i64t(var self) -> u32
+        requires true
+        ensures result < 512
+    {
+        return self.c.i64_ty()
+    }
+
+    # Вид ссылки для константы (sign, m): 2 — модуль в b, 5 — в пуле cwm.
+    func cw_k(var self, m: u64) -> u32
+        requires true
+        ensures result == 2 or result == 5
+    {
+        if m <= 4294967295 {
+            return 2
+        }
+        return 5
+    }
+
+    # Поле b для константы: сам модуль (вид 2) или индекс пула (вид 5).
+    func cw_b(var self, m: u64) -> u32
+        requires true
+        ensures true
+    {
+        if m <= 4294967295 {
+            return u32(m)
+        }
+        var found: u32 = 4294967295
+        for i in 0..256 {
+            if i >= self.ncw or found != 4294967295 {
+                break
+            }
+            if self.cwm[i] == m {
+                found = i
+            }
+        }
+        if found != 4294967295 {
+            return found
+        }
+        if self.ncw >= 256 {
+            self.fail("переполнен пул широких констант")
+            return 0
+        }
+        self.cwm[self.ncw] = m
+        self.ncw = self.ncw + 1
+        return self.ncw - 1
+    }
+
     func is_agg(var self, t: u32) -> bool
         requires t < 512
         ensures true
@@ -683,7 +771,7 @@ struct Ir {
     }
 
     func ty_scalar(var self, k: u32)
-        requires k <= 6 or k == 12
+        requires k <= 6 or k >= 12
         ensures true
     {
         if k == 0 or k == 1 {
@@ -692,6 +780,8 @@ struct Ir {
             self.tp_lit("i8")
         } elif k == 12 {
             self.tp_lit("i16")
+        } elif k == 13 or k == 14 {
+            self.tp_lit("i64")
         } elif k == 3 {
             self.tp_lit("i1")
         } elif k == 5 {
@@ -772,7 +862,7 @@ struct Ir {
         let t: u32 = self.yb1[f]
         let ph: u32 = self.yb2[f]
         let k: u32 = self.c.yk[t]
-        if k <= 6 or k == 12 {
+        if k <= 6 or k >= 12 {
             self.ty_scalar(k)
             self.ybp = f
         } elif k == 7 {
@@ -973,7 +1063,7 @@ struct Ir {
     }
 
     func use_intr(var self, id: u32)
-        requires id < 16
+        requires id < 32
         ensures true
     {
         if self.itr[id] == 0 {
@@ -1033,7 +1123,7 @@ struct Ir {
     }
 
     func g_kind(var self, k: u32)
-        requires k <= 2 or k == 12
+        requires k <= 2 or k >= 12
         ensures true
     {
         if k == 0 {
@@ -1042,6 +1132,10 @@ struct Ir {
             self.g_lit("u32")
         } elif k == 12 {
             self.g_lit("u16")
+        } elif k == 13 {
+            self.g_lit("u64")
+        } elif k == 14 {
+            self.g_lit("i64")
         } else {
             self.g_lit("u8")
         }
@@ -1215,6 +1309,11 @@ struct Ir {
                 self.lb_lit("-")
             }
             self.lb_dec(b)
+        } elif k == 5 {
+            if a == 1 {
+                self.lb_lit("-")
+            }
+            self.lb_dec64(self.cwm[b])
         } elif k == 3 {
             if self.gvk[a] == 1 {
                 # ужатый литерал {i32, [L x i8]} приводится к
@@ -1639,14 +1738,16 @@ struct Ir {
         self.line_fin()
     }
 
-    # o: 0 zext, 1 trunc; v1 — значение.
+    # o: 0 zext, 1 trunc, 2 sext; v1 — значение.
     func e_cvt(var self, o: u32, tf: u32, tt: u32)
-        requires o <= 1 and tf < 512 and tt < 512
+        requires o <= 2 and tf < 512 and tt < 512
         ensures true
     {
         self.rpre()
         if o == 0 {
             self.lb_lit("zext ")
+        } elif o == 2 {
+            self.lb_lit("sext ")
         } else {
             self.lb_lit("trunc ")
         }
@@ -1659,10 +1760,12 @@ struct Ir {
     }
 
     func w_it(var self, id: u32)
-        requires id >= 1 and id <= 12
+        requires id >= 1 and id <= 18
         ensures true
     {
-        if id >= 10 {
+        if id >= 13 {
+            self.lb_lit("i64")
+        } elif id >= 10 {
             self.lb_lit("i16")
         } elif id >= 7 {
             self.lb_lit("i8")
@@ -1672,23 +1775,23 @@ struct Ir {
     }
 
     func w_iname(var self, id: u32)
-        requires id >= 1 and id <= 12
+        requires id >= 1 and id <= 18
         ensures true
     {
-        if id == 1 or id == 4 or id == 7 or id == 10 {
-            if id == 1 {
+        if id == 1 or id == 4 or id == 7 or id == 10 or id == 13 or id == 16 {
+            if id == 1 or id == 16 {
                 self.lb_lit("sadd")
             } else {
                 self.lb_lit("uadd")
             }
-        } elif id == 2 or id == 5 or id == 8 or id == 11 {
-            if id == 2 {
+        } elif id == 2 or id == 5 or id == 8 or id == 11 or id == 14 or id == 17 {
+            if id == 2 or id == 17 {
                 self.lb_lit("ssub")
             } else {
                 self.lb_lit("usub")
             }
         } else {
-            if id == 3 {
+            if id == 3 or id == 18 {
                 self.lb_lit("smul")
             } else {
                 self.lb_lit("umul")
@@ -1698,7 +1801,7 @@ struct Ir {
 
     # v1, v2 — операнды; вызов llvm.*.with.overflow.*.
     func e_ov(var self, id: u32)
-        requires id >= 1 and id <= 12
+        requires id >= 1 and id <= 18
         ensures true
     {
         self.rpre()
@@ -1722,7 +1825,7 @@ struct Ir {
 
     # v1 — пара {int, i1}.
     func e_exv(var self, id: u32, idx: u32)
-        requires id >= 1 and id <= 12 and idx <= 1
+        requires id >= 1 and id <= 18 and idx <= 1
         ensures true
     {
         self.rpre()
@@ -2438,7 +2541,8 @@ struct Ir {
         ensures true
     {
         if k == 32 {
-            self.ser(2, self.c.p.ny[n / 65536][n % 65536], self.c.p.nx[n / 65536][n % 65536])
+            let m: u64 = self.c.p.mag(n)
+            self.ser(self.cw_k(m), self.c.p.ny[n / 65536][n % 65536], self.cw_b(m))
             self.ert = self.c.nty[n / 65536][n % 65536]
         } elif k == 33 {
             self.ser(2, 0, self.c.p.nx[n / 65536][n % 65536])
@@ -2489,7 +2593,8 @@ struct Ir {
             return
         }
         let ci: u32 = self.c.find_const(a, l)
-        self.ser(2, self.c.cvs[ci], self.c.cvm[ci])
+        let cm: u64 = self.c.cvm[ci]
+        self.ser(self.cw_k(cm), self.c.cvs[ci], self.cw_b(cm))
         self.ert = self.c.cty[ci]
     }
 
@@ -2584,6 +2689,14 @@ struct Ir {
             self.set1(1, self.xb3[f], self.xc3[f])
             self.set2rr()
             self.e_rt_si("u32", "i32")
+        } elif tk == 13 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("u64", "i64")
+        } elif tk == 14 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("i64", "i64")
         } else {
             self.set1(1, self.xb3[f], self.xc3[f])
             self.set2er()
@@ -2610,21 +2723,27 @@ struct Ir {
             self.e_bnot(bt)
             self.serrr(bt)
         } else {
-            # унарный минус: 0 - x с проверкой переполнения i32
-            self.use_intr(2)
+            # унарный минус: 0 - x с проверкой переполнения i32/i64
+            let mt: u32 = self.ert
+            let mk2: u32 = self.c.yk[mt]
+            var mi: u32 = 2
+            if mk2 == 14 {
+                mi = 17
+            }
+            self.use_intr(mi)
             self.set1(2, 0, 0)
             self.set2er()
-            self.e_ov(2)
+            self.e_ov(mi)
             let pk: u32 = self.rrk
             let pa: u32 = self.rra
             let pb: u32 = self.rrb
             self.set1(pk, pa, pb)
-            self.e_exv(2, 1)
+            self.e_exv(mi, 1)
             self.set1rr()
-            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, 0, 0)
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, mk2, 0)
             self.set1(pk, pa, pb)
-            self.e_exv(2, 0)
-            self.serrr(0)
+            self.e_exv(mi, 0)
+            self.serrr(mt)
         }
         self.nx3 = self.nx3 - 1
     }
@@ -2742,7 +2861,7 @@ struct Ir {
         } else {
             oc = 6
         }
-        if oc >= 3 and lk != 0 {
+        if oc >= 3 and lk != 0 and lk != 14 {
             oc = oc + 4
         }
         self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
@@ -2767,6 +2886,10 @@ struct Ir {
                 iid = op - 3
             } elif lk == 12 {
                 iid = op
+            } elif lk == 13 {
+                iid = op + 3
+            } elif lk == 14 {
+                iid = op + 6
             }
             self.use_intr(iid)
             self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
@@ -2829,6 +2952,8 @@ struct Ir {
             width = 8
         } elif lk == 12 {
             width = 16
+        } elif lk == 13 {
+            width = 64
         }
         self.set1(rk, ra, rb)
         self.set2(2, 0, width)
@@ -2878,9 +3003,13 @@ struct Ir {
         if op == 14 {
             o = 7
         }
-        if self.c.yk[lt] == 0 {
+        if self.c.yk[lt] == 0 or self.c.yk[lt] == 14 {
             self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
-            self.set2(2, 1, 2147483648)
+            var mn: u64 = 2147483648
+            if self.c.yk[lt] == 14 {
+                mn = 9223372036854775808
+            }
+            self.set2(self.cw_k(mn), 1, self.cw_b(mn))
             self.e_icmp(1, lt)
             let c1k: u32 = self.rrk
             let c1a: u32 = self.rra
@@ -2892,7 +3021,7 @@ struct Ir {
             self.set1(c1k, c1a, c1b)
             self.e_bin(8, 3)
             self.set1rr()
-            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, 0, 0)
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, self.c.yk[lt], 0)
             o = 4
             if op == 14 {
                 o = 5
@@ -2966,6 +3095,12 @@ struct Ir {
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "u16") {
             self.xa3[f] = 103
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "u64") {
+            self.xa3[f] = 111
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "i64") {
+            self.xa3[f] = 112
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "char") {
             self.xa3[f] = 104
@@ -3391,10 +3526,13 @@ struct Ir {
     }
 
     # er — индексное значение: u8/u16 расширяются до i32.
+    # Индекс u8/u16 расширяется до i32; 64-битный индекс помечается
+    # флагом idxw — границы сверяются в i64, ужатие делает idx_gep.
     func widen(var self)
         requires true
         ensures true
     {
+        self.idxw = 0
         if self.c.yk[self.ert] == 2 {
             self.set1er()
             self.e_cvt(0, 2, 0)
@@ -3403,18 +3541,25 @@ struct Ir {
             self.set1er()
             self.e_cvt(0, self.u16t(), 0)
             self.serrr(0)
+        } elif self.c.yk[self.ert] == 13 or self.c.yk[self.ert] == 14 {
+            self.idxw = 1
         }
     }
 
     # Указатель на элемент с проверкой границ. База — (bk,ba,bb) типа bt,
-    # индекс — er (уже i32). Результат — rr.
+    # индекс — er (i32; при idxw == 1 — i64: границы в i64, потом trunc).
     func idx_gep(var self, n: u32, bk: u32, ba: u32, bb: u32, bt: u32)
         requires n < 131072 and bt < 512
         ensures true
     {
-        let ik: u32 = self.erk
-        let ia: u32 = self.era
-        let ib: u32 = self.erb
+        let iw: u32 = self.idxw
+        var ik: u32 = self.erk
+        var ia: u32 = self.era
+        var ib: u32 = self.erb
+        var it2: u32 = 0
+        if iw == 1 {
+            it2 = self.u64t()
+        }
         var zk: u32 = 2
         var za: u32 = 0
         var zb: u32 = 0
@@ -3428,21 +3573,35 @@ struct Ir {
             zk = self.rrk
             za = self.rra
             zb = self.rrb
+            if iw == 1 {
+                self.set1(zk, za, zb)
+                self.e_cvt(0, 0, it2)
+                zk = self.rrk
+                za = self.rra
+                zb = self.rrb
+            }
         }
         self.set1(ik, ia, ib)
         self.set2(2, 0, 0)
-        self.e_icmp(3, 0)
+        self.e_icmp(3, it2)
         let lk2: u32 = self.rrk
         let la2: u32 = self.rra
         let lb2: u32 = self.rrb
         self.set1(ik, ia, ib)
         self.set2(zk, za, zb)
-        self.e_icmp(6, 0)
+        self.e_icmp(6, it2)
         self.set2rr()
         self.set1(lk2, la2, lb2)
         self.e_bin(9, 3)
         self.set1rr()
         self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 4, 0, 0)
+        if iw == 1 {
+            self.set1(ik, ia, ib)
+            self.e_cvt(1, it2, 0)
+            ik = self.rrk
+            ia = self.rra
+            ib = self.rrb
+        }
         self.set1(bk, ba, bb)
         self.set2(ik, ia, ib)
         if self.c.yk[bt] == 7 {
@@ -3839,6 +3998,12 @@ struct Ir {
                 self.serrr(self.u16t())
                 return
             }
+            if code == 111 or code == 112 {
+                self.set1er()
+                self.e_cvt(0, 2, self.u64t())
+                self.serrr(self.c.nty[n / 65536][n % 65536])
+                return
+            }
             self.set1er()
             self.e_cvt(0, 2, 0)
             self.serrr(self.c.nty[n / 65536][n % 65536])
@@ -3846,6 +4011,14 @@ struct Ir {
         }
         if sk2 == 12 {
             self.xcast_from_u16(n, st2, code)
+            return
+        }
+        if sk2 == 13 or sk2 == 14 {
+            self.xcast_from64(n, st2, code)
+            return
+        }
+        if code == 111 or code == 112 {
+            self.xcast_to64(n, st2, sk2, code)
             return
         }
         if code == 103 {
@@ -3878,7 +4051,7 @@ struct Ir {
     }
 
     # Источник u16: в u16 — как есть, в u8 — trap >255 и trunc,
-    # в i32/u32 — zext (всегда помещается).
+    # в u64/i64 — zext, в i32/u32 — zext (всегда помещается).
     func xcast_from_u16(var self, n: u32, st2: u32, code: u32)
         requires n < 131072 and st2 < 512
         ensures true
@@ -3898,8 +4071,149 @@ struct Ir {
             self.serrr(2)
             return
         }
+        if code == 111 or code == 112 {
+            self.set1er()
+            self.e_cvt(0, st2, self.u64t())
+            self.serrr(self.c.nty[n / 65536][n % 65536])
+            return
+        }
         self.set1er()
         self.e_cvt(0, st2, 0)
+        self.serrr(self.c.nty[n / 65536][n % 65536])
+    }
+
+    # Вид цели каста по коду (для текста trap-сообщения).
+    func cast_kind(var self, code: u32) -> u32
+        requires code >= 100
+        ensures result <= 2 or result >= 12
+    {
+        if code == 100 {
+            return 0
+        }
+        if code == 101 {
+            return 1
+        }
+        if code == 103 {
+            return 12
+        }
+        if code == 111 {
+            return 13
+        }
+        if code == 112 {
+            return 14
+        }
+        return 2
+    }
+
+    # Верхняя граница цели каста (для сужения из 64 бит).
+    func cast_hi(var self, code: u32) -> u64
+        requires code >= 100
+        ensures true
+    {
+        if code == 100 {
+            return 2147483647
+        }
+        if code == 101 {
+            return 4294967295
+        }
+        if code == 103 {
+            return 65535
+        }
+        if code == 112 {
+            return 9223372036854775807
+        }
+        return 255
+    }
+
+    # Касты из 64-битного регистра (виды 13/14): сужение — trap по
+    # диапазону цели, u64 ↔ i64 — проверка без смены ширины.
+    func xcast_from64(var self, n: u32, st2: u32, code: u32)
+        requires n < 131072 and st2 < 512 and code >= 100
+        ensures true
+    {
+        let sk2: u32 = self.c.yk[st2]
+        if (code == 111 and sk2 == 13) or (code == 112 and sk2 == 14) {
+            self.ert = st2
+            return
+        }
+        let tk2: u32 = self.cast_kind(code)
+        if sk2 == 13 {
+            # u64: единственная проверка — верхняя граница цели
+            let hi: u64 = self.cast_hi(code)
+            self.set1er()
+            self.set2(self.cw_k(hi), 0, self.cw_b(hi))
+            self.e_icmp(9, st2)
+            self.set1rr()
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, tk2, 0)
+            if code == 112 {
+                self.ert = self.c.nty[n / 65536][n % 65536]
+                return
+            }
+        } elif code == 111 {
+            # i64 -> u64: trap на отрицательном, ширина та же
+            self.set1er()
+            self.set2(2, 0, 0)
+            self.e_icmp(3, st2)
+            self.set1rr()
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 13, 0)
+            self.ert = self.c.nty[n / 65536][n % 65536]
+            return
+        } else {
+            # i64 -> 32/16/8: обе границы знаково
+            var los: u32 = 0
+            var lom: u64 = 0
+            if code == 100 {
+                los = 1
+                lom = 2147483648
+            }
+            self.set1er()
+            self.set2(self.cw_k(lom), los, self.cw_b(lom))
+            self.e_icmp(3, st2)
+            let lk2: u32 = self.rrk
+            let la2: u32 = self.rra
+            let lb2: u32 = self.rrb
+            let hi2: u64 = self.cast_hi(code)
+            self.set1er()
+            self.set2(self.cw_k(hi2), 0, self.cw_b(hi2))
+            self.e_icmp(5, st2)
+            self.set2rr()
+            self.set1(lk2, la2, lb2)
+            self.e_bin(9, 3)
+            self.set1rr()
+            self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, tk2, 0)
+        }
+        var tt: u32 = 0
+        if code == 102 {
+            tt = 2
+        } elif code == 103 {
+            tt = self.u16t()
+        }
+        self.set1er()
+        self.e_cvt(1, st2, tt)
+        self.serrr(self.c.nty[n / 65536][n % 65536])
+    }
+
+    # Цель u64/i64, источник i32/u32: расширение; единственный trap —
+    # отрицательный i32 в u64.
+    func xcast_to64(var self, n: u32, st2: u32, sk2: u32, code: u32)
+        requires n < 131072 and st2 < 512 and code >= 100
+        ensures true
+    {
+        if sk2 == 0 {
+            if code == 111 {
+                self.set1er()
+                self.set2(2, 0, 0)
+                self.e_icmp(3, st2)
+                self.set1rr()
+                self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 13, 0)
+            }
+            self.set1er()
+            self.e_cvt(2, st2, self.u64t())
+            self.serrr(self.c.nty[n / 65536][n % 65536])
+            return
+        }
+        self.set1er()
+        self.e_cvt(0, st2, self.u64t())
         self.serrr(self.c.nty[n / 65536][n % 65536])
     }
 
@@ -4276,13 +4590,28 @@ struct Ir {
         self.start_blk(blk2)
     }
 
+    # Тип счётчика диапазона: 0 (i32) или интернированный u64/i64.
+    func for_cty(var self, cur: u32, it: u32) -> u32
+        requires cur < 131072 and it < 131072
+        ensures result < 512
+    {
+        if self.c.p.nk[it / 65536][it % 65536] == 49 {
+            let ek: u32 = self.c.yk[self.c.nty[cur / 65536][cur % 65536]]
+            if ek == 13 or ek == 14 {
+                return self.c.nty[cur / 65536][cur % 65536]
+            }
+        }
+        return 0
+    }
+
     func s_for_start(var self, cur: u32)
         requires cur < 131072
         ensures true
     {
         let it: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
+        let cty: u32 = self.for_cty(cur, it)
         self.nm_lit("for.i")
-        self.e_alloca_n(0)
+        self.e_alloca_n(cty)
         let is2: u32 = self.rra
         let il2: u32 = self.rrb
         # предел -> u1, источник -> u2 (uty), s_for_src ставит store старта
@@ -4302,13 +4631,18 @@ struct Ir {
         self.e_br(condb)
         self.cb = condb
         self.set1(1, is2, il2)
-        self.e_load(0)
+        self.e_load(cty)
         let ck: u32 = self.rrk
         let ca: u32 = self.rra
         let cb2: u32 = self.rrb
         self.set1(ck, ca, cb2)
         self.set2(self.u1k, self.u1a, self.u1b)
-        self.e_icmp(3, 0)
+        # u64-диапазон сравнивается беззнаково (2^63.. читались бы < 0)
+        var oc: u32 = 3
+        if self.c.yk[cty] == 13 {
+            oc = 7
+        }
+        self.e_icmp(oc, cty)
         self.set1rr()
         self.e_cbr(bodyb, afterb)
         self.cb = bodyb
@@ -4320,6 +4654,7 @@ struct Ir {
         self.sb4[self.ns4 - 1] = il2
         self.sc4[self.ns4 - 1] = condb
         self.sd4[self.ns4 - 1] = afterb
+        self.se4[self.ns4 - 1] = cty
         self.start_blk(self.c.p.nns[it / 65536][it % 65536])
     }
 
@@ -4330,12 +4665,15 @@ struct Ir {
     {
         if self.c.p.nk[it / 65536][it % 65536] == 49 {
             let ri: u32 = self.c.range_of(cur)
-            self.set1(2, self.c.rb_ss[ri], self.c.rb_sm[ri])
+            let cty: u32 = self.for_cty(cur, it)
+            let sm: u64 = self.c.rb_sm[ri]
+            self.set1(self.cw_k(sm), self.c.rb_ss[ri], self.cw_b(sm))
             self.set2(1, is2, il2)
-            self.e_store(0)
-            self.u1k = 2
+            self.e_store(cty)
+            let em: u64 = self.c.rb_em[ri]
+            self.u1k = self.cw_k(em)
             self.u1a = self.c.rb_es[ri]
-            self.u1b = self.c.rb_em[ri]
+            self.u1b = self.cw_b(em)
             self.uty = 4294967295
             return
         }
@@ -4378,11 +4716,12 @@ struct Ir {
         let cb2: u32 = self.w1b
         let elem: u32 = self.c.nty[cur / 65536][cur % 65536]
         if self.c.p.nk[it / 65536][it % 65536] == 49 {
+            let cty: u32 = self.for_cty(cur, it)
             self.nm_sb(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536])
-            self.e_alloca_n(0)
+            self.e_alloca_n(cty)
             self.set2rr()
             self.set1(ck, ca, cb2)
-            self.e_store(0)
+            self.e_store(cty)
             self.set1rr()
             self.bindv(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536], elem)
             return
@@ -4421,14 +4760,15 @@ struct Ir {
         self.nlx = self.nlx - 1
         self.pop_sc()
         if self.bkt[self.cb] == 0 {
+            let cty: u32 = self.se4[f]
             self.set1(1, self.sa4[f], self.sb4[f])
-            self.e_load(0)
+            self.e_load(cty)
             self.set1rr()
             self.set2(2, 0, 1)
-            self.e_bin(1, 0)
+            self.e_bin(1, cty)
             self.set1rr()
             self.set2(1, self.sa4[f], self.sb4[f])
-            self.e_store(0)
+            self.e_store(cty)
             self.e_br(self.sc4[f])
         }
         self.cb = self.sd4[f]
@@ -5131,10 +5471,12 @@ struct Ir {
     }
 
     func p_it(var self, id: u32)
-        requires id >= 1 and id <= 12
+        requires id >= 1 and id <= 18
         ensures true
     {
-        if id >= 10 {
+        if id >= 13 {
+            write("i64")
+        } elif id >= 10 {
             write("i16")
         } elif id >= 7 {
             write("i8")
@@ -5144,18 +5486,18 @@ struct Ir {
     }
 
     func p_iname(var self, id: u32)
-        requires id >= 1 and id <= 12
+        requires id >= 1 and id <= 18
         ensures true
     {
-        if id == 1 {
+        if id == 1 or id == 16 {
             write("sadd")
-        } elif id == 2 {
+        } elif id == 2 or id == 17 {
             write("ssub")
-        } elif id == 3 {
+        } elif id == 3 or id == 18 {
             write("smul")
-        } elif id == 4 or id == 7 or id == 10 {
+        } elif id == 4 or id == 7 or id == 10 or id == 13 {
             write("uadd")
-        } elif id == 5 or id == 8 or id == 11 {
+        } elif id == 5 or id == 8 or id == 11 or id == 14 {
             write("usub")
         } else {
             write("umul")
@@ -5163,7 +5505,7 @@ struct Ir {
     }
 
     func p_intr(var self, id: u32)
-        requires id < 16
+        requires id < 32
         ensures true
     {
         if id == 0 {

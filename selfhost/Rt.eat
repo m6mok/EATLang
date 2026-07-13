@@ -132,6 +132,48 @@ struct RtStr {
         }
     }
 
+    func append_u64(var self, v: u64)
+        requires true
+        ensures true
+    {
+        var tmp: [u8; 20] = [0; 20]
+        var n: u32 = 0
+        var x: u64 = v
+        for _ in 0..20 {
+            if n > 0 and x == 0 {
+                break
+            }
+            tmp[n] = u8(x % 10 + 48)
+            x = x / 10
+            n = n + 1
+        }
+        assert self.ln + n <= 256
+        let base: u32 = self.ln
+        for i in 0..20 {
+            # маска — доказательство границ, guard в break — тело
+            # без ветвлений (как в append_u32)
+            if i >= n or (base & 255) + i >= 256 {
+                break
+            }
+            self.buf[(base & 255) + i] = tmp[n - 1 - i]
+        }
+        self.ln = base + n
+    }
+
+    # Магнитуда через (v + 1): -9223372036854775808 выразим без переполнения.
+    func append_i64(var self, v: i64)
+        requires true
+        ensures true
+    {
+        if v < 0 {
+            self.append_char('-')
+            let mag: i64 = 0 - (v + 1)
+            self.append_u64(u64(mag) + 1)
+        } else {
+            self.append_u64(u64(v))
+        }
+    }
+
     # --- сравнение ---------------------------------------------------------
 
     func eq(self, o: RtStr) -> bool
@@ -354,6 +396,34 @@ test rt_append_i32 {
     s.init()
     s.append_i32(0)
     s.append_i32(-1)
+    assert s.eq(rt_of("0-1"))
+}
+
+test rt_append_u64 {
+    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    s.append_u64(0)
+    assert s.ln == 1
+    assert u32(s.buf[0]) == 48
+    s.append_u64(18446744073709551615)
+    assert s.ln == 21
+    assert u32(s.buf[1]) == 49
+    assert u32(s.buf[20]) == 53
+}
+
+test rt_append_i64 {
+    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    s.append_i64(-9223372036854775808)
+    assert s.ln == 20
+    assert u32(s.buf[0]) == 45
+    assert u32(s.buf[1]) == 57
+    assert u32(s.buf[19]) == 56
+    s.init()
+    s.append_i64(9223372036854775807)
+    assert s.ln == 19
+    assert u32(s.buf[18]) == 55
+    s.init()
+    s.append_i64(0)
+    s.append_i64(-1)
     assert s.eq(rt_of("0-1"))
 }
 

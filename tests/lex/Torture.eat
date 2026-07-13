@@ -56,3 +56,12 @@ test смешанное {
     plotno=x<<=y>>=z&&&w|||v^^^u
     тип: Result<u32, str<8>> Option<Option<u8>>
 }
+
+бит64 {
+    dec_max = 18446744073709551615
+    hex16 = 0xFFFFFFFFFFFFFFFF
+    hex15 = 0x123456789ABCDEF
+    hex_norm = 0x00000000000000FF + 0xDEADBEEFCAFE
+    neg64: i64 = -9223372036854775808
+    у64: u64 = ~0
+}

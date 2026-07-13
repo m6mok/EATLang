@@ -136,7 +136,7 @@ struct Lexer {
     sgb: [u32; 2048]
     nseg: u32
     # hex-литерал (состояния 15/16): значение и число цифр
-    hexv: u32
+    hexv: u64
     hexn: u32
 
     # --- доступ к вложенным пулам ----------------------------------------
@@ -492,30 +492,30 @@ struct Lexer {
             self.fail("ожидались шестнадцатеричные цифры после 0x")
             return
         }
-        self.hexv = v
+        self.hexv = u64(v)
         self.hexn = 1
         self.state = 16
     }
 
-    # Hex-литерал: цифры и завершение (состояние 16). Предел 8 цифр
-    # (всегда влезает в u32) проверяется на первом не-hex байте —
-    # позиция ошибки как у эталона; лишние цифры дальше 8 не копятся.
+    # Hex-литерал: цифры и завершение (состояние 16). Предел 16 цифр
+    # (всегда влезает в u64) проверяется на первом не-hex байте —
+    # позиция ошибки как у эталона; лишние цифры дальше 16 не копятся.
     func hex_byte(var self, b: u8)
         requires true
         ensures true
     {
         let v: u32 = hex_val(b)
         if v != 99 {
-            if self.hexn < 8 {
-                self.hexv = self.hexv * 16 + v
+            if self.hexn < 16 {
+                self.hexv = self.hexv * 16 + u64(v)
             }
-            if self.hexn < 9 {
+            if self.hexn < 17 {
                 self.hexn = self.hexn + 1
             }
             return
         }
-        if self.hexn > 8 {
-            self.fail("hex-литерал длиннее 8 цифр")
+        if self.hexn > 16 {
+            self.fail("hex-литерал длиннее 16 цифр")
             return
         }
         if is_word_byte(b) {
@@ -533,26 +533,26 @@ struct Lexer {
         requires true
         ensures true
     {
-        var tmp: [u8; 10] = [0; 10]
+        var tmp: [u8; 20] = [0; 20]
         var n: u32 = 0
-        var x: u32 = self.hexv
+        var x: u64 = self.hexv
         self.vlen = 0
         if x == 0 {
             self.push_val(48)
             self.emit_value(0)
             return
         }
-        for _ in 0..10 {
+        for _ in 0..20 {
             if x == 0 {
                 break
             }
-            if n < 10 {
+            if n < 20 {
                 tmp[n] = u8(x % 10 + 48)
                 n = n + 1
             }
             x = x / 10
         }
-        for i in 0..10 {
+        for i in 0..20 {
             if i >= n {
                 break
             }

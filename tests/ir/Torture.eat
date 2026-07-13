@@ -89,6 +89,41 @@ func bit_torture(total: u32, b0: u8, b1: u8, q: i32)
     print("bits {bw1} {bw2} {bw3} {bw4} {sh} {bb} {bc}")
 }
 
+# 64-битный кодоген: литералы, арифметика, сдвиги, ~, касты в обе
+# стороны, u64-индекс, широкий for-диапазон, печать u64/i64.
+func wide_torture(seed: u8) -> u64
+    requires true
+    ensures true
+{
+    let w: u64 = 0xFFFFFFFFFFFFFFFF
+    let base: u64 = u64(seed) + 4294967296
+    let prod: u64 = base * 3
+    let q64: u64 = w / base
+    let r64: u64 = w % base
+    let sh1: u64 = base << 16
+    let sh2: u64 = w >> 33
+    let inv: u64 = ~base
+    let neg: i64 = 0 - i64(base)
+    let dv: i64 = neg / -255
+    let lo: i64 = -9223372036854775808
+    let back: u64 = u64(dv)
+    let nar1: u32 = u32(r64 % 4294967296)
+    let nar2: u16 = u16(sh2 & 0xFFFF)
+    let nar3: u8 = u8(inv & 255)
+    let nar4: i32 = i32(dv % 1000)
+    let wide1: u64 = u64(nar1)
+    let wide2: i64 = i64(nar2)
+    let cells: [u64; 4] = [1, 2, 3, prod]
+    let idx: u64 = base % 4
+    var acc: u64 = cells[idx] + wide1 + u64(wide2)
+    for k in 4294967296..4294967300 {
+        acc = acc + (k & 1023)
+    }
+    print("wide {q64} {r64} {sh1} {inv} {neg} {dv} {lo}")
+    print("narrow {nar1} {nar2} {nar3} {nar4} {back}")
+    return acc
+}
+
 func main() {
     let s: Sign = Sign.Minus
     var t: u32 = 0
@@ -131,6 +166,8 @@ func main() {
     let cc: u8 = u8(c2)
     assert cc == cast2
     let sm: u32 = u32(len(hello)) + u32(len(arr)) - u32(len(bytes))
+    let wt: u64 = wide_torture(bytes[2])
+    print("wide acc {wt}")
     if flags(q, neg) and hello == "hi" {
         total = total + 1
     }

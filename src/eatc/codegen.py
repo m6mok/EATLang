@@ -35,6 +35,7 @@ if "readonly" not in ir.values.ArgumentAttributes._known:
 from . import ast_nodes as ast
 from .errors import EatError
 from .types import (
+    INT_RANGES,
     ArrayType,
     BoolType,
     CharType,
@@ -47,6 +48,7 @@ from .types import (
     Type,
 )
 
+I64L = ir.IntType(64)
 I32L = ir.IntType(32)
 I16L = ir.IntType(16)
 I8L = ir.IntType(8)
@@ -67,8 +69,7 @@ _RUNTIME = {
     "eat_exit": ir.FunctionType(ir.VoidType(), [I32L]),
 }
 
-_SIGNED = {"i32"}
-_INT_MIN = -(2**31)
+_SIGNED = {"i32", "i64"}
 
 
 def _is_agg(t: Type) -> bool:
@@ -148,7 +149,9 @@ class Codegen:
         if isinstance(t, IntType):
             if t.kind == "u8":
                 return I8L
-            return I16L if t.kind == "u16" else I32L
+            if t.kind == "u16":
+                return I16L
+            return I64L if t.kind in ("u64", "i64") else I32L
         if isinstance(t, BoolType):
             return I1L
         if isinstance(t, CharType):
@@ -607,11 +610,20 @@ class Codegen:
         self.b.position_at_end(merge)
 
     def gen_for(self, stmt: ast.ForStmt) -> None:
-        idx = self.alloca(I32L, name="for.i")
+        # диапазон с 64-битными границами считается в i64-счётчике;
+        # u64 сравнивается беззнаково (иначе 2^63.. читались бы < 0)
+        wide = (
+            stmt.bounds is not None
+            and isinstance(stmt.elem_ty, IntType)
+            and stmt.elem_ty.kind in ("u64", "i64")
+        )
+        cty = I64L if wide else I32L
+        unsigned = wide and stmt.elem_ty.kind == "u64"
+        idx = self.alloca(cty, name="for.i")
         if stmt.bounds is not None:
             start, end = stmt.bounds
-            self.b.store(I32L(start), idx)
-            limit = I32L(end)
+            self.b.store(cty(start), idx)
+            limit = cty(end)
             source = None
             elem_ll = None
         else:
@@ -631,12 +643,13 @@ class Codegen:
         self.b.branch(cond_bb)
         self.b.position_at_end(cond_bb)
         cur = self.b.load(idx)
-        self.b.cbranch(self.b.icmp_signed("<", cur, limit), body_bb, after)
+        cmp_lt = self.b.icmp_unsigned if unsigned else self.b.icmp_signed
+        self.b.cbranch(cmp_lt("<", cur, limit), body_bb, after)
         self.b.position_at_end(body_bb)
         self.push()
         if stmt.target != "_":
             slot = self.alloca(
-                elem_ll if elem_ll is not None else I32L, name=stmt.target
+                elem_ll if elem_ll is not None else cty, name=stmt.target
             )
             if stmt.bounds is not None:
                 self.b.store(cur, slot)
@@ -659,7 +672,8 @@ class Codegen:
         self.loop_exits.pop()
         self.pop()
         if not self.b.block.is_terminated:
-            nxt = self.b.add(self.b.load(idx), I32L(1))
+            step = self.b.load(idx)
+            nxt = self.b.add(step, step.type(1))
             self.b.store(nxt, idx)
             self.b.branch(cond_bb)
         self.b.position_at_end(after)
@@ -740,7 +754,10 @@ class Codegen:
 
     def indexed_ptr(self, node: ast.Index, base):
         idx = self.expr(node.index)
-        idx32 = self.widen_index(node.index.ty, idx)
+        ity = node.index.ty
+        if isinstance(ity, IntType) and ity.kind in ("u64", "i64"):
+            return self.indexed_ptr64(node, base, idx)
+        idx32 = self.widen_index(ity, idx)
         oty = node.obj.ty
         if isinstance(oty, ArrayType):
             size = I32L(oty.size)
@@ -756,6 +773,33 @@ class Codegen:
             self.trap_if(
                 self.b.or_(bad_low, bad_high), node, "индекс вне границ"
             )
+        return self.b.gep(base, path, inbounds=True)
+
+    def indexed_ptr64(self, node: ast.Index, base, idx):
+        """Индекс из 64-битного регистра: границы сверяются в 64 битах
+        (заведомо шире любого размера §6), затем ужатие для gep."""
+        oty = node.obj.ty
+        if isinstance(oty, ArrayType):
+            size = I64L(oty.size)
+            in_str = False
+        else:  # str
+            size = self.b.zext(
+                self.b.load(
+                    self.b.gep(base, [I32L(0), I32L(0)], inbounds=True)
+                ),
+                I64L,
+            )
+            in_str = True
+        if not getattr(node, "in_bounds", False):
+            bad_low = self.b.icmp_signed("<", idx, I64L(0))
+            bad_high = self.b.icmp_signed(">=", idx, size)
+            self.trap_if(
+                self.b.or_(bad_low, bad_high), node, "индекс вне границ"
+            )
+        idx32 = self.b.trunc(idx, I32L)
+        path = (
+            [I32L(0), I32L(1), idx32] if in_str else [I32L(0), idx32]
+        )
         return self.b.gep(base, path, inbounds=True)
 
     def widen_index(self, ty: Type, value):
@@ -835,7 +879,11 @@ class Codegen:
                 self.b.call(self.rtm("append_bool"), [out, value])
             elif ty.kind == "i32":
                 self.b.call(self.rtm("append_i32"), [out, value])
-            else:  # u32, u8
+            elif ty.kind == "u64":
+                self.b.call(self.rtm("append_u64"), [out, value])
+            elif ty.kind == "i64":
+                self.b.call(self.rtm("append_i64"), [out, value])
+            else:  # u32, u16, u8
                 wide = (
                     self.b.zext(value, I32L)
                     if ty.kind in ("u8", "u16")
@@ -850,7 +898,8 @@ class Codegen:
             # not — xor i1; ~ — xor с -1 ширины типа: из типа
             # не выходит, trap не нужен
             return self.b.not_(value)
-        return self.arith(node, "-", I32L(0), value, "i32")
+        kind = node.ty.kind
+        return self.arith(node, "-", self.ll(node.ty)(0), value, kind)
 
     def gen_binop(self, node: ast.BinOp):
         op = node.op
@@ -943,7 +992,9 @@ class Codegen:
         if signed:
             if not safe:
                 edge = self.b.and_(
-                    self.b.icmp_signed("==", left, left.type(_INT_MIN)),
+                    self.b.icmp_signed(
+                        "==", left, left.type(INT_RANGES[kind][0])
+                    ),
                     self.b.icmp_signed("==", right, left.type(-1)),
                 )
                 self.trap_if(edge, node, f"переполнение {kind}")
@@ -960,7 +1011,7 @@ class Codegen:
         """Сдвиги беззнаковых. Сдвиг ≥ ширины типа в LLVM — яд,
         поэтому trap до инструкции; << дополнительно трапит вынос
         битов: обратный lshr обязан восстановить операнд."""
-        width = {"u8": 8, "u16": 16}.get(kind, 32)
+        width = {"u8": 8, "u16": 16, "u64": 64}.get(kind, 32)
         if not getattr(node, "shift_ok", False):
             self.trap_if(
                 self.b.icmp_unsigned(">=", right, right.type(width)),
@@ -1012,7 +1063,7 @@ class Codegen:
             return self.gen_parse_i32(node)
         if name == "len":
             return self.gen_len(node)
-        if name in ("i32", "u32", "u16", "u8", "char"):
+        if name in ("i32", "u32", "u16", "u8", "u64", "i64", "char"):
             return self.gen_cast(node)
         sig = self.checker.funcs[name]
         return self.emit_call(node, self.funcs[name], sig, [])
@@ -1165,6 +1216,8 @@ class Codegen:
                 return value
             if target == "u16":
                 return self.b.zext(value, I16L)
+            if target in ("u64", "i64"):
+                return self.b.zext(value, I64L)
             return self.b.zext(value, I32L)  # в i32/u32 всегда помещается
         if src == "u16":
             if target == "u16":
@@ -1174,7 +1227,20 @@ class Codegen:
                     bad = self.b.icmp_unsigned(">", value, I16L(255))
                     self.trap_if(bad, node, "переполнение при u8()")
                 return self.b.trunc(value, I8L)
+            if target in ("u64", "i64"):
+                return self.b.zext(value, I64L)
             return self.b.zext(value, I32L)  # в i32/u32 всегда помещается
+        if src in ("u64", "i64"):
+            return self.gen_cast_from64(node, target, src, value, proven)
+        if target in ("u64", "i64"):
+            # src — i32 или u32 (регистр i32): расширение; единственный
+            # trap — отрицательный i32 в u64
+            if src == "i32":
+                if target == "u64" and not proven:
+                    bad = self.b.icmp_signed("<", value, I32L(0))
+                    self.trap_if(bad, node, "переполнение при u64()")
+                return self.b.sext(value, I64L)
+            return self.b.zext(value, I64L)
         # src — i32 или u32 (регистр i32)
         if target == "i32" and src == "u32":
             if not proven:
@@ -1205,6 +1271,33 @@ class Codegen:
                 self.trap_if(bad, node, "переполнение при u8()")
             return self.b.trunc(value, I8L)
         return value
+
+    def gen_cast_from64(self, node, target: str, src: str, value, proven):
+        """Касты из 64-битного регистра: сужение — trap по диапазону
+        цели, u64 ↔ i64 — проверка без смены ширины."""
+        if target == src:
+            return value
+        lo, hi = INT_RANGES[target]
+        if src == "u64":
+            if not proven:
+                bad = self.b.icmp_unsigned(">", value, I64L(hi))
+                self.trap_if(bad, node, f"переполнение при {target}()")
+            if target == "i64":
+                return value
+        else:  # i64
+            if not proven:
+                if target == "u64":
+                    bad = self.b.icmp_signed("<", value, I64L(0))
+                else:
+                    bad = self.b.or_(
+                        self.b.icmp_signed("<", value, I64L(lo)),
+                        self.b.icmp_signed(">", value, I64L(hi)),
+                    )
+                self.trap_if(bad, node, f"переполнение при {target}()")
+            if target == "u64":
+                return value
+        wide = {"u8": I8L, "u16": I16L}.get(target, I32L)
+        return self.b.trunc(value, wide)
 
     # --- агрегаты ------------------------------------------------------------
 

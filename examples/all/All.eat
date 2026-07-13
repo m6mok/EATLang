@@ -78,6 +78,25 @@ test u16_type {
     assert u8(adc[2] >> 8) == u8(2)
 }
 
+test u64_type {
+    let big: [u64; 3] = [0xFFFFFFFFFFFFFFFF, 1 << 63, 18446744073709551615]
+    assert big[0] == big[2]
+    assert ~big[1] == 9223372036854775807
+    assert u32(big[0] >> 32) == 4294967295
+    let idx: u64 = 1
+    assert big[idx] / 1024 == 9007199254740992
+}
+
+test i64_type {
+    let lo: i64 = -9223372036854775808
+    let hi: i64 = 9223372036854775807
+    assert lo + hi == 0 - 1
+    assert lo / -1073741824 == 8589934592
+    assert u64(hi) + 1 == 1 << 63
+    let w: u32 = 4000000000
+    assert i64(w) * -2 == -8000000000
+}
+
 func main() {
     let data: [i32; 5] = [3, -1, 4, -1, 5]
     var stats: Stats = Stats { total: 0, count: 0 }

@@ -1,0 +1,25 @@
+#! expect: cast=2/3
+# Сужение в u32 из u64: с requires-границей каст доказывается и уходит
+# из бинарника; без границы (n до 255·2^32) — остаётся runtime-trap'ом.
+
+func to_u32(x: u64) -> u32
+    requires x <= 0xFFFFFFFF
+    ensures true
+{
+    return u32(x)
+}
+
+func main() {
+    var n: u64 = 0
+    match read_byte() {
+        Ok(v) {
+            n = u64(v) * 4294967296
+        }
+        Err(_) {
+            n = 0
+        }
+    }
+    let a: u32 = to_u32(n & 0xFFFFFFFF)
+    let b: u32 = u32(n)
+    print("{a} {b}")
+}

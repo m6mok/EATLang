@@ -20,10 +20,12 @@ from .types import (
     BOOL,
     CHAR,
     I32,
+    I64,
     INT_RANGES,
     U8,
     U16,
     U32,
+    U64,
     VOID,
     ArrayType,
     BoolType,
@@ -39,7 +41,14 @@ from .types import (
     show,
 )
 
-_INT_CASTS = {"i32": I32, "u32": U32, "u16": U16, "u8": U8}
+_INT_CASTS = {
+    "i32": I32,
+    "u32": U32,
+    "u16": U16,
+    "u8": U8,
+    "u64": U64,
+    "i64": I64,
+}
 
 BUILTIN_ENUMS = {
     "IoError": ["Eof", "Fail"],
@@ -450,19 +459,19 @@ class TypeChecker:
 
     def _check_extern_boundary(self, func: ast.FuncDecl, sig) -> None:
         """Граница с C (SPEC §7): параметры — скаляры или массивы
-        беззнаковых ([u8|u16|u32; N], по указателю, read-only);
+        беззнаковых ([u8|u16|u32|u64; N], по указателю, read-only);
         возврат — только скаляр."""
         for pname, ptype in sig.params:
             ok = isinstance(ptype, (IntType, BoolType, CharType)) or (
                 isinstance(ptype, ArrayType)
                 and isinstance(ptype.elem, IntType)
-                and ptype.elem.kind != "i32"
+                and ptype.elem.kind not in ("i32", "i64")
             )
             if not ok:
                 raise self.err(
                     func,
                     f"extern {func.name}: параметр {pname} — на границе "
-                    f"с C допустимы скаляры и [u8|u16|u32; N], "
+                    f"с C допустимы скаляры и [u8|u16|u32|u64; N], "
                     f"не {show(ptype)}",
                 )
         if sig.ret is not None and not isinstance(
@@ -620,7 +629,11 @@ class TypeChecker:
                 raise self.err(
                     stmt.iterable, f"пустой диапазон {start}..{end}"
                 )
-            elem: Type = U32 if start >= 0 else I32
+            if start >= 0:
+                elem = U32 if end <= 2**32 - 1 else U64
+            else:
+                lo32, hi32 = INT_RANGES["i32"]
+                elem = I32 if start >= lo32 and end <= hi32 else I64
             self._check_int_fits(stmt.iterable, elem, start)
             self._check_int_fits(stmt.iterable, elem, end)
             stmt.bounds = (start, end)  # для кодогенерации
@@ -832,17 +845,22 @@ class TypeChecker:
             # как у битовых бинарных: только беззнаковые (см. _binop)
             hint = expected if isinstance(expected, IntType) else None
             operand = self.expr(node.operand, expected=hint)
-            if not isinstance(operand, IntType) or operand.kind == "i32":
+            if not isinstance(operand, IntType) or operand.kind in (
+                "i32",
+                "i64",
+            ):
                 raise self.err(
-                    node, f"~ применим к u32/u16/u8, не к {show(operand)}"
+                    node,
+                    f"~ применим к u64/u32/u16/u8, не к {show(operand)}",
                 )
             return operand
         operand = self.expr(node.operand, expected=expected)
-        if operand != I32:
+        if operand not in (I32, I64):
             raise self.err(
-                node, f"унарный минус применим к i32, не к {show(operand)}"
+                node,
+                f"унарный минус применим к i32/i64, не к {show(operand)}",
             )
-        return I32
+        return operand
 
     def _binop(self, node: ast.BinOp, expected: Type | None) -> Type:
         op = node.op
@@ -865,11 +883,12 @@ class TypeChecker:
             left = self.expr(node.left, expected=hint)
             right = self.expr(node.right, expected=left)
             self._require_same(node, left, right, op)
-            if not isinstance(left, IntType) or left.kind == "i32":
-                # у i32 смысл битовой операции зависел бы от
+            if not isinstance(left, IntType) or left.kind in ("i32", "i64"):
+                # у знаковых смысл битовой операции зависел бы от
                 # представления знака — только беззнаковые
                 raise self.err(
-                    node, f"{op} применим к u32/u16/u8, не к {show(left)}"
+                    node,
+                    f"{op} применим к u64/u32/u16/u8, не к {show(left)}",
                 )
             return left
         # сравнения

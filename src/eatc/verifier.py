@@ -44,12 +44,18 @@ from . import ast_nodes as ast
 from .types import INT_RANGES, ArrayType, CharType, IntType, StrType
 
 Iv = tuple[int, int]
-_CASTS = ("i32", "u32", "u16", "u8")
+_CASTS = ("i32", "u32", "u16", "u8", "u64", "i64")
 _CHAR_IV: Iv = (0, 255)  # char — ровно один байт
 
 
 def _range(kind: str) -> Iv:
     return INT_RANGES[kind]
+
+
+def _tdiv(left: int, right: int) -> int:
+    # усечение к нулю в целых: float-путь терял точность на 64 битах
+    q = abs(left) // abs(right)
+    return -q if (left < 0) != (right < 0) else q
 
 
 def _uncast(node):
@@ -1204,7 +1210,9 @@ class Verifier:
                     return self._ty_range(node.ty)
                 lo, hi = inner
                 return (mask - hi, mask - lo)
-            return self._arith(node, "-", (0, 0), inner, "i32", annotate)
+            return self._arith(
+                node, "-", (0, 0), inner, node.ty.kind, annotate
+            )
         if isinstance(node, ast.BinOp):
             if node.op in ("and", "or"):
                 self._eval_bool(node, env, annotate)
@@ -1340,8 +1348,8 @@ class Verifier:
             zero_free = rpath is not None and rpath in env.nz
         if not zero_free:
             return False
-        if kind == "i32":
-            lo, _ = _range("i32")
+        if kind in ("i32", "i64"):
+            lo, _ = _range(kind)
             if left[0] <= lo and right[0] <= -1 <= right[1]:
                 return False
         return True
@@ -1355,10 +1363,10 @@ class Verifier:
             # через nz) — точные частные не вычислить
             return clamp
         quotients = [
-            int(left[0] / right[0]),
-            int(left[0] / right[1]),
-            int(left[1] / right[0]),
-            int(left[1] / right[1]),
+            _tdiv(left[0], right[0]),
+            _tdiv(left[0], right[1]),
+            _tdiv(left[1], right[0]),
+            _tdiv(left[1], right[1]),
         ]
         raw = (min(quotients + [0]), max(quotients + [0]))
         return _inter(raw, clamp) or clamp
@@ -1381,7 +1389,7 @@ class Verifier:
         сдвиг на ширину типа и больше — trap (свой вид проверки)."""
         clamp = _range(kind)
         if op in ("<<", ">>"):
-            width = {"u8": 8, "u16": 16}.get(kind, 32)
+            width = {"u8": 8, "u16": 16, "u64": 64}.get(kind, 32)
             shift_ok = right is not None and right[1] < width
             if annotate:
                 self._mark("shift", node, shift_ok)
