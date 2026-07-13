@@ -1072,8 +1072,9 @@ struct Ir {
         return self.g_commit(0)
     }
 
-    # Литеральный сегмент — глобал в layout'е str<256> (без NUL,
-    # длина в i32-поле): передаётся методам RtStr как параметр.
+    # Литеральный сегмент — глобал {i32 len, [len x i8]} (без NUL,
+    # буфер по фактической длине): передаётся методам RtStr через
+    # bitcast к {i32, [256 x i8]}* на месте использования.
     func cstr_seg(var self, a: u32, l: u32) -> u32
         requires true
         ensures result < 65536
@@ -1196,9 +1197,19 @@ struct Ir {
             }
             self.lb_dec(b)
         } elif k == 3 {
-            self.lb_lit("@\"str.")
-            self.lb_dec(a)
-            self.lb_lit("\"")
+            if self.gvk[a] == 1 {
+                # ужатый литерал {i32, [L x i8]} приводится к
+                # {i32, [256 x i8]}* на месте использования
+                self.lb_lit("bitcast ({{i32, [")
+                self.lb_dec(self.gsl[a])
+                self.lb_lit(" x i8]}}* @\"str.")
+                self.lb_dec(a)
+                self.lb_lit("\" to {{i32, [256 x i8]}}*)")
+            } else {
+                self.lb_lit("@\"str.")
+                self.lb_dec(a)
+                self.lb_lit("\"")
+            }
         } else {
             self.lb_lit("null")
         }
@@ -4860,13 +4871,13 @@ struct Ir {
     {
         let l: u32 = self.gsl[g]
         if self.gvk[g] == 1 {
-            write("@\"str.{g}\" = private constant {{i32, [256 x i8]}} {{i32 {l}, [256 x i8] c\"")
+            # ужатый литерал: буфер по фактической длине, без добивки
+            write("@\"str.{g}\" = private constant {{i32, [{l} x i8]}} {{i32 {l}, [{l} x i8] c\"")
             for i in 0..256 {
-                if i < l {
-                    self.p_esc(self.g_at(self.gss[g] + i))
-                } else {
-                    write("\\00")
+                if i >= l {
+                    break
                 }
+                self.p_esc(self.g_at(self.gss[g] + i))
             }
             write("\"}}")
             return

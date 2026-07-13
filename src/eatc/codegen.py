@@ -185,24 +185,26 @@ class Codegen:
         return self.b.gep(g, [I32L(0), I32L(0)], inbounds=True), len(data) - 1
 
     def cstr_str(self, text: str):
-        """Литеральный сегмент строки — глобал в layout'е str<256>
-        ({i32 len, [256 x i8]}): передаётся RtStr-методам как параметр."""
+        """Литеральный сегмент строки — глобал в layout'е str, но с
+        буфером по фактической длине ({i32 len, [len x i8]}), без
+        добивки до 256: экономия данных (метрика флеша, трек 2).
+        Читатели (RtStr) не заглядывают за ln, поэтому глобал безопасно
+        передаётся RtStr-методам как {i32, [256 x i8]}* через bitcast."""
         data = text.encode("utf-8")
         if data not in self.strlit_cache:
             buf = ir.Constant(
-                ir.ArrayType(I8L, STR_CAP),
-                bytearray(data.ljust(STR_CAP, b"\0")),
+                ir.ArrayType(I8L, len(data)), bytearray(data)
             )
             init = ir.Constant.literal_struct([I32L(len(data)), buf])
             g = ir.GlobalVariable(
-                self.module, STR_LL, name=f"str.{self.gname_n}"
+                self.module, init.type, name=f"str.{self.gname_n}"
             )
             self.gname_n += 1
             g.initializer = init
             g.global_constant = True
             g.linkage = "private"
             self.strlit_cache[data] = g
-        return self.strlit_cache[data]
+        return self.strlit_cache[data].bitcast(STRP)
 
     def rtm(self, name: str):
         """Метод рантайм-модуля RtStr (selfhost/Rt.eat)."""
