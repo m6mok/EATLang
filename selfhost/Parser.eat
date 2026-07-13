@@ -142,9 +142,10 @@ struct Parser {
         var w: [u8; 16] = [0; 16]
         let vs: u32 = self.lex.tok_vs(self.cur)
         for i in 0..16 {
-            if i < vl {
-                w[i] = self.lex.sb_at(vs + i)
+            if i >= vl {
+                break
             }
+            w[i] = self.lex.sb_at(vs + i)
         }
         return same(w, vl, kw)
     }
@@ -162,13 +163,14 @@ struct Parser {
         }
         var acc: u32 = 0
         for i in 0..10 {
-            if i < vl and not self.failed {
-                let d: u32 = u32(self.lex.sb_at(vs + i)) - 48
-                if acc > (4294967295 - d) / 10 {
-                    self.fail("целочисленный литерал больше 2^32-1")
-                } else {
-                    acc = acc * 10 + d
-                }
+            if i >= vl or self.failed {
+                break
+            }
+            let d: u32 = u32(self.lex.sb_at(vs + i)) - 48
+            if acc > (4294967295 - d) / 10 {
+                self.fail("целочисленный литерал больше 2^32-1")
+            } else {
+                acc = acc * 10 + d
             }
         }
         return acc
@@ -293,9 +295,10 @@ struct Parser {
         let pn: u32 = self.alloc(0, self.lex.tok_l(0), self.lex.tok_c(0))
         self.push_frame(0, 0, pn, 4294967295, 0)
         for _ in 0..262144 {
-            if not self.done and not self.failed {
-                self.pump()
+            if self.done or self.failed {
+                break
             }
+            self.pump()
         }
         if not self.done and not self.failed {
             self.fail("парсер превысил лимит шагов")
@@ -1380,11 +1383,12 @@ struct Parser {
     {
         var found: u32 = 4294967295
         for d in 0..64 {
-            if d < self.nop and found == 4294967295 {
-                let e: u32 = self.nop - 1 - d
-                if self.pk[e] <= 7 {
-                    found = self.pk[e]
-                }
+            if d >= self.nop or found != 4294967295 {
+                break
+            }
+            let e: u32 = self.nop - 1 - d
+            if self.pk[e] <= 7 {
+                found = self.pk[e]
             }
         }
         return found
@@ -1442,13 +1446,17 @@ struct Parser {
         requires true
         ensures true
     {
+        var more: bool = true
         for _ in 0..64 {
-            if self.nop > 0 and not self.failed {
-                let e: u32 = self.nop - 1
-                if self.pk[e] == 8 {
-                    if prec_of(self.pa[e]) >= p {
-                        self.reduce_one()
-                    }
+            if self.nop == 0 or self.failed or not more {
+                break
+            }
+            let e: u32 = self.nop - 1
+            more = false
+            if self.pk[e] == 8 {
+                if prec_of(self.pa[e]) >= p {
+                    self.reduce_one()
+                    more = true
                 }
             }
         }
@@ -1458,13 +1466,17 @@ struct Parser {
         requires true
         ensures true
     {
+        var more: bool = true
         for _ in 0..64 {
-            if self.nop > 0 and not self.failed {
-                let e: u32 = self.nop - 1
-                if self.pk[e] == 8 {
-                    if prec_of(self.pa[e]) > p {
-                        self.reduce_one()
-                    }
+            if self.nop == 0 or self.failed or not more {
+                break
+            }
+            let e: u32 = self.nop - 1
+            more = false
+            if self.pk[e] == 8 {
+                if prec_of(self.pa[e]) > p {
+                    self.reduce_one()
+                    more = true
                 }
             }
         }
@@ -1475,11 +1487,15 @@ struct Parser {
         requires true
         ensures true
     {
+        var more: bool = true
         for _ in 0..64 {
-            if self.nop > 0 and not self.failed {
-                if self.pk[self.nop - 1] == 8 {
-                    self.reduce_one()
-                }
+            if self.nop == 0 or self.failed or not more {
+                break
+            }
+            if self.pk[self.nop - 1] == 8 {
+                self.reduce_one()
+            } else {
+                more = false
             }
         }
     }
@@ -1691,16 +1707,17 @@ struct Parser {
         var nxt: u32 = 4294967295
         var i: u32 = si
         for _ in 0..2048 {
-            if i < send and nxt == 4294967295 {
-                if self.lex.sgk[i] == 0 {
-                    let sn: u32 = self.alloc(36, 0, 0)
-                    self.nss[sn / 65536][sn % 65536] = self.lex.sga[i]
-                    self.nsl[sn / 65536][sn % 65536] = self.lex.sgb[i]
-                    self.append_child(node, sn)
-                    i = i + 1
-                } else {
-                    nxt = i
-                }
+            if i >= send or nxt != 4294967295 {
+                break
+            }
+            if self.lex.sgk[i] == 0 {
+                let sn: u32 = self.alloc(36, 0, 0)
+                self.nss[sn / 65536][sn % 65536] = self.lex.sga[i]
+                self.nsl[sn / 65536][sn % 65536] = self.lex.sgb[i]
+                self.append_child(node, sn)
+                i = i + 1
+            } else {
+                nxt = i
             }
         }
         return nxt
@@ -2077,9 +2094,10 @@ struct Parser {
         self.dn = 0
         self.ddone = false
         for _ in 0..131072 {
-            if not self.ddone and not self.failed {
-                self.dump_step()
+            if self.ddone or self.failed {
+                break
             }
+            self.dump_step()
         }
     }
 
@@ -2102,18 +2120,19 @@ struct Parser {
         }
         var moved: bool = false
         for _ in 0..64 {
-            if not moved {
-                if self.dn == 0 {
-                    self.ddone = true
-                    moved = true
-                } elif self.nns[self.dcur / 65536][self.dcur % 65536] != 4294967295 {
-                    self.dcur = self.nns[self.dcur / 65536][self.dcur % 65536]
-                    moved = true
-                } else {
-                    self.dn = self.dn - 1
-                    self.dcur = self.dstk[self.dn]
-                    self.ddepth = self.ddepth - 1
-                }
+            if moved {
+                break
+            }
+            if self.dn == 0 {
+                self.ddone = true
+                moved = true
+            } elif self.nns[self.dcur / 65536][self.dcur % 65536] != 4294967295 {
+                self.dcur = self.nns[self.dcur / 65536][self.dcur % 65536]
+                moved = true
+            } else {
+                self.dn = self.dn - 1
+                self.dcur = self.dstk[self.dn]
+                self.ddepth = self.ddepth - 1
             }
         }
     }
@@ -2123,9 +2142,10 @@ struct Parser {
         ensures true
     {
         for i in 0..64 {
-            if i < d {
-                write("  ")
+            if i >= d {
+                break
             }
+            write("  ")
         }
         let k: u32 = self.nk[n / 65536][n % 65536]
         write_nkind(k)
@@ -2195,9 +2215,10 @@ struct Parser {
         ensures true
     {
         for i in 0..256 {
-            if i < l {
-                write("{char(self.lex.sb_at(a + i))}")
+            if i >= l {
+                break
             }
+            write("{char(self.lex.sb_at(a + i))}")
         }
     }
 
@@ -2206,9 +2227,10 @@ struct Parser {
         ensures true
     {
         for i in 0..256 {
-            if i < l {
-                write_esc(self.lex.sb_at(a + i))
+            if i >= l {
+                break
             }
+            write_esc(self.lex.sb_at(a + i))
         }
     }
 }

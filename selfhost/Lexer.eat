@@ -227,9 +227,10 @@ struct Lexer {
         }
         let start: u32 = self.sblen
         for i in 0..256 {
-            if i < self.vlen {
-                self.sb_set(start + i, self.val[i])
+            if i >= self.vlen {
+                break
             }
+            self.sb_set(start + i, self.val[i])
         }
         self.sblen = start + self.vlen
         self.emit_plain(k)
@@ -265,9 +266,10 @@ struct Lexer {
     {
         var w: [u8; 16] = [0; 16]
         for i in 0..16 {
-            if i < self.vlen {
-                w[i] = self.val[i]
+            if i >= self.vlen {
+                break
             }
+            w[i] = self.val[i]
         }
         var n: u32 = self.vlen
         if n > 16 {
@@ -658,11 +660,12 @@ struct Lexer {
         ensures true
     {
         for ti in 0..131072 {
-            if ti < self.ntok and not self.failed {
-                if self.tok_k(ti) == 1 {
-                    if self.has_brace(ti) {
-                        self.split_string(ti)
-                    }
+            if ti >= self.ntok or self.failed {
+                break
+            }
+            if self.tok_k(ti) == 1 {
+                if self.has_brace(ti) {
+                    self.split_string(ti)
                 }
             }
         }
@@ -676,11 +679,12 @@ struct Lexer {
         let vl: u32 = self.tok_vl(ti)
         var found: bool = false
         for i in 0..256 {
-            if i < vl {
-                let b: u8 = self.sb_at(vs + i)
-                if b == 123 or b == 125 {
-                    found = true
-                }
+            if i >= vl {
+                break
+            }
+            let b: u8 = self.sb_at(vs + i)
+            if b == 123 or b == 125 {
+                found = true
             }
         }
         return found
@@ -728,9 +732,10 @@ struct Lexer {
         self.state = 0
         let first: u32 = self.ntok
         for i in 0..256 {
-            if i < n and not self.failed {
-                self.step(self.sb_at(a + i))
+            if i >= n or self.failed {
+                break
             }
+            self.step(self.sb_at(a + i))
         }
         # финал под-потока: как у эталона — NEWLINE (если последний
         # под-токен не NEWLINE) и EOF; подавление «в начале потока»
@@ -756,40 +761,41 @@ struct Lexer {
         var lit_start: u32 = self.sblen
         var i: u32 = 0
         for _ in 0..256 {
-            if i < vl and not self.failed {
-                let b: u8 = self.sb_at(vs + i)
-                if b == 123 { # {
-                    if i + 1 < vl and self.sb_at(vs + i + 1) == 123 {
-                        self.push_seg_byte(123)
-                        i = i + 2
-                    } else {
-                        let e: u32 = self.find_close(vs, vl, i + 1)
-                        if e == 4294967295 {
-                            self.fail("незакрытая '{{' в интерполяции строки")
-                        } else {
-                            if self.sblen > lit_start {
-                                self.add_segment(0, lit_start, self.sblen - lit_start)
-                            }
-                            if self.all_ws(vs + i + 1, e - i - 1) {
-                                self.fail("пустая интерполяция {{}} в строке")
-                            } else {
-                                self.sublex_expr(vs + i + 1, e - i - 1, tln, tcl)
-                            }
-                            lit_start = self.sblen
-                            i = e + 1
-                        }
-                    }
-                } elif b == 125 { # }
-                    if i + 1 < vl and self.sb_at(vs + i + 1) == 125 {
-                        self.push_seg_byte(125)
-                        i = i + 2
-                    } else {
-                        self.fail("одиночная '}}' в строке (экранируйте: }}}})")
-                    }
+            if i >= vl or self.failed {
+                break
+            }
+            let b: u8 = self.sb_at(vs + i)
+            if b == 123 { # {
+                if i + 1 < vl and self.sb_at(vs + i + 1) == 123 {
+                    self.push_seg_byte(123)
+                    i = i + 2
                 } else {
-                    self.push_seg_byte(b)
-                    i = i + 1
+                    let e: u32 = self.find_close(vs, vl, i + 1)
+                    if e == 4294967295 {
+                        self.fail("незакрытая '{{' в интерполяции строки")
+                    } else {
+                        if self.sblen > lit_start {
+                            self.add_segment(0, lit_start, self.sblen - lit_start)
+                        }
+                        if self.all_ws(vs + i + 1, e - i - 1) {
+                            self.fail("пустая интерполяция {{}} в строке")
+                        } else {
+                            self.sublex_expr(vs + i + 1, e - i - 1, tln, tcl)
+                        }
+                        lit_start = self.sblen
+                        i = e + 1
+                    }
                 }
+            } elif b == 125 { # }
+                if i + 1 < vl and self.sb_at(vs + i + 1) == 125 {
+                    self.push_seg_byte(125)
+                    i = i + 2
+                } else {
+                    self.fail("одиночная '}}' в строке (экранируйте: }}}})")
+                }
+            } else {
+                self.push_seg_byte(b)
+                i = i + 1
             }
         }
         if self.sblen > lit_start {
@@ -806,10 +812,11 @@ struct Lexer {
     {
         var found: u32 = 4294967295
         for k in 0..256 {
-            if from + k < vl and found == 4294967295 {
-                if self.sb_at(vs + from + k) == 125 {
-                    found = from + k
-                }
+            if from + k >= vl or found != 4294967295 {
+                break
+            }
+            if self.sb_at(vs + from + k) == 125 {
+                found = from + k
             }
         }
         return found
@@ -821,10 +828,11 @@ struct Lexer {
     {
         var ws: bool = true
         for k in 0..256 {
-            if k < n {
-                if not is_ws(self.sb_at(a + k)) {
-                    ws = false
-                }
+            if k >= n {
+                break
+            }
+            if not is_ws(self.sb_at(a + k)) {
+                ws = false
             }
         }
         return ws
@@ -837,21 +845,23 @@ struct Lexer {
         ensures true
     {
         for ti in 0..131072 {
-            if ti < self.ntok {
-                let k: u32 = self.tok_k(ti)
-                write("{self.tok_l(ti)}:{self.tok_c(ti)} ")
-                write_kind(k)
-                if is_valued(k) {
-                    write(" ")
-                    let vs: u32 = self.tok_vs(ti)
-                    for i in 0..256 {
-                        if i < self.tok_vl(ti) {
-                            write_esc(self.sb_at(vs + i))
-                        }
-                    }
-                }
-                write("\n")
+            if ti >= self.ntok {
+                break
             }
+            let k: u32 = self.tok_k(ti)
+            write("{self.tok_l(ti)}:{self.tok_c(ti)} ")
+            write_kind(k)
+            if is_valued(k) {
+                write(" ")
+                let vs: u32 = self.tok_vs(ti)
+                for i in 0..256 {
+                    if i >= self.tok_vl(ti) {
+                        break
+                    }
+                    write_esc(self.sb_at(vs + i))
+                }
+            }
+            write("\n")
         }
     }
 }

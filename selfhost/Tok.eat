@@ -40,10 +40,11 @@ func same(a: [u8; 16], n: u32, kw: str<16>) -> bool
     }
     var ok: bool = true
     for i in 0..16 {
-        if i < n {
-            if a[i] != u8(kw[i]) {
-                ok = false
-            }
+        if i >= n or not ok {
+            break
+        }
+        if a[i] != u8(kw[i]) {
+            ok = false
         }
     }
     return ok

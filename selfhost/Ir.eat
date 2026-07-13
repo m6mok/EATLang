@@ -209,9 +209,10 @@ struct Ir {
         ensures true
     {
         for i in 0..64 {
-            if i < len(s) {
-                self.lb_b(u8(s[i]))
+            if i >= len(s) {
+                break
             }
+            self.lb_b(u8(s[i]))
         }
     }
 
@@ -223,19 +224,21 @@ struct Ir {
         var m: u32 = n
         var cnt: u32 = 0
         for _ in 0..10 {
-            if m > 0 {
-                d[cnt] = u8(m % 10 + 48)
-                m = m / 10
-                cnt = cnt + 1
+            if m == 0 {
+                break
             }
+            d[cnt] = u8(m % 10 + 48)
+            m = m / 10
+            cnt = cnt + 1
         }
         if cnt == 0 {
             self.lb_b(48)
         }
         for i in 0..10 {
-            if i < cnt {
-                self.lb_b(d[cnt - 1 - i])
+            if i >= cnt {
+                break
             }
+            self.lb_b(d[cnt - 1 - i])
         }
     }
 
@@ -244,9 +247,10 @@ struct Ir {
         ensures true
     {
         for i in 0..256 {
-            if i < l {
-                self.lb_b(self.c.p.lex.sb_at(a + i))
+            if i >= l {
+                break
             }
+            self.lb_b(self.c.p.lex.sb_at(a + i))
         }
     }
 
@@ -255,9 +259,10 @@ struct Ir {
         ensures true
     {
         for i in 0..128 {
-            if i < l {
-                self.lb_b(self.nb[a + i])
+            if i >= l {
+                break
             }
+            self.lb_b(self.nb[a + i])
         }
     }
 
@@ -266,12 +271,13 @@ struct Ir {
         ensures true
     {
         for h in 0..64 {
-            if h * 256 < l {
-                for j in 0..256 {
-                    let i: u32 = h * 256 + j
-                    if i < l {
-                        self.lb_b(self.tp[a + i])
-                    }
+            if h * 256 >= l {
+                break
+            }
+            for j in 0..256 {
+                let i: u32 = h * 256 + j
+                if i < l {
+                    self.lb_b(self.tp[a + i])
                 }
             }
         }
@@ -324,9 +330,10 @@ struct Ir {
         ensures true
     {
         for i in 0..16 {
-            if i < len(s) {
-                self.nb_b(u8(s[i]))
+            if i >= len(s) {
+                break
             }
+            self.nb_b(u8(s[i]))
         }
     }
 
@@ -338,19 +345,21 @@ struct Ir {
         var m: u32 = n
         var cnt: u32 = 0
         for _ in 0..10 {
-            if m > 0 {
-                d[cnt] = u8(m % 10 + 48)
-                m = m / 10
-                cnt = cnt + 1
+            if m == 0 {
+                break
             }
+            d[cnt] = u8(m % 10 + 48)
+            m = m / 10
+            cnt = cnt + 1
         }
         if cnt == 0 {
             self.nb_b(48)
         }
         for i in 0..10 {
-            if i < cnt {
-                self.nb_b(d[cnt - 1 - i])
+            if i >= cnt {
+                break
             }
+            self.nb_b(d[cnt - 1 - i])
         }
     }
 
@@ -359,9 +368,10 @@ struct Ir {
         ensures true
     {
         for i in 0..256 {
-            if i < l {
-                self.nb_b(self.c.p.lex.sb_at(a + i))
+            if i >= l {
+                break
             }
+            self.nb_b(self.c.p.lex.sb_at(a + i))
         }
     }
 
@@ -374,10 +384,11 @@ struct Ir {
         }
         var ok: bool = true
         for i in 0..128 {
-            if i < l1 {
-                if self.nb[a1 + i] != self.nb[a2 + i] {
-                    ok = false
-                }
+            if i >= l1 {
+                break
+            }
+            if self.nb[a1 + i] != self.nb[a2 + i] {
+                ok = false
             }
         }
         return ok
@@ -391,10 +402,11 @@ struct Ir {
     {
         var found: bool = false
         for i in 0..256 {
-            if i < self.nun {
-                if self.nb_eq(self.uns[i], self.unl[i], a, l) {
-                    found = true
-                }
+            if i >= self.nun {
+                break
+            }
+            if self.nb_eq(self.uns[i], self.unl[i], a, l) {
+                found = true
             }
         }
         return found
@@ -406,10 +418,11 @@ struct Ir {
     {
         var f: u32 = 4294967295
         for i in 0..256 {
-            if i < self.nbs and f == 4294967295 {
-                if self.nb_eq(self.bss[i], self.bsl[i], a, l) {
-                    f = i
-                }
+            if i >= self.nbs or f != 4294967295 {
+                break
+            }
+            if self.nb_eq(self.bss[i], self.bsl[i], a, l) {
+                f = i
             }
         }
         if f == 4294967295 {
@@ -448,9 +461,10 @@ struct Ir {
         let cnum: u32 = self.bs_bump(s, l)
         let s2: u32 = self.nbn
         for i in 0..128 {
-            if i < l {
-                self.nb_b(self.nb[s + i])
+            if i >= l {
+                break
             }
+            self.nb_b(self.nb[s + i])
         }
         self.nb_b(46)
         self.nb_dec(cnum)
@@ -535,9 +549,10 @@ struct Ir {
         ensures true
     {
         for i in 0..32 {
-            if i < len(s) {
-                self.tp_b(u8(s[i]))
+            if i >= len(s) {
+                break
             }
+            self.tp_b(u8(s[i]))
         }
     }
 
@@ -549,19 +564,21 @@ struct Ir {
         var m: u32 = n
         var cnt: u32 = 0
         for _ in 0..10 {
-            if m > 0 {
-                d[cnt] = u8(m % 10 + 48)
-                m = m / 10
-                cnt = cnt + 1
+            if m == 0 {
+                break
             }
+            d[cnt] = u8(m % 10 + 48)
+            m = m / 10
+            cnt = cnt + 1
         }
         if cnt == 0 {
             self.tp_b(48)
         }
         for i in 0..10 {
-            if i < cnt {
-                self.tp_b(d[cnt - 1 - i])
+            if i >= cnt {
+                break
             }
+            self.tp_b(d[cnt - 1 - i])
         }
     }
 
@@ -582,7 +599,10 @@ struct Ir {
         }
         var has: bool = false
         for w in 0..256 {
-            if w >= self.c.evs[ei] and w < self.c.evs[ei] + self.c.evc[ei] {
+            if w >= self.c.evs[ei] + self.c.evc[ei] {
+                break
+            }
+            if w >= self.c.evs[ei] {
                 if self.c.wpl[w] != 4294967295 {
                     has = true
                 }
@@ -613,7 +633,10 @@ struct Ir {
         let ei: u32 = self.enum_of(t)
         var slot: u32 = 1
         for v in 0..256 {
-            if v >= self.c.evs[ei] and v < w {
+            if v >= w {
+                break
+            }
+            if v >= self.c.evs[ei] {
                 if self.c.wpl[v] != 4294967295 {
                     slot = slot + 1
                 }
@@ -696,7 +719,10 @@ struct Ir {
         let ei: u32 = self.enum_of(t)
         var nxt: u32 = 4294967295
         for v in 0..256 {
-            if v + 1 >= ph and v < self.c.evc[ei] and nxt == 4294967295 {
+            if v >= self.c.evc[ei] or nxt != 4294967295 {
+                break
+            }
+            if v + 1 >= ph {
                 if self.c.wpl[self.c.evs[ei] + v] != 4294967295 {
                     nxt = v
                 }
@@ -774,9 +800,10 @@ struct Ir {
         self.ybp = 0
         self.typ_push(root)
         for _ in 0..4096 {
-            if self.ybp > 0 and not self.failed {
-                self.ty_step()
+            if self.ybp == 0 or self.failed {
+                break
             }
+            self.ty_step()
         }
         if self.ybp > 0 and not self.failed {
             self.fail("тип слишком велик для self-host")
@@ -811,9 +838,10 @@ struct Ir {
         ensures true
     {
         for i in 0..64 {
-            if i < len(s) {
-                self.g_b(u8(s[i]))
+            if i >= len(s) {
+                break
             }
+            self.g_b(u8(s[i]))
         }
     }
 
@@ -825,19 +853,21 @@ struct Ir {
         var m: u32 = n
         var cnt: u32 = 0
         for _ in 0..10 {
-            if m > 0 {
-                d[cnt] = u8(m % 10 + 48)
-                m = m / 10
-                cnt = cnt + 1
+            if m == 0 {
+                break
             }
+            d[cnt] = u8(m % 10 + 48)
+            m = m / 10
+            cnt = cnt + 1
         }
         if cnt == 0 {
             self.g_b(48)
         }
         for i in 0..10 {
-            if i < cnt {
-                self.g_b(d[cnt - 1 - i])
+            if i >= cnt {
+                break
             }
+            self.g_b(d[cnt - 1 - i])
         }
     }
 
@@ -846,9 +876,10 @@ struct Ir {
         ensures true
     {
         for i in 0..256 {
-            if i < l {
-                self.g_b(self.c.p.lex.sb_at(a + i))
+            if i >= l {
+                break
             }
+            self.g_b(self.c.p.lex.sb_at(a + i))
         }
     }
 
@@ -868,13 +899,14 @@ struct Ir {
         }
         var ok: bool = true
         for h in 0..2 {
-            if h * 256 < l {
-                for j in 0..256 {
-                    let i: u32 = h * 256 + j
-                    if i < l {
-                        if self.g_at(self.gss[gi] + i) != self.g_at(s + i) {
-                            ok = false
-                        }
+            if h * 256 >= l {
+                break
+            }
+            for j in 0..256 {
+                let i: u32 = h * 256 + j
+                if i < l {
+                    if self.g_at(self.gss[gi] + i) != self.g_at(s + i) {
+                        ok = false
                     }
                 }
             }
@@ -888,12 +920,13 @@ struct Ir {
     {
         var h: u32 = 0
         for hh in 0..2 {
-            if hh * 256 < l {
-                for j in 0..256 {
-                    let i: u32 = hh * 256 + j
-                    if i < l {
-                        h = (h % 131072) * 31 + u32(self.g_at(s + i))
-                    }
+            if hh * 256 >= l {
+                break
+            }
+            for j in 0..256 {
+                let i: u32 = hh * 256 + j
+                if i < l {
+                    h = (h % 131072) * 31 + u32(self.g_at(s + i))
                 }
             }
         }
@@ -932,11 +965,12 @@ struct Ir {
         let h: u32 = self.g_hash(s, l)
         var f: u32 = 4294967295
         for i in 0..65536 {
-            if i < self.ngl and f == 4294967295 {
-                if self.gsh[i] == h and self.gsl[i] == l and self.gvk[i] == vk {
-                    if self.g_eqspan(i, s, l) {
-                        f = i
-                    }
+            if i >= self.ngl or f != 4294967295 {
+                break
+            }
+            if self.gsh[i] == h and self.gsl[i] == l and self.gvk[i] == vk {
+                if self.g_eqspan(i, s, l) {
+                    f = i
                 }
             }
         }
@@ -2008,18 +2042,19 @@ struct Ir {
         self.w_mangle(fi)
         self.lb_lit("\"(")
         for j in 0..8 {
-            if j < cnt {
-                if j > 0 {
-                    self.lb_lit(", ")
-                }
-                let t: u32 = self.agt[base + j]
-                self.wty(t)
-                if self.is_agg(t) {
-                    self.lb_lit("*")
-                }
-                self.lb_lit(" ")
-                self.wref(self.agk[base + j], self.aga[base + j], self.agb[base + j])
+            if j >= cnt {
+                break
             }
+            if j > 0 {
+                self.lb_lit(", ")
+            }
+            let t: u32 = self.agt[base + j]
+            self.wty(t)
+            if self.is_agg(t) {
+                self.lb_lit("*")
+            }
+            self.lb_lit(" ")
+            self.wref(self.agk[base + j], self.aga[base + j], self.agb[base + j])
         }
         self.lb_lit(")")
         self.line_fin()
@@ -2168,11 +2203,12 @@ struct Ir {
     {
         var f: u32 = 4294967295
         for i in 0..256 {
-            if i < self.nvr and f == 4294967295 {
-                if self.vns[i] != 4294967295 {
-                    if self.c.span_eq(self.vns[i], self.vnl[i], a, l) {
-                        f = i
-                    }
+            if i >= self.nvr or f != 4294967295 {
+                break
+            }
+            if self.vns[i] != 4294967295 {
+                if self.c.span_eq(self.vns[i], self.vnl[i], a, l) {
+                    f = i
                 }
             }
         }
@@ -2185,10 +2221,11 @@ struct Ir {
     {
         var f: u32 = 4294967295
         for i in 0..256 {
-            if i < self.nvr and f == 4294967295 {
-                if self.vns[i] == 4294967295 {
-                    f = i
-                }
+            if i >= self.nvr or f != 4294967295 {
+                break
+            }
+            if self.vns[i] == 4294967295 {
+                f = i
             }
         }
         return f
@@ -2223,9 +2260,10 @@ struct Ir {
         self.nx3 = 0
         self.xpush2(root)
         for _ in 0..8192 {
-            if self.nx3 > 0 and not self.failed {
-                self.xstep()
+            if self.nx3 == 0 or self.failed {
+                break
             }
+            self.xstep()
         }
         if self.nx3 > 0 and not self.failed {
             self.fail("выражение слишком велико для self-host")
@@ -2940,11 +2978,12 @@ struct Ir {
         let si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
         var mfi: u32 = 4294967295
         for i in 0..1024 {
-            if i < self.c.nfun and mfi == 4294967295 {
-                if self.c.fown[i] == si {
-                    if self.c.span_eq(self.c.fn_s[i], self.c.fn_l[i], self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]) {
-                        mfi = i
-                    }
+            if i >= self.c.nfun or mfi != 4294967295 {
+                break
+            }
+            if self.c.fown[i] == si {
+                if self.c.span_eq(self.c.fn_s[i], self.c.fn_l[i], self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]) {
+                    mfi = i
                 }
             }
         }
@@ -3616,9 +3655,10 @@ struct Ir {
             bt = self.vty[v2]
         }
         for q in 0..32 {
-            if q < np and not self.failed {
-                bt = self.lv_step(path[np - 1 - q], bt)
+            if q >= np or self.failed {
+                break
             }
+            bt = self.lv_step(path[np - 1 - q], bt)
         }
     }
 
@@ -3690,9 +3730,10 @@ struct Ir {
         self.ns4 = 0
         self.start_blk(body)
         for _ in 0..8192 {
-            if self.ns4 > 0 and not self.failed {
-                self.sstep()
+            if self.ns4 == 0 or self.failed {
+                break
             }
+            self.sstep()
         }
         if self.ns4 > 0 and not self.failed {
             self.fail("тело функции слишком велико для self-host")
@@ -4269,12 +4310,13 @@ struct Ir {
         var cc: u32 = self.c.p.nfc[d / 65536][d % 65536]
         var found: u32 = 4294967295
         for _ in 0..64 {
-            if cc != 4294967295 {
-                if self.c.p.nk[cc / 65536][cc % 65536] == kind and found == 4294967295 {
-                    found = cc
-                }
-                cc = self.c.p.nns[cc / 65536][cc % 65536]
+            if cc == 4294967295 {
+                break
             }
+            if self.c.p.nk[cc / 65536][cc % 65536] == kind and found == 4294967295 {
+                found = cc
+            }
+            cc = self.c.p.nns[cc / 65536][cc % 65536]
         }
         return found
     }
@@ -4361,10 +4403,11 @@ struct Ir {
             }
         }
         for k in 0..8 {
-            if k < self.c.fpc[fi] and not self.failed {
-                ai = ai + 1
-                self.gen_param(self.c.fps[fi] + k, ai)
+            if k >= self.c.fpc[fi] or self.failed {
+                break
             }
+            ai = ai + 1
+            self.gen_param(self.c.fps[fi] + k, ai)
         }
     }
 
@@ -4449,12 +4492,13 @@ struct Ir {
         ensures true
     {
         for h in 0..64 {
-            if h * 256 < l {
-                for j in 0..256 {
-                    let i: u32 = h * 256 + j
-                    if i < l {
-                        write("{char(self.lb_at(a + i))}")
-                    }
+            if h * 256 >= l {
+                break
+            }
+            for j in 0..256 {
+                let i: u32 = h * 256 + j
+                if i < l {
+                    write("{char(self.lb_at(a + i))}")
                 }
             }
         }
@@ -4465,9 +4509,10 @@ struct Ir {
         ensures true
     {
         for i in 0..128 {
-            if i < l {
-                write("{char(self.nb[a + i])}")
+            if i >= l {
+                break
             }
+            write("{char(self.nb[a + i])}")
         }
     }
 
@@ -4476,12 +4521,13 @@ struct Ir {
         ensures true
     {
         for h in 0..64 {
-            if h * 256 < l {
-                for j in 0..256 {
-                    let i: u32 = h * 256 + j
-                    if i < l {
-                        write("{char(self.tp[a + i])}")
-                    }
+            if h * 256 >= l {
+                break
+            }
+            for j in 0..256 {
+                let i: u32 = h * 256 + j
+                if i < l {
+                    write("{char(self.tp[a + i])}")
                 }
             }
         }
@@ -4492,9 +4538,10 @@ struct Ir {
         ensures true
     {
         for i in 0..256 {
-            if i < l {
-                write("{char(self.c.p.lex.sb_at(a + i))}")
+            if i >= l {
+                break
             }
+            write("{char(self.c.p.lex.sb_at(a + i))}")
         }
     }
 
@@ -4558,18 +4605,19 @@ struct Ir {
             write("* %\".{i}\"")
         }
         for k in 0..8 {
-            if k < self.c.fpc[fi] {
-                if i > 0 {
-                    write(", ")
-                }
-                i = i + 1
-                let pt: u32 = self.c.pty[self.c.fps[fi] + k]
-                self.o_ty(pt)
-                if self.is_agg(pt) {
-                    write("*")
-                }
-                write(" %\".{i}\"")
+            if k >= self.c.fpc[fi] {
+                break
             }
+            if i > 0 {
+                write(", ")
+            }
+            i = i + 1
+            let pt: u32 = self.c.pty[self.c.fps[fi] + k]
+            self.o_ty(pt)
+            if self.is_agg(pt) {
+                write("*")
+            }
+            write(" %\".{i}\"")
         }
     }
 
@@ -4581,29 +4629,30 @@ struct Ir {
         var li: u32 = 0
         var hdr: bool = true
         for _ in 0..131072 {
-            if b < self.nbk and not self.failed {
-                if hdr {
-                    self.o_nb(self.bns[b], self.bnl[b])
-                    write(":\n")
-                    li = self.bkf[b]
-                    hdr = false
-                } elif li != 4294967295 {
-                    write("  ")
-                    self.o_lb(self.lns[li], self.lnl[li])
-                    write("\n")
-                    li = self.lnn[li]
-                } else {
-                    if b == 0 {
-                        write("  br label %\"")
-                        self.o_nb(self.bns[1], self.bnl[1])
-                        write("\"\n")
-                    }
-                    if self.bks[b] != 4294967295 {
-                        self.p_switch(self.bks[b])
-                    }
-                    b = b + 1
-                    hdr = true
+            if b >= self.nbk or self.failed {
+                break
+            }
+            if hdr {
+                self.o_nb(self.bns[b], self.bnl[b])
+                write(":\n")
+                li = self.bkf[b]
+                hdr = false
+            } elif li != 4294967295 {
+                write("  ")
+                self.o_lb(self.lns[li], self.lnl[li])
+                write("\n")
+                li = self.lnn[li]
+            } else {
+                if b == 0 {
+                    write("  br label %\"")
+                    self.o_nb(self.bns[1], self.bnl[1])
+                    write("\"\n")
                 }
+                if self.bks[b] != 4294967295 {
+                    self.p_switch(self.bks[b])
+                }
+                b = b + 1
+                hdr = true
             }
         }
     }
@@ -4642,16 +4691,17 @@ struct Ir {
         var ci: u32 = self.swf[s]
         var frs: bool = true
         for _ in 0..4096 {
-            if ci != 4294967295 {
-                if not frs {
-                    write(" ")
-                }
-                frs = false
-                write("i32 {self.csv[ci]}, label %\"")
-                self.o_nb(self.bns[self.csb[ci]], self.bnl[self.csb[ci]])
-                write("\"")
-                ci = self.csn[ci]
+            if ci == 4294967295 {
+                break
             }
+            if not frs {
+                write(" ")
+            }
+            frs = false
+            write("i32 {self.csv[ci]}, label %\"")
+            self.o_nb(self.bns[self.csb[ci]], self.bnl[self.csb[ci]])
+            write("\"")
+            ci = self.csn[ci]
         }
         write("]\n")
     }
@@ -4699,12 +4749,13 @@ struct Ir {
         }
         write("@\"str.{g}\" = private constant [{l} x i8] c\"")
         for h in 0..2 {
-            if h * 256 < l {
-                for j in 0..256 {
-                    let i: u32 = h * 256 + j
-                    if i < l {
-                        self.p_esc(self.g_at(self.gss[g] + i))
-                    }
+            if h * 256 >= l {
+                break
+            }
+            for j in 0..256 {
+                let i: u32 = h * 256 + j
+                if i < l {
+                    self.p_esc(self.g_at(self.gss[g] + i))
                 }
             }
         }
@@ -4767,13 +4818,14 @@ struct Ir {
         ensures true
     {
         for i in 0..65536 {
-            if i < self.ntl {
-                self.p_sep()
-                if self.tlk[i] == 0 {
-                    self.p_glob(self.tlx[i])
-                } else {
-                    self.p_intr(self.tlx[i])
-                }
+            if i >= self.ntl {
+                break
+            }
+            self.p_sep()
+            if self.tlk[i] == 0 {
+                self.p_glob(self.tlx[i])
+            } else {
+                self.p_intr(self.tlx[i])
             }
         }
     }
@@ -4824,23 +4876,25 @@ struct Ir {
         self.p_head()
         var d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
-            if d != 4294967295 and not self.failed {
-                let k: u32 = self.c.p.nk[d / 65536][d % 65536]
-                if k == 6 {
-                    self.gen_fn(self.c.func_by_node(d))
-                } elif k == 4 {
-                    var m: u32 = self.c.p.nfc[d / 65536][d % 65536]
-                    for _ in 0..512 {
-                        if m != 4294967295 and not self.failed {
-                            if self.c.p.nk[m / 65536][m % 65536] == 6 {
-                                self.gen_fn(self.c.func_by_node(m))
-                            }
-                            m = self.c.p.nns[m / 65536][m % 65536]
-                        }
-                    }
-                }
-                d = self.c.p.nns[d / 65536][d % 65536]
+            if d == 4294967295 or self.failed {
+                break
             }
+            let k: u32 = self.c.p.nk[d / 65536][d % 65536]
+            if k == 6 {
+                self.gen_fn(self.c.func_by_node(d))
+            } elif k == 4 {
+                var m: u32 = self.c.p.nfc[d / 65536][d % 65536]
+                for _ in 0..512 {
+                    if m == 4294967295 or self.failed {
+                        break
+                    }
+                    if self.c.p.nk[m / 65536][m % 65536] == 6 {
+                        self.gen_fn(self.c.func_by_node(m))
+                    }
+                    m = self.c.p.nns[m / 65536][m % 65536]
+                }
+            }
+            d = self.c.p.nns[d / 65536][d % 65536]
         }
         if not self.failed {
             self.p_tail()
