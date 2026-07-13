@@ -521,6 +521,32 @@ self-hosted компилятора (Lexer ×3, Parser, Check, Ir) перевед
 llvmlite, цена линковки заметна), но clang-путь — кандидат для
 МК-сборок при cross-compile.
 
+## Статус (2026-07-13, семнадцатая итерация — кросс-компиляция ARM, трек 2)
+
+**Cross-compile сделан.** Mos6502 собран под Cortex-M3
+(thumbv7m-none-eabi) и выполняется на плате QEMU mps2-an385:
+`make verify_arm` — вывод через CMSDK UART байт-в-байт равен
+интерпретатору. Конвейер: `eatc build --trap-codes` (канонический
+verified `.ll`) → `clang --target=thumbv7m-none-eabi -mcpu=cortex-m3
+-O2` → `ld.lld -T mcu/mps2_an385.ld`. Аксиомы ОС — `mcu/runtime_mcu.c`
+(UART, прошитый вход `eat_input`, полухостинг exit/trap, стартап,
+`__aeabi_*`); детали — [mcu/README.md](../../mcu/README.md).
+
+**Числа** (mul13x11.rom):
+
+| Метрика | Хост (Mach-O) | МК (ELF thumbv7m) |
+| --- | --- | --- |
+| код + константы | 69.7 КБ бинарник | **10.7 КБ** флеша (.text 10560 + .rodata 152 + вектора 8 Б) |
+| статические данные RAM | — | .data 0, .bss 4 Б |
+| стек (§8) | 128 МБ линковкой | ≤ 262 594 Б — запас ×15 в 4 МБ RAM платы |
+
+Уроки: (1) типизированные указатели llvmlite (LLVM 20) Apple clang 21
+принимает без конвертации, `-Wno-override-module` снимает конфликт
+triple; (2) freestanding-цели LLVM нужны `__aeabi_memcpy`/`memclr` —
+агрегатные копии str; (3) `.ARM.exidx` (456 Б) отбрасывается в
+linker-скрипте — исключений в языке нет; (4) режим trap-кодов —
+именно то, что делает `.rodata` 152 Б вместо килобайт строк.
+
 ## F1. Нет оптимизации IR при сборке бинарника
 
 Доказательство (пересборка готовых `.ll` руками):
