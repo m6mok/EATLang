@@ -28,7 +28,8 @@ Python-бутстрап (`src/eatc/`) — эталон, с которым всё
 2. **Изменения синтаксиса/семантики/встроенных — только с решением
    пользователя.** Не хватает конструкции — остановись и сообщи.
 3. **Определение готовности**:
-   `make check verify verify_suite verify_selfhost verify_bootstrap`
+   `make check verify verify_suite verify_selfhost verify_bootstrap
+   verify_trapcodes`
    проходит целиком. Частично зелёное не коммитится.
 4. **Не открывать обходов Power of 10**: ни кучи, ни рекурсии,
    ни цикла без границы, ни глобалов, ни молча отброшенного результата
@@ -45,6 +46,7 @@ make check           # компиляция примеров: парсинг, Po
 make verify          # бинарники == интерпретатор на всех примерах
 make verify_selfhost # self-hosted компилятор против эталона на всех .eat
 make verify_bootstrap# фикспойнт: компилятор собирает сам себя
+make verify_trapcodes# режим trap-кодов (МК): SelfIrCodes == eatc ir --trap-codes
 ```
 
 CLI компилятора: `PYTHONPATH=src uv run python -m eatc
@@ -55,7 +57,7 @@ CLI компилятора: `PYTHONPATH=src uv run python -m eatc
 ```text
 src/eatc/     Python-бутстрап (эталон): lexer → parser → checks →
               typechecker → interpreter → verifier → codegen; runtime.c —
-              шим из пяти аксиом ОС
+              шим шести аксиом ОС (семь функций)
 selfhost/     компилятор на EATLang: Tok, Lexer, Ast, Parser, Check, Ir,
               *Main; Rt.eat — рантайм, первый модуль каждой программы
 examples/     эталонные примеры (all — витрина конструкций; mos6502 —

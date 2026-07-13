@@ -70,6 +70,9 @@ SELFHOST_TYPED = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/Check.eat selfhost/TypedMain.eat
 SELFHOST_IR = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
 	selfhost/Parser.eat selfhost/Check.eat selfhost/Ir.eat selfhost/IrMain.eat
+SELFHOST_IR_CODES = $(RT) selfhost/Tok.eat selfhost/Lexer.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/Ir.eat selfhost/IrCodesMain.eat
 
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
 # (пулы компилятора живут в кадре main — как в src/eatc/codegen.py;
@@ -192,6 +195,17 @@ verify_bootstrap:
 	@diff /tmp/eat_boot_1.ll /tmp/eat_boot_2.ll > /dev/null \
 		&& echo "BOOT OK (fixpoint: stage2 эмитит байт-в-байт тот же IR)" \
 		|| { echo "BOOT DIFF fixpoint"; exit 1; }
+
+# Режим trap-кодов (МК, метрика флеша): self-hosted эмиттер
+# SelfIrCodes против эталона `eatc ir --trap-codes`, байт-в-байт
+verify_trapcodes:
+	@$(EATC) build $(SELFHOST_IR_CODES) -o build/SelfIrCodes > /dev/null
+	@cat $(SELFHOST_IR) > /tmp/eat_tc_src.eat
+	@$(EATC) ir --trap-codes /tmp/eat_tc_src.eat > /tmp/eat_tc_ref.ll
+	@./build/SelfIrCodes < /tmp/eat_tc_src.eat > /tmp/eat_tc_self.ll
+	@diff /tmp/eat_tc_ref.ll /tmp/eat_tc_self.ll > /dev/null \
+		&& echo "TRAPCODES OK (IR режима кодов == эталон eatc ir --trap-codes)" \
+		|| { echo "TRAPCODES DIFF"; exit 1; }
 
 # ==== Сборка языка и программ ===========================================
 # Компилятор EATLang — фильтр stdin → stdout: получает конкатенацию

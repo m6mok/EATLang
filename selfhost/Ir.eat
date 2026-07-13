@@ -173,6 +173,9 @@ struct Ir {
     ns4: u32
     # печать модуля: первый элемент?
     fst: u32
+    # режим trap-строк: 0 — сообщения-глобалы (канон), 1 — коды
+    # (eat_trap_code + таблица p_trapmap; вход МК, IrCodesMain.eat)
+    tmode: u32
 
     # --- инфраструктура ---------------------------------------------------
 
@@ -1011,7 +1014,11 @@ struct Ir {
         self.gvk[g] = vk
         self.ngl = g + 1
         self.ghx[slot >> 16][slot & 65535] = g
-        self.tail_add(0, g)
+        # режим trap-кодов: сообщение не печатается глобалом —
+        # только строкой таблицы p_trapmap
+        if self.tmode == 0 or vk == 1 {
+            self.tail_add(0, g)
+        }
         return g
     }
 
@@ -2036,6 +2043,18 @@ struct Ir {
         self.line_fin()
     }
 
+    # call void @"eat_trap_code"(i32 g) — режим trap-кодов (tmode 1)
+    func e_trapcode(var self, g: u32)
+        requires g < 65536
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_trap_code\"(i32 ")
+        self.lb_dec(g)
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
     # --- стек аргументов и вызовы пользовательских функций -------------------
 
     func ag_push(var self, t: u32)
@@ -2185,9 +2204,13 @@ struct Ir {
         self.e_cbr(tb, ob)
         self.cb = tb
         let g: u32 = self.trap_glob(ln, cl, mk, e1, e2)
-        self.e_gepg(g)
-        self.set1rr()
-        self.e_trapc()
+        if self.tmode == 1 {
+            self.e_trapcode(g)
+        } else {
+            self.e_gepg(g)
+            self.set1rr()
+            self.e_trapc()
+        }
         self.e_unr()
         self.cb = ob
     }
@@ -4986,6 +5009,10 @@ struct Ir {
         write("declare void @\"eat_write_span\"(i8* %\".1\", i32 %\".2\") nounwind\n")
         self.p_sep()
         write("declare void @\"eat_exit\"(i32 %\".1\") noreturn nounwind\n")
+        if self.tmode == 1 {
+            self.p_sep()
+            write("declare void @\"eat_trap_code\"(i32 %\".1\") cold noreturn nounwind\n")
+        }
     }
 
     func p_main(var self)
@@ -5036,6 +5063,39 @@ struct Ir {
         if not self.failed {
             self.p_tail()
             self.p_main()
+            if self.tmode == 1 {
+                self.p_trapmap()
+            }
+        }
+    }
+
+    # Таблица режима trap-кодов: `; trap <код>: <сообщение>` —
+    # комментарии в самом хвосте .ll (во флеш не попадают).
+    func p_trapmap(var self)
+        requires true
+        ensures true
+    {
+        for g in 0..65536 {
+            if g >= self.ngl {
+                break
+            }
+            if self.gvk[g] == 0 {
+                write("; trap {g}: ")
+                # без завершающего NUL пула (последний байт)
+                let l: u32 = self.gsl[g] - 1
+                for h in 0..2 {
+                    if h * 256 >= l {
+                        break
+                    }
+                    for j in 0..256 {
+                        let i: u32 = h * 256 + j
+                        if i < l {
+                            write_byte(self.g_at(self.gss[g] + i))
+                        }
+                    }
+                }
+                write_byte(10)
+            }
         }
     }
 }

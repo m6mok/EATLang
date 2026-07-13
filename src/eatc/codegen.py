@@ -77,15 +77,32 @@ def _is_agg(t: Type) -> bool:
 
 
 class Codegen:
-    def __init__(self, program: ast.Program, checker, filename: str):
+    def __init__(
+        self,
+        program: ast.Program,
+        checker,
+        filename: str,
+        trap_codes: bool = False,
+    ):
         self.program = program
         self.checker = checker
         self.filename = filename
+        # режим trap-кодов (--trap-codes, метрика флеша МК): вместо
+        # уникальных строк-сообщений — числовые коды в eat_trap_code;
+        # таблица код -> сообщение уходит комментариями в хвост .ll
+        self.trap_codes = trap_codes
+        self.trap_map: dict[str, int] = {}
+        self.trap_list: list[tuple[int, str]] = []
         self.module = ir.Module(name=filename)
         self.module.triple = llvm.get_process_triple()
+        rt_decls = dict(_RUNTIME)
+        if trap_codes:
+            rt_decls["eat_trap_code"] = ir.FunctionType(
+                ir.VoidType(), [I32L]
+            )
         self.rt = {
             name: ir.Function(self.module, ftype, name=name)
-            for name, ftype in _RUNTIME.items()
+            for name, ftype in rt_decls.items()
         }
         # аксиомы не разворачивают стек; trap/exit не возвращаются,
         # trap-пути холодные — LLVM выносит их из горячего кода
@@ -94,6 +111,9 @@ class Codegen:
         self.rt["eat_trap"].attributes.add("noreturn")
         self.rt["eat_trap"].attributes.add("cold")
         self.rt["eat_exit"].attributes.add("noreturn")
+        if trap_codes:
+            self.rt["eat_trap_code"].attributes.add("noreturn")
+            self.rt["eat_trap_code"].attributes.add("cold")
         self.cstr_cache: dict[bytes, ir.GlobalVariable] = {}
         self.strlit_cache: dict[bytes, ir.GlobalVariable] = {}
         # declare_intrinsic ищет глобал по манглированному имени на
@@ -227,8 +247,19 @@ class Codegen:
         ok_bb = self.fn.append_basic_block("ok")
         self.b.cbranch(bad, bad_bb, ok_bb)
         self.b.position_at_end(bad_bb)
-        ptr, _ = self.cstr(full)
-        self.b.call(self.rt["eat_trap"], [ptr])
+        if self.trap_codes:
+            # код = номер, который занял бы глобал сообщения: нумерация
+            # @"str.N" совпадает со строковым режимом и зеркалом
+            code = self.trap_map.get(full)
+            if code is None:
+                code = self.gname_n
+                self.gname_n += 1
+                self.trap_map[full] = code
+                self.trap_list.append((code, full))
+            self.b.call(self.rt["eat_trap_code"], [I32L(code)])
+        else:
+            ptr, _ = self.cstr(full)
+            self.b.call(self.rt["eat_trap"], [ptr])
         self.b.unreachable()
         self.b.position_at_end(ok_bb)
 
@@ -1207,23 +1238,32 @@ def _memory_report(cg: Codegen, checker, machine) -> dict:
     }
 
 
-def emit_ir(program: ast.Program, checker) -> str:
+def _trap_map_text(cg: Codegen) -> str:
+    """Таблица код -> сообщение режима trap-кодов: комментарии в хвосте
+    .ll (валидный IR; во флеш не попадают)."""
+    return "".join(
+        f"; trap {code}: {msg}\n" for code, msg in cg.trap_list
+    )
+
+
+def emit_ir(program: ast.Program, checker, trap_codes: bool = False) -> str:
     """Текстовый LLVM IR — канон дифф-сверки фазы 4 self-host
     (`eatc ir`, selfhost/Ir.eat). Без верификатора: все проверки
     остаются в рантайме. Имя модуля и файл в trap-сообщениях —
     «stdin», triple пуст: вывод не зависит от платформы и пути
     файла (self-hosted эмиттер читает исходник со stdin)."""
-    cg = Codegen(program, checker, "stdin")
+    cg = Codegen(program, checker, "stdin", trap_codes=trap_codes)
     module = cg.generate()
     module.triple = ""
-    return str(module)
+    return str(module) + _trap_map_text(cg)
 
 
 def compile_binary(
-    program: ast.Program, checker, filename: str, out_path: str
+    program: ast.Program, checker, filename: str, out_path: str,
+    trap_codes: bool = False,
 ) -> tuple[str, dict]:
     """AST → LLVM IR → объектный файл → clang → бинарник + отчёт §8."""
-    cg = Codegen(program, checker, filename)
+    cg = Codegen(program, checker, filename, trap_codes=trap_codes)
     module = cg.generate()
     try:
         llvm.initialize_native_target()
@@ -1237,7 +1277,9 @@ def compile_binary(
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     ll_path = out.with_suffix(".ll")
-    ll_path.write_text(str(module), encoding="utf-8")
+    ll_path.write_text(
+        str(module) + _trap_map_text(cg), encoding="utf-8"
+    )
     # Оптимизация — только на пути IR → объектный код: .ll выше уже
     # записан неоптимизированным (канон дифф-сверки и отладки), а
     # текстовую эмиссию `eatc ir` фикспойнт бутстрапа требует

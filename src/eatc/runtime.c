@@ -65,3 +65,12 @@ void eat_trap(const char *msg) {
     fprintf(stderr, "%s\n", msg);
     exit(1);
 }
+
+/* Аварийная остановка в режиме trap-кодов (--trap-codes, метрика
+ * флеша МК): в бинарнике вместо текста — число; таблица
+ * `; trap <код>: <сообщение>` — комментарии в хвосте .ll. */
+void eat_trap_code(uint32_t code) {
+    fflush(stdout);
+    fprintf(stderr, "trap %u\n", code);
+    exit(1);
+}

@@ -147,14 +147,14 @@ def cmd_typed(path: str) -> int:
     return 0
 
 
-def cmd_ir(path: str) -> int:
+def cmd_ir(path: str, trap_codes: bool = False) -> int:
     from .codegen import emit_ir
 
     try:
         program = parse_file(path)
         check_program(program, path)
         typed = typecheck(program, path)
-        text = emit_ir(program, typed.checker)
+        text = emit_ir(program, typed.checker, trap_codes=trap_codes)
     except (OSError, EatError) as err:
         print(err, file=sys.stderr)
         return 1
@@ -174,7 +174,7 @@ _KIND_LABEL = {
 }
 
 
-def cmd_build(paths: list, out: str | None) -> int:
+def cmd_build(paths: list, out: str | None, trap_codes: bool = False) -> int:
     from .codegen import compile_binary
     from .verifier import verify
 
@@ -184,7 +184,9 @@ def cmd_build(paths: list, out: str | None) -> int:
         program, _, typed, main = _compile_many(paths)
         tests = Interpreter(program, main).run_tests()
         proofs = verify(program, typed.checker)
-        binary, report = compile_binary(program, typed.checker, main, out)
+        binary, report = compile_binary(
+            program, typed.checker, main, out, trap_codes=trap_codes
+        )
     except EatError as err:
         print(err, file=sys.stderr)
         return 1
@@ -213,6 +215,11 @@ def cmd_build(paths: list, out: str | None) -> int:
 
 
 def main(argv: list[str]) -> int:
+    # --trap-codes (ir/build): режим кодов вместо trap-строк —
+    # метрика флеша МК; таблица кодов — комментарии в хвосте .ll
+    trap_codes = "--trap-codes" in argv
+    if trap_codes:
+        argv = [a for a in argv if a != "--trap-codes"]
     if len(argv) >= 2 and argv[0] == "check":
         return cmd_check(argv[1:])
     if len(argv) >= 2 and argv[0] == "run":
@@ -226,7 +233,7 @@ def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "typed":
         return cmd_typed(argv[1])
     if len(argv) == 2 and argv[0] == "ir":
-        return cmd_ir(argv[1])
+        return cmd_ir(argv[1], trap_codes=trap_codes)
     if len(argv) >= 2 and argv[0] == "build":
         args = argv[1:]
         out = None
@@ -238,12 +245,12 @@ def main(argv: list[str]) -> int:
             out = args[i + 1]
             args = args[:i]
         if args:
-            return cmd_build(args, out)
+            return cmd_build(args, out, trap_codes=trap_codes)
     print(
         "использование: python -m eatc "
         "(check <файлы.eat...> | run <файлы...> | "
-        "build <файлы...> [-o out] | lex <файл> | parse <файл> | "
-        "ir <файл>)",
+        "build <файлы...> [-o out] [--trap-codes] | lex <файл> | "
+        "parse <файл> | ir <файл> [--trap-codes])",
         file=sys.stderr,
     )
     return 2
