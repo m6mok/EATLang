@@ -207,53 +207,100 @@ verify_trapcodes:
 		&& echo "TRAPCODES OK (IR режима кодов == эталон eatc ir --trap-codes)" \
 		|| { echo "TRAPCODES DIFF"; exit 1; }
 
-# ==== Трек 2 (МК): кросс-компиляция ARM Cortex-M3 ======================
-# Канонический .ll платформонезависим — clang перекладывает его под
-# thumbv7m-none-eabi, ld.lld собирает ELF для платы QEMU mps2-an385
-# (mcu/mps2_an385.ld). Аксиомы ОС — mcu/runtime_mcu.c: вывод в CMSDK
-# UART0, вход прошит в образ (mcu/embed_input.py — у UART нет EOF),
-# exit/trap — полухостинг. Тулчейн: brew install lld qemu.
+# ==== Трек 2 (МК): кросс-компиляция ARM Cortex-M ========================
+# Структура портов (docs/MCU_PLAN.md §4): mcu/common/ — стартап,
+# EABI-хелперы, шим аксиом поверх board_putc; mcu/boards/<board>/ —
+# board.c (UART платы), board.ld (память), board.mk (--target, RAM,
+# QEMU-машина или команда прошивки). Вход прошивается в образ
+# (mcu/common/embed_input.py — у UART нет EOF), живой ввод — extern.
 #
-# LTO — только для кода программы (-flto на .ll, −32 % флеша,
-# линковка мгновенная): шим остаётся нативным объектом, иначе lld
-# выбрасывает __aeabi_*-хелперы на разрешении символов — ссылки
-# на них появляются лишь при LTO-кодогенерации.
+#   make mcu       BOARD=mps2_an385 SRC="selfhost/Rt.eat App.eat" \
+#                  [EXTERN="drv.c"] [INPUT=data.bin]   # прошивка .elf
+#   make mcu_run   BOARD=… SRC=…                       # запуск в QEMU
+#
+# Сборка печатает отчёт §8 и сверяет стек+данные с RAM платы
+# (mcu/common/check_mem.py) — переполнение валит сборку. LTO — только
+# на коде программы (−32 % флеша): биткодный шим lld выбрасывает
+# __aeabi_* на разрешении символов. Тулчейн: brew install lld qemu.
 
-ARM_CC = clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -O2 \
-	-ffreestanding -fno-unwind-tables -Wno-override-module
-ARM_QEMU = qemu-system-arm -M mps2-an385 -semihosting -display none \
-	-monitor none -serial stdio
+.PHONY: mcu mcu_run verify_mcu verify_mcu_blinky verify_arm
 
-ARM_MCU_DEPS = mcu/runtime_mcu.c mcu/mps2_an385.ld mcu/embed_input.py
+BOARD ?= mps2_an385
+include mcu/boards/$(BOARD)/board.mk
+MCU_CC = clang $(ARCH_FLAGS) -O2 -ffreestanding -fno-unwind-tables \
+	-Wno-override-module
+MCU_QEMU = qemu-system-arm -M $(QEMU_MACHINE) -semihosting \
+	-display none -monitor none -serial stdio
+MCU_PROG = $(basename $(notdir $(lastword $(SRC))))
+MCU_DIR = build/mcu/$(BOARD)
+MCU_COMMON = mcu/common/runtime.c mcu/common/startup.c
 
-build/arm/Mos6502.elf: $(MOS6502_EXAMPLE) $(ARM_MCU_DEPS) \
-		examples/mos6502/mul13x11.rom
-	@mkdir -p build/arm
-	$(EATC) build --trap-codes $(MOS6502_EXAMPLE) -o build/arm/Mos6502
-	uv run python mcu/embed_input.py examples/mos6502/mul13x11.rom \
-		> build/arm/rom_input.c
-	$(ARM_CC) -flto -c build/arm/Mos6502.ll -o build/arm/Mos6502.o
-	$(ARM_CC) -c mcu/runtime_mcu.c -o build/arm/runtime_mcu.o
-	$(ARM_CC) -c build/arm/rom_input.c -o build/arm/rom_input.o
-	ld.lld -T mcu/mps2_an385.ld build/arm/Mos6502.o \
-		build/arm/runtime_mcu.o build/arm/rom_input.o \
-		-o build/arm/Mos6502.elf
-	@xcrun llvm-size build/arm/Mos6502.elf
+mcu:
+	@test -n "$(SRC)" || { echo 'использование: make mcu BOARD=... SRC="Мод.eat Main.eat" [EXTERN=drv.c] [INPUT=file]'; exit 1; }
+	@mkdir -p $(MCU_DIR)
+	$(EATC) build --trap-codes --no-bin $(SRC) -o $(MCU_DIR)/$(MCU_PROG) \
+		| tee $(MCU_DIR)/$(MCU_PROG).report
+	@if [ -n "$(INPUT)" ]; then \
+		uv run python mcu/common/embed_input.py $(INPUT) > $(MCU_DIR)/input.c; \
+	else \
+		uv run python mcu/common/embed_input.py /dev/null > $(MCU_DIR)/input.c; \
+	fi
+	$(MCU_CC) -flto -c $(MCU_DIR)/$(MCU_PROG).ll -o $(MCU_DIR)/$(MCU_PROG).o
+	@for f in $(MCU_COMMON) mcu/boards/$(BOARD)/board.c $(MCU_DIR)/input.c $(EXTERN); do \
+		$(MCU_CC) -c $$f -o $(MCU_DIR)/$$(basename $$f .c).o || exit 1; \
+	done
+	ld.lld -T mcu/boards/$(BOARD)/board.ld $(MCU_DIR)/$(MCU_PROG).o \
+		$(MCU_DIR)/runtime.o $(MCU_DIR)/startup.o $(MCU_DIR)/board.o \
+		$(MCU_DIR)/input.o \
+		$(if $(EXTERN),$(patsubst %.c,$(MCU_DIR)/%.o,$(notdir $(EXTERN)))) \
+		-o $(MCU_DIR)/$(MCU_PROG).elf
+	@xcrun llvm-size $(MCU_DIR)/$(MCU_PROG).elf
+	@uv run python mcu/common/check_mem.py $(MCU_DIR)/$(MCU_PROG).report \
+		$(MCU_DIR)/$(MCU_PROG).elf $(RAM_SIZE)
 
-arm_mos6502: build/arm/Mos6502.elf
+mcu_run: mcu
+	$(MCU_QEMU) -kernel $(MCU_DIR)/$(MCU_PROG).elf
 
-run_arm_mos6502: build/arm/Mos6502.elf
-	$(ARM_QEMU) -kernel build/arm/Mos6502.elf
+# Сверка МК-сборок в QEMU (все платы mcu/boards/ c QEMU-машиной):
+#   mos6502 (без extern) — вывод == интерпретатор; только mps2-an385:
+#   в 16/8/128 КБ RAM остальных плат его 262 КБ стека не влезают —
+#   это ровно то, что ловит автосверка §8;
+#   extern-пример Blinky — вывод == хостовый бинарник с host_driver.c
+#   (интерпретатор extern не исполняет — эталоном служит хост).
+QEMU_BOARDS = mps2_an385 microbit stm32vldiscovery netduinoplus2
 
-# Сверка кросс-сборки: вывод программы в QEMU (UART -> stdout)
-# байт-в-байт равен интерпретатору и нативному бинарнику хоста
-verify_arm: build/arm/Mos6502.elf
+verify_mcu:
+	@$(MAKE) -s mcu BOARD=mps2_an385 SRC="$(MOS6502_EXAMPLE)" \
+		INPUT=examples/mos6502/mul13x11.rom > /dev/null
 	@cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE) \
 		> /tmp/eat_interp.txt
-	@$(ARM_QEMU) -kernel build/arm/Mos6502.elf > /tmp/eat_arm.txt
-	@diff /tmp/eat_interp.txt /tmp/eat_arm.txt \
-		&& echo "VERIFIED ARM Mos6502 (QEMU mps2-an385 == интерпретатор)" \
+	@qemu-system-arm -M mps2-an385 -semihosting -display none \
+		-monitor none -serial stdio \
+		-kernel build/mcu/mps2_an385/Main.elf > /tmp/eat_mcu.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_mcu.txt \
+		&& echo "VERIFIED MCU Mos6502 (mps2_an385: QEMU == интерпретатор)" \
 		|| exit 1
+	@$(EATC) build --no-bin $(RT) examples/extern/Blinky.eat \
+		-o build/Blinky > /dev/null
+	@clang -O2 build/Blinky.ll src/eatc/runtime.c \
+		examples/extern/host_driver.c -o build/Blinky \
+		-Wno-override-module $(STACK_FLAGS)
+	@./build/Blinky > /tmp/eat_host.txt
+	@for b in $(QEMU_BOARDS); do \
+		$(MAKE) -s verify_mcu_blinky BOARD=$$b || exit 1; \
+	done
+
+# Один порт: Blinky в QEMU == хостовый эталон (вызывается verify_mcu)
+verify_mcu_blinky:
+	@$(MAKE) -s mcu BOARD=$(BOARD) SRC="$(RT) examples/extern/Blinky.eat" \
+		EXTERN=examples/extern/mcu_driver.c > /dev/null
+	@$(MCU_QEMU) -kernel $(MCU_DIR)/Blinky.elf > /tmp/eat_mcu.txt
+	@diff /tmp/eat_host.txt /tmp/eat_mcu.txt \
+		&& echo "VERIFIED MCU Blinky ($(BOARD): QEMU == хост, extern)" \
+		|| exit 1
+
+# Обратная совместимость с первым этапом трека 2
+verify_arm: verify_mcu
 
 # ==== Сборка языка и программ ===========================================
 # Компилятор EATLang — фильтр stdin → stdout: получает конкатенацию
@@ -298,10 +345,11 @@ compile: $(COMPILER)
 	@cat $(RT) $(SRC) | ./$(COMPILER) > $(LL) || { rm -f $(LL); exit 1; }
 	@echo "$(LL)"
 
-# Линковка: IR + шим аксиом ОС (runtime.c) → нативный бинарник
+# Линковка: IR + шим аксиом ОС (runtime.c) [+ extern-драйверы
+# проекта: EXTERN="drv.c"] → нативный бинарник
 link:
 	@test -f "$(LL)" || { echo "нет $(LL) — сначала make compile SRC=..."; exit 1; }
-	@clang -O2 $(LL) src/eatc/runtime.c -o $(BIN) -Wno-override-module $(STACK_FLAGS)
+	@clang -O2 $(LL) src/eatc/runtime.c $(EXTERN) -o $(BIN) -Wno-override-module $(STACK_FLAGS)
 	@echo "$(BIN)"
 
 # Запуск слинкованной программы (stdin проходит насквозь)

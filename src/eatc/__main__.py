@@ -174,7 +174,10 @@ _KIND_LABEL = {
 }
 
 
-def cmd_build(paths: list, out: str | None, trap_codes: bool = False) -> int:
+def cmd_build(
+    paths: list, out: str | None, trap_codes: bool = False,
+    link: bool = True,
+) -> int:
     from .codegen import compile_binary
     from .verifier import verify
 
@@ -185,7 +188,8 @@ def cmd_build(paths: list, out: str | None, trap_codes: bool = False) -> int:
         tests = Interpreter(program, main).run_tests()
         proofs = verify(program, typed.checker)
         binary, report = compile_binary(
-            program, typed.checker, main, out, trap_codes=trap_codes
+            program, typed.checker, main, out, trap_codes=trap_codes,
+            link=link,
         )
     except EatError as err:
         print(err, file=sys.stderr)
@@ -220,6 +224,11 @@ def main(argv: list[str]) -> int:
     trap_codes = "--trap-codes" in argv
     if trap_codes:
         argv = [a for a in argv if a != "--trap-codes"]
+    # --no-bin (build): только .ll + отчёт §8, без хостовой линковки —
+    # для кросс-сборок МК (extern-программы линкует make mcu)
+    no_bin = "--no-bin" in argv
+    if no_bin:
+        argv = [a for a in argv if a != "--no-bin"]
     if len(argv) >= 2 and argv[0] == "check":
         return cmd_check(argv[1:])
     if len(argv) >= 2 and argv[0] == "run":
@@ -245,7 +254,9 @@ def main(argv: list[str]) -> int:
             out = args[i + 1]
             args = args[:i]
         if args:
-            return cmd_build(args, out, trap_codes=trap_codes)
+            return cmd_build(
+                args, out, trap_codes=trap_codes, link=not no_bin
+            )
     print(
         "использование: python -m eatc "
         "(check <файлы.eat...> | run <файлы...> | "

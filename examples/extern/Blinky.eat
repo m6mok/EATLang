@@ -1,0 +1,25 @@
+# Демонстрация extern: логика на EATLang, драйверы — на C за границей.
+# Один исходник собирается и на хост (host_driver.c — заглушка), и на
+# МК (mcu_driver.c поверх шима платы): вывод байт-в-байт одинаков.
+
+extern func led_set(on: bool)
+    requires true
+
+extern func delay_ms(ms: u32)
+    requires ms <= 1000
+
+extern func button_pressed() -> bool
+    ensures true
+
+func main() {
+    var presses: u32 = 0
+    for i in 0..8 {
+        led_set(i % 2 == 0)
+        if button_pressed() {
+            presses = presses + 1
+        }
+        delay_ms(100)
+    }
+    led_set(false)
+    print("нажатий за 8 тактов: {presses}")
+}

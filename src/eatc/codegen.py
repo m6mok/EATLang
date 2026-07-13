@@ -1331,7 +1331,7 @@ def emit_ir(program: ast.Program, checker, trap_codes: bool = False) -> str:
 
 def compile_binary(
     program: ast.Program, checker, filename: str, out_path: str,
-    trap_codes: bool = False,
+    trap_codes: bool = False, link: bool = True,
 ) -> tuple[str, dict]:
     """AST → LLVM IR → объектный файл → clang → бинарник + отчёт §8."""
     cg = Codegen(program, checker, filename, trap_codes=trap_codes)
@@ -1364,6 +1364,10 @@ def compile_binary(
     pb = llvm.create_pass_builder(machine, pto)
     mpm = pb.getModulePassManager()
     mpm.run(ref, pb)
+    if not link:
+        # --no-bin: только .ll + отчёт §8 — хостовая линковка не нужна
+        # (extern-программы линкуются с драйверами на стороне МК-сборки)
+        return str(ll_path), report
     obj_path = out.with_suffix(".o")
     obj_path.write_bytes(machine.emit_object(ref))
     runtime = Path(__file__).parent / "runtime.c"
