@@ -213,6 +213,11 @@ verify_trapcodes:
 # (mcu/mps2_an385.ld). Аксиомы ОС — mcu/runtime_mcu.c: вывод в CMSDK
 # UART0, вход прошит в образ (mcu/embed_input.py — у UART нет EOF),
 # exit/trap — полухостинг. Тулчейн: brew install lld qemu.
+#
+# LTO — только для кода программы (-flto на .ll, −32 % флеша,
+# линковка мгновенная): шим остаётся нативным объектом, иначе lld
+# выбрасывает __aeabi_*-хелперы на разрешении символов — ссылки
+# на них появляются лишь при LTO-кодогенерации.
 
 ARM_CC = clang --target=thumbv7m-none-eabi -mcpu=cortex-m3 -O2 \
 	-ffreestanding -fno-unwind-tables -Wno-override-module
@@ -227,7 +232,7 @@ build/arm/Mos6502.elf: $(MOS6502_EXAMPLE) $(ARM_MCU_DEPS) \
 	$(EATC) build --trap-codes $(MOS6502_EXAMPLE) -o build/arm/Mos6502
 	uv run python mcu/embed_input.py examples/mos6502/mul13x11.rom \
 		> build/arm/rom_input.c
-	$(ARM_CC) -c build/arm/Mos6502.ll -o build/arm/Mos6502.o
+	$(ARM_CC) -flto -c build/arm/Mos6502.ll -o build/arm/Mos6502.o
 	$(ARM_CC) -c mcu/runtime_mcu.c -o build/arm/runtime_mcu.o
 	$(ARM_CC) -c build/arm/rom_input.c -o build/arm/rom_input.o
 	ld.lld -T mcu/mps2_an385.ld build/arm/Mos6502.o \
