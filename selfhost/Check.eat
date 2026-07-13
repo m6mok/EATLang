@@ -116,6 +116,8 @@ struct Check {
     tt_s: [u32; 64]
     tt_l: [u32; 64]
     ttn: u32
+    # ранги ключей сортировки рёбер: erk[код] — номер в порядке имён
+    erk: [u32; 4096]
     # машина выражений: кадры (узел, фаза, ожидаемый тип, aux)
     xn: [u32; 64]
     xp: [u32; 64]
@@ -3844,24 +3846,69 @@ struct Check {
     }
 
     # Ребро i больше ребра j (по ключам вызывающего, затем вызываемого)?
+    # Ранг кода — число ключей строго меньше его ключа: порядок рангов
+    # совпадает с порядком ключей (строгая монотонность), равенство
+    # рангов равносильно равенству ключей — сортировка по рангам даёт
+    # байт-в-байт тот же порядок, что посимвольная.
+    func rank_of(var self, code: u32) -> u32
+        requires true
+        ensures true
+    {
+        var r: u32 = 0
+        for c2 in 0..1024 {
+            if c2 >= self.nfun {
+                break
+            }
+            if self.cmp_key(c2, code) == 0 {
+                r = r + 1
+            }
+        }
+        for t2 in 0..64 {
+            if t2 >= self.ttn {
+                break
+            }
+            if self.cmp_key(2048 + t2, code) == 0 {
+                r = r + 1
+            }
+        }
+        return r
+    }
+
+    func rank_build(var self)
+        requires true
+        ensures true
+    {
+        for c1 in 0..1024 {
+            if c1 >= self.nfun {
+                break
+            }
+            self.erk[c1] = self.rank_of(c1)
+        }
+        for t1 in 0..64 {
+            if t1 >= self.ttn {
+                break
+            }
+            self.erk[2048 + t1] = self.rank_of(2048 + t1)
+        }
+    }
+
     func edge_gt(var self, i: u32, j: u32) -> bool
         requires i < 4096 and j < 4096
         ensures true
     {
-        let c: u32 = self.cmp_key(self.eg_c[i], self.eg_c[j])
-        if c == 2 {
-            return true
+        let a1: u32 = self.erk[self.eg_c[i] & 4095]
+        let b1: u32 = self.erk[self.eg_c[j] & 4095]
+        if a1 != b1 {
+            return a1 > b1
         }
-        if c == 0 {
-            return false
-        }
-        return self.cmp_key(self.eg_d[i], self.eg_d[j]) == 2
+        return self.erk[self.eg_d[i] & 4095] > self.erk[self.eg_d[j] & 4095]
     }
 
     func dump_edges(var self)
         requires true
         ensures true
     {
+        self.rank_build()
         # сортировка выбором
         for i in 0..4096 {
             if i >= self.neg {

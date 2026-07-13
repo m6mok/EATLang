@@ -41,6 +41,9 @@ struct Ir {
     gsh: [u32; 65536]
     gvk: [u32; 65536]
     ngl: u32
+    # хеш-корзина дедупа глобалов: open addressing, 131072 слотов
+    # (нагрузка <= 1/2), слот — индекс глобала или NONE
+    ghx: [[u32; 65536]; 2]
     # хвост модуля: 0 глобал / 1 declare интринзика
     tlk: [u32; 65536]
     tlx: [u32; 65536]
@@ -973,15 +976,24 @@ struct Ir {
         let s: u32 = self.gmk
         let l: u32 = self.gpl - s
         let h: u32 = self.g_hash(s, l)
+        # поиск по хеш-корзине: линейное пробирование до пустого слота;
+        # дедуп-индекс тот же, что у линейного скана — равный глобал
+        # в пуле единственный
         var f: u32 = 4294967295
-        for i in 0..65536 {
-            if i >= self.ngl or f != 4294967295 {
+        var slot: u32 = h & 131071
+        var stop: bool = false
+        for _ in 0..131072 {
+            if stop {
                 break
             }
-            if self.gsh[i] == h and self.gsl[i] == l and self.gvk[i] == vk {
-                if self.g_eqspan(i, s, l) {
-                    f = i
-                }
+            let gi: u32 = self.ghx[slot >> 16][slot & 65535]
+            if gi == 4294967295 {
+                stop = true
+            } elif self.gsh[gi & 65535] == h and self.gsl[gi & 65535] == l and self.gvk[gi & 65535] == vk and self.g_eqspan(gi & 65535, s, l) {
+                f = gi
+                stop = true
+            } else {
+                slot = (slot + 1) & 131071
             }
         }
         if f != 4294967295 {
@@ -998,6 +1010,7 @@ struct Ir {
         self.gsh[g] = h
         self.gvk[g] = vk
         self.ngl = g + 1
+        self.ghx[slot >> 16][slot & 65535] = g
         self.tail_add(0, g)
         return g
     }
