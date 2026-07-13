@@ -8,7 +8,11 @@
   stress   — входы на лимитах SPEC.md §6 и за ними: принять или быстро
              упасть с внятной ошибкой, без зависаний;
   selfhost — self-hosted лексер/парсер (нативные бинарники) против
-             Python-эталона на большом входе, байт-в-байт сверка дампов.
+             Python-эталона на большом входе, байт-в-байт сверка дампов;
+  compiler — постоянная метрика скорости самого компилятора: фазовые
+             self-hosted бинарники (SelfLex..SelfIr) компилируют
+             конкатенацию собственных модулей (вход verify_bootstrap),
+             время и дампы сверяются с Python-эталоном.
 
 Запуск из корня репозитория:
   uv run python tests/bench/bench.py [--quick] [--only pipeline,stress]
@@ -414,6 +418,97 @@ def bench_selfhost(quick: bool, inputs):
                "ускорение", "дамп =="], rows)
 
 
+# ==== Секция 5: компиляция компилятора ==================================
+
+# Фазовые бинарники self-hosted компилятора (зеркало списков Makefile);
+# вход всех замеров — конкатенация модулей SelfIr (вход verify_bootstrap)
+SELF_STAGES = [
+    ("SelfLex", "lex", ["Tok.eat", "Lexer.eat", "LexMain.eat"]),
+    ("SelfParse", "parse",
+     ["Tok.eat", "Lexer.eat", "Ast.eat", "Parser.eat", "ParseMain.eat"]),
+    ("SelfSig", "sig",
+     ["Tok.eat", "Lexer.eat", "Ast.eat", "Parser.eat", "Check.eat",
+      "SigMain.eat"]),
+    ("SelfTyped", "typed",
+     ["Tok.eat", "Lexer.eat", "Ast.eat", "Parser.eat", "Check.eat",
+      "TypedMain.eat"]),
+    ("SelfIr", "ir",
+     ["Tok.eat", "Lexer.eat", "Ast.eat", "Parser.eat", "Check.eat",
+      "Ir.eat", "IrMain.eat"]),
+]
+
+
+def stage_binary(name, mods, quick):
+    """build/<name>, свежий относительно исходников selfhost/; устаревший
+    бинарник молча выдаёт err: в stdout — поэтому пересборка (полный
+    режим) или пропуск с подсказкой (быстрый)."""
+    binary = ROOT / "build" / name
+    srcs = [RT, ROOT / "src" / "eatc" / "runtime.c"] + \
+        [ROOT / "selfhost" / m for m in mods]
+    fresh = binary.exists() and \
+        binary.stat().st_mtime >= max(s.stat().st_mtime for s in srcs)
+    if fresh:
+        return binary
+    state = "устарел" if binary.exists() else "не собран"
+    if quick:
+        print(f"  {name} {state} — пропуск (соберите: make verify_selfhost)")
+        return None
+    print(f"  {name} {state} — сборка Python-бутстрапом...")
+    r = run_timed(eatc("build", *(str(s) for s in srcs), "-o", str(binary)))
+    if r.rc != 0:
+        fail(f"compiler: сборка {name}: {r.err.decode()[:200]}")
+        return None
+    print(f"    собран за {r.secs:.2f}s")
+    return binary
+
+
+def bench_compiler(quick: bool):
+    section("КОМПИЛЯЦИЯ КОМПИЛЯТОРА (selfhost-бинарники на своих исходниках)")
+    parts = [RT] + [ROOT / "selfhost" / m for m in SELF_STAGES[-1][2]]
+    data = b"".join(p.read_bytes() for p in parts)
+    src = OUT / "self_src.eat"
+    src.write_bytes(data)
+    tokens = count_tokens(data.decode("utf-8"))
+    print(f"вход: конкатенация {len(parts)} модулей компилятора "
+          f"({len(data) / 1024:.0f} КБ, {tokens} токенов)")
+
+    stage_repeats = 2 if quick else 3
+    py_repeats = 1 if quick else 2
+    rows = []
+    for name, py_cmd, mods in SELF_STAGES:
+        binary = stage_binary(name, mods, quick)
+        if binary is None:
+            continue
+        self_dump = OUT / f"comp_{py_cmd}_self.txt"
+        nat = run_timed([str(binary)], stdin_path=str(src),
+                        stdout_path=str(self_dump), repeats=stage_repeats)
+        if nat.rc != 0 or self_dump.read_bytes()[:4].startswith(b"err:"):
+            fail(f"compiler: {name}: rc={nat.rc}, вывод начинается с "
+                 f"{self_dump.read_bytes()[:80]!r}")
+            continue
+        ref_dump = OUT / f"comp_{py_cmd}_ref.txt"
+        py = run_timed(eatc(py_cmd, str(src)), stdout_path=str(ref_dump),
+                       repeats=py_repeats)
+        if py.rc != 0:
+            fail(f"compiler: эталон {py_cmd}: {py.err.decode()[:200]}")
+            continue
+        same = ref_dump.read_bytes() == self_dump.read_bytes()
+        if not same:
+            fail(f"compiler: дамп {name} расходится с эталоном "
+                 f"({ref_dump} vs {self_dump})")
+        rows.append([
+            f"{py_cmd} ({name})",
+            fmt_s(nat.secs), fmt_rate(tokens / nat.secs),
+            fmt_s(py.secs), fmt_rate(tokens / py.secs),
+            f"x{py.secs / nat.secs:.1f}",
+            f"{self_dump.stat().st_size / (1 << 20):.2f} МБ",
+            "да" if same else "НЕТ",
+        ])
+    if rows:
+        table(["стадия", "нативный", "ток/с", "Python", "ток/с",
+               "нативн./Python", "вывод", "дамп =="], rows)
+
+
 # ==== Точка входа =======================================================
 
 def main() -> int:
@@ -422,7 +517,7 @@ def main() -> int:
                     help="быстрый прогон: меньше размеры и повторы")
     ap.add_argument("--only", default="",
                     help="секции через запятую: pipeline,runtime,"
-                         "stress,selfhost")
+                         "stress,selfhost,compiler")
     args = ap.parse_args()
     only = {s.strip() for s in args.only.split(",") if s.strip()}
 
@@ -444,6 +539,8 @@ def main() -> int:
         bench_stress(args.quick)
     if wanted("selfhost"):
         bench_selfhost(args.quick, inputs)
+    if wanted("compiler"):
+        bench_compiler(args.quick)
 
     section("ИТОГО")
     print(f"общее время: {time.perf_counter() - t0:.1f}s")
