@@ -1,0 +1,27 @@
+#! expect: bounds=5/5 div=4/4 cast=2/2
+# Инварианты пулов (трек 3, направление 1): все записи в пул idx
+# ограничены маской/остатком — чтение получает интервал [0, 63],
+# границы tbl[j], делитель j+1 и сужающий каст доказываются без
+# масок на месте чтения.
+
+func work(seed: u32) -> u32
+    requires seed < 65536
+    ensures true
+{
+    var tbl: [u32; 64] = [0; 64]
+    var idx: [u32; 64] = [0; 64]
+    for k in 0..64 {
+        tbl[k] = (k * 40503) % 251
+        idx[k] = (k * 7 + 3) % 64
+    }
+    var acc: u32 = seed
+    for i in 0..1000 {
+        let j: u32 = idx[i & 63]
+        acc = (acc + tbl[j] + tbl[i & 63] / (j + 1) + u32(u8(j))) % 65536
+    }
+    return acc
+}
+
+func main() {
+    print("checksum {work(7)}")
+}

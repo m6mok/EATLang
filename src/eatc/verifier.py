@@ -197,21 +197,27 @@ class State:
     """Абстрактное состояние: интервалы путей + разностные ограничения
     путей + пути, известные как ненулевые."""
 
-    __slots__ = ("ivs", "rels", "nz")
+    __slots__ = ("ivs", "rels", "nz", "holes")
 
-    def __init__(self, ivs=None, rels=None, nz=None):
+    def __init__(self, ivs=None, rels=None, nz=None, holes=None):
         self.ivs: dict[str, Iv] = dict(ivs or {})
         # (p, q) -> d: факт p <= q + d (минимальное известное d)
         self.rels: dict[tuple[str, str], int] = dict(rels or {})
         self.nz: set[str] = set(nz or ())  # пути со значением != 0
+        # путь -> (плотная часть, сентинел): значение из пула вида
+        # iv ∪ {NONE}; guard `!= NONE` схлопывает к плотной части
+        self.holes: dict[str, tuple] = dict(holes or {})
 
     def copy(self) -> "State":
-        return State(self.ivs, self.rels, self.nz)
+        return State(self.ivs, self.rels, self.nz, self.holes)
 
     def kill(self, path: str) -> None:
         for k in list(self.ivs):
             if k == path or k.startswith(path + "."):
                 del self.ivs[k]
+        for k in list(self.holes):
+            if k == path or k.startswith(path + "."):
+                del self.holes[k]
 
         def dead(p: str) -> bool:
             return p == path or p.startswith(path + ".")
@@ -286,6 +292,21 @@ class Verifier:
         self.ret_syms: list = []
         self.ensures_ok: list = []
         self.ret_expr = None  # выражение текущего return для ensures
+        self.cur_fn_key = ""  # ключ анализируемой функции (пулы)
+        self.cur_struct: str | None = None
+        # инварианты пулов и полей (трек 3): (struct, поле) |
+        # (":local:"+ключ, имя) -> интервал значений; собираются
+        # итеративными пассами анализа (см. run)
+        self.pool_iv: dict[tuple, Iv] = {}
+        self.field_iv: dict[tuple, Iv] = {}
+        self._ps_acc: dict[tuple, Iv] = {}
+        self._ps_dead: set = set()
+        self._ps_deps: list = []
+        self._ps_sent: dict[tuple, set] = {}
+        self._fs_acc: dict[tuple, Iv] = {}
+        self._fs_dead: set = set()
+        self.pool_sent: dict[tuple, int] = {}
+        self._hole: tuple | None = None  # (id узла, dense, sent)
 
     # --- отметки и статистика ---------------------------------------------
 
@@ -318,6 +339,93 @@ class Verifier:
     # --- запуск --------------------------------------------------------------
 
     def run(self) -> dict:
+        # Итеративные инварианты пулов и полей (трек 3): каждый пасс
+        # анализа собирает join интервалов ВСЕХ записей (в состоянии
+        # потока в точке записи); после пасса они становятся
+        # инвариантами следующего. Корректность — индукция от вершины:
+        # пасс с инвариантами ⊇ фактических значений даёт записи
+        # ⊇ фактических; сужение монотонно. Отметки задаёт последний
+        # пасс (перед ним карты совпали либо исчерпан лимит пассов).
+        for _ in range(3):
+            self._begin_pass()
+            self._analyze_all()
+            pool, field, sent = self._finish_pass()
+            if (
+                pool == self.pool_iv
+                and field == self.field_iv
+                and sent == self.pool_sent
+            ):
+                break
+            self.pool_iv, self.field_iv = pool, field
+            self.pool_sent = sent
+        return self.stats()
+
+    def _begin_pass(self) -> None:
+        self.checks = {}
+        self.req_sites = {}
+        self.summaries = {}
+        self._ps_acc = {}
+        self._ps_dead = set()
+        self._ps_deps = []
+        self._ps_sent = {}
+        self._fs_acc = {}
+        self._fs_dead = set()
+
+    def _finish_pass(self) -> tuple:
+        # разрешение копий целых массивов: join по рёбрам до
+        # неподвижной точки; источник без единой записи и без входящих
+        # копий нетрассируем (параметр, привязка match) — приёмник мёртв
+        acc, dead, deps = self._ps_acc, self._ps_dead, self._ps_deps
+        known = set(acc) | {d for d, _ in deps} | set(dead)
+        for _ in range(len(deps) + 1):
+            changed = False
+            for dst, src in deps:
+                if dst in dead:
+                    continue
+                if src in dead or src not in known:
+                    dead.add(dst)
+                    changed = True
+                    continue
+                siv = acc.get(src)
+                if siv is not None:
+                    cur = acc.get(dst)
+                    new = siv if cur is None else _hull(cur, siv)
+                    if new != cur:
+                        acc[dst] = new
+                        changed = True
+            if not changed:
+                break
+        # сентинелы наследуются по копиям; больше одного разного или
+        # сентинел без плотной части — сложить в обычный интервал
+        sents = self._ps_sent
+        for _ in range(len(deps) + 1):
+            grew = False
+            for dst, src in deps:
+                add = sents.get(src, set()) - sents.get(dst, set())
+                if add and dst not in dead:
+                    sents.setdefault(dst, set()).update(add)
+                    grew = True
+            if not grew:
+                break
+        pool_sent = {}
+        for k, ss in sents.items():
+            if k in dead:
+                continue
+            if len(ss) == 1 and k in acc:
+                pool_sent[k] = next(iter(ss))
+            else:
+                for sv in ss:
+                    cur = acc.get(k)
+                    acc[k] = (
+                        (sv, sv) if cur is None else _hull(cur, (sv, sv))
+                    )
+        pool = {k: v for k, v in acc.items() if k not in dead}
+        field = {
+            k: v for k, v in self._fs_acc.items() if k not in self._fs_dead
+        }
+        return pool, field, pool_sent
+
+    def _analyze_all(self) -> None:
         order = self._topo_order()
         for key in order:
             func, struct = self._func_by_key(key)
@@ -328,6 +436,8 @@ class Verifier:
                 self.cur_func = None
                 self.cur_sig = None
                 self.cur_module = self.checker.decl_module.get(id(decl), 0)
+                self.cur_fn_key = f":test:{id(decl)}"
+                self.cur_struct = None
                 self.param_names = set()
                 self.returns = []
                 self.ret_syms = []
@@ -345,7 +455,6 @@ class Verifier:
             ok = no_calls and (tautology or (total > 0 and proven == total))
             func.requires_proven = ok
             self._mark("requires", func, ok)
-        return self.stats()
 
     def _module_of(self, key: str) -> int:
         """Модуль-владелец функции/метода по ключу графа вызовов
@@ -366,6 +475,108 @@ class Verifier:
             if isinstance(decl, ast.FuncDecl) and decl.name == key:
                 return decl, None
         return None, None
+
+    # --- инварианты пулов (трек 3, VERIFICATION_PLAN «направление 1») -----
+    # Пул — массив (локальный или поле struct, в т.ч. банкованный
+    # [[T; N]; M]). Инвариант — join интервалов ВСЕХ записей элементов
+    # по всей программе, вычисленных в состоянии потока в точке записи
+    # (итеративные пассы run: инварианты пасса k-1 — факты пасса k).
+    # Ключ поля — struct, непосредственно владеющий полем, на любой
+    # глубине вложенности значения (Parser.nk остаётся Parser.nk и когда
+    # Parser лежит полем в Check). Копия целого массива — ребро
+    # зависимости; копия из нетрассируемого источника (параметр,
+    # результат вызова, привязка match) убивает ключ. Корректность:
+    # массивы всегда полностью инициализированы при создании (язык),
+    # поэтому join «инициализация + все записи» покрывает все значения.
+
+    def _pool_key(self, node, fn_key: str, sname: str | None):
+        base = node
+        while isinstance(base, ast.Index):
+            base = base.obj
+        if isinstance(base, ast.FieldAccess):
+            obj = base.obj
+            owner = getattr(getattr(obj, "ty", None), "name", None)
+            if owner is None and isinstance(obj, ast.SelfExpr):
+                owner = sname
+            if owner is not None and owner in self.checker.structs:
+                return (owner, base.name)
+            return None
+        if isinstance(base, ast.Name):
+            return (":local:" + fn_key, base.ident)
+        return None
+
+    def _field_key(self, node, sname: str | None):
+        """Ключ скалярного поля struct: владелец — struct,
+        непосредственно содержащий поле (на любой глубине значения)."""
+        if not isinstance(node, ast.FieldAccess):
+            return None
+        owner = getattr(getattr(node.obj, "ty", None), "name", None)
+        if owner is None and isinstance(node.obj, ast.SelfExpr):
+            owner = sname
+        if owner is not None and owner in self.checker.structs:
+            return (owner, node.name)
+        return None
+
+    def _note_pool(self, key, iv, sent_max=None) -> None:
+        """Запись элемента пула. Точечная запись максимума типа —
+        сентинел (NONE): копится отдельно от плотной части, чтобы
+        не растягивать интервал до полного диапазона."""
+        if key is None:
+            return
+        if iv is None:
+            self._ps_dead.add(key)
+        elif sent_max is not None and iv == (sent_max, sent_max):
+            self._ps_sent.setdefault(key, set()).add(sent_max)
+        else:
+            cur = self._ps_acc.get(key)
+            self._ps_acc[key] = iv if cur is None else _hull(cur, iv)
+
+    def _note_field(self, key, iv) -> None:
+        if key is None:
+            return
+        if iv is None:
+            self._fs_dead.add(key)
+        else:
+            cur = self._fs_acc.get(key)
+            self._fs_acc[key] = iv if cur is None else _hull(cur, iv)
+
+    def _elem_iv(self, expr, env: State):
+        """Интервал скалярных листьев литерала-массива в состоянии
+        потока; None — неизвестно (нечисловые листья убивают ключ —
+        безвредно: интервал спрашивают только у int/char-чтений)."""
+        if isinstance(expr, ast.ArrayFill):
+            return self._elem_iv(expr.value, env)
+        if isinstance(expr, ast.ArrayLit):
+            got = None
+            for e in expr.elems:
+                part = self._elem_iv(e, env)
+                if part is None:
+                    return None
+                got = part if got is None else _hull(got, part)
+            return got
+        return self._iv(expr, env, annotate=False)
+
+    def _store_array(self, key, expr, env: State) -> None:
+        """Запись целого массива: литерал даёт интервал листьев, копия
+        другого пула — ребро зависимости, всё прочее (результат
+        вызова, привязка match) — нетрассируемо, ключ мёртв."""
+        if key is None:
+            return
+        if isinstance(expr, (ast.ArrayFill, ast.ArrayLit)):
+            ety = getattr(expr, "ty", None)
+            while isinstance(ety, ArrayType):
+                ety = ety.elem
+            sent_max = (
+                _range(ety.kind)[1] if isinstance(ety, IntType) else None
+            )
+            self._note_pool(key, self._elem_iv(expr, env), sent_max)
+            return
+        if isinstance(expr, (ast.Name, ast.FieldAccess, ast.Index)):
+            src = self._pool_key(expr, self.cur_fn_key, self.cur_struct)
+            if src is not None:
+                self._ps_deps.append((key, src))
+                return
+        self._ps_dead.add(key)
 
     def _topo_order(self) -> list:
         keys = list(self.checker.funcs)
@@ -402,6 +613,8 @@ class Verifier:
         self.cur_func = func
         self.cur_sig = sig
         self.cur_module = self._module_of(key)
+        self.cur_fn_key = key
+        self.cur_struct = struct
         self.param_names = {p for p, _ in sig.params}
         self.returns = []
         self.ret_syms = []
@@ -439,6 +652,20 @@ class Verifier:
         ivs = [r for r in self.returns if r is not None]
         if len(ivs) != len(self.returns):
             return None
+        # возвраты вида «плотная часть ∪ {NONE}»: сентинел (максимум
+        # типа) отдельными точками — итог ("hive", dense, sent), на
+        # месте вызова guard `!= NONE` схлопнет к плотной части
+        smax = _range(sig.ret.kind)[1]
+        points = [r for r in ivs if r == (smax, smax)]
+        dense = [r for r in ivs if r != (smax, smax)]
+        if points and dense:
+            dsum = dense[0]
+            for r in dense[1:]:
+                dsum = _hull(dsum, r)
+            if dsum[1] < smax:
+                dclamp = _inter(dsum, _range(sig.ret.kind))
+                if dclamp is not None:
+                    return ("hive", dclamp, smax)
         summary = ivs[0]
         for r in ivs[1:]:
             summary = _hull(summary, r)
@@ -469,6 +696,14 @@ class Verifier:
     def _flow_stmt(self, stmt, env: State) -> State:
         if isinstance(stmt, ast.LetStmt):
             value = self._iv(stmt.value, env)
+            if isinstance(getattr(stmt, "var_ty", None), ArrayType):
+                self._store_array(
+                    (":local:" + self.cur_fn_key, stmt.name),
+                    stmt.value, env,
+                )
+            if self._hole is not None and self._hole[0] == id(stmt.value):
+                env.holes[stmt.name] = (self._hole[1], self._hole[2])
+                self._hole = None
             clamp = _ty_iv(stmt.var_ty)
             if clamp is not None:
                 env.ivs[stmt.name] = (
@@ -519,12 +754,57 @@ class Verifier:
             return env
         if isinstance(stmt, ast.AssignStmt):
             value = self._iv(stmt.value, env)
+            tty = getattr(stmt.target, "ty", None)
             if isinstance(stmt.target, ast.Index):
                 # границы цели присваивания тоже проверяются
                 self._iv(stmt.target, env)
+                pkey = self._pool_key(
+                    stmt.target, self.cur_fn_key, self.cur_struct
+                )
+                if isinstance(tty, ArrayType):
+                    self._store_array(pkey, stmt.value, env)
+                else:
+                    tiv = _ty_iv(tty)
+                    self._note_pool(
+                        pkey,
+                        (value if value is not None else tiv)
+                        if tiv is not None
+                        else None,
+                        _range(tty.kind)[1]
+                        if isinstance(tty, IntType)
+                        else None,
+                    )
+            elif isinstance(stmt.target, ast.FieldAccess):
+                if isinstance(tty, ArrayType):
+                    self._store_array(
+                        self._pool_key(
+                            stmt.target, self.cur_fn_key, self.cur_struct
+                        ),
+                        stmt.value, env,
+                    )
+                else:
+                    tiv = _ty_iv(tty)
+                    self._note_field(
+                        self._field_key(stmt.target, self.cur_struct),
+                        (value if value is not None else tiv)
+                        if tiv is not None
+                        else None,
+                    )
+            elif isinstance(stmt.target, ast.Name) and isinstance(
+                tty, ArrayType
+            ):
+                self._store_array(
+                    (":local:" + self.cur_fn_key, stmt.target.ident),
+                    stmt.value, env,
+                )
             path = _path_of(stmt.target)
             if path is not None:
                 env.kill(path)
+                if self._hole is not None and self._hole[0] == id(
+                    stmt.value
+                ):
+                    env.holes[path] = (self._hole[1], self._hole[2])
+                    self._hole = None
                 clamp = _ty_iv(stmt.target.ty)
                 if clamp is not None:
                     if value is not None:
@@ -665,7 +945,13 @@ class Verifier:
         else:
             eiv = _ty_iv(stmt.elem_ty)
             if eiv is not None:
-                body_env.ivs[stmt.target] = eiv
+                pkey = self._pool_key(
+                    stmt.iterable, self.cur_fn_key, self.cur_struct
+                )
+                inv = self.pool_iv.get(pkey) if pkey is not None else None
+                body_env.ivs[stmt.target] = (
+                    (_inter(inv, eiv) or eiv) if inv is not None else eiv
+                )
         self._flow_block(stmt.body, body_env)
         if _has_direct_break(stmt.body):
             # ранний выход: цикл мог остановиться после любого витка,
@@ -841,6 +1127,13 @@ class Verifier:
             for e in envs[1:]:
                 iv = _hull(iv, e.ivs[k])
             joined.ivs[k] = iv
+        hkeys = set(envs[0].holes)
+        for e in envs[1:]:
+            hkeys &= set(e.holes)
+        for k in hkeys:
+            h0 = envs[0].holes[k]
+            if all(e.holes[k] == h0 for e in envs[1:]):
+                joined.holes[k] = h0
         return joined
 
     # --- уточнение по условиям -----------------------------------------------
@@ -919,6 +1212,17 @@ class Verifier:
         if path is None or default is None:
             return
         oiv = self._iv(other, env, annotate=False)
+        if oiv is not None and oiv[0] == oiv[1]:
+            hole = env.holes.get(path)
+            if hole is not None and hole[1] == oiv[0]:
+                # значение было dense ∪ {sent}; sent исключён guard'ом
+                cur = env.ivs.get(path)
+                env.ivs[path] = (
+                    (_inter(hole[0], cur) or hole[0])
+                    if cur is not None
+                    else hole[0]
+                )
+                del env.holes[path]
         if oiv is None or oiv[0] != oiv[1]:
             return
         c = oiv[0]
@@ -1206,6 +1510,13 @@ class Verifier:
                 return env.ivs[path]
             if isinstance(node, ast.FieldAccess):
                 self._iv(node.obj, env, annotate)
+                clamp = self._ty_range(ty)
+                if clamp is not None:
+                    inv = self.field_iv.get(
+                        self._field_key(node, self.cur_struct)
+                    )
+                    if inv is not None:
+                        return _inter(inv, clamp) or clamp
             return self._ty_range(ty)
         if isinstance(node, ast.UnaryOp):
             if node.op == "not":
@@ -1277,15 +1588,40 @@ class Verifier:
                     and idx[1] < oty.size
                 )
                 self._mark("bounds", node, ok)
-            return self._ty_range(ty)
+            clamp = self._ty_range(ty)
+            if clamp is not None:
+                # чтение из пула с инвариантом уже интервала типа
+                pkey = self._pool_key(node, self.cur_fn_key, self.cur_struct)
+                inv = self.pool_iv.get(pkey) if pkey is not None else None
+                if inv is not None:
+                    sent = self.pool_sent.get(pkey)
+                    dense = _inter(inv, clamp) or clamp
+                    if sent is None:
+                        return dense
+                    # значение вида dense ∪ {sent}: наружу — hull,
+                    # дырка запоминается для guard'а `!= NONE`
+                    self._hole = (id(node), dense, sent)
+                    return _inter(_hull(inv, (sent, sent)), clamp) or clamp
+            return clamp
         if isinstance(node, ast.StrLit):
             for seg in node.segments:
                 if not isinstance(seg, str):
                     self._iv(seg, env, annotate)
             return None
         if isinstance(node, ast.StructLit):
-            for _, fexpr in node.fields:
-                self._iv(fexpr, env, annotate)
+            ftypes = self.checker.structs[node.name].fields
+            for fname, fexpr in node.fields:
+                fiv = self._iv(fexpr, env, annotate)
+                fty = ftypes.get(fname)
+                if isinstance(fty, ArrayType):
+                    self._store_array((node.name, fname), fexpr, env)
+                else:
+                    tiv = _ty_iv(fty)
+                    if tiv is not None:
+                        self._note_field(
+                            (node.name, fname),
+                            fiv if fiv is not None else tiv,
+                        )
             return None
         if isinstance(node, ast.ArrayLit):
             for e in node.elems:
@@ -1614,6 +1950,12 @@ class Verifier:
         tag = summary[0]
         if tag == "iv":
             return summary[1]
+        if tag == "hive":
+            # dense ∪ {sent}: наружу — hull, дырка для guard'а != NONE
+            _, dense, sent = summary
+            self._hole = (id(node), dense, sent)
+            full = _hull(dense, (sent, sent))
+            return (_inter(full, base) or base) if base is not None else full
         # тождество параметру: интервал аргумента проходит сквозь вызов
         pname = summary[1]
         for (name, _), arg in zip(sig.params, node.args):

@@ -1,0 +1,36 @@
+#! expect: bounds=3/3
+# Сентинел-пул («интервал с дыркой»): заливка NONE + записи < 100.
+# Чтение даёт dense ∪ {NONE}; guard `!= NONE` схлопывает к плотной
+# части — границы dat[fi] доказываются. Инвариант поля-счётчика n
+# ограничивает и запись hx[...] (n < 16 по guard'у вызова put).
+
+const NONE: u32 = 4294967295
+
+struct T {
+    hx: [u32; 16]
+    dat: [u32; 100]
+
+    func put(var self, v: u32)
+        requires v < 100
+        ensures true
+    {
+        self.hx[v & 15] = v
+    }
+
+    func find(self, k: u32) -> u32
+        requires true
+        ensures true
+    {
+        let fi: u32 = self.hx[k & 15]
+        if fi != NONE {
+            return self.dat[fi]
+        }
+        return 0
+    }
+}
+
+func main() {
+    var t: T = T { hx: [NONE; 16], dat: [0; 100] }
+    t.put(7)
+    print("{t.find(7)}")
+}
