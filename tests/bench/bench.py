@@ -184,6 +184,16 @@ def fail(msg):
     print(f"  !! FAIL: {msg}")
 
 
+def errtail(err: bytes, n: int = 300) -> str:
+    """Хвост stderr: у ошибок компиляции суть в первой строке, у
+    Python-трейсбеков — в последней; берём первую строку + хвост."""
+    text = err.decode(errors="replace").strip()
+    if len(text) <= n:
+        return text
+    head = text.splitlines()[0][:100]
+    return f"{head} … {text[-n:]}"
+
+
 # ==== Секция 1: пайплайн компилятора ====================================
 
 def bench_pipeline(quick: bool):
@@ -216,7 +226,7 @@ def bench_pipeline(quick: bool):
             r = run_timed(eatc(stage, str(cmd_path)), repeats=repeats)
             if r.rc != 0:
                 fail(f"pipeline {label}/{stage}: rc={r.rc}: "
-                     f"{r.err.decode()[:200]}")
+                     f"{errtail(r.err)}")
             stage_times[stage] = r
         rows.append([
             f"{label} ({n_funcs} функций)",
@@ -247,7 +257,7 @@ def bench_pipeline(quick: bool):
             total_tokens += count_tokens(text)
         r = run_timed(eatc("run", str(RT), *paths))
         if r.rc != 0:
-            fail(f"pipeline XL run: {r.err.decode()[:300]}")
+            fail(f"pipeline XL run: {errtail(r.err)}")
         print(f"  {len(files)} файлов, {total_bytes / 1024:.0f} КБ, "
               f"{total_tokens} токенов: полный фронтенд + интерпретация "
               f"main за {r.secs:.2f}s ({fmt_rate(total_tokens / r.secs)} "
@@ -269,7 +279,7 @@ def bench_runtime(quick: bool):
         # интерпретатор: базовая порция, вывод забираем для сверки
         interp = run_timed(eatc("run", str(RT), str(src)), capture=True)
         if interp.rc != 0:
-            fail(f"runtime {name} interp: {interp.err.decode()[:200]}")
+            fail(f"runtime {name} interp: {errtail(interp.err)}")
             continue
 
         # сборка базового варианта и дифференциальная сверка вывода
@@ -277,7 +287,7 @@ def bench_runtime(quick: bool):
         build = run_timed(
             eatc("build", str(RT), str(src), "-o", str(bin_base)))
         if build.rc != 0:
-            fail(f"runtime {name} build: {build.err.decode()[:200]}")
+            fail(f"runtime {name} build: {errtail(build.err)}")
             continue
         nat_base = run_timed([str(bin_base)], capture=True, repeats=3)
         same = nat_base.out == interp.out
@@ -296,11 +306,11 @@ def bench_runtime(quick: bool):
         bxl = run_timed(eatc("build", str(RT), str(xl_src),
                              "-o", str(bin_xl)))
         if bxl.rc != 0:
-            fail(f"runtime {name} XL build: {bxl.err.decode()[:200]}")
+            fail(f"runtime {name} XL build: {errtail(bxl.err)}")
             continue
         nat = run_timed([str(bin_xl)], repeats=3)
         if nat.rc != 0:
-            fail(f"runtime {name} XL: rc={nat.rc} {nat.err.decode()[:200]}")
+            fail(f"runtime {name} XL: rc={nat.rc} {errtail(nat.err)}")
             continue
 
         i_rate = base_ops / interp.secs
@@ -331,12 +341,12 @@ def bench_read(quick: bool, rows: list):
     interp = run_timed(eatc("run", str(RT), str(src)),
                        stdin_path=str(base_in), capture=True)
     if interp.rc != 0:
-        fail(f"runtime ReadBench interp: {interp.err.decode()[:200]}")
+        fail(f"runtime ReadBench interp: {errtail(interp.err)}")
         return
     bin_path = OUT / "ReadBench"
     build = run_timed(eatc("build", str(RT), str(src), "-o", str(bin_path)))
     if build.rc != 0:
-        fail(f"runtime ReadBench build: {build.err.decode()[:200]}")
+        fail(f"runtime ReadBench build: {errtail(build.err)}")
         return
     nat_base = run_timed([str(bin_path)], stdin_path=str(base_in),
                          capture=True, repeats=3)
@@ -352,7 +362,7 @@ def bench_read(quick: bool, rows: list):
         gen_read_input(xl_in, xl_size)
     nat = run_timed([str(bin_path)], stdin_path=str(xl_in), repeats=3)
     if nat.rc != 0:
-        fail(f"runtime ReadBench XL: rc={nat.rc} {nat.err.decode()[:200]}")
+        fail(f"runtime ReadBench XL: rc={nat.rc} {errtail(nat.err)}")
         return
 
     i_rate = READ_BASE_BYTES / interp.secs
@@ -460,7 +470,7 @@ def bench_selfhost(quick: bool, inputs):
             mods_abs = [str(RT)] + [str(ROOT / m) for m in mods]
             r = run_timed(eatc("build", *mods_abs, "-o", str(binary)))
             if r.rc != 0:
-                fail(f"selfhost: сборка {name}: {r.err.decode()[:200]}")
+                fail(f"selfhost: сборка {name}: {errtail(r.err)}")
                 continue
             print(f"    собран за {r.secs:.2f}s")
         bins[name] = binary
@@ -488,14 +498,14 @@ def bench_selfhost(quick: bool, inputs):
                 continue
             if nat.rc != 0:
                 fail(f"selfhost: {name}: rc={nat.rc} "
-                     f"{nat.err.decode()[:200]}")
+                     f"{errtail(nat.err)}")
                 break
             ref_dump = OUT / f"self_{py_cmd}_ref.txt"
             py = run_timed(eatc(py_cmd, str(path)),
                            stdout_path=str(ref_dump))
             if py.rc != 0:
                 fail(f"selfhost: эталон {py_cmd}: "
-                     f"{py.err.decode()[:200]}")
+                     f"{errtail(py.err)}")
                 break
             same = ref_dump.read_bytes() == self_dump.read_bytes()
             if not same:
@@ -555,7 +565,7 @@ def stage_binary(name, mods, quick):
     r = run_timed(eatc("build", *(str(s.relative_to(ROOT)) for s in srcs),
                        "-o", str(binary)))
     if r.rc != 0:
-        fail(f"compiler: сборка {name}: {r.err.decode()[:200]}")
+        fail(f"compiler: сборка {name}: {errtail(r.err)}")
         return None
     print(f"    собран за {r.secs:.2f}s")
     return binary
@@ -590,7 +600,7 @@ def bench_compiler(quick: bool):
         py = run_timed(eatc(py_cmd, str(src)), stdout_path=str(ref_dump),
                        repeats=py_repeats)
         if py.rc != 0:
-            fail(f"compiler: эталон {py_cmd}: {py.err.decode()[:200]}")
+            fail(f"compiler: эталон {py_cmd}: {errtail(py.err)}")
             continue
         same = ref_dump.read_bytes() == self_dump.read_bytes()
         if not same:
@@ -611,7 +621,10 @@ def bench_compiler(quick: bool):
 
 # ==== Секция 6: размеры бинарников и данных (метрика МК/флеша) ==========
 
-# Типичная МК-программа набора — эмулятор mos6502 (examples/)
+# Типичная МК-программа набора — эмулятор mos6502 (examples/);
+# после этапа модулей зависит от lib/Hex.eat (зеркало MOS6502_EXAMPLE
+# из Makefile — модули подключаются явным списком файлов)
+MOS_LIB = [Path("lib/Hex.eat")]
 MOS_SRCS = ["Cpu6502.eat", "Tests.eat", "Main.eat"]
 
 
@@ -634,7 +647,7 @@ def example_binary(name, srcs, quick, flags=()):
                        *(str(s.relative_to(ROOT)) for s in srcs),
                        "-o", str(binary)))
     if r.rc != 0:
-        fail(f"size: сборка {name}: {r.err.decode()[:200]}")
+        fail(f"size: сборка {name}: {errtail(r.err)}")
         return None
     print(f"    собран за {r.secs:.2f}s")
     return binary
@@ -697,7 +710,8 @@ def bench_size(quick: bool):
         binary = stage_binary(name, mods, quick)
         if binary is not None:
             targets.append((name, binary))
-    mos_srcs = [RT] + [ROOT / "examples" / "mos6502" / m for m in MOS_SRCS]
+    mos_srcs = [RT] + [ROOT / m for m in MOS_LIB] + \
+        [ROOT / "examples" / "mos6502" / m for m in MOS_SRCS]
     hello_srcs = [RT, ROOT / "examples" / "hello_world" / "HelloWorld.eat"]
     ir_srcs = [RT] + [ROOT / m for m in SELF_STAGES[-1][2]]
     mos = example_binary("Mos6502", mos_srcs, quick)
