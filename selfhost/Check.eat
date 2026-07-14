@@ -193,14 +193,7 @@ struct Check {
         if l > 16 {
             return false
         }
-        var w: [u8; 16] = [0; 16]
-        for i in 0..16 {
-            if i >= l {
-                break
-            }
-            w[i] = self.p.lex.sb_at(a + i)
-        }
-        return same(w, l, kw)
+        return same(pool16(self.p.lex.sbuf, a, l), l, kw)
     }
 
     func write_span2(var self, a: u32, l: u32)

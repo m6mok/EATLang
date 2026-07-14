@@ -40,6 +40,8 @@ make run    SRC="examples/math/Math.eat"   # запустить build/Math
 make compile SRC="Mod.eat Main.eat"    # → build/Main.ll
 make link    SRC="Mod.eat Main.eat"    # → build/Main
 # рантайм-модуль selfhost/Rt.eat подставляется первым автоматически
+# библиотека lib/ (Ascii, Buf, Fmt, Hex, Num) подключается тем же списком:
+make run SRC="lib/Ascii.eat lib/Num.eat examples/modules/Main.eat"
 ```
 
 Три команды компилятора:

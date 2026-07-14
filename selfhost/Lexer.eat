@@ -16,38 +16,17 @@
 # массива) выражены вложенными массивами: элемент i — p[i / 65536][i % 65536],
 # доступ снаружи — через методы tok_*/sb_*.
 
-func is_digit(b: u8) -> bool
-    requires true
-    ensures true
-{
-    return b >= 48 and b <= 57
-}
-
 # Байт слова: ASCII-буква, цифра, '_' или не-ASCII (эталон принимает
 # юникодные буквы в идентификаторах — байтовый лексер принимает
-# любой байт >= 128).
+# любой байт >= 128). is_digit/is_alpha — lib/Ascii.eat.
 func is_word_byte(b: u8) -> bool
     requires true
     ensures true
 {
-    if is_digit(b) {
-        return true
-    }
-    if b >= 97 and b <= 122 {
-        return true
-    }
-    if b >= 65 and b <= 90 {
+    if is_digit(b) or is_alpha(b) {
         return true
     }
     return b == 95 or b >= 128
-}
-
-# Пробельный байт (как str.strip Python: пустая интерполяция).
-func is_ws(b: u8) -> bool
-    requires true
-    ensures true
-{
-    return b == 32 or b == 9 or b == 10 or b == 13 or b == 11 or b == 12
 }
 
 # Код escape-последовательности: \n \t \\ \" \' \0; 256 — неизвестная.
@@ -64,24 +43,8 @@ func esc_code(b: u8) -> u32
     return 256
 }
 
-# Значение hex-цифры 0..15; 99 — не hex-цифра.
-func hex_val(b: u8) -> u32
-    requires true
-    ensures result <= 15 or result == 99
-{
-    if b >= 48 and b <= 57 {
-        return u32(b) - 48
-    }
-    if b >= 97 and b <= 102 {
-        return u32(b) - 87
-    }
-    if b >= 65 and b <= 70 {
-        return u32(b) - 55
-    }
-    return 99
-}
-
 # Код одиночного знака пунктуации; 99 — не пунктуация.
+# (hex_val — lib/Hex.eat)
 func punct_code(b: u8) -> u32
     requires true
     ensures result <= 99
@@ -972,7 +935,7 @@ struct Lexer {
             if k >= n {
                 break
             }
-            if not is_ws(self.sb_at(a + k)) {
+            if not is_space(self.sb_at(a + k)) {
                 ws = false
             }
         }

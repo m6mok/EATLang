@@ -1,0 +1,67 @@
+# lib/Buf.eat — байтовые буферы и спаны: сравнение и копирование
+# (docs/MODULES_PLAN.md §7). Этап 0 (конкатенация): модуль подключается
+# явным списком файлов после selfhost/Rt.eat.
+#
+# Свободные функции не мутируют аргументы (var есть только у self),
+# поэтому копирование — «наружу»: свежий буфер возвращается по значению,
+# а копия внутрь чужого пула остаётся методом владельца пула.
+
+# Слово (первые 16 байт лексемы) совпадает со строкой-эталоном?
+func same(a: [u8; 16], n: u32, kw: str<16>) -> bool
+    requires n <= 16
+    ensures true
+{
+    if n != len(kw) {
+        return false
+    }
+    var ok: bool = true
+    for i in 0..16 {
+        if i >= n or not ok {
+            break
+        }
+        if a[i] != u8(kw[i]) {
+            ok = false
+        }
+    }
+    return ok
+}
+
+# Первые 16 байт спана вложенного пула 2 x 65536 (пул больше предела
+# массива выражается вложенными массивами, элемент i — p[i/65536][i%65536],
+# см. selfhost/Lexer.eat) — свежий буфер для same().
+func pool16(p: [[u8; 65536]; 2], a: u32, l: u32) -> [u8; 16]
+    requires l <= 16
+    ensures true
+{
+    var w: [u8; 16] = [0; 16]
+    for i in 0..16 {
+        if i >= l or a + i >= 131072 {
+            break
+        }
+        w[i] = p[(a + i) / 65536][(a + i) % 65536]
+    }
+    return w
+}
+
+test buf_same {
+    var w: [u8; 16] = [0; 16]
+    w[0] = 104 # h
+    w[1] = 105 # i
+    assert same(w, 2, "hi")
+    assert not same(w, 2, "ha")
+    assert not same(w, 1, "hi")
+    assert not same(w, 3, "hi")
+    assert same(w, 0, "")
+}
+
+test buf_pool16 {
+    var p: [[u8; 65536]; 2] = [[0; 65536]; 2]
+    p[0][65534] = 104 # h
+    p[0][65535] = 105 # i
+    p[1][0] = 33      # ! (спан пересекает границу вложенных массивов)
+    assert same(pool16(p, 65534, 2), 2, "hi")
+    assert same(pool16(p, 65534, 3), 3, "hi!")
+    assert not same(pool16(p, 65534, 2), 2, "ha")
+    # чтение упирается в край пула: недочитанные байты остаются нулями
+    assert not same(pool16(p, 131071, 4), 4, "!xyz")
+}

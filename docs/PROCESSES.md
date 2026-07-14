@@ -86,7 +86,7 @@ trap. Всё остальное (`print`, `write`, интерполяция, `==
 | `make run_<пример>` | пример интерпретатором (`run_math`, `run_all`, `run_mos6502`, ...) |
 | `make verify` | нативные бинарники всех примеров; вывод бинарника == вывод интерпретатора |
 | `make verify_suite` | регрессионный набор верификатора (`tests/verify/`, [план](VERIFICATION_PLAN.md)); каждый кейс объявляет `#! expect: вид=доказано/всего`, кейсы `0/N` защищают от ложных доказательств |
-| `make verify_selfhost` | self-hosted лексер/парсер/sig/typed/IR против эталона на **каждом** `.eat` репозитория; самоприменение (тайпчекер типизирует себя, ≈29 000 строк байт-в-байт); interp == native |
+| `make verify_selfhost` | self-hosted лексер/парсер/sig/typed/IR против эталона на **каждом** `.eat` репозитория; самоприменение (тайпчекер типизирует себя, ≈37 000 строк байт-в-байт); interp == native |
 | `make verify_bootstrap` | фикспойнт: stage1 (`build/SelfIr`) эмитит IR самого себя == `eatc ir`; clang собирает stage2; stage2 эмитит тот же IR байт-в-байт |
 | `make verify_trapcodes` | режим trap-кодов (МК): `build/SelfIrCodes` == `eatc ir --trap-codes` байт-в-байт на bootstrap-входе |
 | `make bench` / `bench_quick` | нагрузочное тестирование (`tests/bench/`): синтетика, стресс пределов SPEC §6, интерпретатор против бинарника |
@@ -114,6 +114,9 @@ make run     SRC="Mod.eat Main.eat"    # запустить build/Main
 ```text
 src/eatc/        Python-бутстрап (эталон): лексер … codegen, runtime.c
 selfhost/        self-hosted компилятор + Rt.eat + планы фаз
+lib/             библиотека на EATLang (Ascii, Buf, Fmt, Hex, Num);
+                 подключается списком файлов после Rt.eat
+                 (docs/MODULES_PLAN.md, этап 0 — конкатенация)
 examples/        эталонные примеры; крупные: mos6502, lexer (проба)
 tests/lex|parse|ir/   стресс-кейсы дампов (входят в verify_selfhost)
 tests/verify/    регрессионный набор верификатора (verify_suite)

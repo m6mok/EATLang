@@ -141,15 +141,7 @@ struct Parser {
         if vl > 16 {
             return false
         }
-        var w: [u8; 16] = [0; 16]
-        let vs: u32 = self.lex.tok_vs(self.cur)
-        for i in 0..16 {
-            if i >= vl {
-                break
-            }
-            w[i] = self.lex.sb_at(vs + i)
-        }
-        return same(w, vl, kw)
+        return same(pool16(self.lex.sbuf, self.lex.tok_vs(self.cur), vl), vl, kw)
     }
 
     # Значение INT-токена как u64 (лимит self-host: |литерал| < 2^64).

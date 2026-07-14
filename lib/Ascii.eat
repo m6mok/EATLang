@@ -1,0 +1,73 @@
+# lib/Ascii.eat — классификация ASCII-байтов (docs/MODULES_PLAN.md §7).
+# Этап 0 (конкатенация): модуль подключается явным списком файлов
+# после selfhost/Rt.eat:
+#   eatc run selfhost/Rt.eat lib/Ascii.eat Main.eat
+
+func is_digit(b: u8) -> bool
+    requires true
+    ensures result == (b >= 48 and b <= 57)
+{
+    return b >= 48 and b <= 57
+}
+
+# ASCII-буква (латиница обоих регистров); '_' буквой не считается.
+func is_alpha(b: u8) -> bool
+    requires true
+    ensures true
+{
+    if b >= 97 and b <= 122 {
+        return true
+    }
+    return b >= 65 and b <= 90
+}
+
+# Пробельный байт (как str.strip Python: пробел, \t, \n, \r, VT, FF).
+func is_space(b: u8) -> bool
+    requires true
+    ensures true
+{
+    return b == 32 or b == 9 or b == 10 or b == 13 or b == 11 or b == 12
+}
+
+func digit_value(b: u8) -> u8
+    requires b >= 48 and b <= 57
+    ensures result <= 9
+{
+    return b - 48
+}
+
+test ascii_is_digit {
+    assert is_digit(48)
+    assert is_digit(57)
+    assert not is_digit(47)
+    assert not is_digit(58)
+    assert not is_digit(97)
+}
+
+test ascii_is_alpha {
+    assert is_alpha(97)
+    assert is_alpha(122)
+    assert is_alpha(65)
+    assert is_alpha(90)
+    assert not is_alpha(95)
+    assert not is_alpha(48)
+    assert not is_alpha(123)
+    assert not is_alpha(64)
+}
+
+test ascii_is_space {
+    assert is_space(32)
+    assert is_space(9)
+    assert is_space(10)
+    assert is_space(13)
+    assert is_space(11)
+    assert is_space(12)
+    assert not is_space(48)
+    assert not is_space(0)
+}
+
+test ascii_digit_value {
+    assert digit_value(48) == 0
+    assert digit_value(57) == 9
+    assert digit_value(53) == 5
+}

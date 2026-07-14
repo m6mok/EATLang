@@ -1,0 +1,71 @@
+# lib/Hex.eat — шестнадцатеричные цифры: печать и разбор
+# (docs/MODULES_PLAN.md §7). Этап 0 (конкатенация): модуль подключается
+# явным списком файлов после selfhost/Rt.eat.
+
+func hex_digit(v: u32) -> char
+    requires v <= 15
+    ensures true
+{
+    if v < 10 {
+        return char(u8(v + 48))
+    }
+    return char(u8(v + 87)) # a..f
+}
+
+func write_hex8(v: u32)
+    requires v <= 255
+    ensures true
+{
+    write("{hex_digit(v >> 4)}{hex_digit(v & 15)}")
+}
+
+func write_hex16(v: u32)
+    requires v <= 65535
+    ensures true
+{
+    write_hex8(v >> 8)
+    write_hex8(v & 255)
+}
+
+# Значение hex-цифры 0..15; 99 — не hex-цифра.
+func hex_val(b: u8) -> u32
+    requires true
+    ensures result <= 15 or result == 99
+{
+    if b >= 48 and b <= 57 {
+        return u32(b) - 48
+    }
+    if b >= 97 and b <= 102 {
+        return u32(b) - 87
+    }
+    if b >= 65 and b <= 70 {
+        return u32(b) - 55
+    }
+    return 99
+}
+
+test hex_hex_digit {
+    assert hex_digit(0) == '0'
+    assert hex_digit(9) == '9'
+    assert hex_digit(10) == 'a'
+    assert hex_digit(15) == 'f'
+}
+
+test hex_hex_val {
+    assert hex_val(48) == 0
+    assert hex_val(57) == 9
+    assert hex_val(97) == 10
+    assert hex_val(102) == 15
+    assert hex_val(65) == 10
+    assert hex_val(70) == 15
+    assert hex_val(103) == 99
+    assert hex_val(71) == 99
+    assert hex_val(47) == 99
+    assert hex_val(58) == 99
+}
+
+test hex_roundtrip {
+    for v in 0..16 {
+        assert hex_val(u8(hex_digit(v))) == v
+    }
+}

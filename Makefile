@@ -23,22 +23,27 @@ EXAMPLES = \
 check:
 	$(EATC) check $(EXAMPLES)
 
+# Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
+# модули подключаются явным списком файлов после $(RT); LIB_FRONT —
+# модули, нужные самому self-hosted фронтенду (Tok/Lexer/Parser/Check)
+LIB_FRONT = lib/Ascii.eat lib/Buf.eat lib/Hex.eat
+
 # Модульная программа: несколько файлов, последний — главный
-MODULES_EXAMPLE = $(RT) examples/modules/ByteUtil.eat examples/modules/Main.eat
+MODULES_EXAMPLE = $(RT) lib/Ascii.eat lib/Num.eat examples/modules/Main.eat
 
 run_modules:
 	$(EATC) run $(MODULES_EXAMPLE)
 
 # Эмулятор MOS 6502 (examples/mos6502): все официальные опкоды,
 # собственный тест-ROM в test-блоках; программа — байты со stdin
-MOS6502_EXAMPLE = $(RT) examples/mos6502/Cpu6502.eat \
+MOS6502_EXAMPLE = $(RT) lib/Hex.eat examples/mos6502/Cpu6502.eat \
 	examples/mos6502/Tests.eat examples/mos6502/Main.eat
 
 run_mos6502:
 	cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE)
 
 # Проба self-host лексера: все кирпичи разом, вход — собственный исходник
-LEXER_PROBE = $(RT) examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
+LEXER_PROBE = $(RT) lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
 
 run_lexer_probe:
 	cat examples/lexer/LexMain.eat | $(EATC) run $(LEXER_PROBE)
@@ -61,17 +66,19 @@ bench_quick:
 # сверка с эталоном на каждом .eat репозитория + интерпретатор == бинарник.
 # Фаза 1 — лексер (`eatc lex`), фаза 2 — парсер (`eatc parse`),
 # фаза 4 — эмиссия LLVM IR (`eatc ir`).
-SELFHOST_LEXER = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/LexMain.eat
-SELFHOST_PARSER = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
-	selfhost/Parser.eat selfhost/ParseMain.eat
-SELFHOST_SIG = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
-	selfhost/Parser.eat selfhost/Check.eat selfhost/SigMain.eat
-SELFHOST_TYPED = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
-	selfhost/Parser.eat selfhost/Check.eat selfhost/TypedMain.eat
-SELFHOST_IR = $(RT) selfhost/Tok.eat selfhost/Lexer.eat selfhost/Ast.eat \
-	selfhost/Parser.eat selfhost/Check.eat selfhost/Ir.eat selfhost/IrMain.eat
-SELFHOST_IR_CODES = $(RT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+SELFHOST_LEXER = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
+	selfhost/LexMain.eat
+SELFHOST_PARSER = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParseMain.eat
+SELFHOST_SIG = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat selfhost/SigMain.eat
+SELFHOST_TYPED = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat selfhost/TypedMain.eat
+SELFHOST_IR = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat selfhost/Lexer.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat selfhost/Ir.eat \
+	selfhost/IrMain.eat
+SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
+	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
 	selfhost/Ir.eat selfhost/IrCodesMain.eat
 
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
@@ -102,7 +109,7 @@ verify_selfhost:
 	@$(EATC) build $(SELFHOST_SIG) -o build/SelfSig > /dev/null
 	@$(EATC) build $(SELFHOST_TYPED) -o build/SelfTyped > /dev/null
 	@$(EATC) build $(SELFHOST_IR) -o build/SelfIr > /dev/null
-	@for f in $$(find examples selfhost tests -name '*.eat' | sort); do \
+	@for f in $$(find examples lib selfhost tests -name '*.eat' | sort); do \
 		$(EATC) lex $$f > /tmp/eat_lex_ref.txt; \
 		./build/SelfLex < $$f > /tmp/eat_lex_self.txt; \
 		diff /tmp/eat_lex_ref.txt /tmp/eat_lex_self.txt > /dev/null \
@@ -156,7 +163,7 @@ verify_selfhost:
 	@cat $(SELFHOST_SIG) | ./build/SelfSig > /tmp/eat_sig_native.txt
 	@diff /tmp/eat_sig_interp.txt /tmp/eat_sig_native.txt \
 		&& echo "VERIFIED SelfSig (interp == native == эталон)" || exit 1
-	@cat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat > /tmp/eat_typed_probe.eat
+	@cat lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat > /tmp/eat_typed_probe.eat
 	@cat /tmp/eat_typed_probe.eat | $(EATC) run $(SELFHOST_TYPED) > /tmp/eat_typed_interp.txt
 	@cat /tmp/eat_typed_probe.eat | ./build/SelfTyped > /tmp/eat_typed_native.txt
 	@diff /tmp/eat_typed_interp.txt /tmp/eat_typed_native.txt \

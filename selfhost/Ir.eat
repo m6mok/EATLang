@@ -232,25 +232,12 @@ struct Ir {
         requires true
         ensures true
     {
-        var d: [u8; 10] = [0; 10]
-        var m: u32 = n
-        var cnt: u32 = 0
-        for _ in 0..10 {
-            if m == 0 {
+        let t: Dec = fmt_u32(n)
+        for i in 0..20 {
+            if i >= t.ln {
                 break
             }
-            d[cnt] = u8(m % 10 + 48)
-            m = m / 10
-            cnt = cnt + 1
-        }
-        if cnt == 0 {
-            self.lb_b(48)
-        }
-        for i in 0..10 {
-            if i >= cnt {
-                break
-            }
-            self.lb_b(d[cnt - 1 - i])
+            self.lb_b(t.d[i])
         }
     }
 
@@ -258,25 +245,12 @@ struct Ir {
         requires true
         ensures true
     {
-        var d: [u8; 20] = [0; 20]
-        var m: u64 = n
-        var cnt: u32 = 0
-        for _ in 0..20 {
-            if m == 0 {
-                break
-            }
-            d[cnt] = u8(m % 10 + 48)
-            m = m / 10
-            cnt = cnt + 1
-        }
-        if cnt == 0 {
-            self.lb_b(48)
-        }
+        let t: Dec = fmt_u64(n)
         for i in 0..20 {
-            if i >= cnt {
+            if i >= t.ln {
                 break
             }
-            self.lb_b(d[cnt - 1 - i])
+            self.lb_b(t.d[i])
         }
     }
 
@@ -389,25 +363,12 @@ struct Ir {
         requires true
         ensures true
     {
-        var d: [u8; 10] = [0; 10]
-        var m: u32 = n
-        var cnt: u32 = 0
-        for _ in 0..10 {
-            if m == 0 {
+        let t: Dec = fmt_u32(n)
+        for i in 0..20 {
+            if i >= t.ln {
                 break
             }
-            d[cnt] = u8(m % 10 + 48)
-            m = m / 10
-            cnt = cnt + 1
-        }
-        if cnt == 0 {
-            self.nb_b(48)
-        }
-        for i in 0..10 {
-            if i >= cnt {
-                break
-            }
-            self.nb_b(d[cnt - 1 - i])
+            self.nb_b(t.d[i])
         }
     }
 
@@ -608,25 +569,12 @@ struct Ir {
         requires true
         ensures true
     {
-        var d: [u8; 10] = [0; 10]
-        var m: u32 = n
-        var cnt: u32 = 0
-        for _ in 0..10 {
-            if m == 0 {
+        let t: Dec = fmt_u32(n)
+        for i in 0..20 {
+            if i >= t.ln {
                 break
             }
-            d[cnt] = u8(m % 10 + 48)
-            m = m / 10
-            cnt = cnt + 1
-        }
-        if cnt == 0 {
-            self.tp_b(48)
-        }
-        for i in 0..10 {
-            if i >= cnt {
-                break
-            }
-            self.tp_b(d[cnt - 1 - i])
+            self.tp_b(t.d[i])
         }
     }
 
@@ -965,25 +913,12 @@ struct Ir {
         requires true
         ensures true
     {
-        var d: [u8; 10] = [0; 10]
-        var m: u32 = n
-        var cnt: u32 = 0
-        for _ in 0..10 {
-            if m == 0 {
+        let t: Dec = fmt_u32(n)
+        for i in 0..20 {
+            if i >= t.ln {
                 break
             }
-            d[cnt] = u8(m % 10 + 48)
-            m = m / 10
-            cnt = cnt + 1
-        }
-        if cnt == 0 {
-            self.g_b(48)
-        }
-        for i in 0..10 {
-            if i >= cnt {
-                break
-            }
-            self.g_b(d[cnt - 1 - i])
+            self.g_b(t.d[i])
         }
     }
 
@@ -5414,17 +5349,6 @@ struct Ir {
         write("]\n")
     }
 
-    func p_hexd(var self, d: u32)
-        requires d < 16
-        ensures true
-    {
-        if d < 10 {
-            write("{d}")
-        } else {
-            write_byte(u8(d + 87))
-        }
-    }
-
     func p_esc(var self, b: u8)
         requires true
         ensures true
@@ -5434,8 +5358,7 @@ struct Ir {
             return
         }
         write("\\")
-        self.p_hexd(u32(b) / 16)
-        self.p_hexd(u32(b) % 16)
+        write_hex8(u32(b))
     }
 
     func p_glob(var self, g: u32)

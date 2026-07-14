@@ -1,0 +1,55 @@
+# lib/Num.eat — границы чисел: min, max, clamp
+# (docs/MODULES_PLAN.md §7). Этап 0 (конкатенация): модуль подключается
+# явным списком файлов после selfhost/Rt.eat. Для МК clamp — штатная
+# форма guard-паттерна «не выйти за ёмкость буфера».
+
+func min(a: u32, b: u32) -> u32
+    requires true
+    ensures result <= a and result <= b
+{
+    if a < b {
+        return a
+    }
+    return b
+}
+
+func max(a: u32, b: u32) -> u32
+    requires true
+    ensures result >= a and result >= b
+{
+    if a > b {
+        return a
+    }
+    return b
+}
+
+func clamp(x: u32, lo: u32, hi: u32) -> u32
+    requires lo <= hi
+    ensures result >= lo and result <= hi
+{
+    if x < lo {
+        return lo
+    }
+    if x > hi {
+        return hi
+    }
+    return x
+}
+
+test num_min_max {
+    assert min(2, 3) == 2
+    assert min(3, 2) == 2
+    assert min(7, 7) == 7
+    assert min(0, 4294967295) == 0
+    assert max(2, 3) == 3
+    assert max(3, 2) == 3
+    assert max(7, 7) == 7
+    assert max(0, 4294967295) == 4294967295
+}
+
+test num_clamp {
+    assert clamp(5, 0, 255) == 5
+    assert clamp(300, 0, 255) == 255
+    assert clamp(0, 1, 255) == 1
+    assert clamp(7, 7, 7) == 7
+}

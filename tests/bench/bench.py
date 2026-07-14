@@ -344,12 +344,14 @@ def bench_stress(quick: bool):
 
 # ==== Секция 4: self-hosted компилятор ==================================
 
+LIB_FRONT = ["lib/Ascii.eat", "lib/Buf.eat", "lib/Hex.eat"]
+
 SELF_BINARIES = {
-    "SelfLex": ["selfhost/Tok.eat", "selfhost/Lexer.eat",
-                "selfhost/LexMain.eat"],
-    "SelfParse": ["selfhost/Tok.eat", "selfhost/Lexer.eat",
-                  "selfhost/Ast.eat", "selfhost/Parser.eat",
-                  "selfhost/ParseMain.eat"],
+    "SelfLex": LIB_FRONT + ["selfhost/Tok.eat", "selfhost/Lexer.eat",
+                            "selfhost/LexMain.eat"],
+    "SelfParse": LIB_FRONT + ["selfhost/Tok.eat", "selfhost/Lexer.eat",
+                              "selfhost/Ast.eat", "selfhost/Parser.eat",
+                              "selfhost/ParseMain.eat"],
 }
 
 
@@ -432,19 +434,19 @@ def bench_selfhost(quick: bool, inputs):
 
 # Фазовые бинарники self-hosted компилятора (зеркало списков Makefile);
 # вход всех замеров — конкатенация модулей SelfIr (вход verify_bootstrap)
+SELF_FRONT = ["selfhost/Tok.eat", "selfhost/Lexer.eat"]
+SELF_MID = SELF_FRONT + ["selfhost/Ast.eat", "selfhost/Parser.eat",
+                         "selfhost/Check.eat"]
 SELF_STAGES = [
-    ("SelfLex", "lex", ["Tok.eat", "Lexer.eat", "LexMain.eat"]),
+    ("SelfLex", "lex", LIB_FRONT + SELF_FRONT + ["selfhost/LexMain.eat"]),
     ("SelfParse", "parse",
-     ["Tok.eat", "Lexer.eat", "Ast.eat", "Parser.eat", "ParseMain.eat"]),
-    ("SelfSig", "sig",
-     ["Tok.eat", "Lexer.eat", "Ast.eat", "Parser.eat", "Check.eat",
-      "SigMain.eat"]),
-    ("SelfTyped", "typed",
-     ["Tok.eat", "Lexer.eat", "Ast.eat", "Parser.eat", "Check.eat",
-      "TypedMain.eat"]),
+     LIB_FRONT + SELF_FRONT + ["selfhost/Ast.eat", "selfhost/Parser.eat",
+                               "selfhost/ParseMain.eat"]),
+    ("SelfSig", "sig", LIB_FRONT + SELF_MID + ["selfhost/SigMain.eat"]),
+    ("SelfTyped", "typed", LIB_FRONT + SELF_MID + ["selfhost/TypedMain.eat"]),
     ("SelfIr", "ir",
-     ["Tok.eat", "Lexer.eat", "Ast.eat", "Parser.eat", "Check.eat",
-      "Ir.eat", "IrMain.eat"]),
+     LIB_FRONT + ["lib/Fmt.eat"] + SELF_MID + ["selfhost/Ir.eat",
+                                               "selfhost/IrMain.eat"]),
 ]
 
 
@@ -453,7 +455,7 @@ def stage_binary(name, mods, quick):
     бинарник молча выдаёт err: в stdout — поэтому пересборка (полный
     режим) или пропуск с подсказкой (быстрый)."""
     binary = ROOT / "build" / name
-    srcs = [RT] + [ROOT / "selfhost" / m for m in mods]
+    srcs = [RT] + [ROOT / m for m in mods]
     deps = srcs + [ROOT / "src" / "eatc" / "runtime.c"]
     fresh = binary.exists() and \
         binary.stat().st_mtime >= max(d.stat().st_mtime for d in deps)
@@ -477,7 +479,7 @@ def stage_binary(name, mods, quick):
 
 def bench_compiler(quick: bool):
     section("КОМПИЛЯЦИЯ КОМПИЛЯТОРА (selfhost-бинарники на своих исходниках)")
-    parts = [RT] + [ROOT / "selfhost" / m for m in SELF_STAGES[-1][2]]
+    parts = [RT] + [ROOT / m for m in SELF_STAGES[-1][2]]
     data = b"".join(p.read_bytes() for p in parts)
     src = OUT / "self_src.eat"
     src.write_bytes(data)
@@ -613,7 +615,7 @@ def bench_size(quick: bool):
             targets.append((name, binary))
     mos_srcs = [RT] + [ROOT / "examples" / "mos6502" / m for m in MOS_SRCS]
     hello_srcs = [RT, ROOT / "examples" / "hello_world" / "HelloWorld.eat"]
-    ir_srcs = [RT] + [ROOT / "selfhost" / m for m in SELF_STAGES[-1][2]]
+    ir_srcs = [RT] + [ROOT / m for m in SELF_STAGES[-1][2]]
     mos = example_binary("Mos6502", mos_srcs, quick)
     if mos is not None:
         targets.append(("Mos6502", mos))

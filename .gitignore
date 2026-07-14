@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/ — библиотека EATLang в корне репозитория, не артефакт packaging
 lib64/
 parts/
 sdist/

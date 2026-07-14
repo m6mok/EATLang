@@ -31,27 +31,8 @@ func write_kind_op(k: u32)
     if k == 30 { write("LPAREN") } elif k == 31 { write("RPAREN") } elif k == 32 { write("LBRACE") } elif k == 33 { write("RBRACE") } elif k == 34 { write("LBRACKET") } elif k == 35 { write("RBRACKET") } elif k == 36 { write("LT") } elif k == 37 { write("GT") } elif k == 38 { write("LE") } elif k == 39 { write("GE") } elif k == 40 { write("EQ") } elif k == 41 { write("NE") } elif k == 42 { write("ASSIGN") } elif k == 43 { write("COMMA") } elif k == 44 { write("COLON") } elif k == 45 { write("SEMI") } elif k == 46 { write("DOT") } elif k == 47 { write("DOTDOT") } elif k == 48 { write("ARROW") } elif k == 49 { write("PLUS") } elif k == 50 { write("MINUS") } elif k == 51 { write("STAR") } elif k == 52 { write("SLASH") } elif k == 53 { write("PERCENT") } elif k == 54 { write("NEWLINE") } elif k == 55 { write("EOF") } elif k == 56 { write("AMP") } elif k == 57 { write("PIPE") } elif k == 58 { write("CARET") } elif k == 59 { write("SHL") } elif k == 60 { write("SHR") } elif k == 61 { write("TILDE") } else { write("EXTERN") }
 }
 
-# Слово (первые 16 байт лексемы) совпадает со строкой-эталоном?
-func same(a: [u8; 16], n: u32, kw: str<16>) -> bool
-    requires n <= 16
-    ensures true
-{
-    if n != len(kw) {
-        return false
-    }
-    var ok: bool = true
-    for i in 0..16 {
-        if i >= n or not ok {
-            break
-        }
-        if a[i] != u8(kw[i]) {
-            ok = false
-        }
-    }
-    return ok
-}
-
 # Код ключевого слова, 3 (IDENT) — если слово не ключевое.
+# (same — lib/Buf.eat)
 func kw_code(w: [u8; 16], n: u32) -> u32
     requires n <= 16
     ensures result <= 29 or result == 62

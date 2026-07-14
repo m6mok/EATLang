@@ -7,23 +7,18 @@ enum Klass {
     Other,
 }
 
+# Классы — через lib/Ascii.eat; '_' считается буквой (байт слова).
 func klass(b: u8) -> Klass
     requires true
     ensures true
 {
-    if b >= 97 and b <= 122 {
+    if is_alpha(b) or b == 95 {
         return Klass.Letter
     }
-    if b >= 65 and b <= 90 {
-        return Klass.Letter
-    }
-    if b == 95 {
-        return Klass.Letter
-    }
-    if b >= 48 and b <= 57 {
+    if is_digit(b) {
         return Klass.Digit
     }
-    if b == 32 or b == 10 or b == 9 or b == 13 {
+    if is_space(b) {
         return Klass.Space
     }
     return Klass.Other
