@@ -29,6 +29,12 @@ class BreakSignal(Exception):
     pass
 
 
+class ComptimeBudget(Exception):
+    """Превышен предел шагов comptime-вычисления (§5). Ловится
+    comptime-входом и превращается в ошибку компиляции; в обычном
+    прогоне (step_budget=None) не возникает."""
+
+
 @dataclass
 class Slot:
     value: object
@@ -116,6 +122,11 @@ class Interpreter:
             "ParseError": ["Empty", "BadChar", "Overflow"],
         }
         self.frames: list[list[dict]] = []
+        # бюджет comptime (§5): None — обычный прогон без счёта; иначе
+        # каждый eval/exec_stmt инкрементит steps, превышение —
+        # ComptimeBudget. Шаг фиксирован в SPEC §6 (паритет с Eval.eat).
+        self.step_budget: int | None = None
+        self.steps: int = 0
         self._collect()
 
     # --- подготовка -----------------------------------------------------
@@ -321,6 +332,10 @@ class Interpreter:
             self.pop_scope()
 
     def exec_stmt(self, stmt: ast.Stmt) -> None:
+        if self.step_budget is not None:
+            self.steps += 1
+            if self.steps > self.step_budget:
+                raise ComptimeBudget()
         handler = self._EXEC.get(type(stmt))
         if handler is None:
             raise self.trap(stmt, "неизвестная инструкция")
@@ -349,6 +364,10 @@ class Interpreter:
     def _exec_loop(self, stmt: ast.LoopStmt) -> None:
         try:
             while True:
+                if self.step_budget is not None:
+                    self.steps += 1
+                    if self.steps > self.step_budget:
+                        raise ComptimeBudget()
                 self.exec_block(stmt.body)
         except BreakSignal:
             pass
@@ -417,6 +436,12 @@ class Interpreter:
             loop_scope[target] = tslot
         try:
             for item in items:
+                # виток цикла — шаг comptime: иначе тугой цикл с
+                # пустым/дешёвым телом не тратил бы бюджет (§5)
+                if self.step_budget is not None:
+                    self.steps += 1
+                    if self.steps > self.step_budget:
+                        raise ComptimeBudget()
                 if tslot is not None:
                     tslot.value = _copy_value(item)
                 body_scope.clear()
@@ -451,6 +476,10 @@ class Interpreter:
     # --- выражения -----------------------------------------------------------
 
     def eval(self, node: ast.Expr):
+        if self.step_budget is not None:
+            self.steps += 1
+            if self.steps > self.step_budget:
+                raise ComptimeBudget()
         handler = self._EVAL.get(type(node))
         if handler is None:
             raise self.trap(node, "неизвестное выражение")
