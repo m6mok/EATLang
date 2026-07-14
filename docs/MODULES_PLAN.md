@@ -143,6 +143,7 @@ bind         = ident ["as" ident] .
 
 | Модуль | Содержимое | Сводит дубли |
 | --- | --- | --- |
+| `lib/Const.eat` | `NONE` (сентинель «значения нет»), `U32_MAX` | магические `4294967295` по всему selfhost (добавлен 2026-07-14) |
 | `lib/Fmt.eat` | десятичный формат u32/i32 → ASCII | `RtStr.append_u32` + `lb_dec`/`nb_dec`/`tp_dec`/`g_dec` (Ir.eat) |
 | `lib/Hex.eat` | `hex_digit`, `write_hex8/16`, `hex_val` | mos6502/Main.eat, `p_hexd` (Ir.eat), `hex_val` (Lexer.eat) |
 | `lib/Ascii.eat` | `is_digit`, `is_alpha`, `is_space`, `digit_value` | examples/modules, examples/lexer, магические `48..57` |

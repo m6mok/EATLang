@@ -13,6 +13,11 @@ import {
 } from "lib/Buf.eat"
 
 import {
+    NONE,
+    U32_MAX,
+} from "lib/Const.eat"
+
+import {
     Dec,
     fmt_u32,
 } from "lib/Fmt.eat"
@@ -39,7 +44,8 @@ func main() {
     let s: bool = same(w, 0, "")
     let g: bool = is_digit(u8(48))
     let h: char = hex_digit(10)
-    print("digit={g} hex={h} ln={d.ln} same={s}")
+    let x: bool = NONE == U32_MAX
+    print("digit={g} hex={h} ln={d.ln} same={s} x={x}")
     match read_line() {
         Ok(line) {
             match parse_i32(line) {

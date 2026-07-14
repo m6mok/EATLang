@@ -124,7 +124,7 @@ make run     SRC="Mod.eat Main.eat"    # запустить build/Main
 ```text
 src/eatc/        Python-бутстрап (эталон): лексер … codegen, runtime.c
 selfhost/        self-hosted компилятор + Rt.eat + планы фаз
-lib/             библиотека на EATLang (Ascii, Buf, Fmt, Hex, Num);
+lib/             библиотека на EATLang (Ascii, Buf, Const, Fmt, Hex, Io, Num, Parse);
                  подключается списком файлов после Rt.eat
                  (docs/MODULES_PLAN.md, этап 0 — конкатенация)
 examples/        эталонные примеры; крупные: mos6502, lexer (проба)

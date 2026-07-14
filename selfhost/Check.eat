@@ -241,9 +241,9 @@ struct Check {
     {
         for k in 0..6 {
             self.yk[k] = k
-            self.ya[k] = 4294967295
-            self.yb[k] = 4294967295
-            self.ys[k] = 4294967295
+            self.ya[k] = NONE
+            self.yb[k] = NONE
+            self.ys[k] = NONE
             self.yl[k] = 0
         }
         self.ntype = 6
@@ -254,7 +254,7 @@ struct Check {
         requires true
         ensures result < 512
     {
-        return self.intern(12, 4294967295, 4294967295, 4294967295, 0)
+        return self.intern(12, NONE, NONE, NONE, 0)
     }
 
     # Индекс типа u64 (вид 13 интернируется по требованию).
@@ -262,7 +262,7 @@ struct Check {
         requires true
         ensures result < 512
     {
-        return self.intern(13, 4294967295, 4294967295, 4294967295, 0)
+        return self.intern(13, NONE, NONE, NONE, 0)
     }
 
     # Индекс типа i64 (вид 14 интернируется по требованию).
@@ -270,16 +270,16 @@ struct Check {
         requires true
         ensures result < 512
     {
-        return self.intern(14, 4294967295, 4294967295, 4294967295, 0)
+        return self.intern(14, NONE, NONE, NONE, 0)
     }
 
     func intern(var self, k: u32, a: u32, b: u32, s: u32, l: u32) -> u32
         requires k <= 14
         ensures result < 512
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for t in 0..512 {
-            if t >= self.ntype or found != 4294967295 {
+            if t >= self.ntype or found != NONE {
                 break
             }
             if self.yk[t] == k and self.ya[t] == a and self.yb[t] == b {
@@ -292,7 +292,7 @@ struct Check {
                 }
             }
         }
-        if found != 4294967295 {
+        if found != NONE {
             return found
         }
         if self.ntype >= 512 {
@@ -314,9 +314,9 @@ struct Check {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..128 {
-            if i >= self.nstr or found != 4294967295 {
+            if i >= self.nstr or found != NONE {
                 break
             }
             if self.span_eq(self.sn_s[i], self.sn_l[i], a, l) {
@@ -330,9 +330,9 @@ struct Check {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..64 {
-            if i >= self.nenu or found != 4294967295 {
+            if i >= self.nenu or found != NONE {
                 break
             }
             if self.span_eq(self.en_s[i], self.en_l[i], a, l) {
@@ -346,9 +346,9 @@ struct Check {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..128 {
-            if i >= self.ncon or found != 4294967295 {
+            if i >= self.ncon or found != NONE {
                 break
             }
             if self.span_eq(self.cn_s[i], self.cn_l[i], a, l) {
@@ -379,7 +379,7 @@ struct Check {
         requires true
         ensures true
     {
-        var f: u32 = 4294967295
+        var f: u32 = NONE
         var slot: u32 = self.fh_hash(own, a, l) & 2047
         var stop: bool = false
         for _ in 0..2048 {
@@ -387,7 +387,7 @@ struct Check {
                 break
             }
             let fi: u32 = self.fhx[slot]
-            if fi == 4294967295 {
+            if fi == NONE {
                 stop = true
             } elif self.fown[fi & 1023] == own and self.span_eq(self.fn_s[fi & 1023], self.fn_l[fi & 1023], a, l) {
                 f = fi
@@ -405,7 +405,7 @@ struct Check {
     {
         var slot: u32 = self.fh_hash(self.fown[i], self.fn_s[i], self.fn_l[i]) & 2047
         for _ in 0..2048 {
-            if self.fhx[slot] == 4294967295 {
+            if self.fhx[slot] == NONE {
                 break
             }
             slot = (slot + 1) & 2047
@@ -418,7 +418,7 @@ struct Check {
         requires true
         ensures true
     {
-        return self.fh_find(4294967295, a, l)
+        return self.fh_find(NONE, a, l)
     }
 
     # Запись таблицы функций по узлу AST.
@@ -426,9 +426,9 @@ struct Check {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..1024 {
-            if i >= self.nfun or found != 4294967295 {
+            if i >= self.nfun or found != NONE {
                 break
             }
             if self.fnd[i] == n {
@@ -471,14 +471,14 @@ struct Check {
         if self.span_is(a, l, "char") {
             return 4
         }
-        if self.find_struct(a, l) != 4294967295 {
-            return self.intern(8, 4294967295, 4294967295, a, l)
+        if self.find_struct(a, l) != NONE {
+            return self.intern(8, NONE, NONE, a, l)
         }
-        if self.find_enum(a, l) != 4294967295 {
-            return self.intern(9, 4294967295, 4294967295, a, l)
+        if self.find_enum(a, l) != NONE {
+            return self.intern(9, NONE, NONE, a, l)
         }
         if self.span_is(a, l, "IoError") or self.span_is(a, l, "ParseError") {
-            return self.intern(9, 4294967295, 4294967295, a, l)
+            return self.intern(9, NONE, NONE, a, l)
         }
         self.fail_node(n, "неизвестный тип")
         return 0
@@ -525,7 +525,7 @@ struct Check {
                     if sz == 0 {
                         self.fail_node(n, "размер массива вне (0, 65536]")
                     }
-                    ret = self.intern(7, s3[f], sz, 4294967295, 0)
+                    ret = self.intern(7, s3[f], sz, NONE, 0)
                     sp = f
                 }
             } elif k == 29 {
@@ -534,7 +534,7 @@ struct Check {
                 if cap == 0 {
                     self.fail_node(n, "ёмкость строки вне (0, 256]")
                 }
-                ret = self.intern(6, cap, 4294967295, 4294967295, 0)
+                ret = self.intern(6, cap, NONE, NONE, 0)
                 sp = f
             } elif k == 30 {
                 if ph == 0 {
@@ -549,7 +549,7 @@ struct Check {
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
-                    ret = self.intern(10, s3[f], ret, 4294967295, 0)
+                    ret = self.intern(10, s3[f], ret, NONE, 0)
                     sp = f
                 }
             } elif k == 31 {
@@ -559,7 +559,7 @@ struct Check {
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
-                    ret = self.intern(11, ret, 4294967295, 4294967295, 0)
+                    ret = self.intern(11, ret, NONE, NONE, 0)
                     sp = f
                 }
             } else {
@@ -613,7 +613,7 @@ struct Check {
                 sp = f
             } elif k == 37 {
                 let ci: u32 = self.find_const(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
-                if ci == 4294967295 {
+                if ci == NONE {
                     self.fail_node(n, "не константа времени компиляции (правило 2)")
                 } else {
                     vs[nv] = self.cvs[ci]
@@ -785,16 +785,16 @@ struct Check {
         requires true
         ensures true
     {
-        if self.find_func(a, l) != 4294967295 {
+        if self.find_func(a, l) != NONE {
             return true
         }
-        if self.find_struct(a, l) != 4294967295 {
+        if self.find_struct(a, l) != NONE {
             return true
         }
-        if self.find_enum(a, l) != 4294967295 {
+        if self.find_enum(a, l) != NONE {
             return true
         }
-        if self.find_const(a, l) != 4294967295 {
+        if self.find_const(a, l) != NONE {
             return true
         }
         return self.builtin_name(a, l)
@@ -867,11 +867,11 @@ struct Check {
     # Модуль по спану канонического пути; NONE — не найден.
     func find_module(var self, a: u32, l: u32) -> u32
         requires true
-        ensures result < 64 or result == 4294967295
+        ensures result < 64 or result == NONE
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..64 {
-            if i >= self.nmod or found != 4294967295 {
+            if i >= self.nmod or found != NONE {
                 break
             }
             let d: u32 = self.mnd[i]
@@ -897,7 +897,7 @@ struct Check {
         let own: u32 = self.fown[fi]
         var a: u32 = self.fn_s[fi]
         var l: u32 = self.fn_l[fi]
-        if own != 4294967295 {
+        if own != NONE {
             a = self.sn_s[own]
             l = self.sn_l[own]
         }
@@ -927,7 +927,7 @@ struct Check {
         }
         var b: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
-            if b == 4294967295 or self.failed {
+            if b == NONE or self.failed {
                 break
             }
             if self.nexp >= 256 {
@@ -957,13 +957,13 @@ struct Check {
         ensures true
     {
         let src: u32 = self.find_module(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
-        if src == 4294967295 {
+        if src == NONE {
             self.fail_node(d, "import: модуль не встретился раньше по потоку (порядок собирает драйвер)")
             return
         }
         var b: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
-            if b == 4294967295 or self.failed {
+            if b == NONE or self.failed {
                 break
             }
             self.col_bind(b, src)
@@ -976,9 +976,9 @@ struct Check {
         requires b < 131072 and src < 64
         ensures true
     {
-        var hit: u32 = 4294967295
+        var hit: u32 = NONE
         for j in 0..256 {
-            if j >= self.nexp or hit != 4294967295 {
+            if j >= self.nexp or hit != NONE {
                 break
             }
             if self.exm[j] == src + 1 {
@@ -987,7 +987,7 @@ struct Check {
                 }
             }
         }
-        if hit == 4294967295 {
+        if hit == NONE {
             self.fail_node(b, "модуль не экспортирует это имя")
             return
         }
@@ -1016,14 +1016,14 @@ struct Check {
     {
         var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
-            if d == 4294967295 or self.failed {
+            if d == NONE or self.failed {
                 break
             }
             let k: u32 = self.p.nk[d / 65536][d % 65536]
             if k == 51 {
                 if self.nmod >= 64 {
                     self.fail_node(d, "слишком много модулей (предел 64)")
-                } elif self.find_module(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]) != 4294967295 {
+                } elif self.find_module(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]) != NONE {
                     self.fail_node(d, "модуль в потоке дважды")
                 } else {
                     self.mnd[self.nmod] = d
@@ -1092,7 +1092,7 @@ struct Check {
     {
         var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
-            if d == 4294967295 or self.failed {
+            if d == NONE or self.failed {
                 break
             }
             let k: u32 = self.p.nk[d / 65536][d % 65536]
@@ -1141,12 +1141,12 @@ struct Check {
         # повтор варианта — ошибка
         var v: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..256 {
-            if v == 4294967295 {
+            if v == NONE {
                 break
             }
             var w: u32 = self.p.nns[v / 65536][v % 65536]
             for _ in 0..256 {
-                if w == 4294967295 {
+                if w == NONE {
                     break
                 }
                 if self.span_eq(self.p.nss[v / 65536][v % 65536], self.p.nsl[v / 65536][v % 65536], self.p.nss[w / 65536][w % 65536], self.p.nsl[w / 65536][w % 65536]) {
@@ -1166,7 +1166,7 @@ struct Check {
         self.cmod = 0
         var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
-            if d == 4294967295 or self.failed {
+            if d == NONE or self.failed {
                 break
             }
             let k: u32 = self.p.nk[d / 65536][d % 65536]
@@ -1176,7 +1176,7 @@ struct Check {
                 self.col_const(d)
             } elif k == 6 or k == 50 {
                 self.declare_top(d)
-                self.add_func(d, 4294967295)
+                self.add_func(d, NONE)
             } elif k == 2 {
                 self.col_enum(d)
             } elif k == 4 {
@@ -1229,7 +1229,7 @@ struct Check {
         self.fmod[i] = self.cmod
         self.fown[i] = owner
         self.fnd[i] = d
-        self.fret[i] = 4294967295
+        self.fret[i] = NONE
         self.fvs[i] = 0
         self.fps[i] = self.npar
         self.fpc[i] = 0
@@ -1237,12 +1237,12 @@ struct Check {
         var c: u32 = self.p.nfc[d / 65536][d % 65536]
         var first: bool = true
         for _ in 0..64 {
-            if c == 4294967295 or self.failed {
+            if c == NONE or self.failed {
                 break
             }
             let ck: u32 = self.p.nk[c / 65536][c % 65536]
             if ck == 7 {
-                if self.p.nss[c / 65536][c % 65536] == 4294967295 {
+                if self.p.nss[c / 65536][c % 65536] == NONE {
                     # self: в параметры не входит, даёт var_self
                     if first {
                         self.fvs[i] = self.p.nx[c / 65536][c % 65536]
@@ -1273,13 +1273,13 @@ struct Check {
         ensures true
     {
         let ei: u32 = self.find_enum(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
-        if ei == 4294967295 {
+        if ei == NONE {
             return
         }
         self.evs[ei] = self.nvar
         var v: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..256 {
-            if v == 4294967295 or self.failed {
+            if v == NONE or self.failed {
                 break
             }
             if self.nvar >= 256 {
@@ -1288,10 +1288,10 @@ struct Check {
                 let wi: u32 = self.nvar
                 self.wn_s[wi] = self.p.nss[v / 65536][v % 65536]
                 self.wn_l[wi] = self.p.nsl[v / 65536][v % 65536]
-                if self.p.nfc[v / 65536][v % 65536] != 4294967295 {
+                if self.p.nfc[v / 65536][v % 65536] != NONE {
                     self.wpl[wi] = self.resolve(self.p.nfc[v / 65536][v % 65536])
                 } else {
-                    self.wpl[wi] = 4294967295
+                    self.wpl[wi] = NONE
                 }
                 self.nvar = wi + 1
                 self.evc[ei] = self.evc[ei] + 1
@@ -1305,13 +1305,13 @@ struct Check {
         ensures true
     {
         let si: u32 = self.find_struct(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
-        if si == 4294967295 {
+        if si == NONE {
             return
         }
         self.sgs[si] = self.ngld
         var c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..512 {
-            if c == 4294967295 or self.failed {
+            if c == NONE or self.failed {
                 break
             }
             let ck: u32 = self.p.nk[c / 65536][c % 65536]
@@ -1383,7 +1383,7 @@ struct Check {
                     let id: u32 = st[f]
                     let nxt: u32 = self.cyc_dep(id, stpos[f])
                     stpos[f] = stpos[f] + 1
-                    if nxt == 4294967295 {
+                    if nxt == NONE {
                         color[id] = 2
                         sp = f
                     } elif color[nxt] == 1 {
@@ -1421,7 +1421,7 @@ struct Check {
     {
         self.dep_k = k
         self.dep_cnt = 0
-        self.dep_found = 4294967295
+        self.dep_found = NONE
         var ms: u32 = 0
         var mc: u32 = 0
         if id < 128 {
@@ -1432,16 +1432,16 @@ struct Check {
             mc = self.evc[id - 128]
         }
         for m in 0..512 {
-            if m >= mc or self.dep_found != 4294967295 {
+            if m >= mc or self.dep_found != NONE {
                 break
             }
-            var ty: u32 = 4294967295
+            var ty: u32 = NONE
             if id < 128 {
                 ty = self.gty[ms + m]
             } else {
                 ty = self.wpl[ms + m]
             }
-            if ty != 4294967295 {
+            if ty != NONE {
                 self.cyc_scan(ty)
             }
         }
@@ -1483,10 +1483,10 @@ struct Check {
         ensures true
     {
         let dep: u32 = self.cyc_name_id(tk, a, l)
-        if dep == 4294967295 {
+        if dep == NONE {
             return
         }
-        if self.dep_cnt == self.dep_k and self.dep_found == 4294967295 {
+        if self.dep_cnt == self.dep_k and self.dep_found == NONE {
             self.dep_found = dep
         }
         self.dep_cnt = self.dep_cnt + 1
@@ -1500,8 +1500,8 @@ struct Check {
             return self.find_struct(a, l)
         }
         let e: u32 = self.find_enum(a, l)
-        if e == 4294967295 {
-            return 4294967295
+        if e == NONE {
+            return NONE
         }
         return 128 + e
     }
@@ -1536,12 +1536,12 @@ struct Check {
         var has_ens: bool = false
         var has_ret: bool = false
         var has_par: bool = false
-        if self.fpc[i] > 0 or self.fown[i] != 4294967295 {
+        if self.fpc[i] > 0 or self.fown[i] != NONE {
             has_par = true
         }
         var c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..64 {
-            if c == 4294967295 {
+            if c == NONE {
                 break
             }
             let ck: u32 = self.p.nk[c / 65536][c % 65536]
@@ -1581,7 +1581,7 @@ struct Check {
             if is_stmt_kind(k) {
                 cnt = cnt + 1
             }
-            if self.p.nfc[cur / 65536][cur % 65536] != 4294967295 and sp < 64 {
+            if self.p.nfc[cur / 65536][cur % 65536] != NONE and sp < 64 {
                 st[sp] = cur
                 sp = sp + 1
                 cur = self.p.nfc[cur / 65536][cur % 65536]
@@ -1594,7 +1594,7 @@ struct Check {
                     if cur == root or sp == 0 {
                         done = true
                         moved = true
-                    } elif self.p.nns[cur / 65536][cur % 65536] != 4294967295 {
+                    } elif self.p.nns[cur / 65536][cur % 65536] != NONE {
                         cur = self.p.nns[cur / 65536][cur % 65536]
                         moved = true
                     } else {
@@ -1617,18 +1617,18 @@ struct Check {
         requires true
         ensures true
     {
-        var mi: u32 = 4294967295
+        var mi: u32 = NONE
         for i in 0..1024 {
-            if i >= self.nfun or mi != 4294967295 {
+            if i >= self.nfun or mi != NONE {
                 break
             }
-            if self.fown[i] == 4294967295 {
+            if self.fown[i] == NONE {
                 if self.span_is(self.fn_s[i], self.fn_l[i], "main") {
                     mi = i
                 }
             }
         }
-        if mi == 4294967295 {
+        if mi == NONE {
             self.fail_at(1, 1, "нет функции main — точки входа")
             return
         }
@@ -1636,7 +1636,7 @@ struct Check {
         if self.p.nk[self.fnd[mi] / 65536][self.fnd[mi] % 65536] == 50 {
             self.fail_node(self.fnd[mi], "main не может быть extern")
         }
-        if self.fpc[mi] != 0 or self.fret[mi] != 4294967295 {
+        if self.fpc[mi] != 0 or self.fret[mi] != NONE {
             self.fail_node(self.fnd[mi], "main не принимает параметров и ничего не возвращает")
         }
     }
@@ -1720,7 +1720,7 @@ struct Check {
                 self.write_scalar_kind(k)
                 sp = f
             } elif k == 6 {
-                if self.ya[t] == 4294967295 {
+                if self.ya[t] == NONE {
                     write("str<?>")
                 } else {
                     write("str<{self.ya[t]}>")
@@ -1795,7 +1795,7 @@ struct Check {
         if self.fvs[i] == 1 {
             write(" var_self")
         }
-        if self.fret[i] != 4294967295 {
+        if self.fret[i] != NONE {
             write(" -> ")
             self.write_type(self.fret[i])
         }
@@ -1807,7 +1807,7 @@ struct Check {
     {
         var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
-            if d == 4294967295 {
+            if d == NONE {
                 break
             }
             self.dump_decl(d)
@@ -1871,7 +1871,7 @@ struct Check {
     {
         var b: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
-            if b == 4294967295 {
+            if b == NONE {
                 break
             }
             write("import ")
@@ -1896,7 +1896,7 @@ struct Check {
     {
         var b: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
-            if b == 4294967295 {
+            if b == NONE {
                 break
             }
             write("export ")
@@ -1933,7 +1933,7 @@ struct Check {
         }
         var c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..512 {
-            if c == 4294967295 {
+            if c == NONE {
                 break
             }
             if self.p.nk[c / 65536][c % 65536] == 6 {
@@ -1963,7 +1963,7 @@ struct Check {
             }
             write("  variant ")
             self.write_span2(self.wn_s[ws + w], self.wn_l[ws + w])
-            if self.wpl[ws + w] != 4294967295 {
+            if self.wpl[ws + w] != NONE {
                 write(" :: ")
                 self.write_type(self.wpl[ws + w])
             }
@@ -1990,19 +1990,19 @@ struct Check {
             self.p.lex.sb_set(self.bn_pe + i, u8(pe[i]))
         }
         self.p.lex.sblen = self.bn_pe + 10
-        self.ty_sq = self.intern(6, 4294967295, 4294967295, 4294967295, 0)
-        let t_io: u32 = self.intern(9, 4294967295, 4294967295, self.bn_io, 7)
-        let t_pe: u32 = self.intern(9, 4294967295, 4294967295, self.bn_pe, 10)
-        let t_s256: u32 = self.intern(6, 256, 4294967295, 4294967295, 0)
-        self.ty_rl = self.intern(10, t_s256, t_io, 4294967295, 0)
-        self.ty_rb = self.intern(10, 2, t_io, 4294967295, 0)
-        self.ty_pi = self.intern(10, 0, t_pe, 4294967295, 0)
-        self.cur_key = 4294967295
-        self.self_ty2 = 4294967295
-        self.res_ty2 = 4294967295
-        self.cr = 4294967295
+        self.ty_sq = self.intern(6, NONE, NONE, NONE, 0)
+        let t_io: u32 = self.intern(9, NONE, NONE, self.bn_io, 7)
+        let t_pe: u32 = self.intern(9, NONE, NONE, self.bn_pe, 10)
+        let t_s256: u32 = self.intern(6, 256, NONE, NONE, 0)
+        self.ty_rl = self.intern(10, t_s256, t_io, NONE, 0)
+        self.ty_rb = self.intern(10, 2, t_io, NONE, 0)
+        self.ty_pi = self.intern(10, 0, t_pe, NONE, 0)
+        self.cur_key = NONE
+        self.self_ty2 = NONE
+        self.res_ty2 = NONE
+        self.cr = NONE
         for n in 0..131072 {
-            self.nty[n / 65536][n % 65536] = 4294967295
+            self.nty[n / 65536][n % 65536] = NONE
         }
     }
 
@@ -2042,7 +2042,7 @@ struct Check {
                 break
             }
             if i >= base and not self.failed {
-                if self.sv_u[i] == 0 and self.sv_s[i] != 4294967295 {
+                if self.sv_u[i] == 0 and self.sv_s[i] != NONE {
                     self.fail_at(self.sv_ln[i], self.sv_cl[i], "переменная не используется (правило 10)")
                 }
             }
@@ -2063,13 +2063,13 @@ struct Check {
             if i >= self.nsv {
                 break
             }
-            if self.sv_s[i] != 4294967295 {
+            if self.sv_s[i] != NONE {
                 if self.span_eq(self.sv_s[i], self.sv_l[i], a, l) {
                     self.fail_node(nd, "имя уже объявлено: shadowing запрещён (правило 6)")
                 }
             }
         }
-        if self.find_const(a, l) != 4294967295 or self.find_func(a, l) != 4294967295 {
+        if self.find_const(a, l) != NONE or self.find_func(a, l) != NONE {
             self.fail_node(nd, "имя затеняет объявление верхнего уровня (правило 6)")
         }
         if self.io_builtin(a, l) {
@@ -2111,7 +2111,7 @@ struct Check {
         ensures true
     {
         let v: u32 = self.nsv
-        self.sv_s[v] = 4294967295
+        self.sv_s[v] = NONE
         self.sv_l[v] = 0
         self.sv_t[v] = ty
         self.sv_m[v] = mut
@@ -2126,18 +2126,18 @@ struct Check {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..256 {
-            if i >= self.nsv or found != 4294967295 {
+            if i >= self.nsv or found != NONE {
                 break
             }
-            if self.sv_s[i] != 4294967295 {
+            if self.sv_s[i] != NONE {
                 if self.span_eq(self.sv_s[i], self.sv_l[i], a, l) {
                     found = i
                 }
             }
         }
-        if found != 4294967295 {
+        if found != NONE {
             self.sv_u[found] = 1
         }
         return found
@@ -2147,12 +2147,12 @@ struct Check {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..256 {
-            if i >= self.nsv or found != 4294967295 {
+            if i >= self.nsv or found != NONE {
                 break
             }
-            if self.sv_s[i] == 4294967295 {
+            if self.sv_s[i] == NONE {
                 found = i
             }
         }
@@ -2196,7 +2196,7 @@ struct Check {
     {
         var c: u32 = self.p.nfc[n / 65536][n % 65536]
         for k in 0..64 {
-            if k >= i or c == 4294967295 {
+            if k >= i or c == NONE {
                 break
             }
             c = self.p.nns[c / 65536][c % 65536]
@@ -2211,7 +2211,7 @@ struct Check {
         var c: u32 = self.p.nfc[n / 65536][n % 65536]
         var cnt: u32 = 0
         for _ in 0..64 {
-            if c == 4294967295 {
+            if c == NONE {
                 break
             }
             cnt = cnt + 1
@@ -2322,7 +2322,7 @@ struct Check {
         if k == 32 {
             let exp: u32 = self.xe[self.nxq - 1]
             var t: u32 = 0
-            if exp != 4294967295 and (self.yk[exp] <= 2 or self.yk[exp] >= 12) {
+            if exp != NONE and (self.yk[exp] <= 2 or self.yk[exp] >= 12) {
                 t = exp
             }
             if not self.int_fits(t, self.p.ny[n / 65536][n % 65536], self.p.mag(n)) {
@@ -2334,13 +2334,13 @@ struct Check {
         } elif k == 34 {
             self.tres = 4
         } elif k == 38 {
-            if self.self_ty2 == 4294967295 {
+            if self.self_ty2 == NONE {
                 self.fail_node(n, "self доступен только в методе struct")
                 self.tres = 0
             } else {
                 self.tres = self.self_ty2
                 let v: u32 = self.lookup_self()
-                if v != 4294967295 {
+                if v != NONE {
                     self.sv_u[v] = 1
                 }
             }
@@ -2356,19 +2356,19 @@ struct Check {
     {
         let a: u32 = self.p.nss[n / 65536][n % 65536]
         let l: u32 = self.p.nsl[n / 65536][n % 65536]
-        if self.res_ty2 != 4294967295 and self.span_is(a, l, "result") {
+        if self.res_ty2 != NONE and self.span_is(a, l, "result") {
             self.tres = self.res_ty2
             return
         }
         let v: u32 = self.lookup(a, l)
-        if v != 4294967295 {
+        if v != NONE {
             self.tres = self.sv_t[v]
             return
         }
         if self.span_is(a, l, "None") {
             # конструктор None: только в контексте cr с ожидаемым Option
             let exp: u32 = self.xe[self.nxq - 1]
-            var ok: bool = n == self.cr and exp != 4294967295
+            var ok: bool = n == self.cr and exp != NONE
             if ok {
                 if self.yk[exp] != 11 {
                     ok = false
@@ -2383,11 +2383,11 @@ struct Check {
             return
         }
         let ci: u32 = self.find_const(a, l)
-        if ci != 4294967295 {
+        if ci != NONE {
             self.tres = self.cty[ci]
             return
         }
-        if self.find_func(a, l) != 4294967295 or self.io_builtin(a, l) {
+        if self.find_func(a, l) != NONE or self.io_builtin(a, l) {
             self.fail_node(n, "функция, а не значение (правило 9)")
             self.tres = 0
             return
@@ -2414,11 +2414,11 @@ struct Check {
             self.xp[f] = 1
         } else {
             let c: u32 = self.xa[f]
-            if c == 4294967295 {
+            if c == NONE {
                 if self.xb[f] >= 2147483648 {
                     self.tres = self.ty_sq
                 } else {
-                    self.tres = self.intern(6, self.xb[f], 4294967295, 4294967295, 0)
+                    self.tres = self.intern(6, self.xb[f], NONE, NONE, 0)
                 }
                 self.xdone()
             } elif self.p.nk[c / 65536][c % 65536] == 36 {
@@ -2427,7 +2427,7 @@ struct Check {
             } else {
                 self.xa[f] = self.p.nns[c / 65536][c % 65536]
                 self.xp[f] = 2
-                self.xpush(c, 4294967295)
+                self.xpush(c, NONE)
             }
         }
     }
@@ -2493,9 +2493,9 @@ struct Check {
             return
         }
         if ph == 0 {
-            var hint: u32 = 4294967295
+            var hint: u32 = NONE
             if op >= 10 {
-                if self.xe[f] != 4294967295 and (self.yk[self.xe[f]] <= 2 or self.yk[self.xe[f]] >= 12) {
+                if self.xe[f] != NONE and (self.yk[self.xe[f]] <= 2 or self.yk[self.xe[f]] >= 12) {
                     hint = self.xe[f]
                 }
             }
@@ -2557,7 +2557,7 @@ struct Check {
         ensures true
     {
         let ei: u32 = self.find_enum(a, l)
-        if ei == 4294967295 {
+        if ei == NONE {
             return false
         }
         var has: bool = false
@@ -2566,7 +2566,7 @@ struct Check {
                 break
             }
             if w >= self.evs[ei] {
-                if self.wpl[w] != 4294967295 {
+                if self.wpl[w] != NONE {
                     has = true
                 }
             }
@@ -2624,7 +2624,7 @@ struct Check {
                 code = 112
             }
             self.xa[f] = code
-            self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], NONE)
             return
         }
         if self.span_is(a, l, "char") {
@@ -2642,7 +2642,7 @@ struct Check {
                 return
             }
             self.xa[f] = 105
-            self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], NONE)
             return
         }
         self.xs_call_start2(f, n, argc)
@@ -2668,7 +2668,7 @@ struct Check {
         if code == 115 {
             want = 11
         }
-        var ok: bool = n == self.cr and exp != 4294967295
+        var ok: bool = n == self.cr and exp != NONE
         if ok {
             if self.yk[exp] != want {
                 ok = false
@@ -2748,7 +2748,7 @@ struct Check {
             return
         }
         let fi: u32 = self.find_func(a, l)
-        if fi == 4294967295 {
+        if fi == NONE {
             self.fail_node(n, "неизвестная функция")
             return
         }
@@ -2801,7 +2801,7 @@ struct Check {
         }
         self.xa[f] = 110
         self.xb[f] = 0
-        self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
+        self.xpush(self.p.nfc[n / 65536][n % 65536], NONE)
     }
 
     func xs_call_next(var self, f: u32, n: u32)
@@ -2913,7 +2913,7 @@ struct Check {
         ensures true
     {
         self.add_edge(self.cur_key, fi)
-        if self.fret[fi] == 4294967295 {
+        if self.fret[fi] == NONE {
             self.tres = 5
         } else {
             self.tres = self.fret[fi]
@@ -2926,7 +2926,7 @@ struct Check {
         requires true
         ensures true
     {
-        if self.find_enum(a, l) != 4294967295 {
+        if self.find_enum(a, l) != NONE {
             return true
         }
         return self.span_is(a, l, "IoError") or self.span_is(a, l, "ParseError")
@@ -2938,16 +2938,16 @@ struct Check {
         ensures true
     {
         let ei: u32 = self.find_enum(ea, el)
-        if ei == 4294967295 {
+        if ei == NONE {
             # встроенные: вариант «существует без нагрузки» → 999
             if self.builtin_variant(ea, el, va, vl) {
                 return 999
             }
-            return 4294967295
+            return NONE
         }
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for w in 0..256 {
-            if w >= self.evs[ei] + self.evc[ei] or found != 4294967295 {
+            if w >= self.evs[ei] + self.evc[ei] or found != NONE {
                 break
             }
             if w >= self.evs[ei] {
@@ -2988,7 +2988,7 @@ struct Check {
                 }
             }
             self.xp[f] = 1
-            self.xpush(obj, 4294967295)
+            self.xpush(obj, NONE)
         } elif ph == 1 {
             self.xs_method_obj(f, n)
         } elif ph == 9 {
@@ -3007,11 +3007,11 @@ struct Check {
         ensures true
     {
         let w: u32 = self.variant_of(self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536], self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
-        if w == 4294967295 {
+        if w == NONE {
             self.fail_node(n, "у enum нет такого варианта")
             return
         }
-        if w == 999 or self.wpl[w] == 4294967295 {
+        if w == 999 or self.wpl[w] == NONE {
             self.fail_node(n, "вариант не несёт значения — литерал пишется без скобок")
             return
         }
@@ -3020,7 +3020,7 @@ struct Check {
             return
         }
         self.xa[f] = self.wpl[w]
-        self.xb[f] = self.intern(9, 4294967295, 4294967295, self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536])
+        self.xb[f] = self.intern(9, NONE, NONE, self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536])
         self.xp[f] = 9
         self.xpush(self.p.nns[obj / 65536][obj % 65536], self.wpl[w])
     }
@@ -3035,7 +3035,7 @@ struct Check {
         }
         let si: u32 = self.find_struct(self.ys[self.tres], self.yl[self.tres])
         let mfi: u32 = self.fh_find(si, self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
-        if mfi == 4294967295 {
+        if mfi == NONE {
             self.fail_node(n, "у struct нет такого метода")
             return
         }
@@ -3094,7 +3094,7 @@ struct Check {
         }
         if bk == 37 {
             let v: u32 = self.lookup(self.p.nss[base / 65536][base % 65536], self.p.nsl[base / 65536][base % 65536])
-            if v == 4294967295 or self.sv_m[v] != 1 {
+            if v == NONE or self.sv_m[v] != 1 {
                 self.fail_node(n, "метод с var self: получатель — let (неизменяем)")
             }
             return
@@ -3111,17 +3111,17 @@ struct Check {
             if self.p.nk[obj / 65536][obj % 65536] == 37 {
                 if self.is_enum_name(self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536]) {
                     let w: u32 = self.variant_of(self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536], self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
-                    if w == 4294967295 {
+                    if w == NONE {
                         self.fail_node(n, "у enum нет такого варианта")
                         return
                     }
-                    self.tres = self.intern(9, 4294967295, 4294967295, self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536])
+                    self.tres = self.intern(9, NONE, NONE, self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536])
                     self.xdone()
                     return
                 }
             }
             self.xp[f] = 1
-            self.xpush(obj, 4294967295)
+            self.xpush(obj, NONE)
         } else {
             if self.yk[self.tres] != 8 {
                 self.fail_node(n, "у этого типа нет полей (это не struct)")
@@ -3129,7 +3129,7 @@ struct Check {
             }
             let si: u32 = self.find_struct(self.ys[self.tres], self.yl[self.tres])
             let g: u32 = self.field_of(si, self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
-            if g == 4294967295 {
+            if g == NONE {
                 self.fail_node(n, "у struct нет такого поля")
                 return
             }
@@ -3142,9 +3142,9 @@ struct Check {
         requires si < 128
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for g in 0..512 {
-            if g >= self.sgs[si] + self.sgc[si] or found != 4294967295 {
+            if g >= self.sgs[si] + self.sgc[si] or found != NONE {
                 break
             }
             if g >= self.sgs[si] {
@@ -3163,7 +3163,7 @@ struct Check {
         let ph: u32 = self.xp[f]
         if ph == 0 {
             self.xp[f] = 1
-            self.xpush(self.p.nfc[n / 65536][n % 65536], 4294967295)
+            self.xpush(self.p.nfc[n / 65536][n % 65536], NONE)
         } elif ph == 1 {
             self.xa[f] = self.tres
             self.xp[f] = 2
@@ -3193,7 +3193,7 @@ struct Check {
         let ph: u32 = self.xp[f]
         if ph == 0 {
             let si: u32 = self.find_struct(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
-            if si == 4294967295 {
+            if si == NONE {
                 self.fail_node(n, "неизвестный struct")
                 return
             }
@@ -3210,8 +3210,8 @@ struct Check {
             self.xp[f] = 1
         } else {
             let c: u32 = self.xa[f]
-            if c == 4294967295 {
-                self.tres = self.intern(8, 4294967295, 4294967295, self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+            if c == NONE {
+                self.tres = self.intern(8, NONE, NONE, self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
                 self.xdone()
                 return
             }
@@ -3232,12 +3232,12 @@ struct Check {
         var c: u32 = self.p.nfc[n / 65536][n % 65536]
         var cnt: u32 = 0
         for _ in 0..512 {
-            if c == 4294967295 or self.failed {
+            if c == NONE or self.failed {
                 break
             }
             var w: u32 = self.p.nns[c / 65536][c % 65536]
             for _ in 0..512 {
-                if w == 4294967295 {
+                if w == NONE {
                     break
                 }
                 if self.span_eq(self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536], self.p.nss[w / 65536][w % 65536], self.p.nsl[w / 65536][w % 65536]) {
@@ -3245,7 +3245,7 @@ struct Check {
                 }
                 w = self.p.nns[w / 65536][w % 65536]
             }
-            if self.field_of(si, self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536]) == 4294967295 {
+            if self.field_of(si, self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536]) == NONE {
                 self.fail_node(n, "лишнее поле в литерале")
             }
             cnt = cnt + 1
@@ -3264,8 +3264,8 @@ struct Check {
         let ph: u32 = self.xp[f]
         let exp: u32 = self.xe[f]
         if ph == 0 {
-            var hint: u32 = 4294967295
-            if exp != 4294967295 and self.yk[exp] == 7 {
+            var hint: u32 = NONE
+            if exp != NONE and self.yk[exp] == 7 {
                 hint = self.ya[exp]
             }
             self.xa[f] = self.p.nfc[n / 65536][n % 65536]
@@ -3283,14 +3283,14 @@ struct Check {
             self.xp[f] = 2
         } else {
             let c: u32 = self.xa[f]
-            if c == 4294967295 {
+            if c == NONE {
                 let cnt: u32 = self.nchildren(n)
-                if exp != 4294967295 and self.yk[exp] == 7 {
+                if exp != NONE and self.yk[exp] == 7 {
                     if self.yb[exp] != cnt {
                         self.fail_node(n, "число элементов массива не совпадает с типом")
                     }
                 }
-                self.tres = self.intern(7, self.xb[f], cnt, 4294967295, 0)
+                self.tres = self.intern(7, self.xb[f], cnt, NONE, 0)
                 self.xdone()
             } else {
                 self.xp[f] = 3
@@ -3314,19 +3314,19 @@ struct Check {
                 return
             }
             self.xb[f] = u32(self.cem)
-            var hint: u32 = 4294967295
-            if exp != 4294967295 and self.yk[exp] == 7 {
+            var hint: u32 = NONE
+            if exp != NONE and self.yk[exp] == 7 {
                 hint = self.ya[exp]
             }
             self.xp[f] = 1
             self.xpush(self.p.nfc[n / 65536][n % 65536], hint)
         } else {
-            if exp != 4294967295 and self.yk[exp] == 7 {
+            if exp != NONE and self.yk[exp] == 7 {
                 if self.yb[exp] != self.xb[f] {
                     self.fail_node(n, "число элементов массива не совпадает с типом")
                 }
             }
-            self.tres = self.intern(7, self.tres, self.xb[f], 4294967295, 0)
+            self.tres = self.intern(7, self.tres, self.xb[f], NONE, 0)
             self.xdone()
         }
     }
@@ -3347,7 +3347,7 @@ struct Check {
         self.qn[self.nq] = node
         self.qp[self.nq] = cursor
         self.qx[self.nq] = aux
-        self.qy[self.nq] = 4294967295
+        self.qy[self.nq] = NONE
         self.nq = self.nq + 1
     }
 
@@ -3417,7 +3417,7 @@ struct Check {
     {
         let f: u32 = self.nq - 1
         let last: u32 = self.qy[f]
-        if last != 4294967295 {
+        if last != NONE {
             if self.nrt[last / 65536][last % 65536] == 1 or self.p.nk[last / 65536][last % 65536] == 23 or self.stmt_is_exit(last) {
                 if self.qx[f] / 2 % 2 == 0 {
                     self.qx[f] = self.qx[f] + 2
@@ -3428,10 +3428,10 @@ struct Check {
                     self.qx[f] = self.qx[f] + 4
                 }
             }
-            self.qy[f] = 4294967295
+            self.qy[f] = NONE
         }
         let cur: u32 = self.qp[f]
-        if cur == 4294967295 {
+        if cur == NONE {
             self.nrt[self.qn[f] / 65536][self.qn[f] % 65536] = self.qx[f] / 4 % 2
             if self.qx[f] % 2 == 1 {
                 self.pop_scope()
@@ -3471,7 +3471,7 @@ struct Check {
             }
             self.loopd = self.loopd + 1
             self.brkc[self.loopd - 1] = 0
-            self.qpush(4, cur, 4294967295, 0)
+            self.qpush(4, cur, NONE, 0)
             self.start_block_frame(self.p.nfc[cur / 65536][cur % 65536], 1)
         } elif k == 20 {
             self.q_match_start(cur)
@@ -3489,12 +3489,12 @@ struct Check {
         } elif k == 24 {
             self.expect_bool(self.p.nfc[cur / 65536][cur % 65536])
         } elif k == 25 {
-            self.expr_check(self.p.nfc[cur / 65536][cur % 65536], 4294967295, 1)
+            self.expr_check(self.p.nfc[cur / 65536][cur % 65536], NONE, 1)
             if not self.failed and self.tres != 5 {
                 self.fail_node(cur, "результат отброшен молча; используйте значение или discard (правило 7)")
             }
         } else {
-            self.expr_check(self.p.nfc[cur / 65536][cur % 65536], 4294967295, 1)
+            self.expr_check(self.p.nfc[cur / 65536][cur % 65536], NONE, 1)
             if not self.failed and self.tres == 5 {
                 self.fail_node(cur, "discard бессмыслен: функция ничего не возвращает")
             }
@@ -3529,7 +3529,7 @@ struct Check {
         ensures true
     {
         let tgt: u32 = self.p.nfc[cur / 65536][cur % 65536]
-        self.expr_check(tgt, 4294967295, 0)
+        self.expr_check(tgt, NONE, 0)
         if self.failed {
             return
         }
@@ -3544,13 +3544,13 @@ struct Check {
         let bk: u32 = self.p.nk[base / 65536][base % 65536]
         if bk == 38 {
             let v: u32 = self.lookup_self()
-            if v == 4294967295 or self.sv_m[v] != 1 {
+            if v == NONE or self.sv_m[v] != 1 {
                 self.fail_node(cur, "self неизменяем: мутирующий метод — func имя(var self, ...)")
                 return
             }
         } elif bk == 37 {
             let v2: u32 = self.lookup(self.p.nss[base / 65536][base % 65536], self.p.nsl[base / 65536][base % 65536])
-            if v2 == 4294967295 {
+            if v2 == NONE {
                 self.fail_node(base, "неизвестное имя")
                 return
             }
@@ -3574,7 +3574,7 @@ struct Check {
     {
         let f: u32 = self.nq - 1
         let cur: u32 = self.qp[f]
-        if cur == 4294967295 {
+        if cur == NONE {
             self.nrt[self.qn[f] / 65536][self.qn[f] % 65536] = self.if_returns(self.qn[f])
             self.nq = f
             return
@@ -3601,7 +3601,7 @@ struct Check {
         var all: u32 = 1
         var c: u32 = self.p.nfc[n / 65536][n % 65536]
         for _ in 0..64 {
-            if c == 4294967295 {
+            if c == NONE {
                 break
             }
             let k: u32 = self.p.nk[c / 65536][c % 65536]
@@ -3682,7 +3682,7 @@ struct Check {
             self.rb_em[self.nrb] = self.cem
             self.nrb = self.nrb + 1
         } else {
-            self.expr_check(it, 4294967295, 0)
+            self.expr_check(it, NONE, 0)
             if self.failed {
                 return
             }
@@ -3698,7 +3698,7 @@ struct Check {
         self.nty[cur / 65536][cur % 65536] = elem
         self.push_scope()
         self.declare(cur, self.p.nss[cur / 65536][cur % 65536], self.p.nsl[cur / 65536][cur % 65536], elem, 0)
-        self.qpush(2, cur, 4294967295, 0)
+        self.qpush(2, cur, NONE, 0)
         self.start_block_frame(self.p.nns[it / 65536][it % 65536], 0)
     }
 
@@ -3723,16 +3723,16 @@ struct Check {
         requires cur < 131072
         ensures true
     {
-        var ret: u32 = 4294967295
+        var ret: u32 = NONE
         if self.cur_key < 2048 {
             ret = self.fret[self.cur_key]
         }
         let value: u32 = self.p.nfc[cur / 65536][cur % 65536]
-        if ret == 4294967295 {
-            if value != 4294967295 {
+        if ret == NONE {
+            if value != NONE {
                 self.fail_node(cur, "функция ничего не возвращает")
             }
-        } elif value == 4294967295 {
+        } elif value == NONE {
             self.fail_node(cur, "функция обязана вернуть значение")
         } else {
             # return — контекст конструкторов Ok/Err/Some/None
@@ -3752,7 +3752,7 @@ struct Check {
         ensures true
     {
         let subj: u32 = self.p.nfc[cur / 65536][cur % 65536]
-        self.expr_check(subj, 4294967295, 0)
+        self.expr_check(subj, NONE, 0)
         if self.failed {
             return
         }
@@ -3771,12 +3771,12 @@ struct Check {
         let f: u32 = self.nq - 1
         if self.qy[f] == 1 {
             self.pop_scope()
-            self.qy[f] = 4294967295
+            self.qy[f] = NONE
             self.qp[f] = self.p.nns[self.qp[f] / 65536][self.qp[f] % 65536]
             return
         }
         let cur: u32 = self.qp[f]
-        if cur == 4294967295 {
+        if cur == NONE {
             self.exhaust_check(self.qn[f], self.qx[f])
             self.nrt[self.qn[f] / 65536][self.qn[f] % 65536] = self.arms_return(self.qn[f])
             self.nq = f
@@ -3793,7 +3793,7 @@ struct Check {
         # повтор варианта
         var w: u32 = self.p.nns[self.p.nfc[self.qn[f] / 65536][self.qn[f] % 65536] / 65536][self.p.nfc[self.qn[f] / 65536][self.qn[f] % 65536] % 65536]
         for _ in 0..64 {
-            if w == 4294967295 or w == arm {
+            if w == NONE or w == arm {
                 break
             }
             if self.span_eq(self.p.nss[w / 65536][w % 65536], self.p.nsl[w / 65536][w % 65536], self.p.nss[arm / 65536][arm % 65536], self.p.nsl[arm / 65536][arm % 65536]) {
@@ -3807,16 +3807,16 @@ struct Check {
         }
         self.nty[arm / 65536][arm % 65536] = payload
         let bind: u32 = self.p.nx[arm / 65536][arm % 65536]
-        if payload == 4294967295 and bind != 4294967295 {
+        if payload == NONE and bind != NONE {
             self.fail_node(arm, "вариант не несёт значения")
             return
         }
-        if payload != 4294967295 and bind == 4294967295 {
+        if payload != NONE and bind == NONE {
             self.fail_node(arm, "вариант несёт значение: назовите его или используйте _")
             return
         }
         self.push_scope()
-        if payload != 4294967295 {
+        if payload != NONE {
             self.declare(arm, bind, self.p.ny[arm / 65536][arm % 65536], payload, 0)
         }
         self.qy[f] = 1
@@ -3839,25 +3839,25 @@ struct Check {
                 return self.yb[dom]
             }
             self.fail_node(arm, "не вариант типа match")
-            return 4294967295
+            return NONE
         }
         if dk == 11 {
             if self.span_is(va, vl, "Some") {
                 return self.ya[dom]
             }
             if self.span_is(va, vl, "None") {
-                return 4294967295
+                return NONE
             }
             self.fail_node(arm, "не вариант типа match")
-            return 4294967295
+            return NONE
         }
         let w: u32 = self.variant_of(self.ys[dom], self.yl[dom], va, vl)
-        if w == 4294967295 {
+        if w == NONE {
             self.fail_node(arm, "не вариант типа match")
-            return 4294967295
+            return NONE
         }
         if w == 999 {
-            return 4294967295
+            return NONE
         }
         return self.wpl[w]
     }
@@ -3869,7 +3869,7 @@ struct Check {
         var a: u32 = self.p.nns[self.p.nfc[m / 65536][m % 65536] / 65536][self.p.nfc[m / 65536][m % 65536] % 65536]
         var found: bool = false
         for _ in 0..64 {
-            if a == 4294967295 {
+            if a == NONE {
                 break
             }
             if self.span_is(self.p.nss[a / 65536][a % 65536], self.p.nsl[a / 65536][a % 65536], kw) {
@@ -3898,7 +3898,7 @@ struct Check {
             return
         }
         let ei: u32 = self.find_enum(self.ys[dom], self.yl[dom])
-        if ei == 4294967295 {
+        if ei == NONE {
             self.exhaust_builtin(m, dom)
             return
         }
@@ -3940,7 +3940,7 @@ struct Check {
         var c: u32 = self.p.nns[self.p.nfc[m / 65536][m % 65536] / 65536][self.p.nfc[m / 65536][m % 65536] % 65536]
         var found: bool = false
         for _ in 0..64 {
-            if c == 4294967295 {
+            if c == NONE {
                 break
             }
             if self.span_eq(self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536], a, l) {
@@ -3958,7 +3958,7 @@ struct Check {
         var all: u32 = 1
         var c: u32 = self.p.nns[self.p.nfc[m / 65536][m % 65536] / 65536][self.p.nfc[m / 65536][m % 65536] % 65536]
         for _ in 0..64 {
-            if c == 4294967295 {
+            if c == NONE {
                 break
             }
             all = all * self.nrt[self.p.nfc[c / 65536][c % 65536] / 65536][self.p.nfc[c / 65536][c % 65536] % 65536]
@@ -3974,13 +3974,13 @@ struct Check {
         ensures true
     {
         self.cur_key = fi
-        self.self_ty2 = 4294967295
+        self.self_ty2 = NONE
         self.self_mu = 0
         self.push_scope()
         let d: u32 = self.fnd[fi]
-        if self.fown[fi] != 4294967295 {
+        if self.fown[fi] != NONE {
             let si: u32 = self.fown[fi]
-            self.self_ty2 = self.intern(8, 4294967295, 4294967295, self.sn_s[si], self.sn_l[si])
+            self.self_ty2 = self.intern(8, NONE, NONE, self.sn_s[si], self.sn_l[si])
             self.self_mu = self.fvs[fi]
             self.decl_self(self.self_ty2, self.fvs[fi])
         }
@@ -3991,10 +3991,10 @@ struct Check {
             let pi: u32 = self.fps[fi] + k
             self.declare(self.pnd[pi], self.pn_s[pi], self.pn_l[pi], self.pty[pi], 0)
         }
-        var body: u32 = 4294967295
+        var body: u32 = NONE
         var c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..64 {
-            if c == 4294967295 or self.failed {
+            if c == NONE or self.failed {
                 break
             }
             let ck: u32 = self.p.nk[c / 65536][c % 65536]
@@ -4003,7 +4003,7 @@ struct Check {
             } elif ck == 10 {
                 self.res_ty2 = self.fret[fi]
                 self.expect_bool(self.p.nfc[c / 65536][c % 65536])
-                self.res_ty2 = 4294967295
+                self.res_ty2 = NONE
             } elif ck == 12 {
                 body = c
             }
@@ -4022,12 +4022,12 @@ struct Check {
         if self.failed {
             return
         }
-        if self.fret[fi] != 4294967295 and self.nrt[body / 65536][body % 65536] == 0 {
+        if self.fret[fi] != NONE and self.nrt[body / 65536][body % 65536] == 0 {
             self.fail_node(d, "не все пути возвращают значение")
             return
         }
         self.pop_scope()
-        self.self_ty2 = 4294967295
+        self.self_ty2 = NONE
     }
 
     # Граница с C (SPEC §7): параметры — скаляры или [u8|u16|u32; N],
@@ -4047,7 +4047,7 @@ struct Check {
             }
         }
         let rt: u32 = self.fret[fi]
-        if rt != 4294967295 and not self.extern_ok(rt, false) {
+        if rt != NONE and not self.extern_ok(rt, false) {
             self.fail_node(d, "extern: возврат через границу с C — только скаляр")
         }
     }
@@ -4086,7 +4086,7 @@ struct Check {
     {
         var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
-            if d == 4294967295 or self.failed {
+            if d == NONE or self.failed {
                 break
             }
             let k: u32 = self.p.nk[d / 65536][d % 65536]
@@ -4095,7 +4095,7 @@ struct Check {
             } elif k == 4 {
                 var m: u32 = self.p.nfc[d / 65536][d % 65536]
                 for _ in 0..512 {
-                    if m == 4294967295 or self.failed {
+                    if m == NONE or self.failed {
                         break
                     }
                     if self.p.nk[m / 65536][m % 65536] == 6 {
@@ -4123,8 +4123,8 @@ struct Check {
         self.tt_l[ti] = self.p.nsl[d / 65536][d % 65536]
         self.ttn = ti + 1
         self.cur_key = 2048 + ti
-        self.self_ty2 = 4294967295
-        self.res_ty2 = 4294967295
+        self.self_ty2 = NONE
+        self.res_ty2 = NONE
         self.run_block_machine(self.p.nfc[d / 65536][d % 65536], 1)
     }
 
@@ -4148,9 +4148,9 @@ struct Check {
     {
         let code: u32 = self.cg_code(idx)
         var cnt: u32 = 0
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..4096 {
-            if i >= self.neg or found != 4294967295 {
+            if i >= self.neg or found != NONE {
                 break
             }
             if self.eg_c[i] == code {
@@ -4185,7 +4185,7 @@ struct Check {
                     let id: u32 = st[f]
                     let cal: u32 = self.cg_callee(id, sp2[f])
                     sp2[f] = sp2[f] + 1
-                    if cal == 4294967295 {
+                    if cal == NONE {
                         col[id] = 2
                         dep[id] = self.cg_maxdep(id, dep) + 1
                         sp = f
@@ -4204,7 +4204,7 @@ struct Check {
                 }
             }
         }
-        if self.main_fi != 4294967295 {
+        if self.main_fi != NONE {
             self.sdep = dep[self.main_fi]
         }
     }
@@ -4226,7 +4226,7 @@ struct Check {
         var best: u32 = 0
         for k in 0..64 {
             let cal: u32 = self.cg_callee(idx, k)
-            if cal != 4294967295 {
+            if cal != NONE {
                 if dep[cal] > best {
                     best = dep[cal]
                 }
@@ -4257,9 +4257,9 @@ struct Check {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for i in 0..512 {
-            if i >= self.nrb or found != 4294967295 {
+            if i >= self.nrb or found != NONE {
                 break
             }
             if self.rb_n[i] == n {
@@ -4285,12 +4285,12 @@ struct Check {
             write(" {self.p.nl[n / 65536][n % 65536]}:{self.p.nc[n / 65536][n % 65536]}")
         }
         self.textras(n, k)
-        if self.nty[n / 65536][n % 65536] != 4294967295 {
+        if self.nty[n / 65536][n % 65536] != NONE {
             write(" :: ")
             self.write_type(self.nty[n / 65536][n % 65536])
             if k == 18 {
                 let r: u32 = self.range_of(n)
-                if r != 4294967295 {
+                if r != NONE {
                     write(" bounds=")
                     if self.rb_ss[r] == 1 {
                         write("-")
@@ -4316,7 +4316,7 @@ struct Check {
             write(" method={self.p.nx[n / 65536][n % 65536]}")
         } elif k == 7 {
             write(" name=")
-            if self.p.nss[n / 65536][n % 65536] == 4294967295 {
+            if self.p.nss[n / 65536][n % 65536] == NONE {
                 write("self")
             } else {
                 self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
@@ -4329,7 +4329,7 @@ struct Check {
         } elif k == 21 {
             write(" name=")
             self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
-            if self.p.nx[n / 65536][n % 65536] != 4294967295 {
+            if self.p.nx[n / 65536][n % 65536] != NONE {
                 write(" bind=")
                 self.write_span2(self.p.nx[n / 65536][n % 65536], self.p.ny[n / 65536][n % 65536])
             }
@@ -4394,7 +4394,7 @@ struct Check {
                 break
             }
             self.tprint(cur, dpt)
-            if self.p.nfc[cur / 65536][cur % 65536] != 4294967295 and sp < 64 {
+            if self.p.nfc[cur / 65536][cur % 65536] != NONE and sp < 64 {
                 st[sp] = cur
                 sp = sp + 1
                 dpt = dpt + 1
@@ -4408,7 +4408,7 @@ struct Check {
                     if sp == 0 {
                         done = true
                         moved = true
-                    } elif self.p.nns[cur / 65536][cur % 65536] != 4294967295 {
+                    } elif self.p.nns[cur / 65536][cur % 65536] != NONE {
                         cur = self.p.nns[cur / 65536][cur % 65536]
                         moved = true
                     } else {
@@ -4443,7 +4443,7 @@ struct Check {
         }
         var off: u32 = 0
         let own: u32 = self.fown[code]
-        if own != 4294967295 {
+        if own != NONE {
             if i < self.sn_l[own] {
                 return u32(self.p.lex.sb_at(self.sn_s[own] + i))
             }

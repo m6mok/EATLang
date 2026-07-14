@@ -45,7 +45,12 @@ func same 15:1 (a: [u8; 16], n: u32, kw: str<16>) -> bool
 func pool16 37:1 (p: [[u8; 65536]; 2], a: u32, l: u32) -> [u8; 16]
 test buf_same 51:1
 test buf_pool16 62:1
-module lib/Fmt.eat 73:1
+module lib/Const.eat 73:1
+export NONE 12:5 :: NONE
+export U32_MAX 13:5 :: U32_MAX
+const NONE 16:1 :: u32 = 4294967295
+const U32_MAX 17:1 :: u32 = 4294967295
+module lib/Fmt.eat 18:1
 export Dec 10:5 :: Dec
 export fmt_u32 11:5 :: fmt_u32
 export fmt_u64 12:5 :: fmt_u64
@@ -93,11 +98,13 @@ test parse_i32_err 53:1
 module tests/sig/SigProbe.eat 85:1
 import is_digit 8:5 :: lib/Ascii.eat is_digit
 import same 12:5 :: lib/Buf.eat same
-import Dec 16:5 :: lib/Fmt.eat Dec
-import fmt_u32 17:5 :: lib/Fmt.eat fmt_u32
-import hex_digit 21:5 :: lib/Hex.eat hex_digit
-import read_line 25:5 :: lib/Io.eat read_line
-import min 29:5 :: lib/Num.eat min
-import parse_i32 33:5 :: lib/Parse.eat parse_i32
-func main 36:1 ()
-stats funcs=38 structs=2 stmts=286
+import NONE 16:5 :: lib/Const.eat NONE
+import U32_MAX 17:5 :: lib/Const.eat U32_MAX
+import Dec 21:5 :: lib/Fmt.eat Dec
+import fmt_u32 22:5 :: lib/Fmt.eat fmt_u32
+import hex_digit 26:5 :: lib/Hex.eat hex_digit
+import read_line 30:5 :: lib/Io.eat read_line
+import min 34:5 :: lib/Num.eat min
+import parse_i32 38:5 :: lib/Parse.eat parse_i32
+func main 41:1 ()
+stats funcs=38 structs=2 stmts=287

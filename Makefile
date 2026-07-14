@@ -30,7 +30,7 @@ check:
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
 # модули, нужные самому self-hosted фронтенду (Tok/Lexer/Parser/Check)
-LIB_FRONT = lib/Ascii.eat lib/Buf.eat lib/Hex.eat
+LIB_FRONT = lib/Const.eat lib/Ascii.eat lib/Buf.eat lib/Hex.eat
 
 # Модульная программа: import-блоки, драйвер строит DAG и подставляет
 # Rt.eat и lib/ сам (docs/MODULES_PLAN.md §4); --lib . — корень путей

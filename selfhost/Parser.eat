@@ -198,14 +198,14 @@ struct Parser {
         self.nk[n / 65536][n % 65536] = k
         self.nl[n / 65536][n % 65536] = ln
         self.nc[n / 65536][n % 65536] = cl
-        self.nss[n / 65536][n % 65536] = 4294967295
+        self.nss[n / 65536][n % 65536] = NONE
         self.nsl[n / 65536][n % 65536] = 0
         self.nx[n / 65536][n % 65536] = 0
         self.ny[n / 65536][n % 65536] = 0
         self.nxh[n / 65536][n % 65536] = 0
-        self.nfc[n / 65536][n % 65536] = 4294967295
-        self.nlc[n / 65536][n % 65536] = 4294967295
-        self.nns[n / 65536][n % 65536] = 4294967295
+        self.nfc[n / 65536][n % 65536] = NONE
+        self.nlc[n / 65536][n % 65536] = NONE
+        self.nns[n / 65536][n % 65536] = NONE
         self.nnode = n + 1
         return n
     }
@@ -223,7 +223,7 @@ struct Parser {
         requires p < 131072 and c < 131072
         ensures true
     {
-        if self.nfc[p / 65536][p % 65536] == 4294967295 {
+        if self.nfc[p / 65536][p % 65536] == NONE {
             self.nfc[p / 65536][p % 65536] = c
         } else {
             self.nns[self.nlc[p / 65536][p % 65536] / 65536][self.nlc[p / 65536][p % 65536] % 65536] = c
@@ -238,11 +238,11 @@ struct Parser {
         ensures true
     {
         let last: u32 = self.nx[s / 65536][s % 65536]
-        if last == 4294967295 {
+        if last == NONE {
             let head: u32 = self.nfc[s / 65536][s % 65536]
             self.nns[f / 65536][f % 65536] = head
             self.nfc[s / 65536][s % 65536] = f
-            if head == 4294967295 {
+            if head == NONE {
                 self.nlc[s / 65536][s % 65536] = f
             }
         } else {
@@ -288,7 +288,7 @@ struct Parser {
         let f: u32 = self.nf - 1
         let node: u32 = self.fnod[f]
         let att: u32 = self.fat[f]
-        if att != 4294967295 {
+        if att != NONE {
             self.append_child(att, node)
         }
         self.ret = node
@@ -302,7 +302,7 @@ struct Parser {
         ensures true
     {
         let pn: u32 = self.alloc(0, self.lex.tok_l(0), self.lex.tok_c(0))
-        self.push_frame(0, 0, pn, 4294967295, 0)
+        self.push_frame(0, 0, pn, NONE, 0)
         for _ in 0..262144 {
             if self.done or self.failed {
                 break
@@ -682,7 +682,7 @@ struct Parser {
             self.fail("self (var в параметрах — только у self)")
             return
         }
-        if self.fx[f] % 2 == 0 or self.nfc[self.fnod[f] / 65536][self.fnod[f] % 65536] != 4294967295 {
+        if self.fx[f] % 2 == 0 or self.nfc[self.fnod[f] / 65536][self.fnod[f] % 65536] != NONE {
             self.fail("self допустим только первым параметром метода struct")
             return
         }
@@ -770,8 +770,8 @@ struct Parser {
         let node: u32 = self.fnod[f]
         if self.fx[f] % 2 == 1 {
             let fc: u32 = self.nfc[node / 65536][node % 65536]
-            if fc != 4294967295 {
-                if self.nk[fc / 65536][fc % 65536] == 7 and self.nss[fc / 65536][fc % 65536] == 4294967295 {
+            if fc != NONE {
+                if self.nk[fc / 65536][fc % 65536] == 7 and self.nss[fc / 65536][fc % 65536] == NONE {
                     self.nx[node / 65536][node % 65536] = 1
                 }
             }
@@ -785,7 +785,7 @@ struct Parser {
         requires true
         ensures true
     {
-        self.push_frame(2, 0, 4294967295, att, 0)
+        self.push_frame(2, 0, NONE, att, 0)
     }
 
     func step_type(var self)
@@ -992,11 +992,11 @@ struct Parser {
             let n6: u32 = self.alloc(26, self.t_line(), self.t_col())
             self.advance()
             self.push_frame(10, 0, n6, att, 0)
-            self.push_expr(4294967295, 1, 0)
+            self.push_expr(NONE, 1, 0)
         } else {
             let n7: u32 = self.alloc(25, self.t_line(), self.t_col())
             self.push_frame(11, 0, n7, att, 0)
-            self.push_expr(4294967295, 1, 0)
+            self.push_expr(NONE, 1, 0)
         }
     }
 
@@ -1103,7 +1103,7 @@ struct Parser {
         }
         self.advance()
         self.push_frame(7, 0, n, att, 0)
-        self.push_expr(4294967295, 0, 0)
+        self.push_expr(NONE, 0, 0)
     }
 
     func step_for(var self)
@@ -1120,7 +1120,7 @@ struct Parser {
                 self.append_child(r, self.ret)
                 self.fx[f] = r
                 self.fp[f] = 1
-                self.push_expr(4294967295, 0, 0)
+                self.push_expr(NONE, 0, 0)
             } else {
                 self.append_child(node, self.ret)
                 self.fp[f] = 2
@@ -1180,7 +1180,7 @@ struct Parser {
         }
         let arm: u32 = self.alloc(21, self.t_line(), self.t_col())
         self.set_str(arm, self.cur)
-        self.nx[arm / 65536][arm % 65536] = 4294967295
+        self.nx[arm / 65536][arm % 65536] = NONE
         self.advance()
         if self.tk_at() == 30 {
             self.advance()
@@ -1332,7 +1332,7 @@ struct Parser {
         }
         let n: u32 = self.alloc(4, ln, cl)
         self.set_str(n, self.cur)
-        self.nx[n / 65536][n % 65536] = 4294967295
+        self.nx[n / 65536][n % 65536] = NONE
         self.advance()
         if self.tk_at() != 32 {
             self.fail("ожидалось '{{'")
@@ -1434,7 +1434,7 @@ struct Parser {
         let k: u32 = self.tk_at()
         if k == 33 {
             self.advance()
-            if self.nfc[node / 65536][node % 65536] == 4294967295 {
+            if self.nfc[node / 65536][node % 65536] == NONE {
                 self.fail("enum не имеет вариантов")
                 return
             }
@@ -1496,7 +1496,7 @@ struct Parser {
         requires allow <= 1 and lvl <= 1
         ensures true
     {
-        self.push_frame(4, 0, 4294967295, att, allow + lvl * 2)
+        self.push_frame(4, 0, NONE, att, allow + lvl * 2)
     }
 
     func step_expr(var self)
@@ -1569,9 +1569,9 @@ struct Parser {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for d in 0..64 {
-            if d >= self.nop or found != 4294967295 {
+            if d >= self.nop or found != NONE {
                 break
             }
             let e: u32 = self.nop - 1 - d
@@ -1865,7 +1865,7 @@ struct Parser {
         let node: u32 = self.alloc(35, self.t_line(), self.t_col())
         self.advance()
         let sg: u32 = self.lex.tok_sg(ti)
-        if sg == 4294967295 {
+        if sg == NONE {
             if self.lex.tok_vl(ti) > 0 {
                 let seg: u32 = self.alloc(36, 0, 0)
                 self.nss[seg / 65536][seg % 65536] = self.lex.tok_vs(ti)
@@ -1878,7 +1878,7 @@ struct Parser {
         }
         let send: u32 = sg + self.lex.tok_ns(ti)
         let nxt: u32 = self.seg_scan(node, sg, send)
-        if nxt == 4294967295 {
+        if nxt == NONE {
             self.push_opnd(node)
             self.set_phase(1)
         } else {
@@ -1896,10 +1896,10 @@ struct Parser {
         requires node < 131072
         ensures true
     {
-        var nxt: u32 = 4294967295
+        var nxt: u32 = NONE
         var i: u32 = si
         for _ in 0..2048 {
-            if i >= send or nxt != 4294967295 {
+            if i >= send or nxt != NONE {
                 break
             }
             if self.lex.sgk[i] == 0 {
@@ -1933,7 +1933,7 @@ struct Parser {
         let val: u32 = self.pop_opnd()
         self.append_child(node, val)
         let nxt: u32 = self.seg_scan(node, self.pc2[e] + 1, self.pd2[e])
-        if nxt == 4294967295 {
+        if nxt == NONE {
             self.cur = self.pb[e]
             self.nop = e
             self.push_opnd(node)
@@ -2218,7 +2218,7 @@ struct Parser {
         if ts == 4 {
             self.reduce_sent()
             let e: u32 = self.nop - 1
-            if self.pk[e] == 4 and self.nfc[self.pa[e] / 65536][self.pa[e] % 65536] == 4294967295 {
+            if self.pk[e] == 4 and self.nfc[self.pa[e] / 65536][self.pa[e] % 65536] == NONE {
                 let fill: u32 = self.alloc(48, self.pln[e], self.pcl[e])
                 let v: u32 = self.pop_opnd()
                 self.append_child(fill, v)
@@ -2299,7 +2299,7 @@ struct Parser {
     {
         self.print_node(self.dcur, self.ddepth)
         let fc: u32 = self.nfc[self.dcur / 65536][self.dcur % 65536]
-        if fc != 4294967295 {
+        if fc != NONE {
             if self.dn >= 64 {
                 self.fail("дамп: превышена глубина дерева")
                 return
@@ -2318,7 +2318,7 @@ struct Parser {
             if self.dn == 0 {
                 self.ddone = true
                 moved = true
-            } elif self.nns[self.dcur / 65536][self.dcur % 65536] != 4294967295 {
+            } elif self.nns[self.dcur / 65536][self.dcur % 65536] != NONE {
                 self.dcur = self.nns[self.dcur / 65536][self.dcur % 65536]
                 moved = true
             } else {
@@ -2358,7 +2358,7 @@ struct Parser {
             write(" method={self.nx[n / 65536][n % 65536]}")
         } elif k == 7 {
             write(" name=")
-            if self.nss[n / 65536][n % 65536] == 4294967295 {
+            if self.nss[n / 65536][n % 65536] == NONE {
                 write("self")
             } else {
                 self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
@@ -2371,7 +2371,7 @@ struct Parser {
         } elif k == 21 {
             write(" name=")
             self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
-            if self.nx[n / 65536][n % 65536] != 4294967295 {
+            if self.nx[n / 65536][n % 65536] != NONE {
                 write(" bind=")
                 self.write_span(self.nx[n / 65536][n % 65536], self.ny[n / 65536][n % 65536])
             }

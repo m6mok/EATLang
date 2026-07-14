@@ -17,9 +17,10 @@
 # UTF-8 (0x80..0xBF) колонку не двигают.
 #
 # Пределы пулов: 131072 токена, 131072 байта значений, 2048 сегментов
-# интерполяции. NONE = 4294967295. Пулы больше 65536 элементов (предел
-# массива) выражены вложенными массивами: элемент i — p[i / 65536][i % 65536],
-# доступ снаружи — через методы tok_*/sb_*.
+# интерполяции. NONE — сентинель «значения нет» (lib/Const.eat). Пулы
+# больше 65536 элементов (предел массива) выражены вложенными массивами:
+# элемент i — p[i / 65536][i % 65536], доступ снаружи — через методы
+# tok_*/sb_*.
 
 # Байт слова: ASCII-буква, цифра, '_' или не-ASCII (эталон принимает
 # юникодные буквы в идентификаторах — байтовый лексер принимает
@@ -239,7 +240,7 @@ struct Lexer {
         self.tc[hi][lo] = self.tcol
         self.tvs[hi][lo] = 0
         self.tvl[hi][lo] = 0
-        self.tsg[hi][lo] = 4294967295
+        self.tsg[hi][lo] = NONE
         self.tns[hi][lo] = 0
         self.ntok = self.ntok + 1
     }
@@ -979,7 +980,7 @@ struct Lexer {
                     i = i + 2
                 } else {
                     let e: u32 = self.find_close(vs, vl, i + 1)
-                    if e == 4294967295 {
+                    if e == NONE {
                         self.fail("незакрытая '{{' в интерполяции строки")
                     } else {
                         if self.sblen > lit_start {
@@ -1018,9 +1019,9 @@ struct Lexer {
         requires true
         ensures true
     {
-        var found: u32 = 4294967295
+        var found: u32 = NONE
         for k in 0..256 {
-            if frm + k >= vl or found != 4294967295 {
+            if frm + k >= vl or found != NONE {
                 break
             }
             if self.sb_at(vs + frm + k) == 125 {

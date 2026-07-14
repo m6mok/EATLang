@@ -442,7 +442,7 @@ def bench_stress(quick: bool):
 
 # ==== Секция 4: self-hosted компилятор ==================================
 
-LIB_FRONT = ["lib/Ascii.eat", "lib/Buf.eat", "lib/Hex.eat"]
+LIB_FRONT = ["lib/Const.eat", "lib/Ascii.eat", "lib/Buf.eat", "lib/Hex.eat"]
 
 SELF_BINARIES = {
     "SelfLex": LIB_FRONT + ["selfhost/Tok.eat", "selfhost/Lexer.eat",
