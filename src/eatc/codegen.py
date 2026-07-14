@@ -377,6 +377,14 @@ class Codegen:
     def mangle(self, key: str) -> str:
         return "eat_" + key.replace(".", "__")
 
+    def _is_exported(self, key: str) -> bool:
+        """Экспортирована ли функция своим модулем (метод — через
+        структуру-владельца). Модуль 0 (Rt, склейка cat) ничего не
+        экспортирует — его функции internal (MODULES_PLAN §5)."""
+        top = key.split(".", 1)[0]
+        mod = self.checker.name_module.get(top, 0)
+        return top in self.checker.exports.get(mod, {}).values()
+
     def declare_extern(self, key: str, sig):
         """extern-функция: declare с именем как написано (без eat_-
         манглинга — C-реализация линкуется по этому символу). Границу
@@ -414,6 +422,11 @@ class Codegen:
             ret_ll = self.ll(sig.ret)
         ftype = ir.FunctionType(ret_ll, args)
         fn = ir.Function(self.module, ftype, name=self.mangle(key))
+        # неэкспортированное — internal: мёртвый код удаляет уже
+        # хостовый clang -O2 без LTO (MODULES_PLAN §5); наружу торчит
+        # только настоящий @main (gen_entry) и extern-декларации
+        if not self._is_exported(key):
+            fn.linkage = "internal"
         # рекурsии в языке нет по построению (правило 1), стек не
         # разворачивается (исключений нет, trap завершает процесс)
         fn.attributes.add("norecurse")
@@ -1471,8 +1484,12 @@ def compile_binary(
         stack_flags = ["-Wl,-stack_size,0x8000000"]
     else:
         stack_flags = ["-Wl,-z,stacksize=134217728"]
+    # -O2 нужен runtime.c, который компилируется здесь же на лету:
+    # без него каждая аксиома ввода/вывода — неоптимизированная
+    # обёртка libc (наш .o уже оптимизирован конвейером выше, ему
+    # флаг безразличен). Канон .ll не меняется.
     proc = subprocess.run(
-        ["clang", str(obj_path), str(runtime), "-o", str(out)]
+        ["clang", "-O2", str(obj_path), str(runtime), "-o", str(out)]
         + stack_flags,
         capture_output=True,
         text=True,
