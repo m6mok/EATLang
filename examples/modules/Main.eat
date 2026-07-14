@@ -1,11 +1,20 @@
-# Главный модуль: использует библиотеку lib/ (lib/Ascii.eat, lib/Num.eat).
-# Программа = упорядоченный список файлов, пространство имён единое:
-#   eatc run selfhost/Rt.eat lib/Ascii.eat lib/Num.eat examples/modules/Main.eat
+# Главный модуль: import-блоки (docs/MODULES_PLAN.md §2) — драйвер
+# строит DAG модулей и подставляет lib/ и Rt.eat сам:
+#   eatc run --lib . examples/modules/Main.eat
+
+import {
+    is_digit,
+    digit_value as digit,
+} from "lib/Ascii.eat"
+
+import {
+    clamp,
+} from "lib/Num.eat"
 
 func main() {
     let c: char = '7'
     if is_digit(u8(c)) {
-        print("цифра {c} = {digit_value(u8(c))}")
+        print("цифра {c} = {digit(u8(c))}")
     } else {
         print("{c} — не цифра")
     }

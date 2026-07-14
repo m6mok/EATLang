@@ -9,3 +9,6 @@ MAX_AST_NODES = 131_072  # ёмкость пула узлов self-hosted пар
 MAX_FUNCS_PER_PROGRAM = 1_024
 MAX_STR_CAPACITY = 256  # == EAT_STR_CAP рантайма: тип не обещает больше буфера
 MAX_ARRAY_ELEMS = 65_536
+MAX_MODULES = 64  # именованных модулей в потоке (#module)
+MAX_IMPORT_BINDS = 512  # импортированных имён на программу
+MAX_MODULE_PATH = 128  # длина канонического пути модуля в байтах

@@ -28,11 +28,12 @@ check:
 # модули, нужные самому self-hosted фронтенду (Tok/Lexer/Parser/Check)
 LIB_FRONT = lib/Ascii.eat lib/Buf.eat lib/Hex.eat
 
-# Модульная программа: несколько файлов, последний — главный
-MODULES_EXAMPLE = $(RT) lib/Ascii.eat lib/Num.eat examples/modules/Main.eat
+# Модульная программа: import-блоки, драйвер строит DAG и подставляет
+# Rt.eat и lib/ сам (docs/MODULES_PLAN.md §4); --lib . — корень путей
+MODULES_MAIN = examples/modules/Main.eat
 
 run_modules:
-	$(EATC) run $(MODULES_EXAMPLE)
+	$(EATC) run --lib . $(MODULES_MAIN)
 
 # Эмулятор MOS 6502 (examples/mos6502): все официальные опкоды,
 # собственный тест-ROM в test-блоках; программа — байты со stdin
@@ -141,6 +142,27 @@ verify_selfhost:
 				|| { echo "IR DIFF $$f"; exit 1; }; \
 		fi; \
 	done
+	@$(EATC) stream --lib . $(MODULES_MAIN) > /tmp/eat_mod_stream.eat
+	@$(EATC) lex /tmp/eat_mod_stream.eat > /tmp/eat_lex_ref.txt
+	@./build/SelfLex < /tmp/eat_mod_stream.eat > /tmp/eat_lex_self.txt
+	@diff /tmp/eat_lex_ref.txt /tmp/eat_lex_self.txt > /dev/null \
+		&& echo "LEX OK (поток драйвера: Rt + lib + Main c #module)" || exit 1
+	@$(EATC) parse /tmp/eat_mod_stream.eat > /tmp/eat_parse_ref.txt
+	@./build/SelfParse < /tmp/eat_mod_stream.eat > /tmp/eat_parse_self.txt
+	@diff /tmp/eat_parse_ref.txt /tmp/eat_parse_self.txt > /dev/null \
+		&& echo "PARSE OK (поток драйвера)" || exit 1
+	@$(EATC) sig /tmp/eat_mod_stream.eat > /tmp/eat_sig_ref.txt
+	@./build/SelfSig < /tmp/eat_mod_stream.eat > /tmp/eat_sig_self.txt
+	@diff /tmp/eat_sig_ref.txt /tmp/eat_sig_self.txt > /dev/null \
+		&& echo "SIG OK (поток драйвера)" || exit 1
+	@$(EATC) typed /tmp/eat_mod_stream.eat > /tmp/eat_typed_ref.txt
+	@./build/SelfTyped < /tmp/eat_mod_stream.eat > /tmp/eat_typed_self.txt
+	@diff /tmp/eat_typed_ref.txt /tmp/eat_typed_self.txt > /dev/null \
+		&& echo "TYPED OK (поток драйвера)" || exit 1
+	@$(EATC) ir /tmp/eat_mod_stream.eat > /tmp/eat_ir_ref.ll
+	@./build/SelfIr < /tmp/eat_mod_stream.eat > /tmp/eat_ir_self.ll
+	@diff /tmp/eat_ir_ref.ll /tmp/eat_ir_self.ll > /dev/null \
+		&& echo "IR OK (поток драйвера: trap-атрибуция пофайловая)" || exit 1
 	@cat $(SELFHOST_SIG) > /tmp/eat_sig_all.eat
 	@$(EATC) sig /tmp/eat_sig_all.eat > /tmp/eat_sig_ref.txt
 	@./build/SelfSig < /tmp/eat_sig_all.eat > /tmp/eat_sig_self.txt
@@ -409,8 +431,8 @@ verify: build_all_examples
 		diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 			&& echo "VERIFIED $$name" || exit 1; \
 	done
-	@$(EATC) build $(MODULES_EXAMPLE) -o build/Modules > /dev/null
-	@$(EATC) run $(MODULES_EXAMPLE) > /tmp/eat_interp.txt
+	@$(EATC) build --lib . $(MODULES_MAIN) -o build/Modules > /dev/null
+	@$(EATC) run --lib . $(MODULES_MAIN) > /tmp/eat_interp.txt
 	@./build/Modules > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Modules" || exit 1

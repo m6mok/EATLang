@@ -107,6 +107,11 @@ class Lexer:
                 self._advance()
                 continue
             if ch == "#":
+                # `#module "путь"` — директива драйвера: граница модуля
+                # в потоке (docs/MODULES_PLAN.md §4); прочие # — комментарий
+                if self.src.startswith('#module "', self.pos):
+                    self._lex_module(line, col)
+                    continue
                 while self.pos < len(self.src) and self._peek() != "\n":
                     self._advance()
                 continue
@@ -143,6 +148,32 @@ class Lexer:
         self._emit_newline(self.line, self.col)
         self._emit(T.EOF, "", self.line, self.col)
         return self.tokens
+
+    def _lex_module(self, line: int, col: int) -> None:
+        """Директива `#module "путь"`: токен MODULE со значением-путём.
+        Дальше счёт координат начинается заново — атрибуция ошибок,
+        дампов и trap-сообщений становится пофайловой."""
+        for _ in range(len('#module "')):
+            self._advance()
+        chars: list[str] = []
+        while self.pos < len(self.src) and self._peek() not in ('"', "\n"):
+            chars.append(self._advance())
+        if self._peek() != '"':
+            raise self.error('незакрытая директива #module "..."')
+        self._advance()  # закрывающая кавычка
+        while self.pos < len(self.src) and self._peek() in " \t\r":
+            self._advance()
+        if self.pos < len(self.src) and self._peek() != "\n":
+            raise self.error("после директивы #module ожидается конец строки")
+        if not chars:
+            raise self.error("пустой путь в директиве #module")
+        self._emit_newline(line, col)
+        self._emit(T.MODULE, "".join(chars), line, col)
+        if self.pos < len(self.src):
+            self._advance()  # перевод строки директивы
+        # новый модуль — счёт координат с 1:1
+        self.line = 1
+        self.col = 1
 
     def _lex_string(self, line: int, col: int) -> None:
         self._advance()  # открывающая кавычка

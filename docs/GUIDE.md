@@ -42,6 +42,20 @@ make link    SRC="Mod.eat Main.eat"    # → build/Main
 # рантайм-модуль selfhost/Rt.eat подставляется первым автоматически
 # библиотека lib/ (Ascii, Buf, Fmt, Hex, Num) подключается тем же списком:
 make run SRC="lib/Ascii.eat lib/Num.eat examples/modules/Main.eat"
+
+# либо импортами (docs/MODULES_PLAN.md §2): драйвер сам строит DAG
+# модулей и подставляет Rt.eat и lib/; пути — от корня (--lib .)
+#
+#   import {
+#       is_digit,
+#       digit_value as digit,
+#   } from "lib/Ascii.eat"
+#
+# модуль публикует имена export-блоком (первым блоком файла):
+#   export { fmt_u32, Dec }
+# каждое имя — явно (wildcard нет); коллизия и неиспользуемый
+# импорт — ошибки, переименование — as с любой стороны
+PYTHONPATH=src uv run python -m eatc run --lib . examples/modules/Main.eat
 ```
 
 Три команды компилятора:

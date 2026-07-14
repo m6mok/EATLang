@@ -1076,7 +1076,9 @@ struct Ir {
         }
     }
 
-    # Глобал trap-сообщения: stdin:ln:cl: error: trap: <текст>.
+    # Глобал trap-сообщения: <модуль|stdin>:ln:cl: error: trap: <текст>;
+    # для функции именованного модуля префикс — его канонический путь
+    # (координаты пофайловые: лексер сбросил счёт на директиве).
     # mk: 0 requires (e1/e2 — имя функции), 1 ensures, 2 переполнение
     # (e1 — вид целого), 3 деление на ноль, 4 границы, 5 assert,
     # 6 переполнение при касте (e1 — вид цели), 7 сдвиг ≥ ширины
@@ -1086,7 +1088,14 @@ struct Ir {
         ensures result < 65536
     {
         self.g_begin()
-        self.g_lit("stdin:")
+        let fm: u32 = self.c.fmod[self.fi2]
+        if fm > 0 {
+            let md: u32 = self.c.mnd[fm - 1]
+            self.g_sb(self.c.p.nss[md / 65536][md % 65536], self.c.p.nsl[md / 65536][md % 65536])
+            self.g_lit(":")
+        } else {
+            self.g_lit("stdin:")
+        }
         self.g_dec(ln)
         self.g_lit(":")
         self.g_dec(cl)

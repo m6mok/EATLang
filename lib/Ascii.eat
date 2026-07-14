@@ -3,6 +3,13 @@
 # после selfhost/Rt.eat:
 #   eatc run selfhost/Rt.eat lib/Ascii.eat Main.eat
 
+export {
+    is_digit,
+    is_alpha,
+    is_space,
+    digit_value,
+}
+
 func is_digit(b: u8) -> bool
     requires true
     ensures result == (b >= 48 and b <= 57)

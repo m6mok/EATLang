@@ -39,6 +39,13 @@ class T(Enum):
     OR = auto()
     NOT = auto()
     EXTERN = auto()
+    IMPORT = auto()
+    EXPORT = auto()
+    FROM = auto()
+    AS = auto()
+
+    # директива драйвера `#module "путь"` — граница модуля в потоке
+    MODULE = auto()
 
     # пунктуация и операторы
     LPAREN = auto()
@@ -104,6 +111,10 @@ KEYWORDS = {
     "or": T.OR,
     "not": T.NOT,
     "extern": T.EXTERN,
+    "import": T.IMPORT,
+    "export": T.EXPORT,
+    "from": T.FROM,
+    "as": T.AS,
 }
 
 

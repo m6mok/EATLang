@@ -74,6 +74,25 @@ struct Check {
     dep_found: u32
     # статистика (правило 4)
     total_stmts: u32
+    # --- модули (docs/MODULES_PLAN.md §3) --------------------------------
+    # mnd — узел #module-директивы модуля 1..nmod (0 — безымянный сегмент);
+    # exports/imports — пулы связок; fmod — модуль функции (атрибуция trap)
+    mnd: [u32; 64]
+    nmod: u32
+    exp_s: [u32; 256]
+    exp_l: [u32; 256]
+    exi_s: [u32; 256]
+    exi_l: [u32; 256]
+    exm: [u32; 256]
+    nexp: u32
+    iml_s: [u32; 512]
+    iml_l: [u32; 512]
+    imt_s: [u32; 512]
+    imt_l: [u32; 512]
+    imm: [u32; 512]
+    nimp: u32
+    fmod: [u32; 1024]
+    cmod: u32
     # --- фаза 3b: тайпчекер тел -----------------------------------------
     # аннотации узлов: тип выражения и «возвращает» (достижимость)
     nty: [[u32; 65536]; 2]
@@ -828,6 +847,201 @@ struct Check {
     }
 
     # Проход 1: имена struct и enum (нужны resolve в проходе 2).
+    # --- модули (docs/MODULES_PLAN.md §3) ----------------------------------
+    # Негативные проверки видимости (коллизии, неиспользуемый импорт,
+    # замыкание интерфейса) живут в Python-эталоне; self-hosted компилятор
+    # повторяет разрешение: строит таблицы, находит источник каждого
+    # импорта («модуль раньше по потоку») и канонизирует имена.
+
+    # Модуль по спану канонического пути; NONE — не найден.
+    func find_module(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures result < 64 or result == 4294967295
+    {
+        var found: u32 = 4294967295
+        for i in 0..64 {
+            if i >= self.nmod or found != 4294967295 {
+                break
+            }
+            let d: u32 = self.mnd[i]
+            if self.span_eq(a, l, self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]) {
+                found = i
+            }
+        }
+        return found
+    }
+
+    # export-блок: публичное имя (alias | имя) -> внутреннее имя.
+    # В безымянном сегменте (склейка cat) блок инертен — интерфейс
+    # закрепляет драйвер, ставя #module.
+    func col_export(var self, d: u32)
+        requires d < 131072
+        ensures true
+    {
+        if self.cmod == 0 {
+            return
+        }
+        var b: u32 = self.p.nfc[d / 65536][d % 65536]
+        for _ in 0..1024 {
+            if b == 4294967295 or self.failed {
+                break
+            }
+            if self.nexp >= 256 {
+                self.fail_node(b, "слишком много экспортов (предел 256)")
+            } else {
+                let i: u32 = self.nexp
+                if self.p.ny[b / 65536][b % 65536] > 0 {
+                    self.exp_s[i] = self.p.nx[b / 65536][b % 65536]
+                    self.exp_l[i] = self.p.ny[b / 65536][b % 65536]
+                } else {
+                    self.exp_s[i] = self.p.nss[b / 65536][b % 65536]
+                    self.exp_l[i] = self.p.nsl[b / 65536][b % 65536]
+                }
+                self.exi_s[i] = self.p.nss[b / 65536][b % 65536]
+                self.exi_l[i] = self.p.nsl[b / 65536][b % 65536]
+                self.exm[i] = self.cmod
+                self.nexp = i + 1
+            }
+            b = self.p.nns[b / 65536][b % 65536]
+        }
+    }
+
+    # import-блок: источник обязан встретиться раньше по потоку
+    # (компилятор перепроверяет драйвер), имя — в его экспорте.
+    func col_import(var self, d: u32)
+        requires d < 131072
+        ensures true
+    {
+        let src: u32 = self.find_module(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
+        if src == 4294967295 {
+            self.fail_node(d, "import: модуль не встретился раньше по потоку (порядок собирает драйвер)")
+            return
+        }
+        var b: u32 = self.p.nfc[d / 65536][d % 65536]
+        for _ in 0..1024 {
+            if b == 4294967295 or self.failed {
+                break
+            }
+            self.col_bind(b, src)
+            b = self.p.nns[b / 65536][b % 65536]
+        }
+    }
+
+    # Одна связка import: поиск публичного имени в экспорте источника.
+    func col_bind(var self, b: u32, src: u32)
+        requires b < 131072 and src < 64
+        ensures true
+    {
+        var hit: u32 = 4294967295
+        for j in 0..256 {
+            if j >= self.nexp or hit != 4294967295 {
+                break
+            }
+            if self.exm[j] == src + 1 {
+                if self.span_eq(self.exp_s[j], self.exp_l[j], self.p.nss[b / 65536][b % 65536], self.p.nsl[b / 65536][b % 65536]) {
+                    hit = j
+                }
+            }
+        }
+        if hit == 4294967295 {
+            self.fail_node(b, "модуль не экспортирует это имя")
+            return
+        }
+        if self.nimp >= 512 {
+            self.fail_node(b, "слишком много импортов (предел 512)")
+            return
+        }
+        let i: u32 = self.nimp
+        if self.p.ny[b / 65536][b % 65536] > 0 {
+            self.iml_s[i] = self.p.nx[b / 65536][b % 65536]
+            self.iml_l[i] = self.p.ny[b / 65536][b % 65536]
+        } else {
+            self.iml_s[i] = self.p.nss[b / 65536][b % 65536]
+            self.iml_l[i] = self.p.nsl[b / 65536][b % 65536]
+        }
+        self.imt_s[i] = self.exi_s[hit]
+        self.imt_l[i] = self.exi_l[hit]
+        self.imm[i] = self.cmod
+        self.nimp = i + 1
+    }
+
+    # Проход по шапкам: границы модулей, export- и import-блоки.
+    func modules_pass(var self)
+        requires true
+        ensures true
+    {
+        var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
+            if d == 4294967295 or self.failed {
+                break
+            }
+            let k: u32 = self.p.nk[d / 65536][d % 65536]
+            if k == 51 {
+                if self.nmod >= 64 {
+                    self.fail_node(d, "слишком много модулей (предел 64)")
+                } elif self.find_module(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]) != 4294967295 {
+                    self.fail_node(d, "модуль в потоке дважды")
+                } else {
+                    self.mnd[self.nmod] = d
+                    self.nmod = self.nmod + 1
+                    self.cmod = self.nmod
+                }
+            } elif k == 53 {
+                self.col_export(d)
+            } elif k == 52 {
+                self.col_import(d)
+            }
+            d = self.p.nns[d / 65536][d % 65536]
+        }
+        self.cmod = 0
+        if not self.failed {
+            self.canon_pass()
+        }
+    }
+
+    # Канонизация: имя-использование, совпавшее с локальным именем
+    # импорта своего модуля, перенацеливается на внутреннее имя
+    # экспортёра (спан узла -> спан из export-связки). Дальше конвейер
+    # видит только внутренние имена — как Python-эталон после vis_name.
+    # Узлы идут в порядке разбора: принадлежность модулю — по последней
+    # встреченной директиве (вид 51).
+    func canon_pass(var self)
+        requires true
+        ensures true
+    {
+        var cur: u32 = 0
+        for i in 0..131072 {
+            if i >= self.p.nnode {
+                break
+            }
+            let k: u32 = self.p.nk[i / 65536][i % 65536]
+            if k == 51 {
+                cur = cur + 1
+            } elif k == 27 or k == 37 or k == 41 or k == 45 {
+                if cur > 0 {
+                    self.canon_node(i, cur)
+                }
+            }
+        }
+    }
+
+    func canon_node(var self, n: u32, cur: u32)
+        requires n < 131072
+        ensures true
+    {
+        for j in 0..512 {
+            if j >= self.nimp {
+                break
+            }
+            if self.imm[j] == cur {
+                if self.span_eq(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536], self.iml_s[j], self.iml_l[j]) {
+                    self.p.nss[n / 65536][n % 65536] = self.imt_s[j]
+                    self.p.nsl[n / 65536][n % 65536] = self.imt_l[j]
+                }
+            }
+        }
+    }
+
     func pass1(var self)
         requires true
         ensures true
@@ -905,13 +1119,16 @@ struct Check {
         requires true
         ensures true
     {
+        self.cmod = 0
         var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
             if d == 4294967295 or self.failed {
                 break
             }
             let k: u32 = self.p.nk[d / 65536][d % 65536]
-            if k == 1 {
+            if k == 51 {
+                self.cmod = self.cmod + 1
+            } elif k == 1 {
                 self.col_const(d)
             } elif k == 6 or k == 50 {
                 self.declare_top(d)
@@ -965,6 +1182,7 @@ struct Check {
         self.nfun = i + 1
         self.fn_s[i] = self.p.nss[d / 65536][d % 65536]
         self.fn_l[i] = self.p.nsl[d / 65536][d % 65536]
+        self.fmod[i] = self.cmod
         self.fown[i] = owner
         self.fnd[i] = d
         self.fret[i] = 4294967295
@@ -1386,6 +1604,10 @@ struct Check {
         ensures true
     {
         self.init_types()
+        self.modules_pass()
+        if self.failed {
+            return
+        }
         self.pass1()
         if self.failed {
             return
@@ -1587,6 +1809,62 @@ struct Check {
             write("test ")
             self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
             write(" {ln}:{cl}\n")
+        } elif k == 51 {
+            write("module ")
+            self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
+            write(" {ln}:{cl}\n")
+        } elif k == 52 {
+            self.dump_import(d)
+        } elif k == 53 {
+            self.dump_export(d)
+        }
+    }
+
+    # `import {локальное} {l}:{c} :: {путь} {публичное}` на связку.
+    func dump_import(var self, d: u32)
+        requires d < 131072
+        ensures true
+    {
+        var b: u32 = self.p.nfc[d / 65536][d % 65536]
+        for _ in 0..1024 {
+            if b == 4294967295 {
+                break
+            }
+            write("import ")
+            if self.p.ny[b / 65536][b % 65536] > 0 {
+                self.write_span2(self.p.nx[b / 65536][b % 65536], self.p.ny[b / 65536][b % 65536])
+            } else {
+                self.write_span2(self.p.nss[b / 65536][b % 65536], self.p.nsl[b / 65536][b % 65536])
+            }
+            write(" {self.p.nl[b / 65536][b % 65536]}:{self.p.nc[b / 65536][b % 65536]} :: ")
+            self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
+            write(" ")
+            self.write_span2(self.p.nss[b / 65536][b % 65536], self.p.nsl[b / 65536][b % 65536])
+            write("\n")
+            b = self.p.nns[b / 65536][b % 65536]
+        }
+    }
+
+    # `export {публичное} {l}:{c} :: {внутреннее}` на связку.
+    func dump_export(var self, d: u32)
+        requires d < 131072
+        ensures true
+    {
+        var b: u32 = self.p.nfc[d / 65536][d % 65536]
+        for _ in 0..1024 {
+            if b == 4294967295 {
+                break
+            }
+            write("export ")
+            if self.p.ny[b / 65536][b % 65536] > 0 {
+                self.write_span2(self.p.nx[b / 65536][b % 65536], self.p.ny[b / 65536][b % 65536])
+            } else {
+                self.write_span2(self.p.nss[b / 65536][b % 65536], self.p.nsl[b / 65536][b % 65536])
+            }
+            write(" {self.p.nl[b / 65536][b % 65536]}:{self.p.nc[b / 65536][b % 65536]} :: ")
+            self.write_span2(self.p.nss[b / 65536][b % 65536], self.p.nsl[b / 65536][b % 65536])
+            write("\n")
+            b = self.p.nns[b / 65536][b % 65536]
         }
     }
 
@@ -2363,7 +2641,10 @@ struct Check {
             self.fail_node(n, "неверное число аргументов")
             return
         }
-        self.xa[f] = fi
+        # fi хранится со сдвигом 4096: коды встроенных (100..112) и
+        # индексы функций живут в одном слоте xa — без сдвига функция
+        # с fi 100..112 диспатчилась бы как встроенная
+        self.xa[f] = fi + 4096
         self.xb[f] = 0
         if argc == 0 {
             self.xs_user_fin(fi)
@@ -2487,7 +2768,7 @@ struct Check {
                 self.xpush(self.nth_child(n, wi + 1), 1)
             }
         } else {
-            self.xs_user_arg(f, n, code)
+            self.xs_user_arg(f, n, code - 4096)
         }
     }
 
@@ -3951,6 +4232,13 @@ struct Check {
         } elif k == 39 or k == 40 {
             write(" op=")
             write_opname(self.p.nx[n / 65536][n % 65536])
+        } elif k == 54 {
+            write(" name=")
+            self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+            if self.p.ny[n / 65536][n % 65536] > 0 {
+                write(" as=")
+                self.write_span2(self.p.nx[n / 65536][n % 65536], self.p.ny[n / 65536][n % 65536])
+            }
         } elif has_name(k) {
             write(" name=")
             self.write_span2(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])

@@ -4,17 +4,28 @@
 # 0 INT      1 STRING   2 CHAR     3 IDENT
 # 4..29 ключевые слова, 30..53 пунктуация, 54 NEWLINE, 55 EOF,
 # 56..60 битовые операторы (AMP PIPE CARET SHL SHR), 61 TILDE,
-# 62 EXTERN (ключевое слово; код в конце — нумерацию не двигаем)
+# 62 EXTERN, 63 IMPORT, 64 EXPORT, 65 FROM, 66 AS (ключевые слова;
+# коды в конце — нумерацию не двигаем), 67 MODULE (директива драйвера
+# `#module "путь"`, значение — путь модуля)
 
 func write_kind(k: u32)
-    requires k <= 62
+    requires k <= 67
     ensures true
 {
     if k < 30 {
         write_kind_kw(k)
-    } else {
+    } elif k <= 62 {
         write_kind_op(k)
+    } else {
+        write_kind_mod(k)
     }
+}
+
+func write_kind_mod(k: u32)
+    requires k >= 63 and k <= 67
+    ensures true
+{
+    if k == 63 { write("IMPORT") } elif k == 64 { write("EXPORT") } elif k == 65 { write("FROM") } elif k == 66 { write("AS") } else { write("MODULE") }
 }
 
 func write_kind_kw(k: u32)
@@ -35,7 +46,7 @@ func write_kind_op(k: u32)
 # (same — lib/Buf.eat)
 func kw_code(w: [u8; 16], n: u32) -> u32
     requires n <= 16
-    ensures result <= 29 or result == 62
+    ensures result <= 29 or (result >= 62 and result <= 66)
 {
     if n < 2 or n > 8 {
         return 3
@@ -49,7 +60,7 @@ func kw_code(w: [u8; 16], n: u32) -> u32
 
 func kw_code_af(w: [u8; 16], n: u32) -> u32
     requires n <= 16
-    ensures result <= 29 or result == 62
+    ensures result <= 29 or (result >= 62 and result <= 65)
 {
     let c: u8 = w[0]
     if c == 97 { # a
@@ -66,10 +77,12 @@ func kw_code_af(w: [u8; 16], n: u32) -> u32
         if same(w, n, "else") { return 13 }
         if same(w, n, "ensures") { return 22 }
         if same(w, n, "enum") { return 9 }
+        if same(w, n, "export") { return 64 }
         if same(w, n, "extern") { return 62 }
     } elif c == 102 { # f
         if same(w, n, "false") { return 26 }
         if same(w, n, "for") { return 14 }
+        if same(w, n, "from") { return 65 }
         if same(w, n, "func") { return 4 }
     }
     return 3
@@ -77,11 +90,14 @@ func kw_code_af(w: [u8; 16], n: u32) -> u32
 
 func kw_code_iv(w: [u8; 16], n: u32) -> u32
     requires n <= 16
-    ensures result <= 29
+    ensures result <= 29 or result == 63 or result == 66
 {
     let c: u8 = w[0]
-    if c == 105 { # i
+    if c == 97 { # a
+        if same(w, n, "as") { return 66 }
+    } elif c == 105 { # i
         if same(w, n, "if") { return 11 }
+        if same(w, n, "import") { return 63 }
         if same(w, n, "in") { return 15 }
     } elif c == 108 { # l
         if same(w, n, "let") { return 5 }

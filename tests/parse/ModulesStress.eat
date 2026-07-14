@@ -1,0 +1,66 @@
+# Стресс модулей: директивы #module, export/import c as, хвостовые
+# запятые, многострочные списки. Файл имитирует поток драйвера
+# (docs/MODULES_PLAN.md §4) и самодостаточен: дампы lex/parse/sig/typed
+# и IR сверяются в make verify_selfhost. Координаты после каждой
+# директивы начинаются с 1:1 — атрибуция пофайловая.
+#module "stress/Dep.eat"
+export {
+    make_pair as pair_of,
+    Pair,
+    STEP,
+    Tri,
+}
+
+const STEP: u32 = 3
+
+enum Tri {
+    Lo,
+    Hi(u32),
+}
+
+struct Pair {
+    a: u32
+    b: u32
+
+    func sum(self) -> u32
+        requires true
+        ensures true
+    {
+        return self.a + self.b
+    }
+}
+
+func make_pair(x: u32) -> Pair
+    requires x <= 1000
+    ensures true
+{
+    return Pair { a: x, b: x + STEP }
+}
+
+func hidden(x: u32) -> u32
+    requires true
+    ensures true
+{
+    return x
+}
+
+test dep_pair {
+    assert make_pair(2).sum() == 7
+    assert hidden(5) == 5
+}
+#module "stress/Main.eat"
+import {
+    pair_of,
+    Pair as P2,
+    STEP,
+    Tri,
+} from "stress/Dep.eat"
+
+func main() {
+    let p: P2 = pair_of(STEP)
+    let t: Tri = Tri.Hi(p.sum())
+    match t {
+        Lo { print("lo") }
+        Hi(v) { print("hi {v}") }
+    }
+}

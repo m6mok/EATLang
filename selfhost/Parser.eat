@@ -24,6 +24,12 @@ struct Parser {
     bdepth: u32
     failed: bool
     done: bool
+    # сегмент модуля (после #module): порядок блоков export? import* decl*;
+    # в безымянном сегменте (склейка cat) позиции не проверяются
+    smod: bool
+    sexp: bool
+    simp: bool
+    sdecl: bool
     # пул узлов AST
     nk: [[u32; 65536]; 2]
     nl: [[u32; 65536]; 2]
@@ -181,7 +187,7 @@ struct Parser {
     # --- пул узлов -------------------------------------------------------
 
     func alloc(var self, k: u32, ln: u32, cl: u32) -> u32
-        requires k <= 50
+        requires k <= 54
         ensures result < 131072
     {
         if self.nnode >= 131072 {
@@ -367,6 +373,19 @@ struct Parser {
             return
         }
         let att: u32 = self.fnod[self.nf - 1]
+        if k == 67 {
+            self.start_module(att)
+            return
+        }
+        if k == 63 {
+            self.start_import(att)
+            return
+        }
+        if k == 64 {
+            self.start_export(att)
+            return
+        }
+        self.sdecl = true
         if k == 4 {
             self.start_func(att, 0)
         } elif k == 8 {
@@ -382,6 +401,137 @@ struct Parser {
         } else {
             self.fail("на верхнем уровне допустимы только func, struct, enum, const, test")
         }
+    }
+
+    # --- модули (docs/MODULES_PLAN.md §2, §4) ------------------------------
+
+    # Директива #module: узел 51, новый сегмент потока.
+    func start_module(var self, att: u32)
+        requires true
+        ensures true
+    {
+        let node: u32 = self.alloc(51, self.t_line(), self.t_col())
+        self.set_str(node, self.cur)
+        self.append_child(att, node)
+        self.advance()
+        self.smod = true
+        self.sexp = false
+        self.simp = false
+        self.sdecl = false
+    }
+
+    # `{ ident [as ident] {, ...} [,] }` — связки import/export (узлы 54,
+    # алиас — спан в nx/ny). Возвращает число связок.
+    func parse_binds(var self, node: u32) -> u32
+        requires node < 131072
+        ensures true
+    {
+        if self.tk_at() != 32 {
+            self.fail("ожидалось '{{'")
+            return 0
+        }
+        self.advance()
+        var cnt: u32 = 0
+        for _ in 0..1024 {
+            self.skip_nl()
+            if self.tk_at() == 33 or self.failed {
+                break
+            }
+            if self.tk_at() != 3 {
+                self.fail("ожидалось имя в списке import/export")
+                return cnt
+            }
+            let b: u32 = self.alloc(54, self.t_line(), self.t_col())
+            self.set_str(b, self.cur)
+            self.advance()
+            if self.tk_at() == 66 { # as
+                self.advance()
+                if self.tk_at() != 3 {
+                    self.fail("ожидалось имя после as")
+                    return cnt
+                }
+                self.nx[b / 65536][b % 65536] = self.lex.tok_vs(self.cur)
+                self.ny[b / 65536][b % 65536] = self.lex.tok_vl(self.cur)
+                self.advance()
+            }
+            self.append_child(node, b)
+            cnt = cnt + 1
+            self.skip_nl()
+            if self.tk_at() == 43 { # ','
+                self.advance()
+            }
+        }
+        if not self.failed {
+            if self.tk_at() == 33 {
+                self.advance()
+            } else {
+                self.fail("ожидалось '}}'")
+            }
+        }
+        return cnt
+    }
+
+    func start_import(var self, att: u32)
+        requires true
+        ensures true
+    {
+        let ln: u32 = self.t_line()
+        let cl: u32 = self.t_col()
+        if self.smod and self.sdecl {
+            self.fail("import-блоки — только в шапке модуля, до первого объявления")
+            return
+        }
+        self.advance()
+        let node: u32 = self.alloc(52, ln, cl)
+        let cnt: u32 = self.parse_binds(node)
+        if self.failed {
+            return
+        }
+        if cnt == 0 {
+            self.fail("пустой import-блок")
+            return
+        }
+        if self.tk_at() != 65 { # from
+            self.fail("ожидалось from")
+            return
+        }
+        self.advance()
+        if self.tk_at() != 1 { # STRING
+            self.fail("ожидался путь модуля в кавычках")
+            return
+        }
+        self.set_str(node, self.cur)
+        self.advance()
+        self.end_of_stmt()
+        self.append_child(att, node)
+        self.simp = true
+    }
+
+    func start_export(var self, att: u32)
+        requires true
+        ensures true
+    {
+        let ln: u32 = self.t_line()
+        let cl: u32 = self.t_col()
+        if self.smod {
+            if self.sexp or self.simp or self.sdecl {
+                self.fail("export-блок — не более одного на модуль и первым блоком файла")
+                return
+            }
+        }
+        self.advance()
+        let node: u32 = self.alloc(53, ln, cl)
+        let cnt: u32 = self.parse_binds(node)
+        if self.failed {
+            return
+        }
+        if cnt == 0 {
+            self.fail("пустой export-блок")
+            return
+        }
+        self.end_of_stmt()
+        self.append_child(att, node)
+        self.sexp = true
     }
 
     # --- функции ---------------------------------------------------------
@@ -2247,6 +2397,13 @@ struct Parser {
         } elif k == 39 or k == 40 {
             write(" op=")
             write_opname(self.nx[n / 65536][n % 65536])
+        } elif k == 54 {
+            write(" name=")
+            self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])
+            if self.ny[n / 65536][n % 65536] > 0 {
+                write(" as=")
+                self.write_span(self.nx[n / 65536][n % 65536], self.ny[n / 65536][n % 65536])
+            }
         } elif has_name(k) {
             write(" name=")
             self.write_span(self.nss[n / 65536][n % 65536], self.nsl[n / 65536][n % 65536])

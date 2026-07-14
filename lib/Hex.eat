@@ -2,6 +2,13 @@
 # (docs/MODULES_PLAN.md §7). Этап 0 (конкатенация): модуль подключается
 # явным списком файлов после selfhost/Rt.eat.
 
+export {
+    hex_digit,
+    write_hex8,
+    write_hex16,
+    hex_val,
+}
+
 func hex_digit(v: u32) -> char
     requires v <= 15
     ensures true

@@ -3,6 +3,9 @@
 
 Формат (порядок исходника):
 
+    module {путь} {l}:{c}
+    import {локальное} {l}:{c} :: {путь} {публичное}
+    export {публичное} {l}:{c} :: {внутреннее}
     const {имя} {l}:{c} :: {тип} = {значение}
     func {имя} {l}:{c} (имя: тип, ...) [-> тип]
     struct {имя} {l}:{c}
@@ -42,6 +45,7 @@ def dump_signatures(
     tc = TypeChecker(program, filename)
     tc.collect_decls()
     tc._check_type_cycles()
+    tc.check_module_interfaces()
     if "main" not in tc.funcs:
         raise EatError(filename, 1, 1, "нет функции main — точки входа")
     main = tc.funcs["main"]
@@ -85,6 +89,19 @@ def dump_signatures(
                     lines.append(f"  variant {vname} :: {show(payload)}")
         elif isinstance(decl, ast.TestBlock):
             lines.append(f"test {decl.name} {pos}")
+        elif isinstance(decl, ast.ModuleMark):
+            lines.append(f"module {decl.path} {pos}")
+        elif isinstance(decl, ast.ImportBlock):
+            for b in decl.binds:
+                local = b.alias or b.name
+                lines.append(
+                    f"import {local} {b.line}:{b.col} :: "
+                    f"{decl.path} {b.name}"
+                )
+        elif isinstance(decl, ast.ExportBlock):
+            for b in decl.binds:
+                pub = b.alias or b.name
+                lines.append(f"export {pub} {b.line}:{b.col} :: {b.name}")
     lines.append(
         f"stats funcs={stats['funcs']} structs={stats['structs']} "
         f"stmts={stats['stmts']}"

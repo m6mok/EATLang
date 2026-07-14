@@ -40,6 +40,13 @@ class Parser:
         # struct-литерал `Name { ... }` запрещён в заголовках if/for/match,
         # где `{` открывает блок
         self.allow_struct_lit = True
+        # модульный сегмент потока (после #module): порядок блоков —
+        # export? import* decl*; в безымянном сегменте (склейка cat,
+        # отдельный файл) позиции не проверяются — их закрепляет драйвер
+        self.cur_module: str | None = None
+        self.seg_export = False  # export-блок сегмента уже встречен
+        self.seg_import = False  # import-блоки уже встречены
+        self.seg_decl = False    # объявления уже встречены
 
     # --- инфраструктура ---------------------------------------------------
 
@@ -79,7 +86,8 @@ class Parser:
 
     def error(self, message: str, tok: Token | None = None) -> EatError:
         tok = tok or self.peek()
-        return EatError(self.filename, tok.line, tok.col, message)
+        fname = self.cur_module or self.filename
+        return EatError(fname, tok.line, tok.col, message)
 
     def skip_newlines(self) -> None:
         while self.at(T.NEWLINE):
@@ -113,6 +121,13 @@ class Parser:
 
     def parse_top_decl(self) -> ast.Node:
         tok = self.peek()
+        if tok.type == T.MODULE:
+            return self.parse_module_mark()
+        if tok.type == T.IMPORT:
+            return self.parse_import_block()
+        if tok.type == T.EXPORT:
+            return self.parse_export_block()
+        self.seg_decl = True
         if tok.type == T.FUNC:
             return self.parse_func()
         if tok.type == T.EXTERN:
@@ -129,6 +144,67 @@ class Parser:
             "на верхнем уровне допустимы только func, struct, enum, "
             "const, test (правило 6: мутабельных глобалов нет)"
         )
+
+    # --- модули (docs/MODULES_PLAN.md §2, §4) -----------------------------
+
+    def parse_module_mark(self) -> ast.ModuleMark:
+        tok = self.expect(T.MODULE, "#module")
+        self.cur_module = tok.value
+        self.seg_export = False
+        self.seg_import = False
+        self.seg_decl = False
+        return ast.ModuleMark(tok.line, tok.col, tok.value)
+
+    def parse_binds(self) -> list:
+        """`{ ident [as ident] {, ...} [,] }` — связки import/export."""
+        self.expect(T.LBRACE, "'{'")
+        self.skip_newlines()
+        binds: list[ast.Bind] = []
+        while not self.at(T.RBRACE):
+            tok = self.expect(T.IDENT, "имя в списке import/export")
+            alias = None
+            if self.accept(T.AS):
+                alias = self.expect(T.IDENT, "имя после as").value
+            binds.append(ast.Bind(tok.line, tok.col, tok.value, alias))
+            self.skip_newlines()
+            if self.accept(T.COMMA):
+                self.skip_newlines()
+        self.expect(T.RBRACE, "'}'")
+        return binds
+
+    def parse_import_block(self) -> ast.ImportBlock:
+        tok = self.expect(T.IMPORT, "import")
+        if self.cur_module is not None and self.seg_decl:
+            raise self.error(
+                "import-блоки — только в шапке модуля, до первого "
+                "объявления",
+                tok,
+            )
+        binds = self.parse_binds()
+        if not binds:
+            raise self.error("пустой import-блок", tok)
+        self.expect(T.FROM, "from")
+        path = self.expect(T.STRING, 'путь модуля в кавычках ("lib/...")')
+        self.end_of_stmt()
+        self.seg_import = True
+        return ast.ImportBlock(tok.line, tok.col, binds, path.value)
+
+    def parse_export_block(self) -> ast.ExportBlock:
+        tok = self.expect(T.EXPORT, "export")
+        if self.cur_module is not None and (
+            self.seg_export or self.seg_import or self.seg_decl
+        ):
+            raise self.error(
+                "export-блок — не более одного на модуль и первым блоком "
+                "файла (интерфейс проектируется первым)",
+                tok,
+            )
+        binds = self.parse_binds()
+        if not binds:
+            raise self.error("пустой export-блок", tok)
+        self.end_of_stmt()
+        self.seg_export = True
+        return ast.ExportBlock(tok.line, tok.col, binds)
 
     def parse_const(self) -> ast.ConstDecl:
         tok = self.expect(T.CONST, "const")

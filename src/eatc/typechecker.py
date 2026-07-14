@@ -14,8 +14,14 @@
 from dataclasses import dataclass, field
 
 from . import ast_nodes as ast
-from .errors import EatError
-from .limits import MAX_ARRAY_ELEMS, MAX_STR_CAPACITY
+from .errors import CapacityError, EatError
+from .limits import (
+    MAX_ARRAY_ELEMS,
+    MAX_IMPORT_BINDS,
+    MAX_MODULE_PATH,
+    MAX_MODULES,
+    MAX_STR_CAPACITY,
+)
 from .types import (
     BOOL,
     CHAR,
@@ -148,6 +154,18 @@ class TypeChecker:
         self.break_counts: list[int] = []  # break'ов у каждого активного цикла
         self.exit_seen = False  # exit: не более одного на программу
         self.edges: set = set()
+        # --- модули (docs/MODULES_PLAN.md §3): границы — ModuleMark ------
+        # id 0 — безымянный сегмент до первой директивы (Rt, склейка cat):
+        # его имена видимы всем; id 1.. — именованные модули
+        self.module_paths: list[str] = []
+        self.module_of_path: dict[str, int] = {}
+        self.decl_module: dict[int, int] = {}  # id(узла) -> модуль
+        self.exports: dict[int, dict] = {}  # модуль -> {публичное: внутр.}
+        self.imports: dict[tuple, str] = {}  # (модуль, локальное) -> внутр.
+        self.import_bind: dict[tuple, ast.Bind] = {}
+        self.import_used: dict[tuple, bool] = {}
+        self.name_module: dict[str, int] = {}  # внутр. имя -> владелец
+        self.current_module = 0
 
     # --- инфраструктура -------------------------------------------------
 
@@ -184,6 +202,11 @@ class TypeChecker:
                 node,
                 f"имя {name} затеняет объявление верхнего уровня (правило 6)",
             )
+        if (self.current_module, name) in self.imports:
+            raise self.err(
+                node,
+                f"имя {name} затеняет импортированное имя (правило 6)",
+            )
         self.scopes[-1][name] = info
 
     def lookup(self, node: ast.Node, name: str) -> VarInfo | None:
@@ -193,11 +216,279 @@ class TypeChecker:
                 return scope[name]
         return None
 
+    def _is_local(self, name: str) -> bool:
+        return any(name in scope for scope in self.scopes)
+
+    # --- модули (docs/MODULES_PLAN.md §3) --------------------------------
+
+    def collect_modules(self) -> None:
+        """Один проход по потоку: границы модулей, export- и
+        import-блоки. Порядок enforce'ит сам проход: import находит
+        источник, только если тот уже встретился («модуль раньше по
+        потоку» — компилятор перепроверяет драйвер)."""
+        cur = 0
+        for decl in self.program.decls:
+            self.decl_module[id(decl)] = cur
+            if isinstance(decl, ast.ModuleMark):
+                if decl.path in self.module_of_path:
+                    raise self.err(decl, f"модуль {decl.path} в потоке дважды")
+                if len(decl.path.encode("utf-8")) > MAX_MODULE_PATH:
+                    raise CapacityError(
+                        self.filename, decl.line, decl.col,
+                        "длина пути модуля", MAX_MODULE_PATH,
+                    )
+                if len(self.module_paths) >= MAX_MODULES:
+                    raise CapacityError(
+                        self.filename, decl.line, decl.col,
+                        "модулей в программе", MAX_MODULES,
+                    )
+                self.module_paths.append(decl.path)
+                cur = len(self.module_paths)
+                self.module_of_path[decl.path] = cur
+                self.decl_module[id(decl)] = cur
+            elif isinstance(decl, ast.ExportBlock):
+                self._stamp_module(decl, cur)
+                # в безымянном сегменте (склейка cat) export инертен:
+                # интерфейс закрепляет драйвер, ставя #module
+                if cur == 0:
+                    continue
+                binds: dict[str, str] = {}
+                for b in decl.binds:
+                    pub = b.alias or b.name
+                    if pub in binds:
+                        raise self.err(
+                            b, f"имя {pub} экспортируется дважды"
+                        )
+                    binds[pub] = b.name
+                self.exports[cur] = binds
+            elif isinstance(decl, ast.ImportBlock):
+                self._stamp_module(decl, cur)
+                self._collect_import(decl, cur)
+            else:
+                self._stamp_module(decl, cur)
+
+    def _collect_import(self, decl: ast.ImportBlock, cur: int) -> None:
+        src = self.module_of_path.get(decl.path)
+        if src is None:
+            raise self.err(
+                decl,
+                f'import из "{decl.path}": модуль не встретился раньше '
+                "по потоку (порядок и пути собирает драйвер — "
+                "docs/MODULES_PLAN.md §4)",
+            )
+        exported = self.exports.get(src, {})
+        for b in decl.binds:
+            local = b.alias or b.name
+            key = (cur, local)
+            if key in self.imports:
+                raise self.err(
+                    b,
+                    f"имя {local} уже импортировано — коллизия лечится as",
+                )
+            if len(self.imports) >= MAX_IMPORT_BINDS:
+                raise CapacityError(
+                    self.filename, b.line, b.col,
+                    "импортированных имён", MAX_IMPORT_BINDS,
+                )
+            if b.name not in exported:
+                raise self.err(
+                    b, f"модуль {decl.path} не экспортирует {b.name}"
+                )
+            self.imports[key] = exported[b.name]
+            self.import_bind[key] = b
+            self.import_used[key] = False
+
+    def _stamp_module(self, obj, cur: int) -> None:
+        """Атрибуция ошибок и trap-сообщений: узлы именованного модуля
+        получают его канонический путь как src_file (координаты уже
+        пофайловые — лексер сбросил счёт на директиве)."""
+        if cur == 0:
+            return
+        path = self.module_paths[cur - 1]
+        from dataclasses import fields as dc_fields
+
+        def stamp(node):
+            if isinstance(node, ast.Node):
+                if getattr(node, "src_file", None) is None:
+                    node.src_file = path
+                for f in dc_fields(node):
+                    stamp(getattr(node, f.name))
+            elif isinstance(node, (list, tuple)):
+                for item in node:
+                    stamp(item)
+
+        stamp(obj)
+
+    def check_module_interfaces(self) -> None:
+        """Проверки экспорта после сбора деклараций: имя существует и
+        принадлежит модулю; типы и контракты интерфейса замкнуты (§3)."""
+        for mod, binds in self.exports.items():
+            for pub, internal in binds.items():
+                owner = self.name_module.get(internal)
+                node = self._export_bind_node(mod, pub)
+                if owner is None or owner != mod:
+                    raise self.err(
+                        node,
+                        f"export {internal}: в модуле "
+                        f"{self.module_paths[mod - 1]} нет такого "
+                        "объявления (func/struct/enum/const)",
+                    )
+                self._check_export_closure(mod, internal, node)
+        for key in list(self.imports):
+            mod, local = key
+            b = self.import_bind[key]
+            owner = self.name_module.get(local)
+            if owner is not None and owner in (0, mod):
+                raise self.err(
+                    b,
+                    f"импортированное имя {local} совпадает с объявлением — "
+                    "коллизия лечится as",
+                )
+            if (
+                local in BUILTINS
+                or local in _INT_CASTS
+                or local in ("len", "str", "char", "Result", "Option", "bool")
+            ):
+                raise self.err(
+                    b, f"импортированное имя {local} затеняет встроенное"
+                )
+
+    def _export_bind_node(self, mod: int, pub: str) -> ast.Node:
+        for decl in self.program.decls:
+            if (
+                isinstance(decl, ast.ExportBlock)
+                and self.decl_module.get(id(decl)) == mod
+            ):
+                for b in decl.binds:
+                    if (b.alias or b.name) == pub:
+                        return b
+        return self.program
+
+    def _check_export_closure(
+        self, mod: int, internal: str, node: ast.Node
+    ) -> None:
+        """Тип из сигнатуры/контракта экспортированной единицы обязан
+        быть экспортирован сам — иначе клиент не может ни объявить
+        значение, ни проверить requires (§3.4)."""
+        exported = set(self.exports[mod].values())
+
+        def check_type(t, what):
+            for name in self._type_names(t):
+                if (
+                    self.name_module.get(name) == mod
+                    and name not in exported
+                ):
+                    raise self.err(
+                        node,
+                        f"тип {name} в интерфейсе экспортированного "
+                        f"{what} не экспортирован модулем",
+                    )
+
+        def check_contract(expr, what):
+            if expr is None:
+                return
+            for name in self._expr_global_names(expr):
+                if (
+                    self.name_module.get(name) == mod
+                    and name not in exported
+                ):
+                    raise self.err(
+                        node,
+                        f"{name} в контракте экспортированного {what} "
+                        "не экспортирован модулем",
+                    )
+
+        def check_sig(sig, what):
+            for _, t in sig.params:
+                check_type(t, what)
+            if sig.ret is not None:
+                check_type(sig.ret, what)
+            if sig.node is not None:
+                check_contract(sig.node.requires, what)
+                check_contract(sig.node.ensures, what)
+
+        if internal in self.funcs:
+            check_sig(self.funcs[internal], internal)
+        elif internal in self.structs:
+            info = self.structs[internal]
+            for t in info.fields.values():
+                check_type(t, internal)
+            for mname, sig in info.methods.items():
+                check_sig(sig, f"{internal}.{mname}")
+        elif internal in self.enum_payloads:
+            for t in self.enum_payloads[internal].values():
+                if t is not None:
+                    check_type(t, internal)
+
+    def _type_names(self, t):
+        if isinstance(t, (StructType, EnumType)):
+            yield t.name
+        elif isinstance(t, ArrayType):
+            yield from self._type_names(t.elem)
+        elif isinstance(t, ResultType):
+            yield from self._type_names(t.ok)
+            yield from self._type_names(t.err)
+        elif isinstance(t, OptionType):
+            yield from self._type_names(t.inner)
+
+    def _expr_global_names(self, expr):
+        """Идентификаторы контракта, которые могут указывать на
+        объявления верхнего уровня (параметры и result отфильтрует
+        name_module у вызывающего)."""
+        if isinstance(expr, ast.Name):
+            yield expr.ident
+        elif isinstance(expr, ast.Call):
+            yield expr.name
+            for a in expr.args:
+                yield from self._expr_global_names(a)
+        elif isinstance(expr, ast.MethodCall):
+            yield from self._expr_global_names(expr.obj)
+            for a in expr.args:
+                yield from self._expr_global_names(a)
+        elif isinstance(expr, ast.FieldAccess):
+            yield from self._expr_global_names(expr.obj)
+        elif isinstance(expr, ast.Index):
+            yield from self._expr_global_names(expr.obj)
+            yield from self._expr_global_names(expr.index)
+        elif isinstance(expr, ast.BinOp):
+            yield from self._expr_global_names(expr.left)
+            yield from self._expr_global_names(expr.right)
+        elif isinstance(expr, ast.UnaryOp):
+            yield from self._expr_global_names(expr.operand)
+
+    def vis_name(self, node: ast.Node, name: str) -> str:
+        """Разрешение глобального имени из текущего модуля: локальное
+        импортированное имя переводится во внутреннее имя экспортёра;
+        чужие неимпортированные имена невидимы (§3). Неизвестные имена
+        возвращаются как есть — «неизвестное имя» скажет вызывающий."""
+        key = (self.current_module, name)
+        target = self.imports.get(key)
+        if target is not None:
+            self.import_used[key] = True
+            return target
+        owner = self.name_module.get(name)
+        if owner is None or owner in (0, self.current_module):
+            return name
+        raise self.err(
+            node,
+            f"имя {name} не импортировано (объявлено в модуле "
+            f"{self.module_paths[owner - 1]})",
+        )
+
+    def _check_unused_imports(self) -> None:
+        for key, used in self.import_used.items():
+            if not used:
+                b = self.import_bind[key]
+                raise self.err(
+                    b, f"импорт {key[1]} не используется (правило 10)"
+                )
+
     # --- запуск ------------------------------------------------------------
 
     def run(self) -> CheckResult:
         self.collect_decls()
         self._check_type_cycles()
+        self.check_module_interfaces()
         if "main" not in self.funcs:
             raise EatError(
                 self.filename, 1, 1, "нет функции main — точки входа"
@@ -211,6 +502,7 @@ class TypeChecker:
                 "main не принимает параметров и ничего не возвращает",
             )
         for decl in self.program.decls:
+            self.current_module = self.decl_module.get(id(decl), 0)
             if isinstance(decl, ast.FuncDecl):
                 self.check_func(decl, decl.name, None)
             elif isinstance(decl, ast.StructDecl):
@@ -222,6 +514,8 @@ class TypeChecker:
                     )
             elif isinstance(decl, ast.TestBlock):
                 self.check_test(decl)
+        self.current_module = 0
+        self._check_unused_imports()
         depth = self.check_call_graph()
         return CheckResult(
             stack_depth=depth,
@@ -233,8 +527,10 @@ class TypeChecker:
     # --- сбор объявлений -----------------------------------------------------
 
     def collect_decls(self) -> None:
+        self.collect_modules()
         # проход 1: имена типов
         for decl in self.program.decls:
+            self.current_module = self.decl_module.get(id(decl), 0)
             if isinstance(decl, ast.StructDecl):
                 self._declare_top(decl, decl.name)
                 self.structs[decl.name] = StructInfo(decl.name, {}, {})
@@ -246,6 +542,7 @@ class TypeChecker:
                 self.enums[decl.name] = names
         # проход 2: сигнатуры, поля, константы
         for decl in self.program.decls:
+            self.current_module = self.decl_module.get(id(decl), 0)
             if isinstance(decl, ast.ConstDecl):
                 self._declare_top(decl, decl.name)
                 ctype = self.resolve(decl.type)
@@ -289,6 +586,7 @@ class TypeChecker:
         )
         if taken:
             raise self.err(node, f"имя {name} уже занято")
+        self.name_module[name] = self.current_module
 
     def _signature(self, func: ast.FuncDecl) -> FuncSig:
         params = []
@@ -355,6 +653,9 @@ class TypeChecker:
                 return BOOL
             if node.name == "char":
                 return CHAR
+            # канонизация: импортированное имя типа -> внутреннее имя
+            # экспортёра (дальше конвейер видит только внутренние имена)
+            node.name = self.vis_name(node, node.name)
             if node.name in self.structs:
                 return StructType(node.name)
             if node.name in self.enums:
@@ -385,6 +686,8 @@ class TypeChecker:
         if isinstance(expr, ast.IntLit):
             return expr.value
         if isinstance(expr, ast.Name):
+            if not self._is_local(expr.ident):
+                expr.ident = self.vis_name(expr, expr.ident)
             if expr.ident in self.consts:
                 return self.consts[expr.ident][1]
             raise self.err(
@@ -827,6 +1130,7 @@ class TypeChecker:
         info = self.lookup(node, node.ident)
         if info is not None:
             return info.type
+        node.ident = self.vis_name(node, node.ident)
         if node.ident in self.consts:
             return self.consts[node.ident][0]
         if node.ident in self.funcs or node.ident in BUILTINS:
@@ -932,6 +1236,7 @@ class TypeChecker:
             )
 
     def _call(self, node: ast.Call) -> Type:
+        node.name = self.vis_name(node, node.name)
         if node.name in _INT_CASTS:
             return self._cast(node)
         if node.name == "char":
@@ -1022,6 +1327,10 @@ class TypeChecker:
 
     def _method_call(self, node: ast.MethodCall) -> Type:
         # Enum.Variant(x) — конструктор варианта с нагрузкой
+        if isinstance(node.obj, ast.Name) and not self._is_local(
+            node.obj.ident
+        ):
+            node.obj.ident = self.vis_name(node.obj, node.obj.ident)
         if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
             return self._enum_ctor(node)
         obj = self.expr(node.obj)
@@ -1114,6 +1423,10 @@ class TypeChecker:
 
     def _field_access(self, node: ast.FieldAccess) -> Type:
         # Enum.Variant — литерал варианта
+        if isinstance(node.obj, ast.Name) and not self._is_local(
+            node.obj.ident
+        ):
+            node.obj.ident = self.vis_name(node.obj, node.obj.ident)
         if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
             enum_name = node.obj.ident
             if node.name not in self.enums[enum_name]:
@@ -1144,6 +1457,7 @@ class TypeChecker:
         )
 
     def _struct_lit(self, node: ast.StructLit) -> Type:
+        node.name = self.vis_name(node, node.name)
         if node.name not in self.structs:
             raise self.err(node, f"неизвестный struct {node.name}")
         info = self.structs[node.name]

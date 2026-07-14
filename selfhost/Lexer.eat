@@ -6,7 +6,12 @@
 #  0 старт        1 слово        2 число        3 строка
 #  4 строка-esc   5 char-открыт  6 char-esc     7 char-закрытие
 #  8 комментарий  9 минус (->)  10 точка (..)  11 равно (==)
-# 12 внезапный ! 13 меньше (<=) 14 больше (>=)
+# 12 внезапный ! 13 меньше (<=) 14 больше (>=) 15/16 hex
+# 17 матч `#module "` 18 путь директивы  19 хвост директивы
+#
+# Директива драйвера `#module "путь"` (docs/MODULES_PLAN.md §4):
+# токен MODULE (67) со значением-путём; счёт строк и колонок после
+# директивы начинается с 1:1 — атрибуция становится пофайловой.
 #
 # Колонки считаются в символах, как у эталона: continuation-байты
 # UTF-8 (0x80..0xBF) колонку не двигают.
@@ -61,12 +66,28 @@ func write_esc(b: u8)
     if b == 92 { write("\\\\") } elif b == 10 { write("\\n") } elif b == 9 { write("\\t") } elif b == 13 { write("\\r") } elif b == 0 { write("\\0") } else { write_byte(b) }
 }
 
-# Хранит ли токен данного вида значение (INT, STRING, CHAR, IDENT).
+# Ожидаемый байт литерала `module "` (хвост директивы после '#').
+func dir_expect(i: u32) -> u8
+    requires i < 8
+    ensures true
+{
+    if i == 0 { return 109 } # m
+    if i == 1 { return 111 } # o
+    if i == 2 { return 100 } # d
+    if i == 3 { return 117 } # u
+    if i == 4 { return 108 } # l
+    if i == 5 { return 101 } # e
+    if i == 6 { return 32 }  # ' '
+    return 34                # '"'
+}
+
+# Хранит ли токен данного вида значение (INT, STRING, CHAR, IDENT;
+# MODULE несёт путь модуля).
 func is_valued(k: u32) -> bool
     requires true
     ensures true
 {
-    return k <= 3
+    return k <= 3 or k == 67
 }
 
 struct Lexer {
@@ -204,7 +225,7 @@ struct Lexer {
     # --- запись токенов в пул -------------------------------------------
 
     func emit_plain(var self, k: u32)
-        requires k <= 62
+        requires k <= 67
         ensures true
     {
         if self.ntok >= 131072 {
@@ -225,7 +246,7 @@ struct Lexer {
 
     # Токен со значением: байты val[0..vlen] копируются в sbuf.
     func emit_value(var self, k: u32)
-        requires k <= 62
+        requires k <= 67
         ensures true
     {
         if self.sblen >= 130816 {
@@ -359,7 +380,8 @@ struct Lexer {
         }
         self.begin_tok()
         if b == 35 { # '#'
-            self.state = 8
+            self.vlen = 0
+            self.state = 17
         } elif b == 34 { # '"'
             self.vlen = 0
             self.state = 3
@@ -610,6 +632,75 @@ struct Lexer {
         }
     }
 
+    # Состояние 17: посимвольный матч `module "` после '#';
+    # несовпадение — обычный комментарий (байт уже внутри него).
+    func dir_match_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.vlen < 8 and b == dir_expect(self.vlen) {
+            self.vlen = self.vlen + 1
+            if self.vlen == 8 {
+                self.vlen = 0
+                self.state = 18
+            }
+            return
+        }
+        self.state = 8
+        self.comment_byte(b)
+    }
+
+    # Состояние 18: путь до закрывающей кавычки.
+    func dir_path_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if b == 34 { # '"'
+            self.state = 19
+            return
+        }
+        if b == 10 {
+            self.fail("незакрытая директива #module")
+            return
+        }
+        self.push_val(b)
+    }
+
+    # Эмиссия директивы: схлопнутый NEWLINE (координаты '#') + MODULE.
+    func dir_emit(var self)
+        requires true
+        ensures true
+    {
+        if self.vlen == 0 {
+            self.fail("пустой путь в директиве #module")
+            return
+        }
+        if self.depth == 0 and self.ntok > 0 {
+            if self.tok_k(self.ntok - 1) != 54 {
+                self.emit_plain(54)
+            }
+        }
+        self.emit_value(67)
+    }
+
+    # Состояние 19: пробелы до конца строки; перевод строки завершает
+    # директиву и перезапускает счёт координат (хвост step даст 1:1).
+    func dir_tail_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if b == 32 or b == 9 or b == 13 {
+            return
+        }
+        if b == 10 {
+            self.dir_emit()
+            self.state = 0
+            self.line = 0
+            return
+        }
+        self.fail("после директивы #module ожидается конец строки")
+    }
+
     # Состояния 9..14: возможный второй байт двухсимвольного оператора.
     func op_byte(var self, b: u8)
         requires true
@@ -693,6 +784,12 @@ struct Lexer {
             self.hexstart_byte(b)
         } elif self.state == 16 {
             self.hex_byte(b)
+        } elif self.state == 17 {
+            self.dir_match_byte(b)
+        } elif self.state == 18 {
+            self.dir_path_byte(b)
+        } elif self.state == 19 {
+            self.dir_tail_byte(b)
         } else {
             self.op_byte(b)
         }
@@ -742,6 +839,13 @@ struct Lexer {
             } else {
                 self.hex_fin()
             }
+        } elif self.state == 18 {
+            self.fail("незакрытая директива #module")
+        } elif self.state == 19 {
+            # EOF сразу после директивы: эмиссия и координаты 1:1
+            self.dir_emit()
+            self.line = 1
+            self.col = 1
         }
         self.state = 0
         if self.failed {
@@ -909,18 +1013,18 @@ struct Lexer {
         self.tns[ti / 65536][ti % 65536] = self.nseg - seg_first
     }
 
-    # Индекс закрывающей '}' от позиции from; NONE если нет.
-    func find_close(var self, vs: u32, vl: u32, from: u32) -> u32
+    # Индекс закрывающей '}' от позиции frm; NONE если нет.
+    func find_close(var self, vs: u32, vl: u32, frm: u32) -> u32
         requires true
         ensures true
     {
         var found: u32 = 4294967295
         for k in 0..256 {
-            if from + k >= vl or found != 4294967295 {
+            if frm + k >= vl or found != 4294967295 {
                 break
             }
-            if self.sb_at(vs + from + k) == 125 {
-                found = from + k
+            if self.sb_at(vs + frm + k) == 125 {
+                found = frm + k
             }
         }
         return found

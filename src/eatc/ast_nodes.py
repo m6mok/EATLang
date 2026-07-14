@@ -290,6 +290,34 @@ class TestBlock(Node):
     body: Block
 
 
+# --- модули (docs/MODULES_PLAN.md §2, §4) ---------------------------------
+
+
+@dataclass
+class Bind(Node):
+    # import: name — публичное имя у экспортёра, alias — локальное имя;
+    # export: name — внутреннее имя, alias — публичное имя
+    name: str
+    alias: str | None
+
+
+@dataclass
+class ImportBlock(Node):
+    binds: list
+    path: str  # строка из `from "..."` — канонизирует драйвер
+
+
+@dataclass
+class ExportBlock(Node):
+    binds: list
+
+
+@dataclass
+class ModuleMark(Node):
+    # граница модуля в потоке: директива драйвера `#module "путь"`
+    path: str
+
+
 @dataclass
 class Program(Node):
     decls: list = field(default_factory=list)

@@ -3,6 +3,12 @@
 # явным списком файлов после selfhost/Rt.eat. Для МК clamp — штатная
 # форма guard-паттерна «не выйти за ёмкость буфера».
 
+export {
+    min,
+    max,
+    clamp,
+}
+
 func min(a: u32, b: u32) -> u32
     requires true
     ensures result <= a and result <= b

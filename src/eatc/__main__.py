@@ -21,22 +21,41 @@ import sys
 from pathlib import Path
 
 from .checks import check_program
+from .driver import build_stream, has_imports
 from .errors import EatError
 from .interpreter import Interpreter
-from .parser import parse_file, parse_files
+from .lexer import Lexer
+from .parser import Parser, parse_file, parse_files
 from .typechecker import typecheck
+
+# --lib-корни драйвера (заполняет main из argv)
+LIB_ROOTS: list = []
+
+
+def _load_program(paths: list):
+    """Программа из списка файлов. Единственный файл с import-блоками
+    включает драйвер (docs/MODULES_PLAN.md §4): DAG модулей + Rt.eat
+    конкатенируются в поток с директивами #module."""
+    main = paths[-1]
+    if len(paths) == 1:
+        program = parse_file(main)
+        if has_imports(program):
+            stream = build_stream(main, LIB_ROOTS)
+            tokens = Lexer(stream, main).tokenize()
+            program = Parser(tokens, main).parse_program()
+        return program, main
+    return parse_files(paths), main
 
 
 def _compile(path: str):
-    program = parse_file(path)
+    program, _ = _load_program([path])
     stats = check_program(program, path)
     typed = typecheck(program, path)
     return program, stats, typed
 
 
 def _compile_many(paths: list):
-    main = paths[-1]
-    program = parse_files(paths)
+    program, main = _load_program(paths)
     stats = check_program(program, main)
     typed = typecheck(program, main)
     return program, stats, typed, main
@@ -91,7 +110,7 @@ def cmd_lex(path: str) -> int:
     from .lexer import Lexer
     from .tokens import T
 
-    valued = {T.INT, T.STRING, T.CHAR, T.IDENT}
+    valued = {T.INT, T.STRING, T.CHAR, T.IDENT, T.MODULE}
     try:
         source = Path(path).read_text(encoding="utf-8")
         tokens = Lexer(source, path).tokenize()
@@ -218,12 +237,31 @@ def cmd_build(
     return 0
 
 
+def cmd_stream(path: str) -> int:
+    """Печать потока драйвера: Rt + модули DAG с #module-директивами —
+    вход для self-hosted компилятора (сверки Makefile)."""
+    try:
+        sys.stdout.write(build_stream(path, LIB_ROOTS))
+    except (OSError, EatError) as err:
+        print(err, file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str]) -> int:
     # --trap-codes (ir/build): режим кодов вместо trap-строк —
     # метрика флеша МК; таблица кодов — комментарии в хвосте .ll
     trap_codes = "--trap-codes" in argv
     if trap_codes:
         argv = [a for a in argv if a != "--trap-codes"]
+    # --lib DIR (повторяемый): корни разрешения путей import
+    while "--lib" in argv:
+        i = argv.index("--lib")
+        if i + 1 >= len(argv):
+            print("после --lib ожидается каталог", file=sys.stderr)
+            return 2
+        LIB_ROOTS.append(argv[i + 1])
+        del argv[i:i + 2]
     # --no-bin (build): только .ll + отчёт §8, без хостовой линковки —
     # для кросс-сборок МК (extern-программы линкует make mcu)
     no_bin = "--no-bin" in argv
@@ -243,6 +281,8 @@ def main(argv: list[str]) -> int:
         return cmd_typed(argv[1])
     if len(argv) == 2 and argv[0] == "ir":
         return cmd_ir(argv[1], trap_codes=trap_codes)
+    if len(argv) == 2 and argv[0] == "stream":
+        return cmd_stream(argv[1])
     if len(argv) >= 2 and argv[0] == "build":
         args = argv[1:]
         out = None
@@ -261,7 +301,8 @@ def main(argv: list[str]) -> int:
         "использование: python -m eatc "
         "(check <файлы.eat...> | run <файлы...> | "
         "build <файлы...> [-o out] [--trap-codes] | lex <файл> | "
-        "parse <файл> | ir <файл> [--trap-codes])",
+        "parse <файл> | ir <файл> [--trap-codes] | stream <файл>) "
+        "[--lib DIR]...",
         file=sys.stderr,
     )
     return 2

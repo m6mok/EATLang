@@ -65,8 +65,23 @@ class Dumper:
         elif isinstance(node, ast.TestBlock):
             self.emit(d, f"test {node.line}:{node.col} name={node.name}")
             self.block(d + 1, node.body)
+        elif isinstance(node, ast.ModuleMark):
+            self.emit(d, f"module {node.line}:{node.col} name={node.path}")
+        elif isinstance(node, ast.ImportBlock):
+            self.emit(d, f"import {node.line}:{node.col} name={node.path}")
+            for b in node.binds:
+                self.bind(d + 1, b)
+        elif isinstance(node, ast.ExportBlock):
+            self.emit(d, f"export {node.line}:{node.col}")
+            for b in node.binds:
+                self.bind(d + 1, b)
         else:
             raise AssertionError(f"неизвестное объявление: {node}")
+
+    def bind(self, d: int, node: ast.Bind) -> None:
+        alias = "" if node.alias is None else f" as={node.alias}"
+        pos = f"{node.line}:{node.col}"
+        self.emit(d, f"bind {pos} name={node.name}{alias}")
 
     def func(self, d: int, node: ast.FuncDecl) -> None:
         if node.is_extern:
