@@ -294,6 +294,17 @@ class Verifier:
     def __init__(self, program: ast.Program, checker):
         self.program = program
         self.checker = checker
+        # индексы для _func_by_key: без них — линейный скан decls на
+        # каждый межпроцедурный вызов (O(вызовов × decls); на входе
+        # SelfIr это доминировало self-time верификатора). Первое
+        # совпадение по имени — как в прежнем сканe (семантика сохранена).
+        self._func_index: dict = {}
+        self._struct_index: dict = {}
+        for decl in program.decls:
+            if isinstance(decl, ast.FuncDecl):
+                self._func_index.setdefault(decl.name, decl)
+            elif isinstance(decl, ast.StructDecl):
+                self._struct_index.setdefault(decl.name, decl)
         # key -> None | ("iv", Iv) | ("param", имя параметра)
         self.summaries: dict[str, tuple | None] = {}
         self.req_sites: dict[str, list] = {}  # key -> [proven, total]
@@ -495,16 +506,14 @@ class Verifier:
     def _func_by_key(self, key: str):
         if "." in key:
             sname, mname = key.split(".", 1)
-            for decl in self.program.decls:
-                if isinstance(decl, ast.StructDecl) and decl.name == sname:
-                    for m in decl.methods:
-                        if m.name == mname:
-                            return m, sname
+            decl = self._struct_index.get(sname)
+            if decl is not None:
+                for m in decl.methods:
+                    if m.name == mname:
+                        return m, sname
             return None, None
-        for decl in self.program.decls:
-            if isinstance(decl, ast.FuncDecl) and decl.name == key:
-                return decl, None
-        return None, None
+        decl = self._func_index.get(key)
+        return (decl, None) if decl is not None else (None, None)
 
     # --- инварианты пулов (трек 3, VERIFICATION_PLAN «направление 1») -----
     # Пул — массив (локальный или поле struct, в т.ч. банкованный
