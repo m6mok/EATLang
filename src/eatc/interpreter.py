@@ -100,9 +100,14 @@ def _copy_value(v):
 
 
 class Interpreter:
-    def __init__(self, program: ast.Program, filename: str):
+    def __init__(
+        self, program: ast.Program, filename: str, argv: list | None = None
+    ):
         self.program = program
         self.filename = filename
+        # аргументы командной строки программы (argv без имени),
+        # каждый — bytes; наполняет cmd_run из хвоста после `--`
+        self.argv: list = list(argv) if argv else []
         self.consts: dict[str, Slot] = {}
         self.funcs: dict[str, ast.FuncDecl] = {}
         self.structs: dict[str, StructRT] = {}
@@ -620,6 +625,20 @@ class Interpreter:
             return None
         if name == "exit":
             raise SystemExit(args[0])
+        if name == "arg_count":
+            return len(self.argv)
+        if name == "arg_len":
+            i = args[0]
+            if i >= len(self.argv):
+                raise self.trap(node, "arg_len вне границ argv")
+            return len(self.argv[i])
+        if name == "arg_byte":
+            i, j = args
+            if i >= len(self.argv):
+                raise self.trap(node, "arg_byte вне границ argv")
+            if j >= len(self.argv[i]):
+                raise self.trap(node, "arg_byte вне границ аргумента")
+            return self.argv[i][j]
         if name == "len":
             return len(args[0])
         if name == "char":

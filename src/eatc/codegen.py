@@ -67,6 +67,14 @@ _RUNTIME = {
     "eat_write_err_byte": ir.FunctionType(ir.VoidType(), [I8L]),
     "eat_write_span": ir.FunctionType(ir.VoidType(), [I8P, I32L]),
     "eat_exit": ir.FunctionType(ir.VoidType(), [I32L]),
+    # argv: трамплин @main передаёт (argc, argv) в шим (eat_args_set),
+    # программа читает байтовыми аксиомами (сборка str — lib/Args)
+    "eat_args_set": ir.FunctionType(
+        ir.VoidType(), [I32L, ir.PointerType(I8P)]
+    ),
+    "eat_arg_count": ir.FunctionType(I32L, []),
+    "eat_arg_len": ir.FunctionType(I32L, [I32L]),
+    "eat_arg_byte": ir.FunctionType(I8L, [I32L, I32L]),
 }
 
 _SIGNED = {"i32", "i64"}
@@ -572,10 +580,15 @@ class Codegen:
             self.b.ret(self.b.load(self.ret_slot))
 
     def gen_entry(self) -> None:
-        fn = ir.Function(self.module, ir.FunctionType(I32L, []), name="main")
+        # трамплин C-входа: принимает (argc, argv), отдаёт их шиму
+        # (argv-состояние — статики шима, не глобалы языка), затем
+        # зовёт пользовательский eat_main. argv[0] (имя) отсекает шим.
+        fty = ir.FunctionType(I32L, [I32L, ir.PointerType(I8P)])
+        fn = ir.Function(self.module, fty, name="main")
         fn.attributes.add("norecurse")
         fn.attributes.add("nounwind")
         b = ir.IRBuilder(fn.append_basic_block("entry"))
+        b.call(self.rt["eat_args_set"], [fn.args[0], fn.args[1]])
         b.call(self.funcs["main"], [])
         b.ret(I32L(0))
 
@@ -1115,6 +1128,12 @@ class Codegen:
         if name == "exit":
             self.b.call(self.rt["eat_exit"], [self.expr(node.args[0])])
             return None
+        if name == "arg_count":
+            return self.b.call(self.rt["eat_arg_count"], [])
+        if name == "arg_len":
+            return self.gen_arg_len(node)
+        if name == "arg_byte":
+            return self.gen_arg_byte(node)
         if name == "len":
             return self.gen_len(node)
         if name in ("i32", "u32", "u16", "u8", "u64", "i64", "char"):
@@ -1216,6 +1235,33 @@ class Codegen:
         ptr = self.b.gep(arr, [I32L(0), off], inbounds=True)
         self.b.call(self.rt["eat_write_span"], [ptr, ln])
         return None
+
+    def gen_arg_len(self, node: ast.Call):
+        """arg_len(i): длина i-го аргумента; i >= arg_count() — trap
+        (как индекс массива с рантайм-индексом)."""
+        i = self.expr(node.args[0])
+        cnt = self.b.call(self.rt["eat_arg_count"], [])
+        self.trap_if(
+            self.b.icmp_unsigned(">=", i, cnt), node, "arg_len вне границ argv"
+        )
+        return self.b.call(self.rt["eat_arg_len"], [i])
+
+    def gen_arg_byte(self, node: ast.Call):
+        """arg_byte(i, j): j-й байт i-го аргумента; i >= arg_count() или
+        j >= arg_len(i) — trap. Две границы, обе рантайм."""
+        i = self.expr(node.args[0])
+        j = self.expr(node.args[1])
+        cnt = self.b.call(self.rt["eat_arg_count"], [])
+        self.trap_if(
+            self.b.icmp_unsigned(">=", i, cnt), node, "arg_byte вне границ argv"
+        )
+        ln = self.b.call(self.rt["eat_arg_len"], [i])
+        self.trap_if(
+            self.b.icmp_unsigned(">=", j, ln),
+            node,
+            "arg_byte вне границ аргумента",
+        )
+        return self.b.call(self.rt["eat_arg_byte"], [i, j])
 
     def gen_read_byte(self, node: ast.Call):
         raw = self.b.call(self.rt["eat_read_byte"], [])

@@ -83,10 +83,11 @@ def cmd_check(paths: list[str]) -> int:
     return 0
 
 
-def cmd_run(paths: list) -> int:
+def cmd_run(paths: list, prog_args: list | None = None) -> int:
     try:
         program, _, _, main = _compile_many(paths)
-        interp = Interpreter(program, main)
+        argv = [a.encode("utf-8") for a in (prog_args or [])]
+        interp = Interpreter(program, main, argv=argv)
         interp.run_tests()
         interp.run_main()
     except EatError as err:
@@ -276,7 +277,15 @@ def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "check":
         return cmd_check(argv[1:])
     if len(argv) >= 2 and argv[0] == "run":
-        return cmd_run(argv[1:])
+        # `run FILE... -- ARG...`: всё после `--` — argv программы
+        # (аксиомы arg_count/arg_len/arg_byte); имя программы не входит
+        rest = argv[1:]
+        prog_args: list = []
+        if "--" in rest:
+            i = rest.index("--")
+            rest, prog_args = rest[:i], rest[i + 1:]
+        if rest:
+            return cmd_run(rest, prog_args)
     if len(argv) == 2 and argv[0] == "lex":
         return cmd_lex(argv[1])
     if len(argv) == 2 and argv[0] == "parse":
@@ -306,7 +315,7 @@ def main(argv: list[str]) -> int:
             )
     print(
         "использование: python -m eatc "
-        "(check <файлы.eat...> | run <файлы...> | "
+        "(check <файлы.eat...> | run <файлы...> [-- <арг>...] | "
         "build <файлы...> [-o out] [--trap-codes] [--release|-r] | "
         "lex <файл> | "
         "parse <файл> | ir <файл> [--trap-codes] | stream <файл>) "

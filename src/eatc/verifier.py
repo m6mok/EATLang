@@ -2170,6 +2170,13 @@ class Verifier:
             if isinstance(aty, StrType) and aty.capacity is not None:
                 return (0, aty.capacity)
             return (0, 4096)
+        if name in ("arg_len", "arg_byte"):
+            # границы argv (i < arg_count(), j < arg_len(i)): размеры
+            # известны только в рантайме — обязательство bounds всегда
+            # остаётся в рантайме (как индекс массива без сужения)
+            if annotate:
+                self._mark("bounds", node, False)
+            return self._ty_range(node.ty)
         if name == "write_span":
             # граница вызова: off + len <= N — то же обязательство
             # bounds, что у индексации (codegen: node.in_bounds)

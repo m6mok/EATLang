@@ -25,7 +25,11 @@ test rt_append_u64 402:1
 test rt_append_i64 413:1
 test rt_append_misc 430:1
 test rt_parse 443:1
-module lib/Ascii.eat 459:1
+module lib/Args.eat 459:1
+export get 8:5 :: get
+func get 11:1 (i: u32) -> Result<str<256>, IoError>
+test get_out_of_range 34:1
+module lib/Ascii.eat 40:1
 export is_digit 7:5 :: is_digit
 export is_alpha 8:5 :: is_alpha
 export is_space 9:5 :: is_space
@@ -97,14 +101,15 @@ test parse_i32_ok 34:1
 test parse_i32_err 53:1
 module tests/sig/SigProbe.eat 85:1
 import is_digit 8:5 :: lib/Ascii.eat is_digit
-import same 12:5 :: lib/Buf.eat same
-import NONE 16:5 :: lib/Const.eat NONE
-import U32_MAX 17:5 :: lib/Const.eat U32_MAX
-import Dec 21:5 :: lib/Fmt.eat Dec
-import fmt_u32 22:5 :: lib/Fmt.eat fmt_u32
-import hex_digit 26:5 :: lib/Hex.eat hex_digit
-import read_line 30:5 :: lib/Io.eat read_line
-import min 34:5 :: lib/Num.eat min
-import parse_i32 38:5 :: lib/Parse.eat parse_i32
-func main 41:1 ()
-stats funcs=38 structs=2 stmts=287
+import get 12:5 :: lib/Args.eat get
+import same 16:5 :: lib/Buf.eat same
+import NONE 20:5 :: lib/Const.eat NONE
+import U32_MAX 21:5 :: lib/Const.eat U32_MAX
+import Dec 25:5 :: lib/Fmt.eat Dec
+import fmt_u32 26:5 :: lib/Fmt.eat fmt_u32
+import hex_digit 30:5 :: lib/Hex.eat hex_digit
+import read_line 34:5 :: lib/Io.eat read_line
+import min 38:5 :: lib/Num.eat min
+import parse_i32 42:5 :: lib/Parse.eat parse_i32
+func main 45:1 ()
+stats funcs=39 structs=2 stmts=302

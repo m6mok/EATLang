@@ -817,6 +817,13 @@ struct Check {
         if self.span_is(a, l, "write_span") or self.span_is(a, l, "exit") {
             return true
         }
+        # аргументы командной строки (argv без имени программы)
+        if self.span_is(a, l, "arg_count") or self.span_is(a, l, "arg_len") {
+            return true
+        }
+        if self.span_is(a, l, "arg_byte") {
+            return true
+        }
         if self.span_is(a, l, "len") {
             return true
         }
@@ -2100,6 +2107,12 @@ struct Check {
         if self.span_is(a, l, "read_byte") {
             return true
         }
+        if self.span_is(a, l, "arg_count") or self.span_is(a, l, "arg_len") {
+            return true
+        }
+        if self.span_is(a, l, "arg_byte") {
+            return true
+        }
         if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
             return true
         }
@@ -2747,6 +2760,9 @@ struct Check {
             self.xs_ws_start(f, n, argc)
             return
         }
+        if self.xs_arg_start(f, n, argc) {
+            return
+        }
         let fi: u32 = self.find_func(a, l)
         if fi == NONE {
             self.fail_node(n, "неизвестная функция")
@@ -2788,6 +2804,45 @@ struct Check {
         self.nexit = self.nexit + 1
         self.xa[f] = 109
         self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+    }
+
+    # Аргументы командной строки: arg_count (0 арг, u32), arg_len
+    # (1 арг u32, код 116), arg_byte (2 арг u32, код 117 → u8).
+    func xs_arg_start(var self, f: u32, n: u32, argc: u32) -> bool
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        if self.span_is(a, l, "arg_count") {
+            if argc != 0 {
+                self.fail_node(n, "ожидается 0 аргументов")
+                return true
+            }
+            self.tres = 1
+            self.xdone()
+            return true
+        }
+        if self.span_is(a, l, "arg_len") {
+            if argc != 1 {
+                self.fail_node(n, "ожидается 1 аргумент")
+                return true
+            }
+            self.xa[f] = 116
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+            return true
+        }
+        if self.span_is(a, l, "arg_byte") {
+            if argc != 2 {
+                self.fail_node(n, "ожидается 2 аргумента")
+                return true
+            }
+            self.xa[f] = 117
+            self.xb[f] = 0
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+            return true
+        }
+        return false
     }
 
     # write_span(a, off, len): три аргумента, машина — код 110.
@@ -2885,8 +2940,36 @@ struct Check {
             }
             self.tres = self.xe[f]
             self.xdone()
+        } elif code == 116 or code == 117 {
+            self.xs_arg_next(f, n, code)
         } else {
             self.xs_user_arg(f, n, code - 4096)
+        }
+    }
+
+    # Финализация arg_len (116, → u32) и arg_byte (117, 2 арг → u8).
+    func xs_arg_next(var self, f: u32, n: u32, code: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if code == 116 {
+            if not self.compat(1, self.tres) {
+                self.fail_node(n, "arg_len() принимает u32")
+            }
+            self.tres = 1
+            self.xdone()
+            return
+        }
+        if not self.compat(1, self.tres) {
+            self.fail_node(n, "arg_byte(): индексы — u32")
+        }
+        let ai: u32 = self.xb[f]
+        if ai >= 1 {
+            self.tres = 2
+            self.xdone()
+        } else {
+            self.xb[f] = 1
+            self.xpush(self.nth_child(n, 1), 1)
         }
     }
 

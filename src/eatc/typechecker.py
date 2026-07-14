@@ -113,6 +113,12 @@ BUILTINS = {
     ),
     "write_err_byte": FuncSig("write_err_byte", [("b", U8)], None),
     "exit": FuncSig("exit", [("code", U32)], None),
+    # аргументы командной строки (argv без имени программы): байтовые
+    # аксиомы, layout-agnostic (шим отдаёт байты, str собирает lib/Args).
+    # arg_len/arg_byte — trap при выходе за границы (как индекс массива)
+    "arg_count": FuncSig("arg_count", [], U32),
+    "arg_len": FuncSig("arg_len", [("i", U32)], U32),
+    "arg_byte": FuncSig("arg_byte", [("i", U32), ("j", U32)], U8),
 }
 
 _FORMATTABLE = (IntType, BoolType, CharType, StrType)

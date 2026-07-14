@@ -1,5 +1,6 @@
-/* Шим EATLang: шесть аксиом ОС — байт из stdin, байт в stdout,
- * диапазон байтов в stdout, байт в stderr, штатный выход с кодом, trap.
+/* Шим EATLang: аксиомы ОС — байт из stdin, байт в stdout,
+ * диапазон байтов в stdout, байт в stderr, штатный выход с кодом, trap,
+ * аргументы командной строки (arg_count/arg_len/arg_byte).
  * Вся логика рантайма (строки, интерполяция, read_line, parse_i32)
  * написана на EATLang: selfhost/Rt.eat — первый модуль каждой
  * программы. Линкуется clang'ом вместе с объектным файлом. */
@@ -73,4 +74,38 @@ void eat_trap_code(uint32_t code) {
     fflush(stdout);
     fprintf(stderr, "trap %u\n", code);
     exit(1);
+}
+
+/* --- аргументы командной строки (argv без имени программы) ---------
+ * Состояние argv — статики шима: у языка нет глобалов, argv живёт на
+ * доверенной границе аксиом рядом с pos/interactive. Трамплин @main
+ * один раз отдаёт сюда (argc, argv) до вызова eat_main. */
+static int argv_n = 0;
+static char **argv_p = 0;
+
+void eat_args_set(int32_t argc, char **argv) {
+    /* argv[0] — имя программы; программе видны аргументы с индекса 1 */
+    if (argc > 1) {
+        argv_n = argc - 1;
+        argv_p = argv + 1;
+    }
+}
+
+uint32_t eat_arg_count(void) {
+    return (uint32_t)argv_n;
+}
+
+/* arg_len/arg_byte вызываются только после проверки границ в коде
+ * программы (компилятор эмитит trap) — индексы здесь уже валидны. */
+uint32_t eat_arg_len(uint32_t i) {
+    uint32_t n = 0;
+    const char *s = argv_p[i];
+    while (s[n] != 0) {
+        n++;
+    }
+    return n;
+}
+
+uint8_t eat_arg_byte(uint32_t i, uint32_t j) {
+    return (uint8_t)argv_p[i][j];
 }

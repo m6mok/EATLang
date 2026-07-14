@@ -28,7 +28,7 @@ __attribute__((noreturn)) void semihost_exit(uint32_t code) {
     }
 }
 
-/* --- шесть аксиом --------------------------------------------------- */
+/* --- аксиомы ОС ----------------------------------------------------- */
 
 __attribute__((weak)) const uint8_t eat_input[1] = {0};
 __attribute__((weak)) const uint32_t eat_input_len = 0;
@@ -57,6 +57,31 @@ void eat_write_err_byte(char b) {
 
 void eat_exit(uint32_t code) {
     semihost_exit(code);
+}
+
+/* --- аргументы командной строки ------------------------------------
+ * У МК argv нет: трамплин зовёт eat_args_set(0, 0), arg_count() == 0,
+ * поэтому arg_len/arg_byte по контракту (границы проверяет компилятор)
+ * недостижимы — но символы нужны линковщику, если программа их зовёт.
+ * Живой аргумент реального проекта — extern-драйвер, как и ввод. */
+void eat_args_set(int32_t argc, char **argv) {
+    (void)argc;
+    (void)argv;
+}
+
+uint32_t eat_arg_count(void) {
+    return 0;
+}
+
+uint32_t eat_arg_len(uint32_t i) {
+    (void)i;
+    return 0;
+}
+
+uint8_t eat_arg_byte(uint32_t i, uint32_t j) {
+    (void)i;
+    (void)j;
+    return 0;
 }
 
 /* Trap-сообщения ограничивает компилятор; страховочная граница —

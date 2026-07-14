@@ -1,0 +1,39 @@
+# Аргументы командной строки. Аксиомы arg_count/arg_len/arg_byte
+# отдают argv (без имени программы) побайтно — layout-agnostic, шим
+# не знает про str. Здесь — сборка i-го аргумента в str<256>. У языка
+# нет str-builder'а — сборка интерполяцией за O(n^2) при n <= 256
+# (та же находка, что read_line, docs/MODULES_PLAN.md §11).
+
+export {
+    get,
+}
+
+func get(i: u32) -> Result<str<256>, IoError>
+    requires true
+    ensures true
+{
+    if i >= arg_count() {
+        return Err(IoError.Eof)
+    }
+    let n: u32 = arg_len(i)
+    if n > 256 {
+        return Err(IoError.Fail)
+    }
+    var out: str<256> = ""
+    for j in 0..256 {
+        if j >= n {
+            break
+        }
+        out = "{out}{char(arg_byte(i, j))}"
+    }
+    return Ok(out)
+}
+
+# get(arg_count()) — индекс за концом argv при любом числе аргументов
+# (тест не зависит от того, с каким argv прогоняются тесты программы).
+test get_out_of_range {
+    match get(arg_count()) {
+        Ok(_) { assert false }
+        Err(e) { assert e == IoError.Eof }
+    }
+}

@@ -12,7 +12,8 @@ extern uint32_t __stack_top[];
 
 void board_init(void);
 __attribute__((noreturn)) void semihost_exit(uint32_t code);
-int main(void);
+/* трамплин @main принимает (argc, argv); у МК argv нет — (0, 0) */
+int main(int argc, char **argv);
 
 __attribute__((noreturn)) void reset_handler(void) {
     for (uint32_t *load = __data_load, *dst = __data_start;
@@ -23,7 +24,7 @@ __attribute__((noreturn)) void reset_handler(void) {
         *dst = 0;
     }
     board_init();
-    semihost_exit((uint32_t)main());
+    semihost_exit((uint32_t)main(0, 0));
 }
 
 /* [0] — вершина стека, [1] — Reset; прерываний нет: программы

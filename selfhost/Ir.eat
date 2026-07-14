@@ -1084,7 +1084,7 @@ struct Ir {
     # 6 переполнение при касте (e1 — вид цели), 7 сдвиг ≥ ширины
     # (e1 — вид целого).
     func trap_glob(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32) -> u32
-        requires mk <= 8
+        requires mk <= 11
         ensures result < 65536
     {
         self.g_begin()
@@ -1122,8 +1122,14 @@ struct Ir {
         } elif mk == 7 {
             self.g_lit("сдвиг ≥ ширины ")
             self.g_kind(e1)
-        } else {
+        } elif mk == 8 {
             self.g_lit("write_span вне границ массива")
+        } elif mk == 9 {
+            self.g_lit("arg_len вне границ argv")
+        } elif mk == 10 {
+            self.g_lit("arg_byte вне границ argv")
+        } else {
+            self.g_lit("arg_byte вне границ аргумента")
         }
         self.g_b(0)
         return self.g_commit(0)
@@ -1994,6 +2000,42 @@ struct Ir {
         self.line_fin()
     }
 
+    # %r = call i32 @"eat_arg_count"()
+    func e_argcount(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_arg_count\"()")
+        self.line_fin()
+    }
+
+    # %r = call i32 @"eat_arg_len"(i32 v1)
+    func e_arglen(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_arg_len\"(i32 ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # %r = call i8 @"eat_arg_byte"(i32 v1, i32 v2)
+    func e_argbyte(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i8 @\"eat_arg_byte\"(i32 ")
+        self.wr1()
+        self.lb_lit(", i32 ")
+        self.wr2()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
     # call void @"eat_str_append_{nm}"({STR}* v1, {at} v2)
     func e_rt_si(var self, nm: str<8>, at: str<8>)
         requires true
@@ -2255,7 +2297,7 @@ struct Ir {
 
     # w1 — i1: если истина, аварийная остановка.
     func trap_if(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32)
-        requires mk <= 8
+        requires mk <= 11
         ensures true
     {
         let bk2: u32 = self.w1k
@@ -2995,6 +3037,18 @@ struct Ir {
             self.xf3[f] = 0
             self.xg3[f] = self.nag
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "arg_count") {
+            self.e_argcount()
+            self.serrr(1)
+            self.nx3 = self.nx3 - 1
+        } elif self.c.span_is(a, l, "arg_len") {
+            self.xa3[f] = 9
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "arg_byte") {
+            self.xa3[f] = 10
+            self.xf3[f] = 0
+            self.xg3[f] = self.nag
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "len") {
             self.xcall_len(f, n)
         } elif self.c.span_is(a, l, "i32") {
@@ -3102,6 +3156,17 @@ struct Ir {
             } else {
                 self.xpush2(self.c.nth_child(n, self.xf3[f]))
             }
+        } elif code == 9 {
+            self.xarglen(n)
+        } elif code == 10 {
+            # arg_byte(i, j): оба аргумента в ag[base..base+2)
+            self.ag_push(1)
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= 2 {
+                self.xargbyte(f, n)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f]))
+            }
         } elif code == 113 or code == 114 or code == 115 {
             # payload конструктора Ok/Err/Some готов: копия в слот
             var pt: u32 = self.c.ya[self.xd3[f]]
@@ -3181,6 +3246,60 @@ struct Ir {
         self.e_wspan()
         self.nag = base
         self.ert = 5
+        self.nx3 = self.nx3 - 1
+    }
+
+    # arg_len(i): i в er; i >= arg_count() — trap, результат u32.
+    func xarglen(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        self.e_argcount()
+        self.set1er()
+        self.set2rr()
+        self.e_icmp(10, 1)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 9, 0, 0)
+        self.set1er()
+        self.e_arglen()
+        self.serrr(1)
+        self.nx3 = self.nx3 - 1
+    }
+
+    # arg_byte(i, j): i в ag[base], j в ag[base+1]; две границы
+    # (i >= arg_count(), j >= arg_len(i)) — trap, как codegen.py.
+    func xargbyte(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let base: u32 = self.xg3[f]
+        let ik: u32 = self.agk[base]
+        let ia: u32 = self.aga[base]
+        let ib: u32 = self.agb[base]
+        let jk: u32 = self.agk[base + 1]
+        let ja: u32 = self.aga[base + 1]
+        let jb: u32 = self.agb[base + 1]
+        # bad1 = icmp uge i, arg_count()
+        self.e_argcount()
+        self.set1(ik, ia, ib)
+        self.set2rr()
+        self.e_icmp(10, 1)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 10, 0, 0)
+        # bad2 = icmp uge j, arg_len(i)
+        self.set1(ik, ia, ib)
+        self.e_arglen()
+        self.set1(jk, ja, jb)
+        self.set2rr()
+        self.e_icmp(10, 1)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 11, 0, 0)
+        # res = call i8 eat_arg_byte(i, j)
+        self.set1(ik, ia, ib)
+        self.set2(jk, ja, jb)
+        self.e_argbyte()
+        self.serrr(2)
+        self.nag = base
         self.nx3 = self.nx3 - 1
     }
 
@@ -5391,6 +5510,14 @@ struct Ir {
         write("declare void @\"eat_write_span\"(i8* %\".1\", i32 %\".2\") nounwind\n")
         self.p_sep()
         write("declare void @\"eat_exit\"(i32 %\".1\") noreturn nounwind\n")
+        self.p_sep()
+        write("declare void @\"eat_args_set\"(i32 %\".1\", i8** %\".2\") nounwind\n")
+        self.p_sep()
+        write("declare i32 @\"eat_arg_count\"() nounwind\n")
+        self.p_sep()
+        write("declare i32 @\"eat_arg_len\"(i32 %\".1\") nounwind\n")
+        self.p_sep()
+        write("declare i8 @\"eat_arg_byte\"(i32 %\".1\", i32 %\".2\") nounwind\n")
         if self.tmode == 1 {
             self.p_sep()
             write("declare void @\"eat_trap_code\"(i32 %\".1\") cold noreturn nounwind\n")
@@ -5402,9 +5529,10 @@ struct Ir {
         ensures true
     {
         self.p_sep()
-        write("define i32 @\"main\"() norecurse nounwind\n")
+        write("define i32 @\"main\"(i32 %\".1\", i8** %\".2\") norecurse nounwind\n")
         write("{{\n")
         write("entry:\n")
+        write("  call void @\"eat_args_set\"(i32 %\".1\", i8** %\".2\")\n")
         write("  call void @\"eat_main\"()\n")
         write("  ret i32 0\n")
         write("}}\n")

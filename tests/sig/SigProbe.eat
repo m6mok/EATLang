@@ -9,6 +9,10 @@ import {
 } from "lib/Ascii.eat"
 
 import {
+    get,
+} from "lib/Args.eat"
+
+import {
     same,
 } from "lib/Buf.eat"
 
@@ -45,7 +49,12 @@ func main() {
     let g: bool = is_digit(u8(48))
     let h: char = hex_digit(10)
     let x: bool = NONE == U32_MAX
-    print("digit={g} hex={h} ln={d.ln} same={s} x={x}")
+    let a: bool = false
+    match get(0) {
+        Ok(_) { a = true }
+        Err(_) { a = false }
+    }
+    print("digit={g} hex={h} ln={d.ln} same={s} x={x} a={a}")
     match read_line() {
         Ok(line) {
             match parse_i32(line) {
