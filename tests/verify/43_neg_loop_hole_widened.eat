@@ -1,0 +1,64 @@
+#! expect: bounds=2/3
+# Негатив: в теле цикла аккумулятор f получает не только индекс из пула,
+# но и произвольное значение параметра — сентинел не выживает, форма
+# «плотное ∪ {NONE}» разрушается, границы dat[f] у вызывающего остаются
+# в рантайме. Доказанной остаётся только запись hx[slot] под guard'ом.
+
+const NONE: u32 = 4294967295
+
+struct T {
+    hx: [u32; 2048]
+    dat: [u32; 1024]
+    n: u32
+
+    func seed(var self, key: u32)
+        requires true
+        ensures true
+    {
+        let slot: u32 = key & 2047
+        if self.n < 1024 {
+            self.hx[slot] = self.n
+            self.n = self.n + 1
+        }
+    }
+
+    func lookup(self, key: u32, raw: u32) -> u32
+        requires true
+        ensures true
+    {
+        var f: u32 = NONE
+        var slot: u32 = key & 2047
+        var stop: bool = false
+        for _ in 0..2048 {
+            if stop {
+                break
+            }
+            let fi: u32 = self.hx[slot]
+            if fi == NONE {
+                f = raw
+                stop = true
+            } else {
+                f = fi
+                slot = (slot + 1) & 2047
+            }
+        }
+        return f
+    }
+
+    func get(self, key: u32, raw: u32) -> u32
+        requires true
+        ensures true
+    {
+        let fi: u32 = self.lookup(key, raw)
+        if fi != NONE {
+            return self.dat[fi]
+        }
+        return 0
+    }
+}
+
+func main() {
+    var t: T = T { hx: [NONE; 2048], dat: [0; 1024], n: 0 }
+    t.seed(5)
+    print("{t.get(5, 7)}")
+}

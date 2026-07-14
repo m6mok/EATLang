@@ -1,0 +1,64 @@
+#! expect: bounds=3/3 overflow=2/2
+# Дизъюнктивный домен через цикл: аккумулятор поиска. f стартует NONE,
+# в теле цикла с break получает индекс из пула hx (плотное ∪ {NONE}).
+# На выходе цикла f сохраняет форму «плотное ∪ {NONE}» → summary lookup
+# становится hive; на месте вызова guard `!= NONE` схлопывает к плотной
+# части, границы dat[fi] доказываются.
+
+const NONE: u32 = 4294967295
+
+struct T {
+    hx: [u32; 2048]
+    dat: [u32; 1024]
+    n: u32
+
+    func insert(var self, key: u32)
+        requires true
+        ensures true
+    {
+        let slot: u32 = key & 2047
+        if self.n < 1024 {
+            self.hx[slot] = self.n
+            self.n = self.n + 1
+        }
+    }
+
+    func lookup(self, key: u32) -> u32
+        requires true
+        ensures true
+    {
+        var f: u32 = NONE
+        var slot: u32 = key & 2047
+        var stop: bool = false
+        for _ in 0..2048 {
+            if stop {
+                break
+            }
+            let fi: u32 = self.hx[slot]
+            if fi == NONE {
+                stop = true
+            } else {
+                f = fi
+                slot = (slot + 1) & 2047
+            }
+        }
+        return f
+    }
+
+    func get(self, key: u32) -> u32
+        requires true
+        ensures true
+    {
+        let fi: u32 = self.lookup(key)
+        if fi != NONE {
+            return self.dat[fi]
+        }
+        return 0
+    }
+}
+
+func main() {
+    var t: T = T { hx: [NONE; 2048], dat: [0; 1024], n: 0 }
+    t.insert(5)
+    print("{t.get(5)}")
+}

@@ -142,6 +142,21 @@ def _assigned_paths(block: ast.Block) -> set:
     return paths
 
 
+def _nested_loop_paths(block: ast.Block) -> set:
+    """Пути, присваиваемые ВНУТРИ вложенных циклов блока. Сборщик
+    значений выхода (_exit_rec) подменяется на входе во вложенный цикл,
+    поэтому такие записи он не видит — их дырку через внешний цикл не
+    проводим (осталось бы под-приближение = неверно)."""
+    paths = set()
+    for stmt in block.stmts:
+        if isinstance(stmt, (ast.ForStmt, ast.LoopStmt)):
+            paths |= _assigned_paths(stmt.body)
+        else:
+            for blk in _sub_blocks(stmt):
+                paths |= _nested_loop_paths(blk)
+    return paths
+
+
 def _sub_blocks(stmt):
     if isinstance(stmt, ast.IfStmt):
         yield stmt.then
@@ -290,8 +305,14 @@ class Verifier:
         self.param_names: set = set()
         self.returns: list = []
         self.ret_syms: list = []
+        self.ret_holes: list = []  # дырка (dense, sent) на каждом return
         self.ensures_ok: list = []
         self.ret_expr = None  # выражение текущего return для ensures
+        # активный сбор значений, присваиваемых путям в теле цикла:
+        # путь -> [(iv, hole)] по каждому присваиванию (для дырочного
+        # объединения на выходе цикла); None — сбор выключен
+        self._exit_rec: dict[str, list] | None = None
+        self._exit_ty: dict[str, int] = {}  # путь -> максимум типа (сент.)
         self.cur_fn_key = ""  # ключ анализируемой функции (пулы)
         self.cur_struct: str | None = None
         # инварианты пулов и полей (трек 3): (struct, поле) |
@@ -307,10 +328,18 @@ class Verifier:
         self._fs_dead: set = set()
         self.pool_sent: dict[tuple, int] = {}
         self._hole: tuple | None = None  # (id узла, dense, sent)
+        # пробный проход тела цикла: собирает дырочные/масочные
+        # инварианты loop-carried путей, НЕ оставляя следов анализа —
+        # отметки, счётчики requires и учёт return подавлены (иначе
+        # AND-слияние проверок и двойной подсчёт return травят реальный
+        # проход)
+        self._probe = False
 
     # --- отметки и статистика ---------------------------------------------
 
     def _mark(self, kind: str, node, ok: bool) -> None:
+        if self._probe:
+            return
         key = (kind, id(node))
         if key in self.checks:
             self.checks[key][0] = self.checks[key][0] and ok
@@ -441,6 +470,7 @@ class Verifier:
                 self.param_names = set()
                 self.returns = []
                 self.ret_syms = []
+                self.ret_holes = []
                 self.ensures_ok = []
                 self._flow_block(decl.body, State())
         for key in order:
@@ -618,6 +648,7 @@ class Verifier:
         self.param_names = {p for p, _ in sig.params}
         self.returns = []
         self.ret_syms = []
+        self.ret_holes = []
         self.ensures_ok = []
         env = State()
         for pname, ptype in sig.params:
@@ -652,25 +683,47 @@ class Verifier:
         ivs = [r for r in self.returns if r is not None]
         if len(ivs) != len(self.returns):
             return None
-        # возвраты вида «плотная часть ∪ {NONE}»: сентинел (максимум
-        # типа) отдельными точками — итог ("hive", dense, sent), на
-        # месте вызова guard `!= NONE` схлопнет к плотной части
-        smax = _range(sig.ret.kind)[1]
-        points = [r for r in ivs if r == (smax, smax)]
-        dense = [r for r in ivs if r != (smax, smax)]
-        if points and dense:
-            dsum = dense[0]
-            for r in dense[1:]:
-                dsum = _hull(dsum, r)
-            if dsum[1] < smax:
-                dclamp = _inter(dsum, _range(sig.ret.kind))
-                if dclamp is not None:
-                    return ("hive", dclamp, smax)
+        # возвраты вида «плотная часть ∪ {NONE}» — итог ("hive", dense,
+        # sent), на месте вызова guard `!= NONE` схлопнет к плотной
+        # части. Сентинел даёт либо явная дырка возврата (return f,
+        # где f её несёт), либо точечный возврат максимума типа.
+        hive = self._hive_summary(sig)
+        if hive is not None:
+            return hive
         summary = ivs[0]
         for r in ivs[1:]:
             summary = _hull(summary, r)
         clamped = _inter(summary, _range(sig.ret.kind))
         return ("iv", clamped) if clamped is not None else None
+
+    def _hive_summary(self, sig) -> tuple | None:
+        """Summary «плотное ∪ {sent}»: каждый return — либо дырка с
+        сентинелом sent, либо точечный сентинел (максимум типа), либо
+        плотный интервал строго ниже sent. Нужен ≥ один сентинел и
+        ≥ одна плотная часть, сентинел единственный."""
+        smax = _range(sig.ret.kind)[1]
+        sent = None
+        dense = None
+        saw_sent = False
+        for riv, hole in zip(self.returns, self.ret_holes):
+            if riv is None:
+                return None
+            if hole is not None:
+                dpart, s = hole
+                if sent is not None and s != sent:
+                    return None
+                sent, saw_sent = s, True
+                dense = dpart if dense is None else _hull(dense, dpart)
+            elif riv == (smax, smax):
+                if sent is not None and sent != smax:
+                    return None
+                sent, saw_sent = smax, True
+            else:
+                dense = riv if dense is None else _hull(dense, riv)
+        if not saw_sent or dense is None or dense[1] >= sent:
+            return None
+        dclamp = _inter(dense, _range(sig.ret.kind))
+        return ("hive", dclamp, sent) if dclamp is not None else None
 
     def _ret_sym(self, value) -> str | None:
         """Параметр, которому тождественен return (возможно через cast)."""
@@ -816,6 +869,12 @@ class Verifier:
                     vdec = self._decompose(stmt.value)
                     if vdec is not None and vdec[0] != path:
                         env.relate_offset(path, "==", vdec[0], vdec[1])
+                if self._exit_rec is not None and path in self._exit_rec:
+                    self._exit_rec[path].append(
+                        (env.ivs.get(path), env.holes.get(path))
+                    )
+                    if isinstance(tty, IntType):
+                        self._exit_ty[path] = _range(tty.kind)[1]
             return env
         if isinstance(stmt, ast.IfStmt):
             return self._flow_if(stmt, env)
@@ -831,9 +890,20 @@ class Verifier:
             return self._flow_match(stmt, env)
         if isinstance(stmt, ast.ReturnStmt):
             riv = self._iv(stmt.value, env) if stmt.value is not None else None
+            if self._probe:
+                return env  # проба не учитывает return (иначе двойной счёт)
             self.returns.append(riv)
             self.ret_syms.append(
                 self._ret_sym(stmt.value) if stmt.value is not None else None
+            )
+            # дырка возврата: `return f`, где f несёт «плотное ∪ {NONE}» —
+            # так summary становится hive и на месте вызова guard != NONE
+            # у полученного значения схлопывает к плотной части
+            rpath = (
+                _path_of(stmt.value) if stmt.value is not None else None
+            )
+            self.ret_holes.append(
+                env.holes.get(rpath) if rpath is not None else None
             )
             func = self.cur_func
             if func is not None and func.ensures is not None:
@@ -900,15 +970,11 @@ class Verifier:
             branches.append(neg_env)
         return self._join(branches)
 
-    def _flow_for(self, stmt: ast.ForStmt, env: State) -> State:
-        if stmt.bounds is not None:
-            start, end = stmt.bounds
-            n = end - start
-        else:
-            self._iv(stmt.iterable, env)
-            ity = stmt.iterable.ty
-            n = ity.size if isinstance(ity, ArrayType) else None
-        accel = self._accelerate(stmt.body) if n is not None else {}
+    def _loop_body_env(self, stmt, env, accel, n):
+        """Состояние на входе тела цикла: все присваиваемые пути
+        обнулены (значение неизвестно), accel-пути получают линейный
+        интервал витка, переменная цикла — свой диапазон. Возвращает
+        (body_env, after) — after: интервалы accel-путей ПОСЛЕ цикла."""
         body_env = env.copy()
         after: dict[str, Iv] = {}
         for p in _assigned_paths(stmt.body):
@@ -917,16 +983,12 @@ class Verifier:
             info = accel.get(p)
             if info is None or v0 is None:
                 continue
-            # ускорение: p меняется на d за итерацию, значение на входе
-            # итерации k — v0 + k*d, k ∈ [0, n-1]
             d, cond, kind, glo, ghi = info
             clamp = _range(kind)
             b_lo = v0[0] + min(0, (n - 1) * d)
             b_hi = v0[1] + max(0, (n - 1) * d)
             a_lo = v0[0] + (min(0, n * d) if cond else n * d)
             a_hi = v0[1] + (max(0, n * d) if cond else n * d)
-            # охрана: обновление срабатывает только при p ≤ ghi
-            # (p ≥ glo), значит значения не превышают max(v0, ghi + d)
             if d > 0 and ghi is not None:
                 cap = max(v0[1], ghi + d)
                 b_hi = min(b_hi, cap)
@@ -939,7 +1001,8 @@ class Verifier:
             after[p] = _inter((a_lo, a_hi), clamp) or clamp
         if stmt.bounds is not None:
             if n > 0:
-                body_env.ivs[stmt.target] = (start, end - 1)
+                start = stmt.bounds[0]
+                body_env.ivs[stmt.target] = (start, stmt.bounds[1] - 1)
                 if stmt.target != "_":
                     self._lockstep(stmt, accel, env, body_env, start)
         else:
@@ -952,22 +1015,129 @@ class Verifier:
                 body_env.ivs[stmt.target] = (
                     (_inter(inv, eiv) or eiv) if inv is not None else eiv
                 )
+        return body_env, after
+
+    def _flow_for(self, stmt: ast.ForStmt, env: State) -> State:
+        if stmt.bounds is not None:
+            n = stmt.bounds[1] - stmt.bounds[0]
+        else:
+            self._iv(stmt.iterable, env)
+            ity = stmt.iterable.ty
+            n = ity.size if isinstance(ity, ArrayType) else None
+        accel = self._accelerate(stmt.body) if n is not None else {}
+        tracked = _assigned_paths(stmt.body)
+        # инварианты проводим только для путей, все записи которых видит
+        # сборщик (не спрятаны во вложенных циклах)
+        observed = tracked - _nested_loop_paths(stmt.body)
+
+        # проба: прогнать тело без следов анализа, собрать значения,
+        # присваиваемые observed-путям. Объединение (вход ∪ все записи)
+        # — валидный инвариант пути на входе тела и на выходе цикла
+        # (⊇ значения на любой границе витка); масочная/пуловая запись
+        # `slot = (slot+1) & M`, `c = pool[...]` даёт [0,M] / дырку
+        # независимо от старого значения пути
+        body_env, after = self._loop_body_env(stmt, env, accel, n)
+        saved_probe = self._probe
+        self._probe = True
+        prev_rec, prev_ty = self._exit_rec, self._exit_ty
+        self._exit_rec = {p: [] for p in observed}
+        self._exit_ty = {}
         self._flow_block(stmt.body, body_env)
+        recs, recs_ty = self._exit_rec, self._exit_ty
+        self._exit_rec, self._exit_ty = prev_rec, prev_ty
+        self._probe = saved_probe
+
+        def loop_exit(p):
+            return self._loop_exit(
+                env.ivs.get(p), env.holes.get(p),
+                recs.get(p, []), recs_ty.get(p),
+            )
+
+        # инварианты loop-carried путей, доступные на входе тела:
+        # accel-пути точнее (линейный ход), их не трогаем. В теле путь
+        # обнулён (kill → полный диапазон), поэтому любой ограниченный
+        # инвариант — уточнение, регрессии быть не может
+        inv: dict[str, tuple] = {}
+        for p in observed:
+            if p in after:
+                continue
+            iv, hole = loop_exit(p)
+            if iv is not None:
+                inv[p] = (iv, hole)
+
+        # реальный проход: тот же вход тела + инварианты, с отметками
+        body_env, after = self._loop_body_env(stmt, env, accel, n)
+        for p, (iv, hole) in inv.items():
+            body_env.ivs[p] = iv
+            if hole is not None:
+                body_env.holes[p] = hole
+        self._flow_block(stmt.body, body_env)
+
         if _has_direct_break(stmt.body):
-            # ранний выход: цикл мог остановиться после любого витка,
-            # ускорение «ровно n витков» неприменимо — забываем всё
-            # изменённое телом (факты по виткам внутри body_env верны)
+            # ранний выход: ускорение неприменимо (цикл мог прерваться
+            # на любом витке), но дырочное объединение значений выхода
+            # (вход ∪ все записи тела) сохраняет форму «плотное ∪ {NONE}»
             out = env.copy()
             out.kill(stmt.target)
-            for p in _assigned_paths(stmt.body):
+            for p in tracked:
                 out.kill(p)
+                if p not in observed:
+                    continue  # записи спрятаны во вложенном цикле — забыть
+                iv, hole = loop_exit(p)
+                if iv is not None:
+                    out.ivs[p] = iv
+                    if hole is not None:
+                        out.holes[p] = hole
             return out
         out = body_env.copy()
         out.kill(stmt.target)
         for p, iv in after.items():
             out.kill(p)
             out.ivs[p] = iv
+        # непроускоренные пути с дыркой: объединение вход ∪ записи тела
+        # сохраняет сентинел (accel-пути точнее — их не трогаем)
+        for p in observed:
+            if p in after:
+                continue
+            iv, hole = loop_exit(p)
+            if hole is not None:
+                out.ivs[p] = iv
+                out.holes[p] = hole
         return out
+
+    def _loop_exit(self, v0_iv, v0_hole, recs, smax):
+        """Значение пути на выходе цикла — дырочное объединение входного
+        значения и всех значений, присвоенных телу за один символический
+        виток (каждое над-приближает свою итерацию). Сентинел даёт явная
+        дырка записи либо точечное значение максимума типа (smax) — так
+        `var f = NONE; в цикле f = fi` даёт «плотное ∪ {NONE}».
+        Возвращает (интервал | None, дырка (dense, sent) | None);
+        None-интервал — неизвестно (полный диапазон, без дырки)."""
+        cands = [(v0_iv, v0_hole)] + list(recs)
+        dense = None
+        sents: set = set()
+        for iv, hole in cands:
+            if iv is None:
+                return None, None  # вход/запись без интервала — забываем
+            if hole is not None:
+                dpart, sent = hole
+                dense = dpart if dense is None else _hull(dense, dpart)
+                sents.add(sent)
+            elif smax is not None and iv == (smax, smax):
+                sents.add(smax)  # точечный максимум типа — сентинел
+            else:
+                dense = iv if dense is None else _hull(dense, iv)
+        if dense is None:
+            return None, None
+        if len(sents) == 1:
+            sent = next(iter(sents))
+            if dense[1] < sent:  # плотная часть строго ниже сентинела
+                return _hull(dense, (sent, sent)), (dense, sent)
+            return _hull(dense, (sent, sent)), None
+        full = dense
+        for s in sents:  # 0 или >1 сентинелов — сложить в интервал
+            full = _hull(full, (s, s))
+        return full, None
 
     def _lockstep(
         self, stmt, accel: dict, env: State, body_env: State, start: int
@@ -1791,6 +1961,8 @@ class Verifier:
             return
         call_env = self._call_env(sig, node, env, obj_path)
         ok = self._eval_bool(func.requires, call_env, annotate=False)
+        if self._probe:
+            return  # проба не считает requires-сайты
         entry = self.req_sites.setdefault(key, [0, 0])
         entry[1] += 1
         entry[0] += 1 if ok is True else 0
