@@ -1,0 +1,18 @@
+#! expect: bounds=1/1 requires=1/1
+# Конструкторы Ok/Err: payload — обычное выражение, его обязательства
+# (bounds) доказываются в контексте функции. Парный негатив — 36.
+
+func f(a: [u8; 8], i: u32) -> Result<u8, ParseError>
+    requires i < 8
+    ensures true
+{
+    return Ok(a[i])
+}
+
+func main() {
+    let a: [u8; 8] = [7; 8]
+    match f(a, 3) {
+        Ok(v) { print("{v}") }
+        Err(_) { print("err") }
+    }
+}

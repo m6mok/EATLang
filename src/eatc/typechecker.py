@@ -348,6 +348,7 @@ class TypeChecker:
                 local in BUILTINS
                 or local in _INT_CASTS
                 or local in ("len", "str", "char", "Result", "Option", "bool")
+                or local in ("Ok", "Err", "Some", "None")
             ):
                 raise self.err(
                     b, f"импортированное имя {local} затеняет встроенное"
@@ -583,6 +584,8 @@ class TypeChecker:
             or name in BUILTINS
             or name in _INT_CASTS
             or name in ("len", "str", "char", "Result", "Option")
+            # конструкторы встроенных sum-типов (SPEC §5.3)
+            or name in ("Ok", "Err", "Some", "None")
         )
         if taken:
             raise self.err(node, f"имя {name} уже занято")
@@ -816,7 +819,7 @@ class TypeChecker:
         if isinstance(stmt, ast.LetStmt):
             declared = self.resolve(stmt.type)
             stmt.var_ty = declared  # для кодогенерации
-            actual = self.expr(stmt.value, expected=declared)
+            actual = self.expr_ctor(stmt.value, declared)
             self._require_compatible(stmt, declared, actual)
             self.declare(
                 stmt,
@@ -1030,7 +1033,7 @@ class TypeChecker:
                 stmt,
                 f"функция {self.current.name} обязана вернуть {show(ret)}",
             )
-        actual = self.expr(stmt.value, expected=ret)
+        actual = self.expr_ctor(stmt.value, ret)
         self._require_compatible(stmt, ret, actual)
 
     # --- анализ возвратов (недостижимый код — правило 10) --------------------
@@ -1051,6 +1054,63 @@ class TypeChecker:
         return any(self._stmt_returns(s) for s in block.stmts)
 
     # --- выражения -----------------------------------------------------------
+
+    def expr_ctor(self, node: ast.Expr, expected: Type | None) -> Type:
+        """Контекст конструкторов Ok/Err/Some/None (решение 2026-07-14):
+        разрешены только там, где ожидаемый тип известен точно —
+        выражение return, let с аннотацией и payload вложенного
+        конструктора. Общего вывода типов нет."""
+        if isinstance(node, ast.Call) and node.name in ("Ok", "Err", "Some"):
+            return self._tagged_ctor(node, expected)
+        if (
+            isinstance(node, ast.Name)
+            and node.ident == "None"
+            and not self._is_local("None")
+        ):
+            if not isinstance(expected, OptionType):
+                raise self.err(
+                    node,
+                    "None допустим только там, где ожидается Option: "
+                    "в return и в let с аннотацией",
+                )
+            node.ctor = "None"
+            node.ty = expected
+            return expected
+        return self.expr(node, expected=expected)
+
+    def _tagged_ctor(self, node: ast.Call, expected: Type | None) -> Type:
+        name = node.name
+        if name == "Some":
+            if not isinstance(expected, OptionType):
+                raise self.err(
+                    node,
+                    "Some допустим только там, где ожидается Option: "
+                    "в return и в let с аннотацией",
+                )
+            payload = expected.inner
+        else:
+            if not isinstance(expected, ResultType):
+                raise self.err(
+                    node,
+                    f"{name} допустим только там, где ожидается Result: "
+                    "в return и в let с аннотацией",
+                )
+            payload = expected.ok if name == "Ok" else expected.err
+        if len(node.args) != 1:
+            raise self.err(
+                node,
+                f"{name}: ровно один аргумент "
+                "(несколько значений — заверните в struct)",
+            )
+        actual = self.expr_ctor(node.args[0], payload)
+        if not compatible(payload, actual):
+            raise self.err(
+                node.args[0],
+                f"{name} несёт {show(payload)}, передан {show(actual)}",
+            )
+        node.ctor = name  # для интерпретатора и кодогенерации
+        node.ty = expected
+        return expected
 
     def expr(
         self,
@@ -1130,6 +1190,12 @@ class TypeChecker:
         info = self.lookup(node, node.ident)
         if info is not None:
             return info.type
+        if node.ident == "None":
+            raise self.err(
+                node,
+                "None допустим только там, где ожидается Option: "
+                "в return и в let с аннотацией",
+            )
         node.ident = self.vis_name(node, node.ident)
         if node.ident in self.consts:
             return self.consts[node.ident][0]
@@ -1254,6 +1320,22 @@ class TypeChecker:
                     node, "exit допустим не более одного раза на программу"
                 )
             self.exit_seen = True
+        if node.name in ("Ok", "Err"):
+            raise self.err(
+                node,
+                f"{node.name} допустим только там, где ожидается Result: "
+                "в return и в let с аннотацией",
+            )
+        if node.name == "Some":
+            raise self.err(
+                node,
+                "Some допустим только там, где ожидается Option: "
+                "в return и в let с аннотацией",
+            )
+        if node.name == "None":
+            raise self.err(
+                node, "None не несёт значения — пишется без скобок"
+            )
         sig = BUILTINS.get(node.name) or self.funcs.get(node.name)
         if sig is None:
             raise self.err(node, f"неизвестная функция {node.name}")

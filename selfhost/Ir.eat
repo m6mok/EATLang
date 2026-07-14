@@ -2536,6 +2536,23 @@ struct Ir {
             }
             return
         }
+        if self.c.span_is(a, l, "None") {
+            # конструктор None: Option с одним лишь тегом 1 (паритет
+            # с gen_name; контекст уже проверен фазой типов)
+            let t: u32 = self.c.nty[n / 65536][n % 65536]
+            self.nm_lit("none.res")
+            self.e_alloca_n(t)
+            let ra: u32 = self.rra
+            let rb: u32 = self.rrb
+            self.set1(1, ra, rb)
+            self.e_gepc(t, 0)
+            self.set2rr()
+            self.set1(2, 0, 1)
+            self.e_store(0)
+            self.ser(1, ra, rb)
+            self.ert = t
+            return
+        }
         let ci: u32 = self.c.find_const(a, l)
         let cm: u64 = self.c.cvm[ci]
         self.ser(self.cw_k(cm), self.c.cvs[ci], self.cw_b(cm))
@@ -3049,6 +3066,8 @@ struct Ir {
         } elif self.c.span_is(a, l, "char") {
             self.xa3[f] = 104
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "Ok") or self.c.span_is(a, l, "Err") or self.c.span_is(a, l, "Some") {
+            self.xtctor(f, n)
         } else {
             self.xcall_user(f, n, a, l)
         }
@@ -3134,6 +3153,18 @@ struct Ir {
             } else {
                 self.xpush2(self.c.nth_child(n, self.xf3[f]))
             }
+        } elif code == 113 or code == 114 or code == 115 {
+            # payload конструктора Ok/Err/Some готов: копия в слот
+            var pt: u32 = self.c.ya[self.xd3[f]]
+            if code == 114 {
+                pt = self.c.yb[self.xd3[f]]
+            }
+            self.set1(0, self.xe3[f], 0)
+            self.set2er()
+            self.copy_into(pt)
+            self.ser(1, self.xb3[f], self.xc3[f])
+            self.ert = self.xd3[f]
+            self.nx3 = self.nx3 - 1
         } elif code == 4 {
             # len строки: load текущей длины
             self.set1er()
@@ -3383,6 +3414,49 @@ struct Ir {
         self.xa3[f] = self.c.wpl[w]
         self.xp3[f] = 9
         self.xpush2(self.c.p.nns[obj / 65536][obj % 65536])
+    }
+
+    # Конструктор Ok/Err/Some (коды 113/114/115): {tag, payload в
+    # своём слоте} — та же последовательность, что у xctor (паритет
+    # с gen_tagged_ctor: alloca, store тега, gep слота, payload).
+    func xtctor(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.c.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.c.p.nsl[n / 65536][n % 65536]
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
+        var code: u32 = 113
+        var tag: u32 = 0
+        var slot: u32 = 1
+        if self.c.span_is(a, l, "Err") {
+            code = 114
+            tag = 1
+            slot = 2
+        } elif self.c.span_is(a, l, "Some") {
+            code = 115
+        }
+        if code == 113 {
+            self.nm_lit("ok.res")
+        } elif code == 114 {
+            self.nm_lit("err.res")
+        } else {
+            self.nm_lit("some.res")
+        }
+        self.e_alloca_n(t)
+        self.xb3[f] = self.rra
+        self.xc3[f] = self.rrb
+        self.xd3[f] = t
+        self.set1rr()
+        self.e_gepc(t, 0)
+        self.set2rr()
+        self.set1(2, 0, tag)
+        self.e_store(0)
+        self.set1(1, self.xb3[f], self.xc3[f])
+        self.e_gepc(t, slot)
+        self.xe3[f] = self.rra
+        self.xa3[f] = code
+        self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
     }
 
     # Тег встроенного enum-варианта.

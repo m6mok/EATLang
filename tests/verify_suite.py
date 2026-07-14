@@ -8,6 +8,10 @@
 ensures, assert), значения — «доказано/всего». Перечисленные виды
 сравниваются точно; неперечисленные игнорируются. Ожидание вида
 `x=0/1` — обязательное «НЕ доказано» (защита от ложных доказательств).
+
+Отдельный вид — негатив компиляции: `#! expect: error=<подстрока>`
+(остаток строки целиком) — кейс обязан упасть на parse/check/typecheck
+с EatError, содержащей подстроку.
 """
 
 import sys
@@ -25,15 +29,29 @@ from eatc.verifier import verify  # noqa: E402
 def parse_expectations(path: Path) -> dict:
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("#! expect:"):
-            pairs = line.removeprefix("#! expect:").split()
+            body = line.removeprefix("#! expect:").strip()
+            if body.startswith("error="):
+                # подстрока ошибки — остаток строки целиком (с пробелами)
+                return {"error": body.removeprefix("error=")}
             return {
-                k: v for k, v in (p.split("=", 1) for p in pairs)
+                k: v for k, v in (p.split("=", 1) for p in body.split())
             }
     raise ValueError(f"{path}: нет строки '#! expect:'")
 
 
 def run_case(path: Path) -> list[str]:
     expects = parse_expectations(path)
+    if "error" in expects:
+        want = expects["error"]
+        try:
+            program = parse_file(str(path))
+            check_program(program, str(path))
+            typecheck(program, str(path))
+        except EatError as err:
+            if want in str(err):
+                return []
+            return [f"error: ожидалось «{want}», получено «{err}»"]
+        return [f"error: ожидалось «{want}», но компиляция прошла"]
     program = parse_file(str(path))
     check_program(program, str(path))
     typed = typecheck(program, str(path))

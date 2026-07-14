@@ -1,0 +1,18 @@
+#! expect: bounds=0/1
+# Негатив к 35: без requires индекс не ограничен — bounds внутри
+# payload конструктора НЕ доказывается (остаётся рантайм-проверкой).
+
+func f(a: [u8; 8], i: u32) -> Result<u8, ParseError>
+    requires true
+    ensures true
+{
+    return Ok(a[i])
+}
+
+func main() {
+    let a: [u8; 8] = [7; 8]
+    match f(a, 3) {
+        Ok(v) { print("{v}") }
+        Err(_) { print("err") }
+    }
+}

@@ -321,6 +321,31 @@ func main() {
 }
 ```
 
+Создавать `Result`/`Option` умеют и ваши функции — конструкторами
+`Ok(x)`, `Err(e)`, `Some(x)`, `None`. Они **контекстные**: пишутся
+только там, где ожидаемый тип известен точно — в `return` функции
+с типом возврата `Result`/`Option`, в `let` с такой аннотацией и в
+payload вложенного конструктора (`return Ok(Some(x))`):
+
+```text
+enum DivError {
+    ByZero,
+}
+
+func checked_div(a: u32, b: u32) -> Result<u32, DivError>
+    requires true
+    ensures true
+{
+    if b == 0 {
+        return Err(DivError.ByZero)
+    }
+    return Ok(a / b)
+}
+```
+
+В аргументе вызова или выражении без аннотации `Ok(1)` не
+скомпилируется — свяжите значение `let r: Result<...> = Ok(1)`.
+
 Встроенные функции: `print(s)`, `read_line() -> Result<str<256>,
 IoError>`, `parse_i32(s) -> Result<i32, ParseError>`, `len(x) -> u32`.
 

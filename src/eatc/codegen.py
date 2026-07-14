@@ -894,6 +894,14 @@ class Codegen:
         raise AssertionError("неизвестное выражение")
 
     def gen_name(self, node: ast.Name):
+        if getattr(node, "ctor", None) is not None:
+            # None — Option с одним лишь тегом 1 (как вариант без
+            # нагрузки в gen_field)
+            out = self.alloca(self.ll(node.ty), name="none.res")
+            self.b.store(
+                I32L(1), self.b.gep(out, [I32L(0), I32L(0)], inbounds=True)
+            )
+            return out
         found = self.find(node.ident)
         if found is not None:
             ty, ptr = found
@@ -1083,6 +1091,8 @@ class Codegen:
     # --- вызовы --------------------------------------------------------------
 
     def gen_call(self, node: ast.Call):
+        if getattr(node, "ctor", None) is not None:
+            return self.gen_tagged_ctor(node)
         name = node.name
         if name == "print":
             self.b.call(self.rtm("print"), [self.expr(node.args[0])])
@@ -1122,6 +1132,24 @@ class Codegen:
         sig = self.checker.structs[node.struct].methods[node.name]
         fn = self.funcs[f"{node.struct}.{node.name}"]
         return self.emit_call(node, fn, sig, [self.expr(node.obj)])
+
+    def gen_tagged_ctor(self, node: ast.Call):
+        """Конструкторы Ok/Err/Some: {tag, payload в своём слоте} —
+        тот же лейаут, которым read_byte/gen_enum_ctor собирают
+        Result/Option (Ok/Some — tag 0 слот 1, Err — tag 1 слот 2)."""
+        name = node.ctor
+        out = self.alloca(self.ll(node.ty), name=f"{name.lower()}.res")
+        tag = I32L(1 if name == "Err" else 0)
+        self.b.store(tag, self.b.gep(out, [I32L(0), I32L(0)], inbounds=True))
+        if name == "Err":
+            pty, slot = node.ty.err, 2
+        elif name == "Ok":
+            pty, slot = node.ty.ok, 1
+        else:
+            pty, slot = node.ty.inner, 1
+        dst = self.b.gep(out, [I32L(0), I32L(slot)], inbounds=True)
+        self.copy_into(pty, dst, self.expr(node.args[0]))
+        return out
 
     def gen_enum_ctor(self, node: ast.MethodCall):
         ename = node.enum_ctor

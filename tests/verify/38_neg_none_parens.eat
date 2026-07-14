@@ -1,0 +1,10 @@
+#! expect: error=None не несёт значения — пишется без скобок
+# Негатив компиляции: None — идентификатор, не вызов.
+
+func main() {
+    let a: Option<u32> = None(3)
+    match a {
+        Some(_) { print("s") }
+        None { print("n") }
+    }
+}

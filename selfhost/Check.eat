@@ -124,6 +124,9 @@ struct Check {
     self_mu: u32
     res_ty2: u32
     loopd: u32
+    # узел, где разрешён конструктор Ok/Err/Some/None: значение let
+    # с аннотацией, выражение return, payload вложенного конструктора
+    cr: u32
     # break'ов у каждого активного цикла (не более одного, правило 1)
     brkc: [u32; 8]
     # exit: не более одного на программу
@@ -832,6 +835,13 @@ struct Check {
             return true
         }
         if self.span_is(a, l, "Option") or self.span_is(a, l, "IoError") {
+            return true
+        }
+        # конструкторы встроенных sum-типов (SPEC §5.3)
+        if self.span_is(a, l, "Ok") or self.span_is(a, l, "Err") {
+            return true
+        }
+        if self.span_is(a, l, "Some") or self.span_is(a, l, "None") {
             return true
         }
         return self.span_is(a, l, "ParseError")
@@ -1989,6 +1999,7 @@ struct Check {
         self.cur_key = 4294967295
         self.self_ty2 = 4294967295
         self.res_ty2 = 4294967295
+        self.cr = 4294967295
         for n in 0..131072 {
             self.nty[n / 65536][n % 65536] = 4294967295
         }
@@ -2356,6 +2367,23 @@ struct Check {
             self.tres = self.sv_t[v]
             return
         }
+        if self.span_is(a, l, "None") {
+            # конструктор None: только в контексте cr с ожидаемым Option
+            let exp: u32 = self.xe[self.nxq - 1]
+            var ok: bool = n == self.cr and exp != 4294967295
+            if ok {
+                if self.yk[exp] != 11 {
+                    ok = false
+                }
+            }
+            if not ok {
+                self.fail_node(n, "None допустим только там, где ожидается Option: в return и в let с аннотацией")
+                self.tres = 0
+                return
+            }
+            self.tres = exp
+            return
+        }
         let ci: u32 = self.find_const(a, l)
         if ci != 4294967295 {
             self.tres = self.cty[ci]
@@ -2549,7 +2577,8 @@ struct Check {
     }
 
     # Вызов: коды xa — 100+каст(0/1/2), 104 char, 105 len, 106 print/write,
-    # 107 parse_i32, иначе fi пользовательской функции.
+    # 107 parse_i32, 113 Ok, 114 Err, 115 Some (конструкторы; новые —
+    # строго в конец), иначе fi пользовательской функции (сдвиг +4096).
     func xs_call(var self, f: u32, n: u32)
         requires f < 64 and n < 131072
         ensures true
@@ -2569,6 +2598,14 @@ struct Check {
         let l: u32 = self.p.nsl[n / 65536][n % 65536]
         let argc: u32 = self.nchildren(n)
         self.xp[f] = 1
+        if self.span_is(a, l, "Ok") or self.span_is(a, l, "Err") or self.span_is(a, l, "Some") {
+            self.xs_ctor_start(f, n, argc)
+            return
+        }
+        if self.span_is(a, l, "None") {
+            self.fail_node(n, "None не несёт значения — пишется без скобок")
+            return
+        }
         if self.span_is(a, l, "i32") or self.span_is(a, l, "u32") or self.span_is(a, l, "u8") or self.span_is(a, l, "u16") or self.span_is(a, l, "u64") or self.span_is(a, l, "i64") {
             if argc != 1 {
                 self.fail_node(n, "каст: ровно один аргумент")
@@ -2609,6 +2646,64 @@ struct Check {
             return
         }
         self.xs_call_start2(f, n, argc)
+    }
+
+    # Конструкторы Ok/Err/Some (решение 2026-07-14): только там, где
+    # ожидаемый тип известен точно — узел в cr (return, let с
+    # аннотацией, payload вложенного конструктора); коды xa 113/114/115.
+    func xs_ctor_start(var self, f: u32, n: u32, argc: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        let exp: u32 = self.xe[f]
+        var code: u32 = 113
+        if self.span_is(a, l, "Err") {
+            code = 114
+        } elif self.span_is(a, l, "Some") {
+            code = 115
+        }
+        var want: u32 = 10
+        if code == 115 {
+            want = 11
+        }
+        var ok: bool = n == self.cr and exp != 4294967295
+        if ok {
+            if self.yk[exp] != want {
+                ok = false
+            }
+        }
+        if not ok {
+            if code == 113 {
+                self.fail_node(n, "Ok допустим только там, где ожидается Result: в return и в let с аннотацией")
+            } elif code == 114 {
+                self.fail_node(n, "Err допустим только там, где ожидается Result: в return и в let с аннотацией")
+            } else {
+                self.fail_node(n, "Some допустим только там, где ожидается Option: в return и в let с аннотацией")
+            }
+            return
+        }
+        if argc != 1 {
+            if code == 113 {
+                self.fail_node(n, "Ok: ровно один аргумент (несколько значений — заверните в struct)")
+            } elif code == 114 {
+                self.fail_node(n, "Err: ровно один аргумент (несколько значений — заверните в struct)")
+            } else {
+                self.fail_node(n, "Some: ровно один аргумент (несколько значений — заверните в struct)")
+            }
+            return
+        }
+        var payload: u32 = self.ya[exp]
+        if code == 114 {
+            payload = self.yb[exp]
+        }
+        self.xa[f] = code
+        self.xb[f] = payload
+        let arg: u32 = self.p.nfc[n / 65536][n % 65536]
+        # payload вложенного конструктора — тоже контекст
+        self.cr = arg
+        self.xpush(arg, payload)
     }
 
     func xs_call_start2(var self, f: u32, n: u32, argc: u32)
@@ -2800,6 +2895,13 @@ struct Check {
                 self.xb[f] = wi + 1
                 self.xpush(self.nth_child(n, wi + 1), 1)
             }
+        } elif code == 113 or code == 114 or code == 115 {
+            # конструктор Ok/Err/Some: payload готов (тип в xb)
+            if not self.compat(self.xb[f], self.tres) {
+                self.fail_node(n, "тип значения не совпадает (неявных преобразований нет)")
+            }
+            self.tres = self.xe[f]
+            self.xdone()
         } else {
             self.xs_user_arg(f, n, code - 4096)
         }
@@ -3425,7 +3527,10 @@ struct Check {
             return
         }
         self.nty[cur / 65536][cur % 65536] = ty
-        self.expr_check(self.p.nns[self.p.nfc[cur / 65536][cur % 65536] / 65536][self.p.nfc[cur / 65536][cur % 65536] % 65536], ty, 0)
+        let value: u32 = self.p.nns[self.p.nfc[cur / 65536][cur % 65536] / 65536][self.p.nfc[cur / 65536][cur % 65536] % 65536]
+        # let с аннотацией — контекст конструкторов Ok/Err/Some/None
+        self.cr = value
+        self.expr_check(value, ty, 0)
         if self.failed {
             return
         }
@@ -3647,6 +3752,8 @@ struct Check {
         } elif value == 4294967295 {
             self.fail_node(cur, "функция обязана вернуть значение")
         } else {
+            # return — контекст конструкторов Ok/Err/Some/None
+            self.cr = value
             self.expr_check(value, ret, 0)
             if not self.failed and not self.compat(ret, self.tres) {
                 self.fail_node(cur, "тип возврата не совпадает")

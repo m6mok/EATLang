@@ -458,6 +458,8 @@ class Interpreter:
         return self.slot(node, "self").value
 
     def _eval_name(self, node: ast.Name):
+        if getattr(node, "ctor", None) is not None:
+            return Tagged("None", None)
         return self.slot(node, node.ident).value
 
     def _eval_methodcall(self, node: ast.MethodCall):
@@ -587,6 +589,9 @@ class Interpreter:
     # --- вызовы --------------------------------------------------------------
 
     def _eval_call(self, node: ast.Call):
+        # конструкторы Ok/Err/Some — значение с тегом (SPEC §5.3)
+        if getattr(node, "ctor", None) is not None:
+            return Tagged(node.ctor, _copy_value(self.eval(node.args[0])))
         args = [self.eval(a) for a in node.args]
         name = node.name
         if name == "print":
