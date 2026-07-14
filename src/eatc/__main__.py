@@ -195,7 +195,7 @@ _KIND_LABEL = {
 
 def cmd_build(
     paths: list, out: str | None, trap_codes: bool = False,
-    link: bool = True,
+    link: bool = True, release: bool = False,
 ) -> int:
     from .codegen import compile_binary
     from .verifier import verify
@@ -208,7 +208,7 @@ def cmd_build(
         proofs = verify(program, typed.checker)
         binary, report = compile_binary(
             program, typed.checker, main, out, trap_codes=trap_codes,
-            link=link,
+            link=link, release=release,
         )
     except EatError as err:
         print(err, file=sys.stderr)
@@ -267,6 +267,12 @@ def main(argv: list[str]) -> int:
     no_bin = "--no-bin" in argv
     if no_bin:
         argv = [a for a in argv if a != "--no-bin"]
+    # --release / -r (build): LTO на линковке (clang -flto) — −29 %
+    # размера ценой ~2.75 с линковки; для финальных/МК-сборок, не для
+    # цикла разработки. Канон .ll и семантика не меняются
+    release = "--release" in argv or "-r" in argv
+    if release:
+        argv = [a for a in argv if a not in ("--release", "-r")]
     if len(argv) >= 2 and argv[0] == "check":
         return cmd_check(argv[1:])
     if len(argv) >= 2 and argv[0] == "run":
@@ -295,12 +301,14 @@ def main(argv: list[str]) -> int:
             args = args[:i]
         if args:
             return cmd_build(
-                args, out, trap_codes=trap_codes, link=not no_bin
+                args, out, trap_codes=trap_codes, link=not no_bin,
+                release=release,
             )
     print(
         "использование: python -m eatc "
         "(check <файлы.eat...> | run <файлы...> | "
-        "build <файлы...> [-o out] [--trap-codes] | lex <файл> | "
+        "build <файлы...> [-o out] [--trap-codes] [--release|-r] | "
+        "lex <файл> | "
         "parse <файл> | ir <файл> [--trap-codes] | stream <файл>) "
         "[--lib DIR]...",
         file=sys.stderr,

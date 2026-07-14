@@ -1460,9 +1460,12 @@ def emit_ir(program: ast.Program, checker, trap_codes: bool = False) -> str:
 
 def compile_binary(
     program: ast.Program, checker, filename: str, out_path: str,
-    trap_codes: bool = False, link: bool = True,
+    trap_codes: bool = False, link: bool = True, release: bool = False,
 ) -> tuple[str, dict]:
-    """AST → LLVM IR → объектный файл → clang → бинарник + отчёт §8."""
+    """AST → LLVM IR → объектный файл → clang → бинарник + отчёт §8.
+    release: LTO на линковке (`clang -flto` над .ll программы и
+    runtime.c вместе — аксиомы инлайнятся) — меньше размер ценой
+    времени линковки; семантика и канон .ll не меняются."""
     cg = Codegen(program, checker, filename, trap_codes=trap_codes)
     module = cg.generate()
     try:
@@ -1485,6 +1488,30 @@ def compile_binary(
         out.with_suffix(".trapmap").write_text(
             _trap_map_text(cg), encoding="utf-8"
         )
+    runtime = Path(__file__).parent / "runtime.c"
+    # стек 128 МБ: у программ без кучи пулы живут в кадре main,
+    # и кадры компилятора (§8) выходят за умолчание ОС (8 МБ);
+    # кадр main самого self-hosted компилятора — ~85 МБ (фаза 5)
+    if sys.platform == "darwin":
+        stack_flags = ["-Wl,-stack_size,0x8000000"]
+    else:
+        stack_flags = ["-Wl,-z,stacksize=134217728"]
+    if release:
+        # LTO: clang оптимизирует .ll программы и runtime.c вместе,
+        # инлайня аксиомы через границу — меньше размер, дольше линковка.
+        # llvmlite-пасс и emit_object не нужны (clang делает кодоген);
+        # trap-map комментарии в .ll clang игнорирует.
+        if not link:
+            return str(ll_path), report
+        proc = subprocess.run(
+            ["clang", "-O2", "-flto", str(ll_path), str(runtime),
+             "-o", str(out)] + stack_flags,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise EatError(filename, 1, 1, f"clang: {proc.stderr.strip()}")
+        return str(out), report
     # Оптимизация — только на пути IR → объектный код: .ll выше уже
     # записан неоптимизированным (канон дифф-сверки и отладки), а
     # текстовую эмиссию `eatc ir` фикспойнт бутстрапа требует
@@ -1499,14 +1526,6 @@ def compile_binary(
         return str(ll_path), report
     obj_path = out.with_suffix(".o")
     obj_path.write_bytes(machine.emit_object(ref))
-    runtime = Path(__file__).parent / "runtime.c"
-    # стек 128 МБ: у программ без кучи пулы живут в кадре main,
-    # и кадры компилятора (§8) выходят за умолчание ОС (8 МБ);
-    # кадр main самого self-hosted компилятора — ~85 МБ (фаза 5)
-    if sys.platform == "darwin":
-        stack_flags = ["-Wl,-stack_size,0x8000000"]
-    else:
-        stack_flags = ["-Wl,-z,stacksize=134217728"]
     # -O2 нужен runtime.c, который компилируется здесь же на лету:
     # без него каждая аксиома ввода/вывода — неоптимизированная
     # обёртка libc (наш .o уже оптимизирован конвейером выше, ему
