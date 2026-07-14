@@ -73,8 +73,32 @@ RUNTIME_PROGRAMS = [
     ("RetBench", 100_000, 1024, 128),
     ("CopyBench", 200_000, 1024, 128),
     ("IoBench", 1_400_000, 256, 32),
+    # вторая волна 2026-07-14: ввод/строки/пулы/ветвления/машины
+    ("StrCmpBench", 20_000, 64, 8),
+    ("BankBench", 200_000, 512, 64),
+    ("SortBench", 250_000, 512, 64),
+    ("BranchBench", 500_000, 512, 64),
+    ("MachineBench", 500_000, 512, 64),
 ]
 RUNTIME_QUICK = {"ArithBench", "StrBench", "TrapBench"}
+
+# ReadBench — отдельный контур: нагрузку задаёт размер stdin, а не REPEAT.
+# Базовый вход читает и интерпретатор; нативный замер — на входе x множитель.
+READ_BASE_BYTES = 256 * 1024
+READ_MULT_FULL, READ_MULT_QUICK = 256, 32
+
+
+def gen_read_input(path, size):
+    """Детерминированный вход: 64К-блок LCG-байт (печатаемые + \\n),
+    затиражированный до размера — содержимое не влияет на путь чтения."""
+    block = bytearray()
+    x = 7
+    for _ in range(65536):
+        x = (x * 1103515245 + 12345) % (1 << 31)
+        b = 32 + (x >> 16) % 95
+        block.append(10 if b == 96 else b)
+    data = bytes(block) * (size // 65536 + 1)
+    path.write_bytes(data[:size])
 
 
 def eatc(*args) -> list:
@@ -292,8 +316,58 @@ def bench_runtime(quick: bool):
             f"x{n_rate / i_rate:,.0f}".replace(",", " "),
             "да" if same else "НЕТ",
         ])
+    bench_read(quick, rows)
     table(["программа", "порция", "интерп", "интерп оп/с", "сборка",
            "бинарник", "бинарник оп/с", "ускорение", "вывод =="], rows)
+
+
+def bench_read(quick: bool, rows: list):
+    """ReadBench: путь ввода (read_byte/Result). Нагрузка — размер stdin."""
+    src = PROGRAMS / "ReadBench.eat"
+    base_in = OUT / "read_in_base.bin"
+    if not base_in.exists() or base_in.stat().st_size != READ_BASE_BYTES:
+        gen_read_input(base_in, READ_BASE_BYTES)
+
+    interp = run_timed(eatc("run", str(RT), str(src)),
+                       stdin_path=str(base_in), capture=True)
+    if interp.rc != 0:
+        fail(f"runtime ReadBench interp: {interp.err.decode()[:200]}")
+        return
+    bin_path = OUT / "ReadBench"
+    build = run_timed(eatc("build", str(RT), str(src), "-o", str(bin_path)))
+    if build.rc != 0:
+        fail(f"runtime ReadBench build: {build.err.decode()[:200]}")
+        return
+    nat_base = run_timed([str(bin_path)], stdin_path=str(base_in),
+                         capture=True, repeats=3)
+    same = nat_base.out == interp.out
+    if not same:
+        fail(f"runtime ReadBench: вывод расходится: "
+             f"{interp.out!r} != {nat_base.out!r}")
+
+    mult = READ_MULT_QUICK if quick else READ_MULT_FULL
+    xl_in = OUT / "read_in_xl.bin"
+    xl_size = READ_BASE_BYTES * mult
+    if not xl_in.exists() or xl_in.stat().st_size != xl_size:
+        gen_read_input(xl_in, xl_size)
+    nat = run_timed([str(bin_path)], stdin_path=str(xl_in), repeats=3)
+    if nat.rc != 0:
+        fail(f"runtime ReadBench XL: rc={nat.rc} {nat.err.decode()[:200]}")
+        return
+
+    i_rate = READ_BASE_BYTES / interp.secs
+    n_rate = xl_size / nat.secs
+    rows.append([
+        "ReadBench",
+        f"{READ_BASE_BYTES / 1e6:.2f}M байт",
+        fmt_s(interp.secs),
+        fmt_rate(i_rate),
+        fmt_s(build.secs),
+        f"{fmt_s(nat.secs)} (вход x{mult})",
+        fmt_rate(n_rate),
+        f"x{n_rate / i_rate:,.0f}".replace(",", " "),
+        "да" if same else "НЕТ",
+    ])
 
 
 # ==== Секция 3: стресс лимитов ==========================================

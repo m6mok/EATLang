@@ -1,0 +1,54 @@
+# Нагрузочный тест: конечный автомат — struct-машина с var self.
+# Идиома selfhost (лексер/парсер — машины с явным состоянием); каждый
+# var self-вызов сегодня убивает интервальные факты получателя у
+# верификатора (класс «интервалы через поля struct», трек 3). Байты
+# питаются LCG от loop-carried acc. Базовая порция — 500 000 шагов.
+
+const REPEAT: u32 = 1
+
+struct Machine {
+    st: u32
+    num: u32
+    toks: u32
+
+    func step(var self, b: u32)
+        requires b < 256
+        ensures true
+    {
+        if self.st == 0 {
+            if b >= 48 and b <= 57 {
+                self.st = 1
+                self.num = b - 48
+            }
+        } else {
+            if b >= 48 and b <= 57 {
+                self.num = (self.num * 10 + (b - 48)) % 100000
+            } else {
+                self.st = 0
+                self.toks = (self.toks + self.num + 1) % 65536
+            }
+        }
+    }
+}
+
+test machine_step {
+    var m: Machine = Machine { st: 0, num: 0, toks: 0 }
+    m.step(53)
+    assert m.st == 1 and m.num == 5
+    m.step(32)
+    assert m.st == 0 and m.toks == 6
+}
+
+func main() {
+    var m: Machine = Machine { st: 0, num: 0, toks: 0 }
+    var acc: u32 = 7
+    for _ in 0..REPEAT {
+        for _ in 0..500 {
+            for i in 0..1000 {
+                acc = (acc * 31 + i) % 65536
+                m.step(acc & 255)
+            }
+        }
+    }
+    print("checksum {(m.toks + acc) % 65536}")
+}
