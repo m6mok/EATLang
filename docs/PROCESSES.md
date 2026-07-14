@@ -98,6 +98,7 @@ trap. Всё остальное (`print`, `write`, интерполяция, `==
 | `make verify_selfhost` | self-hosted лексер/парсер/sig/typed/IR против эталона на **каждом** `.eat` репозитория; самоприменение (тайпчекер типизирует себя, ≈37 000 строк байт-в-байт); interp == native |
 | `make verify_bootstrap` | фикспойнт: stage1 (`build/SelfIr`) эмитит IR самого себя == `eatc ir`; clang собирает stage2; stage2 эмитит тот же IR байт-в-байт |
 | `make verify_trapcodes` | режим trap-кодов (МК): `build/SelfIrCodes` == `eatc ir --trap-codes` байт-в-байт на bootstrap-входе |
+| `make verify_sig` | дрейф интерфейса lib/: sig потока драйвера от `tests/sig/SigProbe.eat` == снапшот `tests/sig/lib.sig` (осознанное изменение — `make regen_sig`) |
 | `make bench` / `bench_quick` | нагрузочное тестирование (`tests/bench/`): синтетика, стресс пределов SPEC §6, интерпретатор против бинарника |
 
 ## 6. Сборка языка и программ self-hosted компилятором

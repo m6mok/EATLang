@@ -57,6 +57,22 @@ run_lexer_probe:
 verify_suite:
 	uv run python tests/verify_suite.py
 
+# Снапшот интерфейса lib/ (MODULES_PLAN §6): sig потока драйвера от
+# пробы tests/sig/SigProbe.eat (Rt + все модули lib/) diff'ается с
+# закоммиченным tests/sig/lib.sig — дрейф сигнатур/экспортов красный.
+# Осознанное изменение интерфейса: make regen_sig и закоммитить diff.
+verify_sig:
+	@$(EATC) stream --lib . tests/sig/SigProbe.eat > /tmp/eat_sig_stream.eat
+	@$(EATC) sig /tmp/eat_sig_stream.eat > /tmp/eat_sig_now.txt
+	@diff tests/sig/lib.sig /tmp/eat_sig_now.txt \
+		&& echo "SIG OK (интерфейс lib/ == снапшот)" \
+		|| { echo "SIG DRIFT: интерфейс lib/ изменился — осознанно? make regen_sig"; exit 1; }
+
+regen_sig:
+	@$(EATC) stream --lib . tests/sig/SigProbe.eat > /tmp/eat_sig_stream.eat
+	@$(EATC) sig /tmp/eat_sig_stream.eat > tests/sig/lib.sig
+	@echo "tests/sig/lib.sig обновлён"
+
 # Нагрузочное тестирование (tests/bench/): пайплайн компилятора на
 # синтетических модулях, интерпретатор против бинарника, стресс лимитов
 # SPEC.md §6, self-hosted лексер/парсер против Python-эталона,

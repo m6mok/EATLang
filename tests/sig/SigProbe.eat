@@ -1,0 +1,52 @@
+# Проба sig-снапшота (MODULES_PLAN §6, этап 2): импортирует и трогает
+# по одному имени из каждого модуля lib/ — поток драйвера от этого
+# файла накрывает весь интерфейс библиотеки, а `make verify_sig`
+# diff'ает его сигнатуры со снапшотом tests/sig/lib.sig.
+# Неиспользуемый импорт — ошибка, поэтому каждый вызов «потрачен».
+
+import {
+    is_digit,
+} from "lib/Ascii.eat"
+
+import {
+    same,
+} from "lib/Buf.eat"
+
+import {
+    Dec,
+    fmt_u32,
+} from "lib/Fmt.eat"
+
+import {
+    hex_digit,
+} from "lib/Hex.eat"
+
+import {
+    read_line,
+} from "lib/Io.eat"
+
+import {
+    min,
+} from "lib/Num.eat"
+
+import {
+    parse_i32,
+} from "lib/Parse.eat"
+
+func main() {
+    let d: Dec = fmt_u32(min(42, 99))
+    let w: [u8; 16] = [0; 16]
+    let s: bool = same(w, 0, "")
+    let g: bool = is_digit(u8(48))
+    let h: char = hex_digit(10)
+    print("digit={g} hex={h} ln={d.ln} same={s}")
+    match read_line() {
+        Ok(line) {
+            match parse_i32(line) {
+                Ok(n) { print("n={n}") }
+                Err(_) { print("bad") }
+            }
+        }
+        Err(_) { print("eof") }
+    }
+}
