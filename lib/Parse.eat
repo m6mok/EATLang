@@ -1,0 +1,84 @@
+# Разбор чисел из строк. Логика — RtStr.parse_status/parse_value
+# (Rt.eat, нулевой модуль); здесь — копия строки в RtStr и упаковка
+# плоского статуса в Result (статусы: 0 Ok, 1 Empty, 2 BadChar,
+# 3 Overflow).
+
+export {
+    parse_i32,
+}
+
+func parse_i32(s: str<256>) -> Result<i32, ParseError>
+    requires true
+    ensures true
+{
+    var r: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    for i in 0..256 {
+        if i >= len(s) {
+            break
+        }
+        r.append_char(s[i])
+    }
+    let st: u32 = r.parse_status()
+    if st == 0 {
+        return Ok(r.parse_value())
+    }
+    if st == 1 {
+        return Err(ParseError.Empty)
+    }
+    if st == 2 {
+        return Err(ParseError.BadChar)
+    }
+    return Err(ParseError.Overflow)
+}
+
+test parse_i32_ok {
+    match parse_i32("42") {
+        Ok(v) { assert v == 42 }
+        Err(_) { assert false }
+    }
+    match parse_i32(" -7\t") {
+        Ok(v) { assert v == -7 }
+        Err(_) { assert false }
+    }
+    match parse_i32("+0") {
+        Ok(v) { assert v == 0 }
+        Err(_) { assert false }
+    }
+    match parse_i32("-2147483648") {
+        Ok(v) { assert v == -2147483648 }
+        Err(_) { assert false }
+    }
+}
+
+test parse_i32_err {
+    match parse_i32("") {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Empty { assert true }
+                BadChar { assert false }
+                Overflow { assert false }
+            }
+        }
+    }
+    match parse_i32("4x") {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Empty { assert false }
+                BadChar { assert true }
+                Overflow { assert false }
+            }
+        }
+    }
+    match parse_i32("2147483648") {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Empty { assert false }
+                BadChar { assert false }
+                Overflow { assert true }
+            }
+        }
+    }
+}

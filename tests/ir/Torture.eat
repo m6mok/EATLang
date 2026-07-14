@@ -124,6 +124,43 @@ func wide_torture(seed: u8) -> u64
     return acc
 }
 
+# Конструкторы Result/Option (этап 2 модулей): локальные замены
+# бывших встроенных read_line/parse_i32 — файл остаётся
+# самодостаточным стрессом дампов и кроет Ok/Err/Some/None и
+# вложенный payload во всех фазах.
+func t_line(eof: bool) -> Result<str<256>, IoError>
+    requires true
+    ensures true
+{
+    if eof {
+        return Err(IoError.Eof)
+    }
+    return Ok("line")
+}
+
+func t_parse(s: str<256>) -> Result<i32, ParseError>
+    requires true
+    ensures true
+{
+    if len(s) == 0 {
+        return Err(ParseError.Empty)
+    }
+    return Ok(42)
+}
+
+func t_nest(k: u32) -> Result<Option<u32>, ParseError>
+    requires true
+    ensures true
+{
+    if k > 100 {
+        return Err(ParseError.Overflow)
+    }
+    if k == 0 {
+        return Ok(None)
+    }
+    return Ok(Some(k))
+}
+
 func main() {
     let s: Sign = Sign.Minus
     var t: u32 = 0
@@ -193,7 +230,7 @@ func main() {
             }
         }
     }
-    match read_line() {
+    match t_line(false) {
         Ok(line) {
             write(line)
         }
@@ -201,7 +238,31 @@ func main() {
             write("eof\n")
         }
     }
-    match parse_i32("42") {
+    let ov: Option<u32> = None
+    match ov {
+        Some(v3) {
+            total = total + v3
+        }
+        None {
+            total = total + 1
+        }
+    }
+    match t_nest(7) {
+        Ok(o2) {
+            match o2 {
+                Some(v4) {
+                    total = total + v4
+                }
+                None {
+                    total = total + 1
+                }
+            }
+        }
+        Err(_) {
+            total = total + 2
+        }
+    }
+    match t_parse("42") {
         Ok(v2) {
             total = total + u32(v2)
         }

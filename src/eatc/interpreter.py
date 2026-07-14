@@ -620,16 +620,6 @@ class Interpreter:
             return None
         if name == "exit":
             raise SystemExit(args[0])
-        if name == "read_line":
-            data = sys.stdin.buffer.readline()
-            if data == b"":
-                return Tagged("Err", EnumValue("IoError", "Eof"))
-            data = data.rstrip(b"\n")
-            if len(data) > 256:
-                raise self.trap(node, "ввод длиннее str<256>")
-            return Tagged("Ok", data.decode("latin-1"))
-        if name == "parse_i32":
-            return self._parse_i32(args[0])
         if name == "len":
             return len(args[0])
         if name == "char":
@@ -640,23 +630,6 @@ class Interpreter:
             self._fit(node, name, args[0])
             return args[0]
         return self.call_func(self.funcs[name], args, None, node)
-
-    def _parse_i32(self, s: str) -> Tagged:
-        text = s.strip()
-
-        def err(variant: str) -> Tagged:
-            return Tagged("Err", EnumValue("ParseError", variant))
-
-        if not text:
-            return err("Empty")
-        body = text[1:] if text[0] in "+-" else text
-        if not body.isdigit():
-            return err("BadChar")
-        value = int(text)
-        lo, hi = INT_RANGES["i32"]
-        if not lo <= value <= hi:
-            return err("Overflow")
-        return Tagged("Ok", value)
 
     # --- диспетчеры (type(node) -> метод, вместо цепочек isinstance) --------
 

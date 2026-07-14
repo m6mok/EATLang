@@ -1115,10 +1115,6 @@ class Codegen:
         if name == "exit":
             self.b.call(self.rt["eat_exit"], [self.expr(node.args[0])])
             return None
-        if name == "read_line":
-            return self.gen_read_line(node)
-        if name == "parse_i32":
-            return self.gen_parse_i32(node)
         if name == "len":
             return self.gen_len(node)
         if name in ("i32", "u32", "u16", "u8", "u64", "i64", "char"):
@@ -1233,42 +1229,6 @@ class Codegen:
         self.b.store(
             I32L(0), self.b.gep(res, [I32L(0), I32L(2)], inbounds=True)
         )
-        return res
-
-    def gen_read_line(self, node: ast.Call):
-        tmp = self.alloca(STR_LL, name="line")
-        status = self.b.call(self.rtm("read_line"), [tmp])
-        res_ll = self.ll(node.ty)
-        res = self.alloca(res_ll, name="read.res")
-        tag = self.b.select(
-            self.b.icmp_signed("==", status, I32L(0)), I32L(0), I32L(1)
-        )
-        self.b.store(tag, self.b.gep(res, [I32L(0), I32L(0)], inbounds=True))
-        self.b.store(
-            self.b.load(tmp),
-            self.b.gep(res, [I32L(0), I32L(1)], inbounds=True),
-        )
-        # Err(Eof) — индекс варианта 0
-        self.b.store(
-            I32L(0), self.b.gep(res, [I32L(0), I32L(2)], inbounds=True)
-        )
-        return res
-
-    def gen_parse_i32(self, node: ast.Call):
-        s = self.expr(node.args[0])
-        status = self.b.call(self.rtm("parse_status"), [s])
-        value = self.b.call(self.rtm("parse_value"), [s])
-        res = self.alloca(self.ll(node.ty), name="parse.res")
-        ok = self.b.icmp_signed("==", status, I32L(0))
-        tag = self.b.select(ok, I32L(0), I32L(1))
-        self.b.store(tag, self.b.gep(res, [I32L(0), I32L(0)], inbounds=True))
-        self.b.store(
-            value,
-            self.b.gep(res, [I32L(0), I32L(1)], inbounds=True),
-        )
-        # статусы 1..3 → варианты ParseError 0..2
-        err = self.b.select(ok, I32L(0), self.b.sub(status, I32L(1)))
-        self.b.store(err, self.b.gep(res, [I32L(0), I32L(2)], inbounds=True))
         return res
 
     def gen_len(self, node: ast.Call):

@@ -55,13 +55,14 @@ XL_FUNCS_PER_FILE = 144
 # Базовый объём работы бенчмарк-программ (операций на REPEAT=1)
 # и множитель REPEAT для нативного замера.
 RUNTIME_PROGRAMS = [
-    # (файл, базовых операций, REPEAT full, REPEAT quick)
+    # (файл, базовых операций, REPEAT full, REPEAT quick[, доп. модули
+    #  lib/ между Rt и программой — cat-режим])
     ("ArithBench", 1_000_000, 256, 32),
     ("CallBench", 500_000, 256, 32),
     ("ArrayBench", 520_192, 256, 32),
     ("StructBench", 500_000, 256, 32),
     ("AggBench", 200_000, 160, 20),
-    ("NumParseBench", 200_000, 64, 8),
+    ("NumParseBench", 200_000, 64, 8, ["lib/Parse.eat"]),
     ("StrBench", 1_280_000, 8, 2),
     # расширение 2026-07-14: слои плана оптимизаций (COMPTIME_PLAN §0,
     # TRACKS 3/4) — каждая программа метрика своего слоя
@@ -270,14 +271,17 @@ def bench_pipeline(quick: bool):
 def bench_runtime(quick: bool):
     section("СКОРОСТЬ ПРОГРАММ (интерпретатор против бинарника)")
     rows = []
-    for name, base_ops, rep_full, rep_quick in RUNTIME_PROGRAMS:
+    for name, base_ops, rep_full, rep_quick, *rest in RUNTIME_PROGRAMS:
         if quick and name not in RUNTIME_QUICK:
             continue
         src = PROGRAMS / f"{name}.eat"
+        # доп. модули lib/ (cat-режим): между Rt и программой
+        libs = [str(ROOT / p) for p in (rest[0] if rest else [])]
         text = src.read_text(encoding="utf-8")
 
         # интерпретатор: базовая порция, вывод забираем для сверки
-        interp = run_timed(eatc("run", str(RT), str(src)), capture=True)
+        interp = run_timed(
+            eatc("run", str(RT), *libs, str(src)), capture=True)
         if interp.rc != 0:
             fail(f"runtime {name} interp: {errtail(interp.err)}")
             continue
@@ -285,7 +289,7 @@ def bench_runtime(quick: bool):
         # сборка базового варианта и дифференциальная сверка вывода
         bin_base = OUT / name
         build = run_timed(
-            eatc("build", str(RT), str(src), "-o", str(bin_base)))
+            eatc("build", str(RT), *libs, str(src), "-o", str(bin_base)))
         if build.rc != 0:
             fail(f"runtime {name} build: {errtail(build.err)}")
             continue
@@ -303,7 +307,7 @@ def bench_runtime(quick: bool):
         xl_src.write_text(text.replace(
             marker, f"const REPEAT: u32 = {rep}"), encoding="utf-8")
         bin_xl = OUT / f"{name}XL"
-        bxl = run_timed(eatc("build", str(RT), str(xl_src),
+        bxl = run_timed(eatc("build", str(RT), *libs, str(xl_src),
                              "-o", str(bin_xl)))
         if bxl.rc != 0:
             fail(f"runtime {name} XL build: {errtail(bxl.err)}")

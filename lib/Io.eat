@@ -1,0 +1,28 @@
+# Строковый ввод. Логика — RtStr.read_line (Rt.eat, нулевой модуль);
+# здесь — упаковка плоского статуса (0 Ok, 1 Eof) в Result и сборка
+# str из байтов буфера. У языка нет str-builder'а — сборка
+# интерполяцией за O(n^2) при n <= 256 (находка этапа 2,
+# docs/MODULES_PLAN.md §11).
+
+export {
+    read_line,
+}
+
+func read_line() -> Result<str<256>, IoError>
+    requires true
+    ensures true
+{
+    var r: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    let st: u32 = r.read_line()
+    if st == 1 {
+        return Err(IoError.Eof)
+    }
+    var out: str<256> = ""
+    for i in 0..256 {
+        if i >= r.ln {
+            break
+        }
+        out = "{out}{char(r.buf[i])}"
+    }
+    return Ok(out)
+}

@@ -225,6 +225,10 @@ for x in data {           # число итераций — из типа мас
 системы); внутри допустим `break`:
 
 ```text
+import {
+    read_line,
+} from "lib/Io.eat"
+
 func main() {
     loop {
         match read_line() {
@@ -298,7 +302,8 @@ func describe(m: Mode) -> str<16>
 компиляции, а не сюрприз в рантайме.
 
 Исключений нет. Ошибающиеся операции возвращают `Result` — и правило 7
-не даст его проигнорировать:
+не даст его проигнорировать (`read_line`/`parse_i32` — из lib/,
+шапка import опущена):
 
 ```text
 func main() {
@@ -346,8 +351,12 @@ func checked_div(a: u32, b: u32) -> Result<u32, DivError>
 В аргументе вызова или выражении без аннотации `Ok(1)` не
 скомпилируется — свяжите значение `let r: Result<...> = Ok(1)`.
 
-Встроенные функции: `print(s)`, `read_line() -> Result<str<256>,
-IoError>`, `parse_i32(s) -> Result<i32, ParseError>`, `len(x) -> u32`.
+Встроенные функции: `print(s)`, `read_byte() -> Result<u8, IoError>`,
+`len(x) -> u32`. Сами `read_line() -> Result<str<256>, IoError>` и
+`parse_i32(s) -> Result<i32, ParseError>` — библиотечные
+(`lib/Io.eat`, `lib/Parse.eat`): в программе с import-шапкой их
+подключает драйвер (`eatc run --lib . Main.eat`), в cat-режиме —
+файл в списке (`eatc run selfhost/Rt.eat lib/Parse.eat App.eat`).
 
 Байтовый вывод: `write_byte(b: u8)` — один байт;
 `write_span(a: [u8; N], off: u32, len: u32)` — диапазон

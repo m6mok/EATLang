@@ -98,9 +98,8 @@ class CheckResult:
 BUILTINS = {
     "print": FuncSig("print", [("s", StrType(None))], None),
     "write": FuncSig("write", [("s", StrType(None))], None),
-    "read_line": FuncSig(
-        "read_line", [], ResultType(StrType(256), EnumType("IoError"))
-    ),
+    # read_line/parse_i32 — библиотечные (lib/Io.eat, lib/Parse.eat,
+    # этап 2 модулей); в ядре — только аксиома read_byte
     "read_byte": FuncSig(
         "read_byte", [], ResultType(U8, EnumType("IoError"))
     ),
@@ -114,11 +113,6 @@ BUILTINS = {
     ),
     "write_err_byte": FuncSig("write_err_byte", [("b", U8)], None),
     "exit": FuncSig("exit", [("code", U32)], None),
-    "parse_i32": FuncSig(
-        "parse_i32",
-        [("s", StrType(None))],
-        ResultType(I32, EnumType("ParseError")),
-    ),
 }
 
 _FORMATTABLE = (IntType, BoolType, CharType, StrType)

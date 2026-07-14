@@ -2076,48 +2076,6 @@ struct Ir {
         self.line_fin()
     }
 
-    # v1 — буфер str.
-    func e_rline(var self)
-        requires true
-        ensures true
-    {
-        self.rpre()
-        self.lb_lit("call i32 @\"eat_RtStr__read_line\"(")
-        self.w_strty()
-        self.lb_lit("* ")
-        self.wr1()
-        self.lb_lit(")")
-        self.line_fin()
-    }
-
-    # v1 — строка: статус разбора (0..3).
-    func e_pstat(var self)
-        requires true
-        ensures true
-    {
-        self.rpre()
-        self.lb_lit("call i32 @\"eat_RtStr__parse_status\"(")
-        self.w_strty()
-        self.lb_lit("* ")
-        self.wr1()
-        self.lb_lit(")")
-        self.line_fin()
-    }
-
-    # v1 — строка: значение при статусе 0.
-    func e_pval(var self)
-        requires true
-        ensures true
-    {
-        self.rpre()
-        self.lb_lit("call i32 @\"eat_RtStr__parse_value\"(")
-        self.w_strty()
-        self.lb_lit("* ")
-        self.wr1()
-        self.lb_lit(")")
-        self.line_fin()
-    }
-
     # v1 — i8* сообщение.
     func e_trapc(var self)
         requires true
@@ -3023,9 +2981,6 @@ struct Ir {
         } elif self.c.span_is(a, l, "read_byte") {
             self.xrbyte(n)
             self.nx3 = self.nx3 - 1
-        } elif self.c.span_is(a, l, "read_line") {
-            self.xrline(n)
-            self.nx3 = self.nx3 - 1
         } elif self.c.span_is(a, l, "write_byte") {
             self.xa3[f] = 5
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
@@ -3034,9 +2989,6 @@ struct Ir {
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "exit") {
             self.xa3[f] = 7
-            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
-        } elif self.c.span_is(a, l, "parse_i32") {
-            self.xa3[f] = 3
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
         } elif self.c.span_is(a, l, "write_span") {
             self.xa3[f] = 8
@@ -3126,9 +3078,6 @@ struct Ir {
                 self.e_rt_s("write")
             }
             self.ert = 5
-            self.nx3 = self.nx3 - 1
-        } elif code == 3 {
-            self.xpi(n)
             self.nx3 = self.nx3 - 1
         } elif code == 5 {
             self.set1er()
@@ -3859,138 +3808,6 @@ struct Ir {
         self.e_store(self.c.yb[t])
         self.ser(1, rs2, rl2)
         self.ert = t
-    }
-
-    func xrline(var self, n: u32)
-        requires n < 131072
-        ensures true
-    {
-        let t: u32 = self.c.nty[n / 65536][n % 65536]
-        self.nm_lit("line")
-        self.e_alloca_n(self.c.ty_sq)
-        let ts2: u32 = self.rra
-        let tl2: u32 = self.rrb
-        self.set1(1, ts2, tl2)
-        self.e_rline()
-        let wk: u32 = self.rrk
-        let wa: u32 = self.rra
-        let wb: u32 = self.rrb
-        self.nm_lit("read.res")
-        self.e_alloca_n(t)
-        let rs2: u32 = self.rra
-        let rl2: u32 = self.rrb
-        self.set1(wk, wa, wb)
-        self.set2(2, 0, 0)
-        self.e_icmp(1, 0)
-        self.set1rr()
-        self.set2(2, 0, 0)
-        self.set3(2, 0, 1)
-        self.e_sel(0)
-        let tk2: u32 = self.rrk
-        let ta2: u32 = self.rra
-        let tb2: u32 = self.rrb
-        self.set1(1, rs2, rl2)
-        self.e_gepc(t, 0)
-        self.set2rr()
-        self.set1(tk2, ta2, tb2)
-        self.e_store(0)
-        self.set1(1, ts2, tl2)
-        self.e_load(self.c.ty_sq)
-        let vk: u32 = self.rrk
-        let va: u32 = self.rra
-        let vb: u32 = self.rrb
-        self.set1(1, rs2, rl2)
-        self.e_gepc(t, 1)
-        self.set2rr()
-        self.set1(vk, va, vb)
-        self.e_store(self.c.ty_sq)
-        self.set1(1, rs2, rl2)
-        self.e_gepc(t, 2)
-        self.set2rr()
-        self.set1(2, 0, 0)
-        self.e_store(self.c.yb[t])
-        self.ser(1, rs2, rl2)
-        self.ert = t
-    }
-
-    # er — строка-аргумент parse_i32.
-    func xpi(var self, n: u32)
-        requires n < 131072
-        ensures true
-    {
-        let t: u32 = self.c.nty[n / 65536][n % 65536]
-        let sk2: u32 = self.erk
-        let sa2: u32 = self.era
-        let sb2: u32 = self.erb
-        self.set1(sk2, sa2, sb2)
-        self.e_pstat()
-        let wk: u32 = self.rrk
-        let wa: u32 = self.rra
-        let wb: u32 = self.rrb
-        self.set1(sk2, sa2, sb2)
-        self.e_pval()
-        let vk2: u32 = self.rrk
-        let va2: u32 = self.rra
-        let vb2: u32 = self.rrb
-        self.nm_lit("parse.res")
-        self.e_alloca_n(t)
-        let rs2: u32 = self.rra
-        let rl2: u32 = self.rrb
-        self.set1(wk, wa, wb)
-        self.set2(2, 0, 0)
-        self.e_icmp(1, 0)
-        let ok3: u32 = self.rrk
-        let oa3: u32 = self.rra
-        let ob3: u32 = self.rrb
-        self.set1(ok3, oa3, ob3)
-        self.set2(2, 0, 0)
-        self.set3(2, 0, 1)
-        self.e_sel(0)
-        let tk2: u32 = self.rrk
-        let ta2: u32 = self.rra
-        let tb2: u32 = self.rrb
-        self.set1(1, rs2, rl2)
-        self.e_gepc(t, 0)
-        self.set2rr()
-        self.set1(tk2, ta2, tb2)
-        self.e_store(0)
-        self.set1(1, rs2, rl2)
-        self.e_gepc(t, 1)
-        self.set2rr()
-        self.set1(vk2, va2, vb2)
-        self.e_store(0)
-        self.u1k = ok3
-        self.u1a = oa3
-        self.u1b = ob3
-        self.u2k = wk
-        self.u2a = wa
-        self.u2b = wb
-        self.xpi_err(t, rs2, rl2)
-        self.ser(1, rs2, rl2)
-        self.ert = t
-    }
-
-    # Слот ошибки parse_i32: статусы 1..3 -> варианты 0..2
-    # (u1 — ok, u2 — статус).
-    func xpi_err(var self, t: u32, rs2: u32, rl2: u32)
-        requires t < 512
-        ensures true
-    {
-        self.set1(self.u2k, self.u2a, self.u2b)
-        self.set2(2, 0, 1)
-        self.e_bin(2, 0)
-        self.set3rr()
-        self.set1(self.u1k, self.u1a, self.u1b)
-        self.set2(2, 0, 0)
-        self.e_sel(0)
-        let ek2: u32 = self.rrk
-        let ea2: u32 = self.rra
-        let eb2: u32 = self.rrb
-        self.set1(1, rs2, rl2)
-        self.e_gepc(t, 2)
-        self.set2rr()
-        self.set1(ek2, ea2, eb2)
-        self.e_store(self.c.yb[t])
     }
 
     # er — значение-аргумент каста; code: 100 i32, 101 u32, 102 u8,

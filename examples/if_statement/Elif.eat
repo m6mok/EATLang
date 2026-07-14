@@ -2,6 +2,16 @@
 #
 # Правило 7 NASA: read_line и parse_i32 возвращают Result,
 # отбросить или «забыть» ошибку невозможно — match исчерпывающий.
+# Обе функции — библиотечные (этап 2 модулей): файл — витрина
+# драйвера импортов (`eatc run --lib . examples/if_statement/Elif.eat`).
+
+import {
+    read_line,
+} from "lib/Io.eat"
+
+import {
+    parse_i32,
+} from "lib/Parse.eat"
 
 func describe(number: i32) -> str<16>
     requires true

@@ -12,16 +12,20 @@ EXAMPLES = \
 	examples/math/Math.eat \
 	examples/functions/Functions.eat \
 	examples/if_statement/IfStatement.eat \
-	examples/if_statement/Elif.eat \
 	examples/iterator/Iterator.eat \
 	examples/struct/Struct.eat \
 	examples/alias/Alias.eat \
 	examples/all/All.eat
 
+# Elif — витрина драйвера импортов (read_line/parse_i32 из lib/,
+# этап 2 модулей): собирается с --lib ., отдельно от списка выше
+ELIF_MAIN = examples/if_statement/Elif.eat
+
 # Компиляция всех примеров: парсинг, проверки Power of 10, типы,
 # исполнение test-блоков
 check:
 	$(EATC) check $(EXAMPLES)
+	$(EATC) check --lib . $(ELIF_MAIN)
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -403,7 +407,7 @@ run_if_statement:
 	$(EATC) run examples/if_statement/IfStatement.eat
 
 run_elif:
-	$(EATC) run examples/if_statement/Elif.eat
+	$(EATC) run --lib . $(ELIF_MAIN)
 
 run_iterator:
 	$(EATC) run examples/iterator/Iterator.eat
@@ -425,12 +429,16 @@ build_all_examples:
 verify: build_all_examples
 	@for f in $(EXAMPLES); do \
 		name=$$(basename $$f .eat); \
-		case $$name in Elif) input="42"; ;; *) input=""; ;; esac; \
-		echo "$$input" | $(EATC) run $(RT) $$f > /tmp/eat_interp.txt; \
-		echo "$$input" | ./build/$$name > /tmp/eat_native.txt; \
+		echo "" | $(EATC) run $(RT) $$f > /tmp/eat_interp.txt; \
+		echo "" | ./build/$$name > /tmp/eat_native.txt; \
 		diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 			&& echo "VERIFIED $$name" || exit 1; \
 	done
+	@$(EATC) build --lib . $(ELIF_MAIN) -o build/Elif > /dev/null
+	@echo "42" | $(EATC) run --lib . $(ELIF_MAIN) > /tmp/eat_interp.txt
+	@echo "42" | ./build/Elif > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED Elif" || exit 1
 	@$(EATC) build --lib . $(MODULES_MAIN) -o build/Modules > /dev/null
 	@$(EATC) run --lib . $(MODULES_MAIN) > /tmp/eat_interp.txt
 	@./build/Modules > /tmp/eat_native.txt

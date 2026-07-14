@@ -807,7 +807,8 @@ struct Check {
         if self.span_is(a, l, "print") or self.span_is(a, l, "write") {
             return true
         }
-        if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
+        # read_line/parse_i32 — библиотечные (lib/Io.eat, lib/Parse.eat)
+        if self.span_is(a, l, "read_byte") {
             return true
         }
         if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
@@ -816,7 +817,7 @@ struct Check {
         if self.span_is(a, l, "write_span") or self.span_is(a, l, "exit") {
             return true
         }
-        if self.span_is(a, l, "parse_i32") or self.span_is(a, l, "len") {
+        if self.span_is(a, l, "len") {
             return true
         }
         if self.span_is(a, l, "i32") or self.span_is(a, l, "u32") {
@@ -2096,16 +2097,13 @@ struct Check {
         if self.span_is(a, l, "print") or self.span_is(a, l, "write") {
             return true
         }
-        if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
+        if self.span_is(a, l, "read_byte") {
             return true
         }
         if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
             return true
         }
-        if self.span_is(a, l, "write_span") or self.span_is(a, l, "exit") {
-            return true
-        }
-        return self.span_is(a, l, "parse_i32")
+        return self.span_is(a, l, "write_span") or self.span_is(a, l, "exit")
     }
 
     func decl_self(var self, ty: u32, mut: u32)
@@ -2577,8 +2575,10 @@ struct Check {
     }
 
     # Вызов: коды xa — 100+каст(0/1/2), 104 char, 105 len, 106 print/write,
-    # 107 parse_i32, 113 Ok, 114 Err, 115 Some (конструкторы; новые —
-    # строго в конец), иначе fi пользовательской функции (сдвиг +4096).
+    # 107 — отставной (был parse_i32, ушёл в lib/Parse.eat; не
+    # переиспользовать), 113 Ok, 114 Err, 115 Some (конструкторы;
+    # новые — строго в конец), иначе fi пользовательской функции
+    # (сдвиг +4096).
     func xs_call(var self, f: u32, n: u32)
         requires f < 64 and n < 131072
         ensures true
@@ -2721,16 +2721,12 @@ struct Check {
             self.xpush(self.p.nfc[n / 65536][n % 65536], self.ty_sq)
             return
         }
-        if self.span_is(a, l, "read_line") or self.span_is(a, l, "read_byte") {
+        if self.span_is(a, l, "read_byte") {
             if argc != 0 {
                 self.fail_node(n, "ожидается 0 аргументов")
                 return
             }
-            if self.span_is(a, l, "read_line") {
-                self.tres = self.ty_rl
-            } else {
-                self.tres = self.ty_rb
-            }
+            self.tres = self.ty_rb
             self.xdone()
             return
         }
@@ -2745,15 +2741,6 @@ struct Check {
         }
         if self.span_is(a, l, "exit") {
             self.xs_exit_start(f, n, argc)
-            return
-        }
-        if self.span_is(a, l, "parse_i32") {
-            if argc != 1 {
-                self.fail_node(n, "ожидается 1 аргумент")
-                return
-            }
-            self.xa[f] = 107
-            self.xpush(self.p.nfc[n / 65536][n % 65536], self.ty_sq)
             return
         }
         if self.span_is(a, l, "write_span") {
@@ -2857,15 +2844,11 @@ struct Check {
             }
             self.tres = 1
             self.xdone()
-        } elif code == 106 or code == 107 {
+        } elif code == 106 {
             if not self.compat(self.ty_sq, self.tres) {
                 self.fail_node(n, "ожидается строка")
             }
-            if code == 106 {
-                self.tres = 5
-            } else {
-                self.tres = self.ty_pi
-            }
+            self.tres = 5
             self.xdone()
         } elif code == 108 {
             if not self.compat(2, self.tres) {
