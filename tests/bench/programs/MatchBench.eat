@@ -1,0 +1,57 @@
+# Нагрузочный тест: enum + исчерпывающий match в горячем цикле —
+# диспетчеризация по тегу (идиома машин selfhost-компилятора).
+# Базовая порция — 200 000 итераций; REPEAT масштабирует нагрузку.
+
+const REPEAT: u32 = 1
+
+enum Op {
+    AddSmall,
+    MulOdd,
+    Invert,
+    Mix
+}
+
+func pick(k: u32) -> Op
+    requires true
+    ensures true
+{
+    let t: u32 = k & 3
+    if t == 0 {
+        return Op.AddSmall
+    } elif t == 1 {
+        return Op.MulOdd
+    } elif t == 2 {
+        return Op.Invert
+    }
+    return Op.Mix
+}
+
+func step(acc: u32, i: u32) -> u32
+    requires acc < 65536
+    ensures result < 65536
+{
+    match pick(i) {
+        AddSmall { return (acc + (i & 255)) % 65536 }
+        MulOdd   { return (acc * 3 + 1) % 65536 }
+        Invert   { return ~acc & 65535 }
+        Mix      { return (acc ^ (i & 4095)) % 65536 }
+    }
+}
+
+test match_step {
+    assert step(0, 0) == 0
+    assert step(0, 1) == 1
+    assert step(65535, 2) == 0
+}
+
+func main() {
+    var acc: u32 = 7
+    for _ in 0..REPEAT {
+        for k in 0..200 {
+            for i in 0..1000 {
+                acc = step(acc, i + k)
+            }
+        }
+    }
+    print("checksum {acc}")
+}

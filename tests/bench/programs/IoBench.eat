@@ -1,0 +1,18 @@
+# Нагрузочный тест: пропускная способность вывода (аксиомы шима).
+# Три пути на итерацию: span-вывод строки (write_span), одиночный
+# write_byte, print с интерполяцией числа (посимвольный путь + fmt).
+# Прямая метрика для слоя «runtime.c с -O2 в build-пути» и порога
+# батчинга write_span. Базовая порция — 20 000 строк (~1.4 М байт).
+
+const REPEAT: u32 = 1
+
+func main() {
+    let line: str<256> = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    for _ in 0..REPEAT {
+        for i in 0..20000 {
+            write(line)
+            write_byte(10)
+            print("n={i & 255}")
+        }
+    }
+}

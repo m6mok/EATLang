@@ -1,0 +1,32 @@
+# Нагрузочный тест: битовые операции u32 (xorshift-подобное месиво).
+# Пре-маскированные сдвиги влево («маска — это доказательство»),
+# сдвиг на переменную величину (проверка ширины может остаться в
+# рантайме — цель связки «ширина маски ↔ величина сдвига», трек 3),
+# инверсия ~. Базовая порция — 200 000 итераций; REPEAT масштабирует.
+
+const REPEAT: u32 = 1
+
+func work(seed: u32) -> u32
+    requires seed < 65536
+    ensures true
+{
+    var acc: u32 = seed + 1
+    for _ in 0..200 {
+        for i in 0..1000 {
+            acc = ((acc & 0x0007FFFF) << 13) ^ acc
+            acc = (acc >> 17) ^ acc
+            acc = ((acc & 0x07FFFFFF) << 5) ^ acc
+            let r: u32 = i & 15
+            acc = acc ^ ((acc >> r) | (~acc & 0xFFFF))
+        }
+    }
+    return acc % 65536
+}
+
+func main() {
+    var acc: u32 = 7
+    for _ in 0..REPEAT {
+        acc = work(acc)
+    }
+    print("checksum {acc}")
+}

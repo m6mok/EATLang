@@ -63,8 +63,18 @@ RUNTIME_PROGRAMS = [
     ("AggBench", 200_000, 160, 20),
     ("NumParseBench", 200_000, 64, 8),
     ("StrBench", 1_280_000, 8, 2),
+    # расширение 2026-07-14: слои плана оптимизаций (COMPTIME_PLAN §0,
+    # TRACKS 3/4) — каждая программа метрика своего слоя
+    ("U64Bench", 200_000, 1024, 128),
+    ("I64Bench", 200_000, 1024, 128),
+    ("BitsBench", 200_000, 1024, 128),
+    ("TrapBench", 200_000, 512, 64),
+    ("MatchBench", 200_000, 2048, 256),
+    ("RetBench", 100_000, 1024, 128),
+    ("CopyBench", 200_000, 1024, 128),
+    ("IoBench", 1_400_000, 256, 32),
 ]
-RUNTIME_QUICK = {"ArithBench", "StrBench"}
+RUNTIME_QUICK = {"ArithBench", "StrBench", "TrapBench"}
 
 
 def eatc(*args) -> list:

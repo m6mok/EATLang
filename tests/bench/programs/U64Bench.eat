@@ -1,0 +1,30 @@
+# Нагрузочный тест: 64-битная беззнаковая арифметика (u64, вид 13).
+# Умножение, широкие сдвиги (>32), деление с доказанным делителем —
+# профиль crypto/МК (на ARM32 уходит в хелперы eabi64). Базовая
+# порция — 200 000 итераций; REPEAT масштабирует нагрузку.
+
+const REPEAT: u32 = 1
+
+func work(seed: u64) -> u64
+    requires seed < 65536
+    ensures true
+{
+    var acc: u64 = seed
+    for _ in 0..200 {
+        for i in 0..1000 {
+            acc = (acc * 31 + u64(i)) % 281474976710656
+            acc = acc ^ (acc >> 33)
+            acc = acc + acc / u64((i & 7) + 2)
+        }
+    }
+    return acc % 65536
+}
+
+func main() {
+    var acc: u64 = 7
+    for _ in 0..REPEAT {
+        acc = work(acc)
+    }
+    let c: u32 = u32(acc)
+    print("checksum {c}")
+}

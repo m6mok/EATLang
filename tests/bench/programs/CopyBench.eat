@@ -1,0 +1,31 @@
+# Нагрузочный тест: копирование массива при связывании (copy_into →
+# llvm.memcpy, 256 байт на итерацию). Профиль selfhost: копии в
+# банкованные пулы (lb_tp) — тот же класс операций; мутация a перед
+# копией не даёт LICM вынести её из цикла. Базовая порция —
+# 200 000 копий; REPEAT масштабирует нагрузку.
+
+const REPEAT: u32 = 1
+
+func work(seed: u32) -> u32
+    requires seed < 65536
+    ensures true
+{
+    var a: [u32; 64] = [1; 64]
+    var acc: u32 = seed
+    for k in 0..200 {
+        for i in 0..1000 {
+            a[i & 63] = (i + k) & 65535
+            let b: [u32; 64] = a
+            acc = (acc + b[(i + 1) & 63]) % 65536
+        }
+    }
+    return acc
+}
+
+func main() {
+    var acc: u32 = 7
+    for _ in 0..REPEAT {
+        acc = work(acc)
+    }
+    print("checksum {acc}")
+}

@@ -1,0 +1,34 @@
+# Нагрузочный тест: 64-битная знаковая арифметика (i64, вид 14).
+# Знаковое деление с обоими знаками делимого (округление к нулю),
+# умножение, остаток — профиль crypto/МК. Базовая порция —
+# 200 000 итераций; REPEAT масштабирует нагрузку.
+
+const REPEAT: u32 = 1
+
+func work(seed: i64) -> i64
+    requires seed >= 0 and seed < 65536
+    ensures result >= 0
+{
+    var acc: i64 = seed
+    for _ in 0..200 {
+        for i in 0..1000 {
+            acc = (acc * 3 + i64(i)) % 1099511627776
+            let t: i64 = 549755813888 - acc
+            acc = acc + t / i64((i & 15) + 1)
+        }
+    }
+    var c: i64 = acc % 65536
+    if c < 0 {
+        c = c + 65536
+    }
+    return c
+}
+
+func main() {
+    var acc: i64 = 7
+    for _ in 0..REPEAT {
+        acc = work(acc)
+    }
+    let c: u32 = u32(acc)
+    print("checksum {c}")
+}
