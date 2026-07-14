@@ -5187,6 +5187,11 @@ struct Ir {
     {
         self.p_sep()
         write("define ")
+        # неэкспортированное — internal (MODULES_PLAN §5); наружу
+        # торчит только настоящий @main и extern-декларации
+        if not self.c.is_exported(fi) {
+            write("internal ")
+        }
         if self.rett == 4294967295 or self.aggr == 1 {
             write("void")
         } else {

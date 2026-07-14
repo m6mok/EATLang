@@ -871,6 +871,39 @@ struct Check {
         return found
     }
 
+    # Экспортирована ли функция своим модулем (метод — через
+    # структуру-владельца: методы приходят с типом). Модуль 0
+    # (Rt, склейка cat) ничего не экспортирует — его функции
+    # internal (docs/MODULES_PLAN.md §5).
+    func is_exported(var self, fi: u32) -> bool
+        requires fi < 1024
+        ensures true
+    {
+        let fm: u32 = self.fmod[fi]
+        if fm == 0 {
+            return false
+        }
+        let own: u32 = self.fown[fi]
+        var a: u32 = self.fn_s[fi]
+        var l: u32 = self.fn_l[fi]
+        if own != 4294967295 {
+            a = self.sn_s[own]
+            l = self.sn_l[own]
+        }
+        var hit: bool = false
+        for j in 0..256 {
+            if j >= self.nexp or hit {
+                break
+            }
+            if self.exm[j] == fm {
+                if self.span_eq(self.exi_s[j], self.exi_l[j], a, l) {
+                    hit = true
+                }
+            }
+        }
+        return hit
+    }
+
     # export-блок: публичное имя (alias | имя) -> внутреннее имя.
     # В безымянном сегменте (склейка cat) блок инертен — интерфейс
     # закрепляет драйвер, ставя #module.
