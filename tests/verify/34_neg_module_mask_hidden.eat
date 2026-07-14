@@ -1,0 +1,22 @@
+#! expect: bounds=0/1 ensures=1/1
+# Негатив к 33: у экспортёра ensures true — маска из ТЕЛА через
+# границу модуля не видна (body-summary не пропускается), bounds
+# у клиента не доказывается и остаётся рантайм-проверкой.
+#module "m.eat"
+export { mask }
+
+func mask(x: u32) -> u32
+    requires true
+    ensures true
+{
+    return x & 15
+}
+#module "main.eat"
+import { mask } from "m.eat"
+
+func main() {
+    let a: [u8; 16] = [0; 16]
+    let i: u32 = mask(4070)
+    let b: u8 = a[i]
+    print("{b}")
+}

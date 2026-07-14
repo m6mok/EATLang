@@ -280,6 +280,7 @@ class Verifier:
         self.checks: dict[tuple, list] = {}
         self.cur_func: ast.FuncDecl | None = None
         self.cur_sig = None
+        self.cur_module = 0  # модуль анализируемой функции (SPARK-граница)
         self.param_names: set = set()
         self.returns: list = []
         self.ret_syms: list = []
@@ -326,6 +327,7 @@ class Verifier:
             if isinstance(decl, ast.TestBlock):
                 self.cur_func = None
                 self.cur_sig = None
+                self.cur_module = self.checker.decl_module.get(id(decl), 0)
                 self.param_names = set()
                 self.returns = []
                 self.ret_syms = []
@@ -344,6 +346,12 @@ class Verifier:
             func.requires_proven = ok
             self._mark("requires", func, ok)
         return self.stats()
+
+    def _module_of(self, key: str) -> int:
+        """Модуль-владелец функции/метода по ключу графа вызовов
+        (для метода — модуль структуры-владельца)."""
+        sname = key.split(".", 1)[0]
+        return self.checker.name_module.get(sname, 0)
 
     def _func_by_key(self, key: str):
         if "." in key:
@@ -393,6 +401,7 @@ class Verifier:
         )
         self.cur_func = func
         self.cur_sig = sig
+        self.cur_module = self._module_of(key)
         self.param_names = {p for p, _ in sig.params}
         self.returns = []
         self.ret_syms = []
@@ -1585,6 +1594,18 @@ class Verifier:
         if new is not None:
             env.ivs[path] = new
 
+    def _contract_iv(self, func, sig, node, env: State, obj_path=None):
+        """SPARK-граница модулей (MODULES_PLAN §6): через границу виден
+        только объявленный контракт — интервал результата это диапазон
+        типа, обрезанный конъюнктами ensures; body-summary не проходит."""
+        base = self._ty_range(node.ty)
+        if base is None or func is None or func.ensures is None:
+            return base
+        tmp = env.copy()
+        tmp.ivs["$result"] = base
+        self._assume_ensures(tmp, func, sig, node, "$result", obj_path)
+        return tmp.ivs.get("$result", base)
+
     def _apply_summary(self, key: str, sig, node, env: State):
         summary = self.summaries.get(key)
         base = self._ty_range(node.ty)
@@ -1656,6 +1677,8 @@ class Verifier:
             func, _ = self._func_by_key(name)
             sig = self.checker.funcs[name]
             self._check_requires(name, func, sig, node, env)
+            if self._module_of(name) != self.cur_module:
+                return self._contract_iv(func, sig, node, env)
             return self._apply_summary(name, sig, node, env)
         return self._ty_range(node.ty)
 
@@ -1676,6 +1699,10 @@ class Verifier:
             p = _path_of(node.obj)
             if p is not None:
                 env.kill(p)
+        if self._module_of(key) != self.cur_module:
+            return self._contract_iv(
+                func, sig, node, env, obj_path=_path_of(node.obj)
+            )
         return self._apply_summary(key, sig, node, env)
 
 
