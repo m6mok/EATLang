@@ -261,6 +261,70 @@ struct Verify {
     # выражение текущего return (result раскрывается в него)
     res_expr: u32
 
+    # --- контракты: assume_ensures / map_side (эталон verifier.py:1979) -
+    # После вызова с ensures факты контракта переводятся в термины
+    # вызывающего: сторона конъюнкта — путь со смещением (result→bind,
+    # параметр→аргумент, self.поле→получатель) либо интервал. Путь-путь
+    # даёт разностный факт + подрезку, путь-интервал — подрезку границ.
+    ae_fi: u32          # индекс вызываемой функции
+    ae_call: u32        # узел вызова (для аргументов subst)
+    ae_bind: u32        # pid связываемой переменной (result), либо NONE
+    ae_obj: u32         # pid получателя (self.поле), либо NONE
+    # стек конъюнктов ensures (расщепление and)
+    aec: [u32; 64]
+    naec: u32
+    # map_side: явный стек пост-обхода (+/- без рекурсии, правило 1)
+    ms_n: [u32; 64]
+    ms_ph: [u32; 64]    # 0 вход, 10/11 склейка (+/-)
+    nms: u32
+    # стек значений map_side: tag 0 none,1 iv,2 off(путь+смещение)
+    mv_t: [u32; 64]
+    mv_p: [u32; 64]
+    mv_cs: [u32; 64]
+    mv_cm: [u64; 64]
+    mv_ls: [u32; 64]
+    mv_lm: [u64; 64]
+    mv_hs: [u32; 64]
+    mv_hm: [u64; 64]
+    nmv: u32
+    # результат map_side (верхушка стека значений)
+    ms_t: u32
+    ms_p: u32
+    ms_cs: u32
+    ms_cm: u64
+    ms_ls: u32
+    ms_lm: u64
+    ms_hs: u32
+    ms_hm: u64
+    # операнд refine_path_iv (обход предела в 6 параметров)
+    rpi_ls: u32
+    rpi_lm: u64
+    rpi_hs: u32
+    rpi_hm: u64
+    # интервал стороны map_combine (side_iv)
+    siv_ok: u32
+    siv_ls: u32
+    siv_lm: u64
+    siv_hs: u32
+    siv_hm: u64
+    # стороны конъюнкта assume_conj (обход предела в 6 параметров)
+    lz_t: u32
+    lz_p: u32
+    lz_cs: u32
+    lz_cm: u64
+    lz_ls: u32
+    lz_lm: u64
+    lz_hs: u32
+    lz_hm: u64
+    rz_t: u32
+    rz_p: u32
+    rz_cs: u32
+    rz_cm: u64
+    rz_ls: u32
+    rz_lm: u64
+    rz_hs: u32
+    rz_hm: u64
+
     func nk(var self, n: u32) -> u32
         requires n < 131072
         ensures true
@@ -916,7 +980,8 @@ struct Verify {
             self.nes = f
             return
         }
-        if op < 10 or op > 14 {
+        # 10..14 арифметика, 16..20 битовые/сдвиги; прочее — неизвестно
+        if (op < 10 or op > 14) and (op < 16 or op > 20) {
             self.rk = 0
             self.vpush()
             self.nes = f
@@ -950,9 +1015,126 @@ struct Verify {
         self.a_hs = self.rhs
         self.a_hm = self.rhm
         self.opkind = self.c.yk[self.nty(self.nfc(n))]
-        self.arith(n, op)
+        if op >= 16 {
+            self.bitwise(n, op)
+        } else {
+            self.arith(n, op)
+        }
         self.vpush()
         self.nes = self.nes - 1
+    }
+
+    # битовые & | ^ (эталон _bitwise): интервалы из неравенств
+    # a&b <= min, max(a,b) <= a|b <= a+b, a^b <= a+b (беззнаковые)
+    func bitwise(var self, n: u32, op: u32)
+        requires n < 131072
+        ensures true
+    {
+        if op == 19 or op == 20 {
+            self.shift(n, op)
+            return
+        }
+        self.kind_range(self.opkind)
+        if self.a_k == 0 or self.b_k == 0 {
+            self.rk = 1
+            self.rls = self.kls
+            self.rlm = self.klm
+            self.rhs = self.khs
+            self.rhm = self.khm
+            return
+        }
+        if self.a_lm == self.a_hm and self.b_lm == self.b_hm {
+            var e: u64 = self.a_lm ^ self.b_lm
+            if op == 18 {
+                e = self.a_lm & self.b_lm
+            } elif op == 16 {
+                e = self.a_lm | self.b_lm
+            }
+            self.rk = 1
+            self.rls = 0
+            self.rlm = e
+            self.rhs = 0
+            self.rhm = e
+            return
+        }
+        var lo_m: u64 = 0
+        var hi_m: u64 = 0
+        if op == 18 {
+            hi_m = self.a_hm
+            if self.b_hm < hi_m {
+                hi_m = self.b_hm
+            }
+        } else {
+            if self.a_hm > self.khm - self.b_hm {
+                hi_m = self.khm
+            } else {
+                hi_m = self.a_hm + self.b_hm
+            }
+            if op == 16 {
+                lo_m = self.a_lm
+                if self.b_lm > lo_m {
+                    lo_m = self.b_lm
+                }
+            }
+        }
+        self.set_inter(0, lo_m, 0, hi_m)
+    }
+
+    # сдвиги << >> (эталон _bitwise): << — умножение на 2^n c проверкой
+    # переполнения, >> — деление; сдвиг на ширину типа и больше — trap
+    func shift(var self, n: u32, op: u32)
+        requires n < 131072
+        ensures true
+    {
+        self.kind_range(self.opkind)
+        var w: u64 = 32
+        if self.opkind == 2 {
+            w = 8
+        } elif self.opkind == 12 {
+            w = 16
+        } elif self.opkind == 13 {
+            w = 64
+        }
+        var shift_ok: u32 = 0
+        if self.b_k == 1 and self.b_hs == 0 and self.b_hm < w {
+            shift_ok = 1
+        }
+        if self.ann == 1 {
+            self.mark(4, n, shift_ok)
+        }
+        if op == 19 and self.ann == 1 {
+            var ovok: u32 = 0
+            if shift_ok == 1 and self.a_k == 1 and self.a_hm <= self.khm >> self.b_hm {
+                ovok = 1
+            }
+            self.mark(1, n, ovok)
+        }
+        if shift_ok == 0 or self.a_k == 0 {
+            self.rk = 1
+            self.rls = self.kls
+            self.rlm = self.klm
+            self.rhs = self.khs
+            self.rhm = self.khm
+            return
+        }
+        var lo_m: u64 = 0
+        var hi_m: u64 = 0
+        if op == 19 {
+            if self.a_lm > self.khm >> self.b_lm {
+                lo_m = self.khm
+            } else {
+                lo_m = self.a_lm << self.b_lm
+            }
+            if self.a_hm > self.khm >> self.b_hm {
+                hi_m = self.khm
+            } else {
+                hi_m = self.a_hm << self.b_hm
+            }
+        } else {
+            lo_m = self.a_lm >> self.b_hm
+            hi_m = self.a_hm >> self.b_lm
+        }
+        self.set_inter(0, lo_m, 0, hi_m)
     }
 
     func arith(var self, n: u32, op: u32)
@@ -1185,12 +1367,6 @@ struct Verify {
             self.nes = f
             return
         }
-        if op == 21 {
-            self.set_ty(self.nty(n))
-            self.vpush()
-            self.nes = f
-            return
-        }
         if ph == 0 {
             self.esp[f] = 1
             self.espush(self.nfc(n))
@@ -1201,16 +1377,41 @@ struct Verify {
             self.b_lm = self.rlm
             self.b_hs = self.rhs
             self.b_hm = self.rhm
-            self.a_k = 1
-            self.a_ls = 0
-            self.a_lm = 0
-            self.a_hs = 0
-            self.a_hm = 0
             self.opkind = self.c.yk[self.nty(n)]
-            self.arith(n, 11)
+            if op == 21 {
+                self.bnot(n)
+            } else {
+                self.a_k = 1
+                self.a_ls = 0
+                self.a_lm = 0
+                self.a_hs = 0
+                self.a_hm = 0
+                self.arith(n, 11)
+            }
             self.vpush()
             self.nes = f
         }
+    }
+
+    # ~x = маска − x (эталон _iv UnaryOp "~"): линейно убывает, точно
+    func bnot(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        self.kind_range(self.opkind)
+        if self.b_k == 0 {
+            self.rk = 1
+            self.rls = self.kls
+            self.rlm = self.klm
+            self.rhs = self.khs
+            self.rhm = self.khm
+            return
+        }
+        self.ssub(self.khs, self.khm, self.b_hs, self.b_hm)
+        let los: u32 = self.oas
+        let lom: u64 = self.oam
+        self.ssub(self.khs, self.khm, self.b_ls, self.b_lm)
+        self.set_inter(los, lom, self.oas, self.oam)
     }
 
     func iv_index(var self, f: u32, n: u32)
@@ -1361,6 +1562,8 @@ struct Verify {
             self.call_cast(n, a, l)
         } elif self.c.span_is(a, l, "len") {
             self.call_len(n)
+        } elif self.c.span_is(a, l, "write_span") {
+            self.call_write_span(n, argc)
         } elif self.c.find_func(a, l) != NONE {
             self.call_user(n, a, l, argc)
         } else {
@@ -1369,6 +1572,40 @@ struct Verify {
         }
         self.vpush()
         self.nes = f
+    }
+
+    # write_span(a, off, len): граница вызова off+len<=N — обязательство
+    # bounds (эталон _iv_call name=="write_span"). Значение вызова — ⊥.
+    func call_write_span(var self, n: u32, argc: u32)
+        requires n < 131072
+        ensures true
+    {
+        self.vpop()
+        let lls: u32 = self.rls
+        let lhs: u32 = self.rhs
+        let lhm: u64 = self.rhm
+        let lk: u32 = self.rk
+        self.vpop()
+        let ols: u32 = self.rls
+        let ohs: u32 = self.rhs
+        let ohm: u64 = self.rhm
+        let ok0: u32 = self.rk
+        if argc >= 2 {
+            self.pop_args(argc - 2)
+        }
+        var okmark: u32 = 0
+        let arg0: u32 = self.nfc(n)
+        let aty: u32 = self.nty(arg0)
+        if aty != NONE and self.c.yk[aty] == 7 and lk == 1 and ok0 == 1 {
+            let sz: u64 = u64(self.c.yb[aty])
+            if ols == 0 and lls == 0 and ohs == 0 and lhs == 0 and ohm <= sz and lhm <= sz - ohm {
+                okmark = 1
+            }
+        }
+        if self.ann == 1 {
+            self.mark(0, n, okmark)
+        }
+        self.rk = 0
     }
 
     func pop_args(var self, argc: u32)
@@ -1493,9 +1730,63 @@ struct Verify {
         let ret: u32 = self.c.fret[fi]
         if ret == NONE {
             self.rk = 0
+            return
+        }
+        # SPARK-граница (эталон _iv_call): через границу модуля виден лишь
+        # объявленный контракт — интервал результата = диапазон типа,
+        # обрезанный ensures. В одном модуле — диапазон типа (сводки: этап 3)
+        if self.c.fmod[fi] != self.c.fmod[self.cur_fn] {
+            self.contract_iv(fi, n, NONE)
         } else {
             self.set_ty(ret)
         }
+    }
+
+    # интервал результата через границу модуля: диапазон типа, обрезанный
+    # конъюнктами ensures (эталон _contract_iv через $result во временном
+    # состоянии). obj — pid получателя (метод), либо NONE
+    func contract_iv(var self, fi: u32, call: u32, obj: u32)
+        requires fi < 1024 and call < 131072
+        ensures true
+    {
+        let ret: u32 = self.c.fret[fi]
+        self.set_ty(ret)
+        if self.rk == 0 {
+            return
+        }
+        let ens: u32 = self.func_clause(fi, 10)
+        if ens == NONE {
+            return
+        }
+        let bls: u32 = self.rls
+        let blm: u64 = self.rlm
+        let bhs: u32 = self.rhs
+        let bhm: u64 = self.rhm
+        let rpid: u32 = self.slot_intern(NONE, 2, 0, 0)
+        if rpid >= 64 {
+            return
+        }
+        var saved: St = self.env
+        self.env.kn[rpid] = 1
+        self.env.nz[rpid] = 0
+        self.env.ls[rpid] = bls
+        self.env.lm[rpid] = blm
+        self.env.hs[rpid] = bhs
+        self.env.hm[rpid] = bhm
+        self.assume_ensures(fi, call, rpid, obj)
+        self.rk = 1
+        if self.env.kn[rpid] == 1 {
+            self.rls = self.env.ls[rpid]
+            self.rlm = self.env.lm[rpid]
+            self.rhs = self.env.hs[rpid]
+            self.rhm = self.env.hm[rpid]
+        } else {
+            self.rls = bls
+            self.rlm = blm
+            self.rhs = bhs
+            self.rhm = bhm
+        }
+        self.env = saved
     }
 
     # обработать накопленные вызовы: для каждого — проверить requires
@@ -1641,11 +1932,13 @@ struct Verify {
             let t: u32 = self.ndfs - 1
             let n: u32 = self.dfs_n[t]
             self.ndfs = t
-            let k: u32 = self.nk(n)
+            # прозрачные касты char/u8(char) — не вызовы (эталон _has_call)
+            let un: u32 = self.uncast(n)
+            let k: u32 = self.nk(un)
             if k == 41 or k == 42 {
                 found = true
             } else {
-                self.dfs_push_children(n)
+                self.dfs_push_children(un)
             }
         }
         return found
@@ -2118,7 +2411,9 @@ struct Verify {
         requires target < 131072 and other < 131072
         ensures true
     {
-        if self.nk(target) != 37 {
+        # цель через прозрачный каст / дотовый путь (эталон _path_of)
+        let pid: u32 = self.node_path(target)
+        if pid == NONE or pid >= 64 {
             return
         }
         let tty: u32 = self.nty(target)
@@ -2133,7 +2428,6 @@ struct Verify {
         self.rc_olm = self.rlm
         self.rc_ohs = self.rhs
         self.rc_ohm = self.rhm
-        let pid: u32 = self.path_intern(self.nss(target), self.nsl(target))
         if self.env.kn[pid] == 1 {
             self.rc_cls = self.env.ls[pid]
             self.rc_clm = self.env.lm[pid]
@@ -2195,7 +2489,8 @@ struct Verify {
         requires target < 131072 and other < 131072
         ensures true
     {
-        if self.nk(target) != 37 {
+        let pid: u32 = self.node_path(target)
+        if pid == NONE or pid >= 64 {
             return
         }
         let tty: u32 = self.nty(target)
@@ -2208,7 +2503,6 @@ struct Verify {
         }
         let cs: u32 = self.rls
         let cm: u64 = self.rlm
-        let pid: u32 = self.path_intern(self.nss(target), self.nsl(target))
         if cs == 0 and cm == 0 {
             self.env.nz[pid] = 1
         }
@@ -2738,6 +3032,565 @@ struct Verify {
         return true
     }
 
+    # --- контракты: assume_ensures / map_side (эталон verifier.py:1979) -
+
+    # i-й ребёнок узла (аргумент вызова), либо NONE
+    func nth_child(var self, node: u32, i: u32) -> u32
+        requires node < 131072
+        ensures true
+    {
+        var c: u32 = self.nfc(node)
+        for j in 0..64 {
+            if c == NONE or j >= i {
+                break
+            }
+            c = self.nns(c)
+        }
+        return c
+    }
+
+    # индекс параметра функции fi с именем-span (a,l), либо NONE
+    func param_index(var self, fi: u32, a: u32, l: u32) -> u32
+        requires fi < 1024
+        ensures true
+    {
+        let pbase: u32 = self.c.fps[fi]
+        var r: u32 = NONE
+        for i in 0..8 {
+            if i >= self.c.fpc[fi] or r != NONE {
+                break
+            }
+            if self.c.span_eq(self.c.pn_s[pbase + i], self.c.pn_l[pbase + i], a, l) {
+                r = i
+            }
+        }
+        return r
+    }
+
+    # сторона конъюнкта ensures в терминах вызывающего -> ms_* (лист).
+    # ms_t: 0 нет | 1 интервал (ms_ls..ms_hm) | 2 путь+смещение (ms_p,ms_cs,ms_cm)
+    func map_leaf(var self, e: u32)
+        requires e < 131072
+        ensures true
+    {
+        self.ms_t = 0
+        let k: u32 = self.nk(e)
+        if k == 32 {
+            self.ms_t = 1
+            self.ms_ls = self.ny(e)
+            self.ms_lm = self.c.p.mag(e)
+            self.ms_hs = self.ms_ls
+            self.ms_hm = self.ms_lm
+            return
+        }
+        if k == 37 {
+            let a: u32 = self.nss(e)
+            let l: u32 = self.nsl(e)
+            if self.c.span_is(a, l, "result") {
+                if self.ae_bind != NONE {
+                    self.ms_t = 2
+                    self.ms_p = self.ae_bind
+                    self.ms_cs = 0
+                    self.ms_cm = 0
+                }
+                return
+            }
+            let ci: u32 = self.c.find_const(a, l)
+            if ci != NONE {
+                self.ms_t = 1
+                self.ms_ls = self.c.cvs[ci]
+                self.ms_lm = self.c.cvm[ci]
+                self.ms_hs = self.ms_ls
+                self.ms_hm = self.ms_lm
+                return
+            }
+            let pi: u32 = self.param_index(self.ae_fi, a, l)
+            if pi != NONE {
+                let arg: u32 = self.nth_child(self.ae_call, pi)
+                if arg != NONE {
+                    self.map_arg(arg)
+                }
+            }
+            return
+        }
+        # self.поле в ensures метода: путь получателя (obj) + хвост полей
+        if self.ae_obj != NONE {
+            self.map_self_path(e)
+        }
+    }
+
+    # аргумент subst: путь+смещение (decompose) либо интервал-константа.
+    # Эталон _map_side зовёт _iv(arg); здесь — const_of вместо iv_eval:
+    # это разрывает цикл вызовов contract_iv→…→map_arg→iv_eval→…→contract_iv
+    # (правило 1). Контрактные аргументы гейта/целей — пути или литералы;
+    # сложное интервальное выражение-аргумент даёт «неизвестно» (этап 3).
+    func map_arg(var self, arg: u32)
+        requires arg < 131072
+        ensures true
+    {
+        if self.decompose(arg) {
+            self.ms_t = 2
+            self.ms_p = self.dc_p
+            self.ms_cs = self.dc_s
+            self.ms_cm = self.dc_m
+            return
+        }
+        if self.const_of(arg) {
+            self.ms_t = 1
+            self.ms_ls = self.csig
+            self.ms_lm = self.cmag
+            self.ms_hs = self.csig
+            self.ms_hm = self.cmag
+        }
+    }
+
+    # self / self.поле в ensures метода -> путь в терминах получателя.
+    # База self заменяется на ae_obj, хвост полей достраивается.
+    func map_self_path(var self, e: u32)
+        requires e < 131072
+        ensures true
+    {
+        var chain: [u32; 16] = [0; 16]
+        var nch: u32 = 0
+        var cur: u32 = self.uncast(e)
+        var done: bool = false
+        var ok: bool = false
+        for _ in 0..16 {
+            if done {
+                break
+            }
+            let k: u32 = self.nk(cur)
+            if k == 38 {
+                ok = true
+                done = true
+            } elif k == 43 and nch < 16 {
+                chain[nch] = cur
+                nch = nch + 1
+                cur = self.uncast(self.nfc(cur))
+            } else {
+                done = true
+            }
+        }
+        if not ok {
+            return
+        }
+        var pid: u32 = self.ae_obj
+        for t in 0..16 {
+            if t >= nch or self.failed {
+                break
+            }
+            let m: u32 = chain[nch - 1 - t]
+            pid = self.slot_intern(pid, 0, self.nss(m), self.nsl(m))
+        }
+        self.ms_t = 2
+        self.ms_p = pid
+        self.ms_cs = 0
+        self.ms_cm = 0
+    }
+
+    func mvpush(var self)
+        requires true
+        ensures true
+    {
+        if self.nmv >= 64 {
+            return
+        }
+        let i: u32 = self.nmv
+        self.mv_t[i] = self.ms_t
+        self.mv_p[i] = self.ms_p
+        self.mv_cs[i] = self.ms_cs
+        self.mv_cm[i] = self.ms_cm
+        self.mv_ls[i] = self.ms_ls
+        self.mv_lm[i] = self.ms_lm
+        self.mv_hs[i] = self.ms_hs
+        self.mv_hm[i] = self.ms_hm
+        self.nmv = i + 1
+    }
+
+    # map_side: сторона конъюнкта -> ms_* (пост-обход +/- явным стеком)
+    func map_side(var self, e: u32)
+        requires e < 131072
+        ensures true
+    {
+        self.nms = 0
+        self.nmv = 0
+        self.ms_n[0] = e
+        self.ms_ph[0] = 0
+        self.nms = 1
+        for _ in 0..256 {
+            if self.nms == 0 {
+                break
+            }
+            let t: u32 = self.nms - 1
+            let node: u32 = self.ms_n[t]
+            let ph: u32 = self.ms_ph[t]
+            self.nms = t
+            if ph == 0 {
+                let k: u32 = self.nk(node)
+                let op: u32 = self.nx(node)
+                if k == 39 and (op == 10 or op == 11) and self.nms < 62 {
+                    let left: u32 = self.nfc(node)
+                    let right: u32 = self.nns(left)
+                    self.ms_n[self.nms] = node
+                    self.ms_ph[self.nms] = op
+                    self.nms = self.nms + 1
+                    self.ms_n[self.nms] = right
+                    self.ms_ph[self.nms] = 0
+                    self.nms = self.nms + 1
+                    self.ms_n[self.nms] = left
+                    self.ms_ph[self.nms] = 0
+                    self.nms = self.nms + 1
+                } else {
+                    self.map_leaf(node)
+                    self.mvpush()
+                }
+            } else {
+                self.map_combine(ph)
+            }
+        }
+        if self.nmv >= 1 {
+            let r: u32 = self.nmv - 1
+            self.ms_t = self.mv_t[r]
+            self.ms_p = self.mv_p[r]
+            self.ms_cs = self.mv_cs[r]
+            self.ms_cm = self.mv_cm[r]
+            self.ms_ls = self.mv_ls[r]
+            self.ms_lm = self.mv_lm[r]
+            self.ms_hs = self.mv_hs[r]
+            self.ms_hm = self.mv_hm[r]
+        } else {
+            self.ms_t = 0
+        }
+    }
+
+    # интервал стороны idx стека значений -> siv_* (siv_ok=0 если нет)
+    func side_iv(var self, idx: u32)
+        requires idx < 64
+        ensures true
+    {
+        let t: u32 = self.mv_t[idx]
+        if t == 1 {
+            self.siv_ok = 1
+            self.siv_ls = self.mv_ls[idx]
+            self.siv_lm = self.mv_lm[idx]
+            self.siv_hs = self.mv_hs[idx]
+            self.siv_hm = self.mv_hm[idx]
+            return
+        }
+        let p: u32 = self.mv_p[idx]
+        if t == 2 and p < 64 and self.env.kn[p] == 1 {
+            self.sadd(self.env.ls[p], self.env.lm[p], self.mv_cs[idx], self.mv_cm[idx])
+            self.siv_ls = self.oas
+            self.siv_lm = self.oam
+            self.sadd(self.env.hs[p], self.env.hm[p], self.mv_cs[idx], self.mv_cm[idx])
+            self.siv_hs = self.oas
+            self.siv_hm = self.oam
+            self.siv_ok = 1
+            return
+        }
+        self.siv_ok = 0
+    }
+
+    # склейка двух вершин стека значений (op 10 +, 11 -) -> ms_*
+    func map_combine(var self, op: u32)
+        requires true
+        ensures true
+    {
+        if self.nmv < 2 {
+            self.ms_t = 0
+            self.mvpush()
+            return
+        }
+        let ri: u32 = self.nmv - 1
+        let li: u32 = self.nmv - 2
+        let lt: u32 = self.mv_t[li]
+        let rt: u32 = self.mv_t[ri]
+        self.nmv = li
+        # путь+смещение ± константа остаётся путём со смещением
+        if lt == 2 and rt == 1 and self.seq(self.mv_ls[ri], self.mv_lm[ri], self.mv_hs[ri], self.mv_hm[ri]) {
+            if op == 10 {
+                self.sadd(self.mv_cs[li], self.mv_cm[li], self.mv_ls[ri], self.mv_lm[ri])
+            } else {
+                self.ssub(self.mv_cs[li], self.mv_cm[li], self.mv_ls[ri], self.mv_lm[ri])
+            }
+            self.ms_t = 2
+            self.ms_p = self.mv_p[li]
+            self.ms_cs = self.oas
+            self.ms_cm = self.oam
+            self.mvpush()
+            return
+        }
+        if op == 10 and lt == 1 and self.seq(self.mv_ls[li], self.mv_lm[li], self.mv_hs[li], self.mv_hm[li]) and rt == 2 {
+            self.sadd(self.mv_cs[ri], self.mv_cm[ri], self.mv_ls[li], self.mv_lm[li])
+            self.ms_t = 2
+            self.ms_p = self.mv_p[ri]
+            self.ms_cs = self.oas
+            self.ms_cm = self.oam
+            self.mvpush()
+            return
+        }
+        self.map_combine_iv(op, li, ri)
+    }
+
+    # интервальная арифметика сторон li op ri -> ms_*
+    func map_combine_iv(var self, op: u32, li: u32, ri: u32)
+        requires li < 64 and ri < 64
+        ensures true
+    {
+        self.side_iv(li)
+        if self.siv_ok == 0 {
+            self.ms_t = 0
+            self.mvpush()
+            return
+        }
+        let alos: u32 = self.siv_ls
+        let alom: u64 = self.siv_lm
+        let ahis: u32 = self.siv_hs
+        let ahim: u64 = self.siv_hm
+        self.side_iv(ri)
+        if self.siv_ok == 0 {
+            self.ms_t = 0
+            self.mvpush()
+            return
+        }
+        if op == 10 {
+            self.sadd(alos, alom, self.siv_ls, self.siv_lm)
+            self.ms_ls = self.oas
+            self.ms_lm = self.oam
+            self.sadd(ahis, ahim, self.siv_hs, self.siv_hm)
+            self.ms_hs = self.oas
+            self.ms_hm = self.oam
+        } else {
+            self.ssub(alos, alom, self.siv_hs, self.siv_hm)
+            self.ms_ls = self.oas
+            self.ms_lm = self.oam
+            self.ssub(ahis, ahim, self.siv_ls, self.siv_lm)
+            self.ms_hs = self.oas
+            self.ms_hm = self.oam
+        }
+        self.ms_t = 1
+        self.mvpush()
+    }
+
+    # подрезка интервала пути по факту `path op oiv` (эталон _refine_path_iv);
+    # операнд oiv — в rpi_* (обход предела в 6 параметров)
+    func refine_path_iv(var self, path: u32, op: u32)
+        requires path < 64
+        ensures true
+    {
+        let ols: u32 = self.rpi_ls
+        let olm: u64 = self.rpi_lm
+        let ohs: u32 = self.rpi_hs
+        let ohm: u64 = self.rpi_hm
+        if self.env.kn[path] == 0 {
+            if op == 4 {
+                self.env.kn[path] = 1
+                self.env.ls[path] = ols
+                self.env.lm[path] = olm
+                self.env.hs[path] = ohs
+                self.env.hm[path] = ohm
+            }
+            return
+        }
+        var nlos: u32 = self.env.ls[path]
+        var nlom: u64 = self.env.lm[path]
+        var nhis: u32 = self.env.hs[path]
+        var nhim: u64 = self.env.hm[path]
+        if op == 6 {
+            self.ssub(ohs, ohm, 0, 1)
+            self.smin(nhis, nhim, self.oas, self.oam)
+            nhis = self.oas
+            nhim = self.oam
+        } elif op == 7 {
+            self.smin(nhis, nhim, ohs, ohm)
+            nhis = self.oas
+            nhim = self.oam
+        } elif op == 8 {
+            self.sadd(ols, olm, 0, 1)
+            self.smax(nlos, nlom, self.oas, self.oam)
+            nlos = self.oas
+            nlom = self.oam
+        } elif op == 9 {
+            self.smax(nlos, nlom, ols, olm)
+            nlos = self.oas
+            nlom = self.oam
+        } else {
+            self.smax(nlos, nlom, ols, olm)
+            nlos = self.oas
+            nlom = self.oam
+            self.smin(nhis, nhim, ohs, ohm)
+            nhis = self.oas
+            nhim = self.oam
+        }
+        if self.sleq(nlos, nlom, nhis, nhim) {
+            self.env.ls[path] = nlos
+            self.env.lm[path] = nlom
+            self.env.hs[path] = nhis
+            self.env.hm[path] = nhim
+        }
+    }
+
+    # применить контракт ensures вызванной функции fi на месте вызова call:
+    # bind — pid связываемого результата (или NONE), obj — pid получателя
+    func assume_ensures(var self, fi: u32, call: u32, bind: u32, obj: u32)
+        requires fi < 1024 and call < 131072
+        ensures true
+    {
+        let ens: u32 = self.func_clause(fi, 10)
+        if ens == NONE {
+            return
+        }
+        self.ae_fi = fi
+        self.ae_call = call
+        self.ae_bind = bind
+        self.ae_obj = obj
+        # оценка аргументов не должна плодить отложенные requires
+        # (эталон _map_side зовёт _iv с annotate=False; сайты уже учтены)
+        let saved_rec: u32 = self.rec_off
+        self.rec_off = 1
+        self.naec = 0
+        self.aec[0] = ens
+        self.naec = 1
+        for _ in 0..128 {
+            if self.naec == 0 {
+                break
+            }
+            let t: u32 = self.naec - 1
+            let c: u32 = self.aec[t]
+            self.naec = t
+            if self.nk(c) == 39 and self.nx(c) == 2 {
+                if self.naec < 63 {
+                    self.aec[self.naec] = self.nfc(c)
+                    self.naec = self.naec + 1
+                    self.aec[self.naec] = self.nns(self.nfc(c))
+                    self.naec = self.naec + 1
+                }
+            } else {
+                self.assume_conj(c)
+            }
+        }
+        self.rec_off = saved_rec
+    }
+
+    # один конъюнкт-сравнение ensures -> факты в self.env
+    func assume_conj(var self, c: u32)
+        requires c < 131072
+        ensures true
+    {
+        if self.nk(c) != 39 {
+            return
+        }
+        let op: u32 = self.nx(c)
+        if op != 4 and op != 6 and op != 7 and op != 8 and op != 9 {
+            return
+        }
+        let left: u32 = self.nfc(c)
+        let right: u32 = self.nns(left)
+        self.map_side(left)
+        self.lz_t = self.ms_t
+        self.lz_p = self.ms_p
+        self.lz_cs = self.ms_cs
+        self.lz_cm = self.ms_cm
+        self.lz_ls = self.ms_ls
+        self.lz_lm = self.ms_lm
+        self.lz_hs = self.ms_hs
+        self.lz_hm = self.ms_hm
+        self.map_side(right)
+        self.rz_t = self.ms_t
+        self.rz_p = self.ms_p
+        self.rz_cs = self.ms_cs
+        self.rz_cm = self.ms_cm
+        self.rz_ls = self.ms_ls
+        self.rz_lm = self.ms_lm
+        self.rz_hs = self.ms_hs
+        self.rz_hm = self.ms_hm
+        if self.lz_t == 0 or self.rz_t == 0 {
+            return
+        }
+        if self.lz_t == 2 and self.rz_t == 2 {
+            self.assume_off_off(op)
+        } elif self.lz_t == 2 and self.rz_t == 1 {
+            self.assume_off_iv(op)
+        } elif self.lz_t == 1 and self.rz_t == 2 {
+            self.assume_iv_off(op)
+        }
+    }
+
+    # путь+смещение op путь+смещение: разностный факт + подрезка обеих
+    func assume_off_off(var self, op: u32)
+        requires true
+        ensures true
+    {
+        let lp: u32 = self.lz_p
+        let rp: u32 = self.rz_p
+        if lp >= 64 or rp >= 64 {
+            return
+        }
+        # rc - lc
+        self.ssub(self.rz_cs, self.rz_cm, self.lz_cs, self.lz_cm)
+        let ds: u32 = self.oas
+        let dm: u64 = self.oam
+        if lp != rp {
+            self.env_relate(lp, op, rp, ds, dm)
+        }
+        if self.env.kn[rp] == 1 {
+            self.sadd(self.env.ls[rp], self.env.lm[rp], ds, dm)
+            self.rpi_ls = self.oas
+            self.rpi_lm = self.oam
+            self.sadd(self.env.hs[rp], self.env.hm[rp], ds, dm)
+            self.rpi_hs = self.oas
+            self.rpi_hm = self.oam
+            self.refine_path_iv(lp, op)
+        }
+        if self.env.kn[lp] == 1 {
+            # lc - rc
+            self.ssub(self.lz_cs, self.lz_cm, self.rz_cs, self.rz_cm)
+            let es: u32 = self.oas
+            let em: u64 = self.oam
+            self.sadd(self.env.ls[lp], self.env.lm[lp], es, em)
+            self.rpi_ls = self.oas
+            self.rpi_lm = self.oam
+            self.sadd(self.env.hs[lp], self.env.hm[lp], es, em)
+            self.rpi_hs = self.oas
+            self.rpi_hm = self.oam
+            self.refine_path_iv(rp, self.mirror_op(op))
+        }
+    }
+
+    # путь+смещение op интервал: подрезка пути (iv - lc)
+    func assume_off_iv(var self, op: u32)
+        requires true
+        ensures true
+    {
+        if self.lz_p >= 64 {
+            return
+        }
+        self.ssub(self.rz_ls, self.rz_lm, self.lz_cs, self.lz_cm)
+        self.rpi_ls = self.oas
+        self.rpi_lm = self.oam
+        self.ssub(self.rz_hs, self.rz_hm, self.lz_cs, self.lz_cm)
+        self.rpi_hs = self.oas
+        self.rpi_hm = self.oam
+        self.refine_path_iv(self.lz_p, op)
+    }
+
+    # интервал op путь+смещение: подрезка пути зеркальным op (iv - rc)
+    func assume_iv_off(var self, op: u32)
+        requires true
+        ensures true
+    {
+        if self.rz_p >= 64 {
+            return
+        }
+        self.ssub(self.lz_ls, self.lz_lm, self.rz_cs, self.rz_cm)
+        self.rpi_ls = self.oas
+        self.rpi_lm = self.oam
+        self.ssub(self.lz_hs, self.lz_hm, self.rz_cs, self.rz_cm)
+        self.rpi_hs = self.oas
+        self.rpi_hm = self.oam
+        self.refine_path_iv(self.rz_p, self.mirror_op(op))
+    }
+
     # --- машина потока (0 блок, 1 if, 2 for) --------------------------
 
     func fpush_block(var self, node: u32)
@@ -2795,8 +3648,10 @@ struct Verify {
             self.fblock()
         } elif k == 1 {
             self.fif()
-        } else {
+        } elif k == 2 {
             self.ffor()
+        } else {
+            self.fmatch()
         }
     }
 
@@ -2831,6 +3686,8 @@ struct Verify {
             self.flow_return(cur)
         } elif k == 24 {
             self.flow_assert(cur)
+        } elif k == 20 {
+            self.fpush_kind(cur, 3)
         } elif k == 25 or k == 26 {
             self.iv_eval(self.nfc(cur), 1)
             self.flush_requires()
@@ -2876,6 +3733,14 @@ struct Verify {
         let value: u32 = self.nns(self.nfc(cur))
         if self.decompose(value) {
             self.env_relate(pid, 4, self.dc_p, self.dc_s, self.dc_m)
+        }
+        # модульный контракт: ensures вызванной функции гарантирован
+        # рантаймом — предполагаем его факт о связанном результате
+        if self.nk(value) == 41 {
+            let cfi: u32 = self.c.find_func(self.nss(value), self.nsl(value))
+            if cfi != NONE {
+                self.assume_ensures(cfi, value, pid, NONE)
+            }
         }
     }
 
@@ -3044,6 +3909,10 @@ struct Verify {
         ensures true
     {
         self.env = self.fsa[f]
+        # обязательства внутри условия ветви отмечаются (эталон _flow_if:
+        # _eval_bool(cond) до уточнения) — напр. границы a[i] в `if a[i] > x`
+        self.eval_bool(cnd, 1)
+        self.flush_requires()
         self.refine(cnd, 1)
         self.fcc[f] = cnd
         self.fbk[f] = blk
@@ -3172,6 +4041,108 @@ struct Verify {
             c = self.nns(c)
         }
         return ex
+    }
+
+    # блок кончается return (эталон _block_returns): плечо match, не
+    # доходящее до join, — только return (break из арма вне цикла нет)
+    func block_returns(var self, blk: u32) -> bool
+        requires blk < 131072
+        ensures true
+    {
+        var c: u32 = self.nfc(blk)
+        var r: bool = false
+        for _ in 0..256 {
+            if c == NONE or r {
+                break
+            }
+            if self.nk(c) == 22 {
+                r = true
+            }
+            c = self.nns(c)
+        }
+        return r
+    }
+
+    # --- match-кадр (kind 19; арм — kind 21) ---------------------------
+    # Эталон _flow_match: subject оценивается (интервал + сайты requires),
+    # каждый арм — копия входного состояния с интервалом связки (тип
+    # нагрузки), плечи без return join'ятся; всё вернули — входное env.
+
+    func fmatch(var self)
+        requires self.nf2 >= 1
+        ensures true
+    {
+        let f: u32 = self.nf2 - 1
+        let node: u32 = self.fnn[f]
+        let ph: u32 = self.fp2[f]
+        if ph == 0 {
+            let subj: u32 = self.nfc(node)
+            self.iv_eval(subj, 1)
+            self.flush_requires()
+            self.fsa[f] = self.env
+            self.fx2[f] = 0
+            self.fc2[f] = self.nns(subj)
+            self.fp2[f] = 1
+        } elif ph == 1 {
+            self.fmatch1(f)
+        } else {
+            self.fmatch2(f)
+        }
+    }
+
+    func fmatch1(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        let cur: u32 = self.fc2[f]
+        if cur == NONE {
+            if self.fx2[f] == 1 {
+                self.env = self.fsb[f]
+            } else {
+                self.env = self.fsa[f]
+            }
+            self.nf2 = f
+            return
+        }
+        self.env = self.fsa[f]
+        self.seed_binding(cur)
+        self.fbk[f] = self.nfc(cur)
+        self.fc2[f] = self.nns(cur)
+        self.fp2[f] = 2
+        self.fpush_block(self.nfc(cur))
+    }
+
+    func fmatch2(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        if not self.block_returns(self.fbk[f]) {
+            self.join_into(f)
+        }
+        self.fp2[f] = 1
+    }
+
+    # интервал связки арма — диапазон типа нагрузки (эталон _ty_iv)
+    func seed_binding(var self, arm: u32)
+        requires arm < 131072
+        ensures true
+    {
+        let bs: u32 = self.nx(arm)
+        if bs == NONE {
+            return
+        }
+        let pty: u32 = self.nty(arm)
+        if pty == NONE or not self.numeric_kind(self.c.yk[pty]) {
+            return
+        }
+        let pid: u32 = self.path_intern(bs, self.ny(arm))
+        self.set_ty(pty)
+        self.env.kn[pid] = 1
+        self.env.nz[pid] = 0
+        self.env.ls[pid] = self.rls
+        self.env.lm[pid] = self.rlm
+        self.env.hs[pid] = self.rhs
+        self.env.hm[pid] = self.rhm
     }
 
     # --- for-кадр ------------------------------------------------------
