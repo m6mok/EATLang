@@ -84,6 +84,14 @@
                     "match": "\\b(if|elif|else|for|in|loop|match|return|break|discard)\\b"
                 },
                 {
+                    "name": "keyword.control.import.eat",
+                    "match": "\\b(import|export|from|as)\\b"
+                },
+                {
+                    "name": "storage.modifier.extern.eat",
+                    "match": "\\b(extern)\\b"
+                },
+                {
                     "name": "storage.type.eat",
                     "match": "\\b(let|var|const|func|struct|enum|test)\\b"
                 },
@@ -96,6 +104,10 @@
                     "match": "\\b(true|false)\\b"
                 },
                 {
+                    "name": "support.function.constructor.eat",
+                    "match": "\\b(Ok|Err|Some|None)\\b"
+                },
+                {
                     "name": "variable.language.self.eat",
                     "match": "\\bself\\b"
                 }
@@ -105,11 +117,11 @@
             "patterns": [
                 {
                     "name": "support.type.primitive.eat",
-                    "match": "\\b(i32|u32|u8|bool|char|str)\\b"
+                    "match": "\\b(u8|u16|u32|u64|i32|i64|bool|char|str)\\b"
                 },
                 {
                     "name": "support.type.builtin.eat",
-                    "match": "\\b(Result|Option)\\b"
+                    "match": "\\b(Result|Option|IoError|ParseError)\\b"
                 }
             ]
         },
@@ -117,7 +129,7 @@
             "patterns": [
                 {
                     "name": "support.function.builtin.eat",
-                    "match": "\\b(print|write|read_line|read_byte|write_byte|parse_i32|len)\\b(?=\\s*\\()"
+                    "match": "\\b(print|write|read_byte|write_byte|write_span|write_err_byte|exit|arg_count|arg_len|arg_byte|len)\\b(?=\\s*\\()"
                 },
                 {
                     "name": "entity.name.function.call.eat",
@@ -142,8 +154,16 @@
             "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
         },
         "number": {
-            "name": "constant.numeric.integer.eat",
-            "match": "\\b[0-9]+\\b"
+            "patterns": [
+                {
+                    "name": "constant.numeric.hex.eat",
+                    "match": "\\b0x[0-9a-fA-F]+\\b"
+                },
+                {
+                    "name": "constant.numeric.integer.eat",
+                    "match": "\\b[0-9]+\\b"
+                }
+            ]
         },
         "operators": {
             "patterns": [
@@ -156,6 +176,10 @@
                     "match": "\\.\\."
                 },
                 {
+                    "name": "keyword.operator.bitwise.shift.eat",
+                    "match": "<<|>>"
+                },
+                {
                     "name": "keyword.operator.comparison.eat",
                     "match": "==|!=|<=|>=|<|>"
                 },
@@ -166,6 +190,10 @@
                 {
                     "name": "keyword.operator.arithmetic.eat",
                     "match": "[+\\-*/%]"
+                },
+                {
+                    "name": "keyword.operator.bitwise.eat",
+                    "match": "[&|^~]"
                 }
             ]
         },
