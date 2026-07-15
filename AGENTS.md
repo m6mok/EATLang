@@ -17,6 +17,7 @@ Python-бутстрап (`src/eatc/`) — эталон, с которым всё
 | [SPEC.md](SPEC.md) | формальная спецификация: EBNF, семантика, пределы §6, встроенные §7 |
 | [docs/GUIDE.md](docs/GUIDE.md) | как писать на языке: синтаксис, контракты, что не скомпилируется |
 | [docs/SELFHOST.md](docs/SELFHOST.md) | архитектура self-hosted компилятора, фазы 1–6 |
+| [docs/SELFHOST_OPT_PLAN.md](docs/SELFHOST_OPT_PLAN.md) | план: оптимизационная ось selfhost (`eatc ir -O` ↔ `SelfIrOpt`), ярус B как первый проход |
 | [docs/VERIFICATION_PLAN.md](docs/VERIFICATION_PLAN.md) | статический верификатор: каталог кейсов `tests/verify/` |
 | [docs/TRACKS.md](docs/TRACKS.md) | треки работ: производительность, МК, язык — что дальше и почему |
 
