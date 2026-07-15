@@ -196,7 +196,7 @@ _KIND_LABEL = {
 
 def cmd_build(
     paths: list, out: str | None, trap_codes: bool = False,
-    link: bool = True, release: bool = False,
+    link: bool = True, release: bool = False, fold: bool = False,
 ) -> int:
     from .codegen import compile_binary
     from .verifier import verify
@@ -206,6 +206,13 @@ def cmd_build(
     try:
         program, _, typed, main = _compile_many(paths)
         tests = Interpreter(program, main).run_tests()
+        folded = 0
+        if fold:
+            # ярус B (§11): свёртка вызовов с константными аргументами в
+            # телах — до verify, чтобы точки [v,v] сняли проверки ниже.
+            # Только build-путь; `eatc ir` не сворачивает (канон IR цел)
+            from .comptime import fold_calls
+            folded = fold_calls(program, typed.checker, main)
         proofs = verify(program, typed.checker)
         binary, report = compile_binary(
             program, typed.checker, main, out, trap_codes=trap_codes,
@@ -223,6 +230,8 @@ def cmd_build(
         f"  верификация: доказано {proofs['proven']} из "
         f"{proofs['total']} проверок ({left} остаётся в рантайме)"
     )
+    if fold:
+        print(f"  ярус B: свёрнуто вызовов в литералы: {folded}")
     detail = ", ".join(
         f"{_KIND_LABEL[k]}: {v[0]}/{v[1]}"
         for k, v in sorted(proofs["by_kind"].items())
@@ -274,6 +283,12 @@ def main(argv: list[str]) -> int:
     release = "--release" in argv or "-r" in argv
     if release:
         argv = [a for a in argv if a not in ("--release", "-r")]
+    # --fold (build, §11 ярус B): свёртка вызовов с константными
+    # аргументами в литералы. Под флагом на время обкатки; по умолчанию
+    # выключено — весь гейт и канон `eatc ir` байт-в-байт неизменны
+    fold = "--fold" in argv
+    if fold:
+        argv = [a for a in argv if a != "--fold"]
     if len(argv) >= 2 and argv[0] == "check":
         return cmd_check(argv[1:])
     if len(argv) >= 2 and argv[0] == "run":
@@ -311,12 +326,12 @@ def main(argv: list[str]) -> int:
         if args:
             return cmd_build(
                 args, out, trap_codes=trap_codes, link=not no_bin,
-                release=release,
+                release=release, fold=fold,
             )
     print(
         "использование: python -m eatc "
         "(check <файлы.eat...> | run <файлы...> [-- <арг>...] | "
-        "build <файлы...> [-o out] [--trap-codes] [--release|-r] | "
+        "build <файлы...> [-o out] [--trap-codes] [--release|-r] [--fold] | "
         "lex <файл> | "
         "parse <файл> | ir <файл> [--trap-codes] | stream <файл>) "
         "[--lib DIR]...",

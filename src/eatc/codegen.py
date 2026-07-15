@@ -915,6 +915,11 @@ class Codegen:
         if isinstance(node, ast.BinOp):
             return self.gen_binop(node)
         if isinstance(node, ast.Call):
+            if getattr(node, "folded", False):
+                # ярус B (§11): вызов свёрнут в литерал на build-пути
+                # (аннотация fold_calls, только `eatc build --fold`);
+                # в `eatc ir` флага нет → обычный вызов, канон IR цел
+                return self.ll(node.ty)(node.fold_value)
             return self.gen_call(node)
         if isinstance(node, ast.MethodCall):
             return self.gen_method_call(node)

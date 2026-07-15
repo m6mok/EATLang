@@ -2208,8 +2208,16 @@ class Verifier:
             sig = self.checker.funcs[name]
             self._check_requires(name, func, sig, node, env)
             if self._module_of(name) != self.cur_module:
-                return self._contract_iv(func, sig, node, env)
-            return self._apply_summary(name, sig, node, env)
+                iv = self._contract_iv(func, sig, node, env)
+            else:
+                iv = self._apply_summary(name, sig, node, env)
+            if getattr(node, "folded", False) and isinstance(node.ty, IntType):
+                # ярус B (§11): вызов свёрнут в литерал (build --fold) —
+                # точка [v, v] уже́е контракта/сводки: точный интервал
+                # снимает trap-проверки ниже по потоку (синергия трек 3).
+                # Учёт requires/аргументов сохранён (проход выше цел)
+                return (node.fold_value, node.fold_value)
+            return iv
         return self._ty_range(node.ty)
 
     def _iv_method(self, node: ast.MethodCall, env: State, annotate: bool):

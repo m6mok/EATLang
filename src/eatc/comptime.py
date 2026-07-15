@@ -248,6 +248,8 @@ class Comptime:
         self.graph = _callee_map(checker)
         self.decls = _decl_map(program)
         self.interp = Interpreter(program, filename)
+        self._elig_cache: dict = {}
+        self._fold_hits = 0
 
     def is_eligible(self, key: str) -> bool:
         return eligible(key, self.checker, self.graph, self.decls, set())
@@ -319,3 +321,116 @@ class Comptime:
             )
         finally:
             interp.step_budget = None
+
+    # --- ярус B: свёртка вызовов в телах (build-путь, §11) ---------------
+
+    def _elig(self, key: str) -> bool:
+        """Кэшированная годность (fold дёргает по всем call-узлам)."""
+        hit = self._elig_cache.get(key)
+        if hit is None:
+            hit = self.is_eligible(key)
+            self._elig_cache[key] = hit
+        return hit
+
+    def _try_fold(self, func: ast.FuncDecl, values: list, site):
+        """Вычислить вызов яруса B (аргументы — известные константы) в
+        comptime-режиме (строгая по-операционная семантика, бюджет шагов,
+        запрет аксиом). В отличие от яруса A trap/бюджет — НЕ ошибка: три
+        исхода (§1) — вычислилось / trap / бюджет; последние два «не
+        сворачивать» (вернуть None), рантайм-вызов остаётся и trap'нет
+        там же с тем же текстом."""
+        interp = self.interp
+        interp.frames = []
+        try:
+            result = interp._comptime_call(func, values, site)
+        except (Trap, ComptimeBudget, ComptimeDepth):
+            return None
+        if isinstance(result, bool):
+            return 1 if result else 0
+        if isinstance(result, int):
+            return result
+        return None  # не скаляр (массив/др.) — ярус B сворачивает скаляры
+
+    def _const_of(self, node):
+        """Значение выражения-аргумента, если оно compile-time константа
+        яруса B: целый/bool литерал, скалярная const-имя или уже
+        свёрнутый вызов (post-order). Иначе None. Ограничение v1:
+        арифметика/касты как аргумент не считаются константой (их
+        вычисление могло бы trap'нуть) — объявите промежуточный const."""
+        if isinstance(node, ast.IntLit):
+            return node.value
+        if isinstance(node, ast.BoolLit):
+            return 1 if node.value else 0
+        if isinstance(node, ast.Name):
+            slot = self.checker.consts.get(getattr(node, "ident", None))
+            if slot is not None and isinstance(slot[1], (int, bool)):
+                return int(slot[1])
+            return None
+        if isinstance(node, ast.Call) and getattr(node, "folded", False):
+            return node.fold_value
+        return None
+
+    def _fold_node(self, node) -> None:
+        """Post-order обход: сворачивает годные вызовы с константными
+        аргументами в литерал (аннотация `folded`/`fold_value` на узле —
+        читается кодогеном/верификатором, как флаги снятия проверок).
+        Возврат не значение — константность аргументов берёт `_const_of`
+        уже после свёртки детей."""
+        if node is None or isinstance(node, (str, int, bool)):
+            return
+        if isinstance(node, ast.Call):
+            for arg in node.args:
+                self._fold_node(arg)
+            ret = getattr(node, "ty", None)
+            if (
+                node.name in self.checker.funcs
+                and not getattr(node, "ctor", None)
+                and isinstance(ret, (IntType, BoolType))
+                and self._elig(node.name)
+            ):
+                values = [self._const_of(a) for a in node.args]
+                if all(v is not None for v in values):
+                    func = self.decls.get(node.name)
+                    if func is not None:
+                        folded = self._try_fold(func, values, node)
+                        if folded is not None:
+                            node.folded = True
+                            node.fold_value = folded
+                            self._fold_hits += 1
+            return
+        for attr in ("body", "then", "els", "value", "cond", "subject",
+                     "operand", "left", "right", "obj", "index", "start",
+                     "end", "iterable", "expr", "target"):
+            child = getattr(node, attr, None)
+            if isinstance(child, list):
+                for c in child:
+                    self._fold_node(c)
+            elif child is not None and not isinstance(child, (str, int, bool)):
+                self._fold_node(child)
+        for lst in ("stmts", "args", "elems", "elifs", "arms", "segments"):
+            seq = getattr(node, lst, None)
+            if isinstance(seq, list):
+                for c in seq:
+                    if isinstance(c, tuple):
+                        for x in c:
+                            self._fold_node(x)
+                    else:
+                        self._fold_node(c)
+
+    def fold_bodies(self) -> int:
+        """Свернуть годные вызовы во всех телах функций/методов. Возвращает
+        число свёрнутых узлов (для отчёта build). Тела тестов не трогаем —
+        кодоген их не эмитит; аксиомные вызовы отсеивает годность."""
+        self._fold_hits = 0
+        for decl in self.decls.values():
+            self._fold_node(getattr(decl, "body", None))
+        return self._fold_hits
+
+
+def fold_calls(program: ast.Program, checker, filename: str) -> int:
+    """Ярус B (§11): свёртка вызовов с константными аргументами в телах
+    в литералы. Build-путь только (после типизации/3.5, перед verify —
+    чтобы верификатор увидел точку [v,v]); в `eatc ir` не вызывается,
+    поэтому канон IR и паритет selfhost неизменны. Возвращает число
+    свёрнутых вызовов."""
+    return Comptime(program, checker, filename).fold_bodies()

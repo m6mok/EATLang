@@ -1,0 +1,51 @@
+# Проба яруса B (§11 COMPTIME_PLAN): вызовы с константными аргументами
+# в теле main сворачиваются компилятором в литералы под `build --fold`.
+# Поведение (эта же программа под `run`/`build` без флага) не меняется —
+# ярус B чистая оптимизация. Головной выигрыш — вызов исчезает из IR.
+
+const SEED: u32 = 7
+
+func poly(x: u32) -> u32
+    requires x < 256
+    ensures true
+{
+    var acc: u32 = x
+    for _ in 0..4 {
+        acc = acc * 31 + x
+    }
+    return acc
+}
+
+func mix(x: u32) -> u32
+    requires x < 4096
+    ensures true
+{
+    var h: u32 = x
+    for _ in 0..8 {
+        h = ((h << 3) & 255) + (h & 31) + 1
+    }
+    return h & 255
+}
+
+# вызов без аргументов (аргументов ноль → все константны) тоже годен
+func pick() -> u32
+    requires true
+    ensures true
+{
+    return mix(3)
+}
+
+func main() {
+    # литеральный аргумент — сворачивается
+    let p: u32 = poly(9)
+    # аргумент — const-имя — сворачивается
+    let q: u32 = poly(SEED)
+    # вложенный свёрнутый вызов как аргумент — сворачивается
+    let r: u32 = mix(mix(6))
+    # вызов без аргументов — сворачивается
+    let b: u32 = pick()
+    write_byte(u8(p % 256))
+    write_byte(u8(q % 256))
+    write_byte(u8(r % 256))
+    write_byte(u8(b % 256))
+}

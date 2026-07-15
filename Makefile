@@ -57,6 +57,20 @@ run_lexer_probe:
 verify_suite:
 	uv run python tests/verify_suite.py
 
+# Ярус B comptime (§11 COMPTIME_PLAN): свёртка вызовов `build --fold`.
+# Юнит — три исхода свёртки + паритет значения; e2e — бинарник с флагом
+# и без == интерпретатор (наблюдаемое поведение неизменно, флаг вне гейта)
+verify_fold:
+	uv run python tests/fold/fold_test.py
+	@$(EATC) build $(RT) tests/fold/Fold.eat -o build/FoldNo > /dev/null
+	@$(EATC) build --fold $(RT) tests/fold/Fold.eat -o build/FoldYes > /dev/null
+	@echo "" | $(EATC) run $(RT) tests/fold/Fold.eat > /tmp/eat_fold_interp.txt
+	@./build/FoldNo > /tmp/eat_fold_no.txt
+	@./build/FoldYes > /tmp/eat_fold_yes.txt
+	@diff /tmp/eat_fold_interp.txt /tmp/eat_fold_no.txt \
+		&& diff /tmp/eat_fold_interp.txt /tmp/eat_fold_yes.txt \
+		&& echo "FOLD OK (build --fold == build == интерпретатор)" || exit 1
+
 # Снапшот интерфейса lib/ (MODULES_PLAN §6): sig потока драйвера от
 # пробы tests/sig/SigProbe.eat (Rt + все модули lib/) diff'ается с
 # закоммиченным tests/sig/lib.sig — дрейф сигнатур/экспортов красный.
