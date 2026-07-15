@@ -136,6 +136,8 @@ VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \
 	31_u16_cast 32_u64_cast 33_module_ensures_boundary \
 	34_neg_module_mask_hidden 35_ctor_payload_bounds \
 	36_neg_ctor_bounds 37_neg_ctor_context 38_neg_none_parens \
+	39_pool_invariant_bounds 40_neg_pool_wide_store 41_pool_sentinel_hole \
+	42_loop_hole_accumulator 43_neg_loop_hole_widened \
 	44_comptime_const 45_neg_comptime_impure 46_neg_comptime_trap \
 	47_neg_comptime_budget 48_neg_comptime_cycle 49_comptime_array \
 	50_neg_comptime_array_trap
