@@ -46,10 +46,10 @@ module lib/Buf.eat 81:1
 export same 10:5 :: same
 export pool16 11:5 :: pool16
 func same 15:1 (a: [u8; 16], n: u32, kw: str<16>) -> bool
-func pool16 37:1 (p: [[u8; 65536]; 2], a: u32, l: u32) -> [u8; 16]
+func pool16 37:1 (p: [[u8; 65536]; 4], a: u32, l: u32) -> [u8; 16]
 test buf_same 51:1
 test buf_pool16 62:1
-module lib/Const.eat 73:1
+module lib/Const.eat 74:1
 export NONE 12:5 :: NONE
 export U32_MAX 13:5 :: U32_MAX
 const NONE 16:1 :: u32 = 4294967295

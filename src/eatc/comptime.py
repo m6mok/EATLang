@@ -20,8 +20,9 @@ selfhost/Eval.eat. Определение «шага» (один eval/exec_stmt)
 
 from . import ast_nodes as ast
 from .errors import EatError
-from .interpreter import ComptimeBudget, Interpreter, Trap
-from .limits import MAX_COMPTIME_STEPS
+from .interpreter import ComptimeBudget, ComptimeDepth, Interpreter, Trap
+from .limits import MAX_COMPTIME_CALL_DEPTH, MAX_COMPTIME_STEPS
+from .types import INT_RANGES, BoolType, IntType
 
 # Нечистые встроенные: аксиомы ОС и обёртки вывода. Функция,
 # достигающая любой из них по графу вызовов, не comptime-годна.
@@ -103,26 +104,117 @@ def _is_extern(checker, key: str) -> bool:
     return bool(node is not None and getattr(node, "is_extern", False))
 
 
-def eligible(key, checker, graph, decls, _seen=None) -> bool:
-    """comptime-годность функции по ключу: транзитивно не достигает
-    нечистого встроенного (обход тела) и не extern (обход графа —
-    DAG правила 1, завершается; _seen отсекает общие подграфы).
-    graph — _callee_map, decls — _decl_map."""
+# Скалярное подмножество яруса A (§9.3 COMPTIME_PLAN): инструкции,
+# выражения и виды типов, которые вычислитель selfhost (зеркало)
+# обязан поддерживать. Всё вне множества — не годно в A1.
+_SCALAR_STMTS = (
+    ast.Block, ast.LetStmt, ast.AssignStmt, ast.IfStmt, ast.ForStmt,
+    ast.ReturnStmt, ast.BreakStmt, ast.AssertStmt, ast.ExprStmt,
+    ast.DiscardStmt,
+)
+_SCALAR_EXPRS = (
+    ast.IntLit, ast.BoolLit, ast.Name, ast.BinOp, ast.UnaryOp,
+    ast.Call, ast.RangeExpr,
+)
+_SCALAR_TYPE_NAMES = frozenset(INT_RANGES) | {"bool"}
+
+
+def _scalar_walk(node, bad: list) -> None:
+    """Обход поддерева: любой узел вне скалярного подмножества —
+    в bad. Узлы типов: TypeName со скалярным именем — ок."""
+    if node is None or bad:
+        return
+    if isinstance(node, ast.TypeName):
+        if node.name not in _SCALAR_TYPE_NAMES:
+            bad.append(node)
+        return
+    if isinstance(node, (_SCALAR_STMTS + _SCALAR_EXPRS)):
+        if isinstance(node, ast.Call) and (
+            getattr(node, "ctor", None) or node.name in ("char", "len")
+        ):
+            bad.append(node)  # Ok/Err/Some/char()/len() — вне A1
+            return
+    else:
+        bad.append(node)
+        return
+    for attr in ("body", "then", "els", "value", "cond", "operand",
+                 "left", "right", "start", "end", "iterable", "expr",
+                 "target", "type"):
+        child = getattr(node, attr, None)
+        if child is not None and not isinstance(child, (str, int, bool)):
+            _scalar_walk(child, bad)
+    for lst in ("stmts", "args", "elifs"):
+        seq = getattr(node, lst, None)
+        if isinstance(seq, list):
+            for c in seq:
+                if isinstance(c, tuple):
+                    for x in c:
+                        _scalar_walk(x, bad)
+                else:
+                    _scalar_walk(c, bad)
+
+
+def _scalar_ok(decl, sig) -> bool:
+    """Функция в скалярном подмножестве A1: сигнатура int/bool,
+    тело/requires/ensures без нескалярных конструкций."""
+    for _, t in sig.params:
+        if not isinstance(t, (IntType, BoolType)):
+            return False
+    if sig.ret is not None and not isinstance(
+        sig.ret, (IntType, BoolType)
+    ):
+        return False
+    bad: list = []
+    _scalar_walk(getattr(decl, "body", None), bad)
+    _scalar_walk(getattr(decl, "requires", None), bad)
+    _scalar_walk(getattr(decl, "ensures", None), bad)
+    return not bad
+
+
+def _subgraph_flags(key, checker, graph, decls, seen, flags) -> None:
+    """Обойти ВЕСЬ подграф вызовов и агрегировать причины негодности в
+    flags = [impure, nonscalar]. Без раннего выхода: причина — свойство
+    подграфа с приоритетом impure > nonscalar, а не порядка обхода
+    (DFS по set был бы недетерминирован). Граф — DAG (правило 1)."""
     if key in IMPURE_BUILTINS:
-        return False
+        flags[0] = True
+        return
     if _is_extern(checker, key):
-        return False
-    seen = _seen if _seen is not None else set()
+        flags[0] = True
+        return
     if key in seen:
-        return True
+        return
     seen.add(key)
     decl = decls.get(key)
-    if decl is not None and _direct_impure(decl):
-        return False
+    if decl is not None:
+        if _direct_impure(decl):
+            flags[0] = True
+        sig = checker.funcs.get(key)
+        if sig is None or not _scalar_ok(decl, sig):
+            flags[1] = True  # метод (S.m) — тоже вне A1
     for callee in graph.get(key, ()):
-        if not eligible(callee, checker, graph, decls, seen):
-            return False
-    return True
+        _subgraph_flags(callee, checker, graph, decls, seen, flags)
+
+
+def ineligible_reason(key, checker, graph, decls, _seen=None):
+    """None — годна; 'impure' — транзитивно аксиома ОС/extern;
+    'nonscalar' — тело/сигнатура вне скалярного подмножества A1.
+    Приоритет причин: impure > nonscalar (детерминирован независимо
+    от порядка обхода)."""
+    flags = [False, False]
+    _subgraph_flags(
+        key, checker, graph, decls,
+        _seen if _seen is not None else set(), flags,
+    )
+    if flags[0]:
+        return "impure"
+    if flags[1]:
+        return "nonscalar"
+    return None
+
+
+def eligible(key, checker, graph, decls, _seen=None) -> bool:
+    return ineligible_reason(key, checker, graph, decls, _seen) is None
 
 
 class Comptime:
@@ -140,6 +232,43 @@ class Comptime:
 
     def is_eligible(self, key: str) -> bool:
         return eligible(key, self.checker, self.graph, self.decls, set())
+
+    def reason(self, key: str):
+        return ineligible_reason(
+            key, self.checker, self.graph, self.decls, set()
+        )
+
+    def eval_const(self, decl, site):
+        """Вычислить отложенную comptime-константу через интерпретатор
+        (ленивое разрешение _const_pending: бюджет + запрет аксиом внутри
+        _comptime_call). trap/бюджет → ошибка компиляции с координатами
+        объявления."""
+        interp = self.interp
+        try:
+            if decl.name in interp._const_pending:
+                interp._resolve_pending_const(decl.name)
+            slot = interp.consts.get(decl.name)
+            return slot.value if slot is not None else None
+        except ComptimeBudget:
+            raise EatError(
+                getattr(site, "src_file", None) or self.filename,
+                site.line, site.col,
+                "comptime: превышен предел шагов "
+                f"(предел {MAX_COMPTIME_STEPS})",
+            )
+        except ComptimeDepth:
+            raise EatError(
+                getattr(site, "src_file", None) or self.filename,
+                site.line, site.col,
+                "comptime: превышена глубина вызовов "
+                f"(предел {MAX_COMPTIME_CALL_DEPTH})",
+            )
+        except Trap as trap:
+            raise EatError(
+                getattr(site, "src_file", None) or self.filename,
+                site.line, site.col,
+                f"comptime: {trap.message}",
+            )
 
     def call(self, func: ast.FuncDecl, args: list, site: ast.Node):
         """Вычислить вызов чистой функции с константными аргументами.

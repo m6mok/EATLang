@@ -1,0 +1,14 @@
+#! expect: error=цикл в comptime-константе
+# Негатив: const -> функция -> та же const — цикл резолюции
+# (правило 1 покрывает только func -> func).
+
+const A: u32 = viaA(1)
+
+func viaA(x: u32) -> u32
+    requires true
+    ensures true
+{
+    return x + A
+}
+
+func main() {}

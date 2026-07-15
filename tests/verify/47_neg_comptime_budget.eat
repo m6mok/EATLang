@@ -1,0 +1,18 @@
+#! expect: error=comptime: превышен предел шагов (предел 1000000)
+# Негатив: бюджет шагов (SPEC §6) — тотальность гарантирует
+# завершение, предел ограничивает время компиляции.
+
+const X: u32 = slow()
+
+func slow() -> u32
+    requires true
+    ensures true
+{
+    for _ in 0..70000 {
+        for _ in 0..70000 {
+        }
+    }
+    return 0
+}
+
+func main() {}

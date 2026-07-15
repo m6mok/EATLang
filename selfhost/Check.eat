@@ -169,6 +169,59 @@ struct Check {
     bn_pe: u32
     # глубина стека (правило 1)
     sdep: u32
+    # --- фаза 3.5: comptime-константы (COMPTIME_PLAN §9) -----------------
+    # cnd — узел декларации отложенной const (NONE — обычная);
+    # crs2 — cycle-guard резолюции; ndef — отложенных; bdone — run_bodies
+    # уже выполнен (sig-путь догоняет тела при ndef > 0)
+    cnd: [u32; 128]
+    crs2: [u32; 128]
+    ndef: u32
+    bdone: u32
+    # годность (DFS по подграфу, приоритет impure > nonscalar)
+    cseen: [u32; 1024]
+    cgen: u32
+    cimp: u32
+    cnsc: u32
+    # машина вычислителя: work-стек задач (тип, узел/индекс, фаза, extra)
+    cw_t: [u32; 4096]
+    cw_n: [u32; 4096]
+    cw_p: [u32; 4096]
+    cw_x: [u64; 4096]
+    ncw: u32
+    # стек значений: kind (yk-код) + беззнаковое + знаковое представление
+    cv_k: [u32; 2048]
+    cv_u: [u64; 2048]
+    cv_i: [i64; 2048]
+    ncv: u32
+    # кадры вызовов: функция, базы (локали/значения/work/for), результат
+    cg_f: [u32; 64]
+    cg_lb: [u32; 64]
+    cg_vb: [u32; 64]
+    cg_wb: [u32; 64]
+    cg_qb: [u32; 64]
+    cg_rk: [u32; 64]
+    cg_ru: [u64; 64]
+    cg_ri: [i64; 64]
+    ncg: u32
+    # локали кадров: спан имени (s == NONE — маркер скоупа), kind, значение
+    cl_s: [u32; 4480]
+    cl_l: [u32; 4480]
+    cl_k: [u32; 4480]
+    cl_u: [u64; 4480]
+    cl_i: [i64; 4480]
+    ncl: u32
+    # for-стек: текущее/конец (знаковые), слот переменной (NONE — «_»),
+    # база локалей витка
+    cq_c: [i64; 512]
+    cq_e: [i64; 512]
+    cq_v: [u32; 512]
+    cq_b: [u32; 512]
+    ncq: u32
+    # счётчик шагов (бюджет), индекс верхней const (координаты ошибок —
+    # узел cnd[ct_ci]), спан имени result в sbuf (для ensures)
+    csteps: u32
+    ct_ci: u32
+    bn_res: u32
 
     # --- инфраструктура ---------------------------------------------------
 
@@ -778,6 +831,1735 @@ struct Check {
         return true
     }
 
+    # ==== фаза 3.5: comptime-константы (COMPTIME_PLAN §9) ================
+    # Значения const-из-вызовов вычисляются после типизации тел (nty и
+    # граф вызовов готовы). Ошибки — с координатами узла const-декларации
+    # (cnd[ct_ci]), тексты «comptime: …» зеркалят классы эталона.
+
+    func ct_fail(var self, m: str<128>)
+        requires true
+        ensures true
+    {
+        self.fail_node(self.cnd[self.ct_ci] & 131071, m)
+    }
+
+    # Спан — имя нечистого встроенного (аксиомы ОС и обёртки вывода)?
+    func ct_axiom_span(var self, a: u32, l: u32) -> bool
+        requires true
+        ensures true
+    {
+        if self.span_is(a, l, "read_byte") or self.span_is(a, l, "write_byte") {
+            return true
+        }
+        if self.span_is(a, l, "write_span") or self.span_is(a, l, "write_err_byte") {
+            return true
+        }
+        if self.span_is(a, l, "exit") or self.span_is(a, l, "print") or self.span_is(a, l, "write") {
+            return true
+        }
+        return self.span_is(a, l, "arg_count") or self.span_is(a, l, "arg_len") or self.span_is(a, l, "arg_byte")
+    }
+
+    # Спан — имя целочисленного каста?
+    func ct_cast_span(var self, a: u32, l: u32) -> bool
+        requires true
+        ensures true
+    {
+        if self.span_is(a, l, "i32") or self.span_is(a, l, "u32") or self.span_is(a, l, "u8") {
+            return true
+        }
+        return self.span_is(a, l, "u16") or self.span_is(a, l, "u64") or self.span_is(a, l, "i64")
+    }
+
+    # Вид узла разрешён в скалярном подмножестве A1 (§9.3)?
+    func ct_scalar_nk(var self, n: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        if k >= 12 and k <= 18 and k != 13 {
+            return true
+        }
+        if k == 13 or k == 22 or k == 23 or k == 24 or k == 25 or k == 26 {
+            return true
+        }
+        if k == 32 or k == 33 or k == 37 or k == 39 or k == 40 or k == 41 or k == 49 {
+            return true
+        }
+        if k == 6 or k == 7 or k == 8 or k == 9 or k == 10 {
+            return true
+        }
+        if k == 27 {
+            # имя типа: только скаляры (int и bool)
+            if self.ct_cast_span(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]) {
+                return true
+            }
+            return self.span_is(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536], "bool")
+        }
+        return false
+    }
+
+    # Прямые свойства функции fi: нечистые вызовы (cimp) и нескалярные
+    # конструкции (cnsc) — обход всего func-узла (параметры, контракты,
+    # тело). extern и методы — негодны сразу.
+    func ct_scan_func(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        let d: u32 = self.fnd[fi]
+        if self.p.nk[d / 65536][d % 65536] == 50 {
+            self.cimp = 1
+            return
+        }
+        if self.fown[fi] != NONE {
+            self.cnsc = 1
+            return
+        }
+        var st: [u32; 128] = [0; 128]
+        var sp: u32 = 1
+        st[0] = d
+        for _ in 0..131072 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            let k: u32 = self.p.nk[n / 65536][n % 65536]
+            if k != 6 and not self.ct_scalar_nk(n) {
+                self.cnsc = 1
+            } elif k == 41 and self.ct_axiom_span(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]) {
+                self.cimp = 1
+            } else {
+                var c: u32 = self.p.nfc[n / 65536][n % 65536]
+                for _ in 0..131072 {
+                    if c == NONE or sp >= 128 {
+                        break
+                    }
+                    st[sp] = c
+                    sp = sp + 1
+                    c = self.p.nns[c / 65536][c % 65536]
+                }
+            }
+        }
+    }
+
+    # Причина негодности подграфа вызовов от fi: DFS по рёбрам eg_*,
+    # агрегация в cimp/cnsc (приоритет impure > nonscalar — независим
+    # от порядка обхода, §9.3). cgen — поколение пометок cseen.
+    func ct_reason(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        var st: [u32; 1024] = [0; 1024]
+        var sp: u32 = 1
+        st[0] = fi
+        for _ in 0..1048576 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let f: u32 = st[sp]
+            if self.cseen[f] != self.cgen {
+                self.cseen[f] = self.cgen
+                self.ct_scan_func(f)
+                for i in 0..4096 {
+                    if i >= self.neg {
+                        break
+                    }
+                    if self.eg_c[i] == f and sp < 1024 {
+                        st[sp] = self.eg_d[i]
+                        sp = sp + 1
+                    }
+                }
+            }
+        }
+    }
+
+    # Годность значения const ci: каждое имя-вызов в значении обязано
+    # быть годным (касты и неизвестные имена пропускаются — их судьбу
+    # решает вычислитель теми же ошибками, что эталон).
+    func ct_check_elig(var self, ci: u32)
+        requires ci < 128
+        ensures true
+    {
+        var st: [u32; 64] = [0; 64]
+        var sp: u32 = 1
+        let d: u32 = self.cnd[ci]
+        st[0] = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][self.p.nfc[d / 65536][d % 65536] % 65536]
+        for _ in 0..131072 {
+            if sp == 0 or self.failed {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            let k: u32 = self.p.nk[n / 65536][n % 65536]
+            if k == 41 and not self.ct_cast_span(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]) {
+                let fi: u32 = self.find_func(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+                if fi != NONE {
+                    self.cgen = self.cgen + 1
+                    self.cimp = 0
+                    self.cnsc = 0
+                    self.ct_reason(fi)
+                    if self.cimp == 1 {
+                        self.ct_fail("не comptime-годна: транзитивно вызывает аксиому ОС или extern (§5)")
+                    } elif self.cnsc == 1 {
+                        self.ct_fail("не comptime-годна: тело вне скалярного подмножества (ярус A)")
+                    }
+                }
+            }
+            var c: u32 = self.p.nfc[n / 65536][n % 65536]
+            for _ in 0..64 {
+                if c == NONE or sp >= 64 {
+                    break
+                }
+                st[sp] = c
+                sp = sp + 1
+                c = self.p.nns[c / 65536][c % 65536]
+            }
+        }
+    }
+
+    # Драйвер фазы 3.5: годность всех отложенных (в порядке таблицы),
+    # затем вычисление каждой (ленивые зависимости — инлайн машиной).
+    func comptime_pass(var self)
+        requires true
+        ensures true
+    {
+        for ci in 0..128 {
+            if ci >= self.ncon or self.failed {
+                break
+            }
+            if self.cnd[ci] != NONE {
+                self.ct_ci = ci
+                self.ct_check_elig(ci)
+            }
+        }
+        for ci in 0..128 {
+            if ci >= self.ncon or self.failed {
+                break
+            }
+            if self.cnd[ci] != NONE {
+                self.ct_ci = ci
+                self.ct_eval_const(ci)
+            }
+        }
+    }
+
+    # --- машина вычислителя (§9.6): задачи work-стека ---------------------
+    # Типы задач: 0 CEXPR (const-выражение, без шагов, значения (s,m)),
+    # 1 EXPR (+1 шаг, kind-значения), 2 STMT (+1 шаг), 3 BLOCK,
+    # 4 CALLX (финиш кадра/ensures), 5 CRES (запись const), 6 REQX.
+
+    func ct_wpush(var self, t: u32, n: u32, x: u64)
+        requires true
+        ensures true
+    {
+        if self.ncw >= 4096 {
+            self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
+            return
+        }
+        self.cw_t[self.ncw] = t
+        self.cw_n[self.ncw] = n
+        self.cw_p[self.ncw] = 0
+        self.cw_x[self.ncw] = x
+        self.ncw = self.ncw + 1
+    }
+
+    func ct_vpush(var self, k: u32, u: u64, v: i64)
+        requires true
+        ensures true
+    {
+        if self.ncv >= 2048 {
+            self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
+            return
+        }
+        self.cv_k[self.ncv] = k
+        self.cv_u[self.ncv] = u
+        self.cv_i[self.ncv] = v
+        self.ncv = self.ncv + 1
+    }
+
+    # +1 шаг вычисления; за пределом бюджета — ошибка (§9.2).
+    func ct_step_tick(var self)
+        requires true
+        ensures true
+    {
+        self.csteps = self.csteps + 1
+        if self.csteps > 1000000 {
+            self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
+        }
+    }
+
+    # Магнитуда минимума знакового вида (для edge-проверок MIN/(-1)).
+    func ct_magmin(var self, ky: u32) -> u64
+        requires true
+        ensures true
+    {
+        if ky == 0 {
+            return 2147483648
+        }
+        if ky == 14 {
+            return 9223372036854775808
+        }
+        return 0
+    }
+
+    # Максимум беззнакового вида.
+    func ct_maxu(var self, ky: u32) -> u64
+        requires true
+        ensures true
+    {
+        if ky == 2 {
+            return 255
+        }
+        if ky == 12 {
+            return 65535
+        }
+        if ky == 1 {
+            return 4294967295
+        }
+        return 18446744073709551615
+    }
+
+    # trap «переполнение {kind}» (тексты кодогена, §9.1).
+    func ct_tovf(var self, ky: u32)
+        requires true
+        ensures true
+    {
+        if ky == 0 {
+            self.ct_fail("comptime: trap: переполнение i32")
+        } elif ky == 1 {
+            self.ct_fail("comptime: trap: переполнение u32")
+        } elif ky == 2 {
+            self.ct_fail("comptime: trap: переполнение u8")
+        } elif ky == 12 {
+            self.ct_fail("comptime: trap: переполнение u16")
+        } elif ky == 13 {
+            self.ct_fail("comptime: trap: переполнение u64")
+        } else {
+            self.ct_fail("comptime: trap: переполнение i64")
+        }
+    }
+
+    # trap «сдвиг ≥ ширины {kind}» (только беззнаковые).
+    func ct_tshf(var self, ky: u32)
+        requires true
+        ensures true
+    {
+        if ky == 2 {
+            self.ct_fail("comptime: trap: сдвиг ≥ ширины u8")
+        } elif ky == 12 {
+            self.ct_fail("comptime: trap: сдвиг ≥ ширины u16")
+        } elif ky == 1 {
+            self.ct_fail("comptime: trap: сдвиг ≥ ширины u32")
+        } else {
+            self.ct_fail("comptime: trap: сдвиг ≥ ширины u64")
+        }
+    }
+
+    # trap «переполнение при {target}()» (касты).
+    func ct_tcast(var self, ky: u32)
+        requires true
+        ensures true
+    {
+        if ky == 0 {
+            self.ct_fail("comptime: trap: переполнение при i32()")
+        } elif ky == 1 {
+            self.ct_fail("comptime: trap: переполнение при u32()")
+        } elif ky == 2 {
+            self.ct_fail("comptime: trap: переполнение при u8()")
+        } elif ky == 12 {
+            self.ct_fail("comptime: trap: переполнение при u16()")
+        } elif ky == 13 {
+            self.ct_fail("comptime: trap: переполнение при u64()")
+        } else {
+            self.ct_fail("comptime: trap: переполнение при i64()")
+        }
+    }
+
+    # trap точки связывания «переполнение: {v} вне {kind} [{lo}, {hi}]»
+    # (интерп-текст эталона: параметры вызова и запись const).
+    func ct_tfit(var self, s: u32, m: u64, ky: u32)
+        requires true
+        ensures true
+    {
+        if ky == 2 {
+            if s == 1 {
+                self.ct_fail("comptime: trap: переполнение: -{m} вне u8 [0, 255]")
+            } else {
+                self.ct_fail("comptime: trap: переполнение: {m} вне u8 [0, 255]")
+            }
+        } elif ky == 12 {
+            if s == 1 {
+                self.ct_fail("comptime: trap: переполнение: -{m} вне u16 [0, 65535]")
+            } else {
+                self.ct_fail("comptime: trap: переполнение: {m} вне u16 [0, 65535]")
+            }
+        } elif ky == 1 {
+            if s == 1 {
+                self.ct_fail("comptime: trap: переполнение: -{m} вне u32 [0, 4294967295]")
+            } else {
+                self.ct_fail("comptime: trap: переполнение: {m} вне u32 [0, 4294967295]")
+            }
+        } elif ky == 13 {
+            self.ct_fail("comptime: trap: переполнение: -{m} вне u64 [0, 18446744073709551615]")
+        } elif ky == 0 {
+            if s == 1 {
+                self.ct_fail("comptime: trap: переполнение: -{m} вне i32 [-2147483648, 2147483647]")
+            } else {
+                self.ct_fail("comptime: trap: переполнение: {m} вне i32 [-2147483648, 2147483647]")
+            }
+        } else {
+            if s == 1 {
+                self.ct_fail("comptime: trap: переполнение: -{m} вне i64 [-9223372036854775808, 9223372036854775807]")
+            } else {
+                self.ct_fail("comptime: trap: переполнение: {m} вне i64 [-9223372036854775808, 9223372036854775807]")
+            }
+        }
+    }
+
+    # Запуск машины для const ci: CRES снизу, CEXPR значения сверху.
+    # Драйвер — один ограниченный цикл; бюджет шагов срабатывает раньше
+    # границы (машинных переходов ≤ 16 на шаг).
+    func ct_eval_const(var self, ci: u32)
+        requires ci < 128
+        ensures true
+    {
+        self.ncw = 0
+        self.ncv = 0
+        self.ncg = 0
+        self.ncl = 0
+        self.ncq = 0
+        self.csteps = 0
+        let d: u32 = self.cnd[ci] & 131071
+        self.crs2[ci] = 1
+        self.ct_wpush(5, ci, 0)
+        let v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][self.p.nfc[d / 65536][d % 65536] % 65536]
+        self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
+        for _ in 0..16000000 {
+            if self.ncw == 0 or self.failed {
+                break
+            }
+            self.ct_step()
+        }
+        if self.ncw != 0 and not self.failed {
+            self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
+        }
+    }
+
+    func ct_step(var self)
+        requires true
+        ensures true
+    {
+        let i: u32 = (self.ncw - 1) & 4095
+        let t: u32 = self.cw_t[i]
+        if t == 0 {
+            self.ct_cexpr(i)
+        } elif t == 1 {
+            self.ct_expr(i)
+        } elif t == 2 {
+            self.ct_stmt(i)
+        } elif t == 3 {
+            self.ct_block(i)
+        } elif t == 4 {
+            self.ct_callx(i)
+        } elif t == 5 {
+            self.ct_cres(i)
+        } else {
+            self.ct_reqx(i)
+        }
+    }
+
+    # CEXPR: const-выражение (Python _const_eval_ct): значения в виде
+    # (sign, mag) [cv_k = 99], операции фитятся к типу константы (ky в
+    # cw_x), деление trunc, шаги не считаются.
+    func ct_cexpr(var self, i: u32)
+        requires i < 4096
+        ensures true
+    {
+        let n: u32 = self.cw_n[i] & 131071
+        let ph: u32 = self.cw_p[i]
+        let ky: u32 = u32(self.cw_x[i] % 4294967296)
+        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        if k == 32 {
+            self.ct_vpush(99, self.p.mag(n), i64(self.p.ny[n / 65536][n % 65536]))
+            self.ncw = i
+        } elif k == 37 {
+            self.ct_cx_name(i, n, ph)
+        } elif k == 40 {
+            self.ct_cx_un(i, n, ph, ky)
+        } elif k == 39 {
+            self.ct_cx_bin(i, n, ph, ky)
+        } elif k == 41 {
+            self.ct_cx_call(i, n, ph, ky)
+        } else {
+            self.ct_fail("comptime: trap: не константа")
+        }
+    }
+
+    func ct_cx_name(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let ci: u32 = self.find_const(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+        if ci == NONE {
+            self.ct_fail("comptime: trap: не константа")
+            return
+        }
+        if self.cnd[ci] != NONE {
+            if ph == 1 or self.crs2[ci] == 1 {
+                self.ct_fail("comptime: trap: цикл в comptime-константе")
+                return
+            }
+            # ленивая резолюция: CRES + CEXPR значения, повтор фазой 1
+            self.cw_p[i] = 1
+            self.crs2[ci] = 1
+            let d: u32 = self.cnd[ci] & 131071
+            self.ct_wpush(5, ci, 0)
+            let v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][self.p.nfc[d / 65536][d % 65536] % 65536]
+            self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
+            return
+        }
+        self.ct_vpush(99, self.cvm[ci], i64(self.cvs[ci]))
+        self.ncw = i
+    }
+
+    func ct_cx_un(var self, i: u32, n: u32, ph: u32, ky: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        if self.p.nx[n / 65536][n % 65536] != 15 {
+            self.ct_fail("comptime: trap: не константа")
+            return
+        }
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(0, self.p.nfc[n / 65536][n % 65536], u64(ky))
+            return
+        }
+        let j: u32 = (self.ncv - 1) & 2047
+        if self.cv_u[j] != 0 {
+            self.cv_i[j] = 1 - self.cv_i[j]
+        }
+        if not self.int_fits(self.cty[self.ct_ci & 127], u32(self.cv_i[j]), self.cv_u[j]) {
+            self.ct_tovf(ky)
+            return
+        }
+        self.ncw = i
+    }
+
+    func ct_cx_bin(var self, i: u32, n: u32, ph: u32, ky: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let op: u32 = self.p.nx[n / 65536][n % 65536]
+        if op < 10 or op > 14 {
+            self.ct_fail("comptime: trap: не константа")
+            return
+        }
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(0, self.p.nfc[n / 65536][n % 65536], u64(ky))
+            return
+        }
+        if ph == 1 {
+            self.cw_p[i] = 2
+            let c: u32 = self.p.nfc[n / 65536][n % 65536]
+            self.ct_wpush(0, self.p.nns[c / 65536][c % 65536], u64(ky))
+            return
+        }
+        self.ncv = self.ncv - 1
+        let j: u32 = (self.ncv - 1) & 2047
+        let s1: u32 = u32(self.cv_i[j])
+        let m1: u64 = self.cv_u[j]
+        let s2: u32 = u32(self.cv_i[self.ncv & 2047])
+        let m2: u64 = self.cv_u[self.ncv & 2047]
+        self.ct_cx_arith(op, s1, m1, s2, m2)
+        if not self.failed {
+            self.cv_i[j] = i64(self.ces)
+            self.cv_u[j] = self.cem
+            self.ncw = i
+        }
+    }
+
+    # Арифметика const-выражений в (sign, mag): +,-,* фитятся к типу
+    # константы (ярус A, §9.2), /,% — trunc без фита (финал — CRES);
+    # результат в ces/cem. ky берётся из типа текущей const.
+    func ct_cx_arith(var self, op: u32, s1: u32, m1: u64, s2: u32, m2: u64)
+        requires op >= 10 and op <= 14
+        ensures true
+    {
+        let ky: u32 = self.yk[self.cty[self.ct_ci & 127]]
+        if op == 10 or op == 11 {
+            var t2: u32 = s2
+            if op == 11 and m2 != 0 {
+                t2 = 1 - s2
+            }
+            self.ct_cx_add(ky, s1, m1, t2, m2)
+        } elif op == 12 {
+            if m1 != 0 and m2 > 18446744073709551615 / m1 {
+                self.ct_tovf(ky)
+                return
+            }
+            self.cem = m1 * m2
+            self.ces = 0
+            if self.cem != 0 and s1 != s2 {
+                self.ces = 1
+            }
+            if not self.int_fits(self.cty[self.ct_ci & 127], self.ces, self.cem) {
+                self.ct_tovf(ky)
+            }
+        } elif m2 == 0 {
+            self.ct_fail("comptime: trap: деление на ноль")
+        } elif (ky == 0 or ky == 14) and s1 == 1 and m1 == self.ct_magmin(ky) and s2 == 1 and m2 == 1 {
+            self.ct_tovf(ky)
+        } elif op == 13 {
+            let q: u64 = m1 / m2
+            self.cem = q
+            self.ces = 0
+            if q != 0 and s1 != s2 {
+                self.ces = 1
+            }
+        } else {
+            let r: u64 = m1 % m2
+            self.cem = r
+            self.ces = 0
+            if r != 0 {
+                self.ces = s1
+            }
+        }
+    }
+
+    func ct_cx_add(var self, ky: u32, s1: u32, m1: u64, s2: u32, m2: u64)
+        requires true
+        ensures true
+    {
+        if s1 == s2 {
+            if m1 > 18446744073709551615 - m2 {
+                self.ct_tovf(ky)
+                return
+            }
+            self.ces = s1
+            self.cem = m1 + m2
+        } elif m1 >= m2 {
+            self.ces = s1
+            self.cem = m1 - m2
+        } else {
+            self.ces = s2
+            self.cem = m2 - m1
+        }
+        if self.cem == 0 {
+            self.ces = 0
+        }
+        if not self.int_fits(self.cty[self.ct_ci & 127], self.ces, self.cem) {
+            self.ct_tovf(ky)
+        }
+    }
+
+    # CEXPR-вызов: каст (фаза 10) или пользовательская функция —
+    # аргументы CEXPR'ами, кадр, конверсия результата в (s, m) (фаза 90).
+    func ct_cx_call(var self, i: u32, n: u32, ph: u32, ky: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        if ph == 0 {
+            if self.ct_cast_span(a, l) {
+                self.cw_p[i] = 10
+                self.ct_wpush(0, self.p.nfc[n / 65536][n % 65536], u64(ky))
+                return
+            }
+            if self.find_func(a, l) == NONE {
+                self.ct_fail("comptime: trap: неизвестная функция")
+                return
+            }
+            self.cw_p[i] = 1
+            self.cw_x[i] = (u64(ky) * 4294967296) + u64(self.p.nfc[n / 65536][n % 65536])
+            return
+        }
+        if ph == 1 {
+            let cur: u32 = u32(self.cw_x[i] % 4294967296)
+            if cur != NONE {
+                self.cw_x[i] = (u64(ky) * 4294967296) + u64(self.p.nns[cur / 65536][cur % 65536])
+                self.ct_wpush(0, cur, u64(ky))
+                return
+            }
+            self.cw_p[i] = 90
+            self.ct_enter_frame(self.find_func(a, l), 1)
+            return
+        }
+        if ph == 10 {
+            # каст: значение (s, m) сверяется с диапазоном типа-имени
+            let j: u32 = (self.ncv - 1) & 2047
+            let tk: u32 = self.ct_span_kind(a, l)
+            if not self.int_fits(self.intern(tk, NONE, NONE, NONE, 0), u32(self.cv_i[j]), self.cv_u[j]) {
+                self.ct_tcast(tk)
+                return
+            }
+            self.ncw = i
+            return
+        }
+        # фаза 90: результат кадра (kind-вид) -> (sign, mag)
+        let j2: u32 = (self.ncv - 1) & 2047
+        self.ct_k2sm(j2)
+        self.ncw = i
+    }
+
+    # yk-код по спану имени скалярного типа.
+    func ct_span_kind(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        if self.span_is(a, l, "i32") {
+            return 0
+        }
+        if self.span_is(a, l, "u32") {
+            return 1
+        }
+        if self.span_is(a, l, "u8") {
+            return 2
+        }
+        if self.span_is(a, l, "u16") {
+            return 12
+        }
+        if self.span_is(a, l, "u64") {
+            return 13
+        }
+        return 14
+    }
+
+    # kind-значение слота j -> (sign, mag) [cv_k 99].
+    func ct_k2sm(var self, j: u32)
+        requires j < 2048
+        ensures true
+    {
+        let k: u32 = self.cv_k[j]
+        if k == 0 or k == 14 {
+            if self.cv_i[j] < 0 {
+                # магнитуда MIN без переполнения: -(v + 1) + 1
+                let t: i64 = 0 - (self.cv_i[j] + 1)
+                self.cv_u[j] = u64(t) + 1
+                self.cv_i[j] = 1
+            } else {
+                self.cv_u[j] = u64(self.cv_i[j])
+                self.cv_i[j] = 0
+            }
+        } else {
+            self.cv_i[j] = 0
+        }
+        self.cv_k[j] = 99
+    }
+
+    # (sign, mag) слота j -> kind-вид ky с фитом точки связывания
+    # (интерп-текст) — параметры вызова из const-выражений.
+    func ct_sm2k(var self, j: u32, ky: u32)
+        requires j < 2048
+        ensures true
+    {
+        if self.cv_k[j] != 99 {
+            return
+        }
+        let s: u32 = u32(self.cv_i[j])
+        let m: u64 = self.cv_u[j]
+        if not self.int_fits(self.intern(ky, NONE, NONE, NONE, 0), s, m) {
+            self.ct_tfit(s, m, ky)
+            return
+        }
+        self.cv_k[j] = ky
+        if ky == 0 or ky == 14 {
+            if s == 1 {
+                let t: i64 = 0 - i64(m - 1)
+                self.cv_i[j] = t - 1
+            } else {
+                self.cv_i[j] = i64(m)
+            }
+        }
+    }
+
+    # Вход в кадр вызова fi: биндинг аргументов в локали, requires,
+    # тело; fresh-бюджет на верхнеуровневом вызове (§9.2).
+    func ct_enter_frame(var self, fi: u32, from_cx: u32)
+        requires fi < 1024
+        ensures true
+    {
+        if self.ncg >= 64 {
+            self.ct_fail("comptime: превышена глубина вызовов (предел 64)")
+            return
+        }
+        if self.fret[fi] == NONE and from_cx == 1 {
+            self.ct_fail("comptime: trap: функция ничего не возвращает — это не значение")
+            return
+        }
+        if self.ncg == 0 {
+            self.csteps = 0
+        }
+        let argc: u32 = self.fpc[fi]
+        let g: u32 = self.ncg
+        self.cg_f[g] = fi
+        self.cg_vb[g] = self.ncv - argc
+        self.cg_lb[g] = self.ncl
+        self.cg_qb[g] = self.ncq
+        self.cg_rk[g] = NONE
+        # параметры: значения аргументов (v-стек) -> локали кадра
+        for j in 0..64 {
+            if j >= argc or self.failed {
+                break
+            }
+            let pj: u32 = (self.fps[fi] + j) & 1023
+            let vj: u32 = (self.cg_vb[g] + j) & 2047
+            self.ct_sm2k(vj, self.yk[self.pty[pj]])
+            if not self.failed {
+                self.ct_lpush(self.pn_s[pj], self.pn_l[pj], vj)
+            }
+        }
+        if self.failed {
+            return
+        }
+        self.ncv = self.cg_vb[g]
+        self.ncg = g + 1
+        let d: u32 = self.fnd[fi] & 131071
+        self.cg_wb[g] = self.ncw
+        self.ct_wpush(4, fi, 0)
+        var c: u32 = self.p.nfc[d / 65536][d % 65536]
+        var req: u32 = NONE
+        var body: u32 = NONE
+        for _ in 0..64 {
+            if c == NONE {
+                break
+            }
+            let ck: u32 = self.p.nk[c / 65536][c % 65536]
+            if ck == 9 {
+                req = self.p.nfc[c / 65536][c % 65536]
+            } elif ck == 12 {
+                body = c
+            }
+            c = self.p.nns[c / 65536][c % 65536]
+        }
+        if body != NONE {
+            self.ct_wpush(3, body, 0)
+        }
+        if req != NONE and not self.ct_trivial_true(req) {
+            self.ct_wpush(6, fi, 0)
+            self.ct_wpush(1, req, 0)
+        }
+    }
+
+    # requires true / ensures true — тривиальный контракт (0 шагов).
+    func ct_trivial_true(var self, n: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        if self.p.nk[n / 65536][n % 65536] != 33 {
+            return false
+        }
+        return self.p.nx[n / 65536][n % 65536] == 1
+    }
+
+    # Локаль кадра из значения-слота vj.
+    func ct_lpush(var self, a: u32, l: u32, vj: u32)
+        requires vj < 2048
+        ensures true
+    {
+        if self.ncl >= 4480 {
+            self.ct_fail("comptime: превышена глубина вызовов (предел 64)")
+            return
+        }
+        self.cl_s[self.ncl] = a
+        self.cl_l[self.ncl] = l
+        self.cl_k[self.ncl] = self.cv_k[vj]
+        self.cl_u[self.ncl] = self.cv_u[vj]
+        self.cl_i[self.ncl] = self.cv_i[vj]
+        self.ncl = self.ncl + 1
+    }
+
+    # REQX: значение requires вычислено — false намертво.
+    func ct_reqx(var self, i: u32)
+        requires i < 4096
+        ensures true
+    {
+        self.ncv = self.ncv - 1
+        if self.cv_u[self.ncv & 2047] == 0 {
+            self.ct_fail("comptime: trap: нарушен requires функции")
+            return
+        }
+        self.ncw = i
+    }
+
+    # CALLX: финиш кадра — ensures (с локалью result), результат на
+    # v-стек вызывающего, снятие кадра.
+    func ct_callx(var self, i: u32)
+        requires i < 4096
+        ensures true
+    {
+        let fi: u32 = self.cw_n[i] & 1023
+        let g: u32 = (self.ncg - 1) & 63
+        if self.cw_p[i] == 0 {
+            let d: u32 = self.fnd[fi] & 131071
+            var ens: u32 = NONE
+            var c: u32 = self.p.nfc[d / 65536][d % 65536]
+            for _ in 0..64 {
+                if c == NONE {
+                    break
+                }
+                if self.p.nk[c / 65536][c % 65536] == 10 {
+                    ens = self.p.nfc[c / 65536][c % 65536]
+                }
+                c = self.p.nns[c / 65536][c % 65536]
+            }
+            if ens != NONE and not self.ct_trivial_true(ens) {
+                if self.fret[fi] != NONE and self.cg_rk[g] != NONE {
+                    # локаль result для ensures
+                    if self.ncl < 4480 {
+                        self.cl_s[self.ncl] = self.bn_res
+                        self.cl_l[self.ncl] = 6
+                        self.cl_k[self.ncl] = self.cg_rk[g]
+                        self.cl_u[self.ncl] = self.cg_ru[g]
+                        self.cl_i[self.ncl] = self.cg_ri[g]
+                        self.ncl = self.ncl + 1
+                    }
+                }
+                self.cw_p[i] = 1
+                self.ct_wpush(1, ens, 0)
+                return
+            }
+        } else {
+            self.ncv = self.ncv - 1
+            if self.cv_u[self.ncv & 2047] == 0 {
+                self.ct_fail("comptime: trap: нарушен ensures функции")
+                return
+            }
+        }
+        self.ncl = self.cg_lb[g]
+        self.ncq = self.cg_qb[g]
+        self.ncv = self.cg_vb[g]
+        if self.fret[fi] != NONE {
+            self.ct_vpush(self.cg_rk[g], self.cg_ru[g], self.cg_ri[g])
+        }
+        self.ncg = g
+        self.ncw = i
+    }
+
+    # CRES: запись вычисленного значения в const ci (финальный фит —
+    # интерп-текст точки связывания).
+    func ct_cres(var self, i: u32)
+        requires i < 4096
+        ensures true
+    {
+        let ci: u32 = self.cw_n[i] & 127
+        self.ncv = self.ncv - 1
+        let j: u32 = self.ncv & 2047
+        let s: u32 = u32(self.cv_i[j])
+        let m: u64 = self.cv_u[j]
+        if not self.int_fits(self.cty[ci], s, m) {
+            self.ct_tfit(s, m, self.yk[self.cty[ci]])
+            return
+        }
+        self.cvs[ci] = s
+        self.cvm[ci] = m
+        self.cnd[ci] = NONE
+        self.crs2[ci] = 0
+        self.ncw = i
+    }
+
+    # BLOCK: последовательность инструкций со своей базой локалей
+    # (cw_x: base * 2^32 + курсор-узел).
+    func ct_block(var self, i: u32)
+        requires i < 4096
+        ensures true
+    {
+        let n: u32 = self.cw_n[i] & 131071
+        if self.cw_p[i] == 0 {
+            self.cw_p[i] = 1
+            self.cw_x[i] = (u64(self.ncl) * 4294967296) + u64(self.p.nfc[n / 65536][n % 65536])
+            return
+        }
+        let cur: u32 = u32(self.cw_x[i] % 4294967296)
+        if cur != NONE {
+            self.cw_x[i] = (self.cw_x[i] / 4294967296) * 4294967296 + u64(self.p.nns[cur / 65536][cur % 65536])
+            self.ct_wpush(2, cur, 0)
+            return
+        }
+        self.ncl = u32(self.cw_x[i] / 4294967296)
+        self.ncw = i
+    }
+
+    # Поиск локали кадра по спану (сверху вниз — шэдоуинг).
+    func ct_lfind(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        let base: u32 = self.cg_lb[(self.ncg - 1) & 63]
+        var j: u32 = self.ncl
+        var found: u32 = NONE
+        for _ in 0..4480 {
+            if j == base or found != NONE {
+                break
+            }
+            j = j - 1
+            if self.span_eq(self.cl_s[j & 4479], self.cl_l[j & 4479], a, l) {
+                found = j
+            }
+        }
+        return found
+    }
+
+    # EXPR: выражение в теле (+1 шаг на входе, kind-значения).
+    func ct_expr(var self, i: u32)
+        requires i < 4096
+        ensures true
+    {
+        let n: u32 = self.cw_n[i] & 131071
+        let ph: u32 = self.cw_p[i]
+        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        if ph == 0 {
+            self.ct_step_tick()
+            if self.failed {
+                return
+            }
+        }
+        if k == 32 {
+            let ky: u32 = self.yk[self.nty[n / 65536][n % 65536]]
+            let m: u64 = self.p.mag(n)
+            if ky == 0 or ky == 14 {
+                # знак литерала — в ny (парсер сворачивает минус)
+                if self.p.ny[n / 65536][n % 65536] == 1 {
+                    if m == 0 {
+                        self.ct_vpush(ky, 0, 0)
+                    } else {
+                        let t: i64 = 0 - i64(m - 1)
+                        self.ct_vpush(ky, 0, t - 1)
+                    }
+                } elif m > 9223372036854775807 {
+                    self.ct_fail("comptime: trap: не константа")
+                    return
+                } else {
+                    self.ct_vpush(ky, 0, i64(m))
+                }
+            } else {
+                self.ct_vpush(ky, m, 0)
+            }
+            self.ncw = i
+        } elif k == 33 {
+            self.ct_vpush(3, u64(self.p.nx[n / 65536][n % 65536]), 0)
+            self.ncw = i
+        } elif k == 37 {
+            self.ct_e_name(i, n, ph)
+        } elif k == 39 {
+            self.ct_e_bin(i, n, ph)
+        } elif k == 40 {
+            self.ct_e_un(i, n, ph)
+        } elif k == 41 {
+            self.ct_e_call(i, n, ph)
+        } else {
+            self.ct_fail("comptime: trap: не константа")
+        }
+    }
+
+    func ct_e_name(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        let sl: u32 = self.ct_lfind(a, l)
+        if sl != NONE {
+            self.ct_vpush(self.cl_k[sl & 4479], self.cl_u[sl & 4479], self.cl_i[sl & 4479])
+            self.ncw = i
+            return
+        }
+        let ci: u32 = self.find_const(a, l)
+        if ci == NONE {
+            self.ct_fail("comptime: trap: не константа")
+            return
+        }
+        if self.cnd[ci] != NONE {
+            if ph == 1 or self.crs2[ci] == 1 {
+                self.ct_fail("comptime: trap: цикл в comptime-константе")
+                return
+            }
+            self.cw_p[i] = 1
+            self.crs2[ci] = 1
+            let d: u32 = self.cnd[ci] & 131071
+            self.ct_wpush(5, ci, 0)
+            let v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][self.p.nfc[d / 65536][d % 65536] % 65536]
+            self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
+            return
+        }
+        # значение const -> kind-вид (в диапазоне своего типа)
+        self.ct_vpush(99, self.cvm[ci], i64(self.cvs[ci]))
+        self.ct_sm2k((self.ncv - 1) & 2047, self.yk[self.cty[ci]])
+        self.ncw = i
+    }
+
+    func ct_e_bin(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let op: u32 = self.p.nx[n / 65536][n % 65536]
+        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        if op == 1 or op == 2 {
+            # ленивые or/and: правый — только при необходимости
+            if ph == 0 {
+                self.cw_p[i] = 1
+                self.ct_wpush(1, c, 0)
+                return
+            }
+            if ph == 1 {
+                let b: u64 = self.cv_u[(self.ncv - 1) & 2047]
+                if (op == 2 and b == 0) or (op == 1 and b != 0) {
+                    self.ncw = i
+                    return
+                }
+                self.ncv = self.ncv - 1
+                self.cw_p[i] = 2
+                self.ct_wpush(1, self.p.nns[c / 65536][c % 65536], 0)
+                return
+            }
+            self.ncw = i
+            return
+        }
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(1, c, 0)
+            return
+        }
+        if ph == 1 {
+            self.cw_p[i] = 2
+            self.ct_wpush(1, self.p.nns[c / 65536][c % 65536], 0)
+            return
+        }
+        self.ct_e_arith(op)
+        if not self.failed {
+            self.ncw = i
+        }
+    }
+
+    # Бинарная операция тел над kind-значениями: [ncv-2] op [ncv-1] ->
+    # [ncv-2]; сравнения дают bool.
+    func ct_e_arith(var self, op: u32)
+        requires true
+        ensures true
+    {
+        self.ncv = self.ncv - 1
+        let j: u32 = (self.ncv - 1) & 2047
+        let jr: u32 = self.ncv & 2047
+        let ky: u32 = self.cv_k[j]
+        if op >= 4 and op <= 9 {
+            self.ct_acmp(op, j, jr)
+            return
+        }
+        if op >= 16 and op <= 18 {
+            if op == 16 {
+                self.cv_u[j] = self.cv_u[j] | self.cv_u[jr]
+            } elif op == 17 {
+                self.cv_u[j] = self.cv_u[j] ^ self.cv_u[jr]
+            } else {
+                self.cv_u[j] = self.cv_u[j] & self.cv_u[jr]
+            }
+            return
+        }
+        if op == 19 or op == 20 {
+            var w: u64 = 32
+            if ky == 2 {
+                w = 8
+            } elif ky == 12 {
+                w = 16
+            } elif ky == 13 {
+                w = 64
+            }
+            let r: u64 = self.cv_u[jr]
+            if r >= w {
+                self.ct_tshf(ky)
+                return
+            }
+            if op == 19 {
+                # усечение по ширине без выноса из u64 (маска до сдвига)
+                self.cv_u[j] = (self.cv_u[j] & (self.ct_maxu(ky) >> r)) << r
+            } else {
+                self.cv_u[j] = self.cv_u[j] >> r
+            }
+            return
+        }
+        if ky == 0 or ky == 14 {
+            self.ct_ai(op, ky, j, jr)
+        } else {
+            self.ct_au(op, ky, j, jr)
+        }
+    }
+
+    func ct_acmp(var self, op: u32, j: u32, jr: u32)
+        requires j < 2048 and jr < 2048
+        ensures true
+    {
+        let ky: u32 = self.cv_k[j]
+        var r: bool = false
+        if ky == 0 or ky == 14 {
+            let a: i64 = self.cv_i[j]
+            let b: i64 = self.cv_i[jr]
+            if op == 4 { r = a == b } elif op == 5 { r = a != b } elif op == 6 { r = a < b } elif op == 7 { r = a <= b } elif op == 8 { r = a > b } else { r = a >= b }
+        } else {
+            let c: u64 = self.cv_u[j]
+            let d: u64 = self.cv_u[jr]
+            if op == 4 { r = c == d } elif op == 5 { r = c != d } elif op == 6 { r = c < d } elif op == 7 { r = c <= d } elif op == 8 { r = c > d } else { r = c >= d }
+        }
+        self.cv_k[j] = 3
+        self.cv_u[j] = 0
+        if r {
+            self.cv_u[j] = 1
+        }
+        self.cv_i[j] = 0
+    }
+
+    # Беззнаковая арифметика с пре-проверками переполнения (§9.1).
+    func ct_au(var self, op: u32, ky: u32, j: u32, jr: u32)
+        requires j < 2048 and jr < 2048
+        ensures true
+    {
+        let a: u64 = self.cv_u[j]
+        let b: u64 = self.cv_u[jr]
+        let mx: u64 = self.ct_maxu(ky)
+        if op == 10 {
+            if a > mx - b {
+                self.ct_tovf(ky)
+                return
+            }
+            self.cv_u[j] = a + b
+        } elif op == 11 {
+            if a < b {
+                self.ct_tovf(ky)
+                return
+            }
+            self.cv_u[j] = a - b
+        } elif op == 12 {
+            if a != 0 and b > mx / a {
+                self.ct_tovf(ky)
+                return
+            }
+            self.cv_u[j] = a * b
+        } elif b == 0 {
+            self.ct_fail("comptime: trap: деление на ноль")
+        } elif op == 13 {
+            self.cv_u[j] = a / b
+        } else {
+            self.cv_u[j] = a % b
+        }
+    }
+
+    # Знаковая арифметика: i32 — вычисление в i64 + проверка диапазона;
+    # i64 — классические пре-проверки без выхода из i64.
+    func ct_ai(var self, op: u32, ky: u32, j: u32, jr: u32)
+        requires j < 2048 and jr < 2048
+        ensures true
+    {
+        let a: i64 = self.cv_i[j]
+        let b: i64 = self.cv_i[jr]
+        if op == 13 or op == 14 {
+            if b == 0 {
+                self.ct_fail("comptime: trap: деление на ноль")
+                return
+            }
+            var mn: i64 = -2147483648
+            if ky == 14 {
+                mn = -9223372036854775808
+            }
+            if a == mn and b == -1 {
+                self.ct_tovf(ky)
+                return
+            }
+            if op == 13 {
+                self.cv_i[j] = a / b
+            } else {
+                self.cv_i[j] = a % b
+            }
+            return
+        }
+        if ky == 0 {
+            let r: i64 = self.ct_i32op(op, a, b)
+            if r > 2147483647 or r < -2147483648 {
+                self.ct_tovf(0)
+                return
+            }
+            self.cv_i[j] = r
+            return
+        }
+        self.ct_i64op(op, j, a, b)
+    }
+
+    func ct_i32op(var self, op: u32, a: i64, b: i64) -> i64
+        requires true
+        ensures true
+    {
+        if op == 10 {
+            return a + b
+        }
+        if op == 11 {
+            return a - b
+        }
+        return a * b
+    }
+
+    func ct_i64op(var self, op: u32, j: u32, a: i64, b: i64)
+        requires j < 2048
+        ensures true
+    {
+        if op == 10 {
+            if (b > 0 and a > 9223372036854775807 - b) or (b < 0 and a < -9223372036854775808 - b) {
+                self.ct_tovf(14)
+                return
+            }
+            self.cv_i[j] = a + b
+        } elif op == 11 {
+            if (b < 0 and a > 9223372036854775807 + b) or (b > 0 and a < -9223372036854775808 + b) {
+                self.ct_tovf(14)
+                return
+            }
+            self.cv_i[j] = a - b
+        } else {
+            if a > 0 and b > 0 and a > 9223372036854775807 / b {
+                self.ct_tovf(14)
+                return
+            }
+            if a > 0 and b < 0 and b < -9223372036854775808 / a {
+                self.ct_tovf(14)
+                return
+            }
+            if a < 0 and b > 0 and a < -9223372036854775808 / b {
+                self.ct_tovf(14)
+                return
+            }
+            if a < 0 and b < 0 and b < 9223372036854775807 / a {
+                self.ct_tovf(14)
+                return
+            }
+            self.cv_i[j] = a * b
+        }
+    }
+
+    func ct_e_un(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let op: u32 = self.p.nx[n / 65536][n % 65536]
+        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        if ph == 0 {
+            if op == 15 and self.p.nk[c / 65536][c % 65536] == 32 {
+                # слитно «минус-литерал»: +1 шаг за литерал, магнитуда
+                # MIN выразима через -(m - 1) - 1
+                self.ct_step_tick()
+                if self.failed {
+                    return
+                }
+                let ky: u32 = self.yk[self.nty[n / 65536][n % 65536]]
+                let m: u64 = self.p.mag(c)
+                if m == 0 {
+                    self.ct_vpush(ky, 0, 0)
+                } else {
+                    let t: i64 = 0 - i64(m - 1)
+                    self.ct_vpush(ky, 0, t - 1)
+                }
+                self.ncw = i
+                return
+            }
+            self.cw_p[i] = 1
+            self.ct_wpush(1, c, 0)
+            return
+        }
+        let j: u32 = (self.ncv - 1) & 2047
+        let ky2: u32 = self.cv_k[j]
+        if op == 3 {
+            self.cv_u[j] = 1 - self.cv_u[j]
+        } elif op == 21 {
+            self.cv_u[j] = self.cv_u[j] ^ self.ct_maxu(ky2)
+        } elif ky2 == 0 or ky2 == 14 {
+            var mn: i64 = -2147483648
+            if ky2 == 14 {
+                mn = -9223372036854775808
+            }
+            if self.cv_i[j] == mn {
+                self.ct_tovf(ky2)
+                return
+            }
+            let z: i64 = 0 - self.cv_i[j]
+            self.cv_i[j] = z
+        } elif self.cv_u[j] != 0 {
+            self.ct_tovf(ky2)
+            return
+        }
+        self.ncw = i
+    }
+
+    func ct_e_call(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        if ph == 0 {
+            if self.ct_cast_span(a, l) {
+                self.cw_p[i] = 10
+                self.ct_wpush(1, self.p.nfc[n / 65536][n % 65536], 0)
+                return
+            }
+            if self.find_func(a, l) == NONE {
+                self.ct_fail("comptime: trap: неизвестная функция")
+                return
+            }
+            self.cw_p[i] = 1
+            self.cw_x[i] = u64(self.p.nfc[n / 65536][n % 65536])
+            return
+        }
+        if ph == 1 {
+            let cur: u32 = u32(self.cw_x[i] % 4294967296)
+            if cur != NONE {
+                self.cw_x[i] = u64(self.p.nns[cur / 65536][cur % 65536])
+                self.ct_wpush(1, cur, 0)
+                return
+            }
+            self.cw_p[i] = 90
+            self.ct_enter_frame(self.find_func(a, l), 0)
+            return
+        }
+        if ph == 10 {
+            self.ct_e_cast((self.ncv - 1) & 2047, self.ct_span_kind(a, l))
+            if not self.failed {
+                self.ncw = i
+            }
+            return
+        }
+        self.ncw = i
+    }
+
+    # Каст kind-значения к целевому виду tk: чек диапазона по
+    # математическому значению, тексты кодогена.
+    func ct_e_cast(var self, j: u32, tk: u32)
+        requires j < 2048
+        ensures true
+    {
+        let sk: u32 = self.cv_k[j]
+        if sk == 0 or sk == 14 {
+            let v: i64 = self.cv_i[j]
+            if v < 0 {
+                if tk == 0 {
+                    if v < -2147483648 {
+                        self.ct_tcast(tk)
+                        return
+                    }
+                } elif tk != 14 {
+                    self.ct_tcast(tk)
+                    return
+                }
+                self.cv_k[j] = tk
+                return
+            }
+            self.cv_u[j] = u64(v)
+        }
+        let u: u64 = self.cv_u[j]
+        if tk == 0 {
+            if u > 2147483647 {
+                self.ct_tcast(tk)
+                return
+            }
+            self.cv_i[j] = i64(u)
+        } elif tk == 14 {
+            if u > 9223372036854775807 {
+                self.ct_tcast(tk)
+                return
+            }
+            self.cv_i[j] = i64(u)
+        } elif u > self.ct_maxu(tk) {
+            self.ct_tcast(tk)
+            return
+        }
+        self.cv_k[j] = tk
+    }
+
+    # STMT: инструкция тела (+1 шаг на входе).
+    func ct_stmt(var self, i: u32)
+        requires i < 4096
+        ensures true
+    {
+        let n: u32 = self.cw_n[i] & 131071
+        let ph: u32 = self.cw_p[i]
+        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        if ph == 0 {
+            self.ct_step_tick()
+            if self.failed {
+                return
+            }
+        }
+        if k == 13 {
+            self.ct_s_let(i, n, ph)
+        } elif k == 14 {
+            self.ct_s_assign(i, n, ph)
+        } elif k == 15 {
+            self.ct_s_if(i, n, ph)
+        } elif k == 18 {
+            self.ct_s_for(i, n, ph)
+        } elif k == 22 {
+            self.ct_s_ret(i, n, ph)
+        } elif k == 23 {
+            self.ct_s_break(i)
+        } elif k == 24 or k == 25 or k == 26 {
+            self.ct_s_val(i, n, ph, k)
+        } else {
+            self.ct_fail("comptime: trap: не константа")
+        }
+    }
+
+    func ct_s_let(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let t: u32 = self.p.nfc[n / 65536][n % 65536]
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(1, self.p.nns[t / 65536][t % 65536], 0)
+            return
+        }
+        self.ncv = self.ncv - 1
+        self.ct_lpush(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536], self.ncv & 2047)
+        self.ncw = i
+    }
+
+    func ct_s_assign(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let t: u32 = self.p.nfc[n / 65536][n % 65536]
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(1, self.p.nns[t / 65536][t % 65536], 0)
+            return
+        }
+        self.ncv = self.ncv - 1
+        let j: u32 = self.ncv & 2047
+        let sl: u32 = self.ct_lfind(self.p.nss[t / 65536][t % 65536], self.p.nsl[t / 65536][t % 65536])
+        if sl == NONE {
+            self.ct_fail("comptime: trap: не константа")
+            return
+        }
+        self.cl_u[sl & 4479] = self.cv_u[j]
+        self.cl_i[sl & 4479] = self.cv_i[j]
+        self.ncw = i
+    }
+
+    func ct_s_if(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.cw_x[i] = u64(self.p.nns[c / 65536][c % 65536])
+            self.ct_wpush(1, c, 0)
+            return
+        }
+        self.ncv = self.ncv - 1
+        let taken: bool = self.cv_u[self.ncv & 2047] != 0
+        let cur: u32 = u32(self.cw_x[i] % 4294967296)
+        if ph == 1 {
+            # cur — then-блок
+            if taken {
+                self.ncw = i
+                self.ct_wpush(3, cur, 0)
+                return
+            }
+            self.ct_if_next(i, self.p.nns[cur / 65536][cur % 65536])
+            return
+        }
+        # ph == 2: cur — elif-узел
+        if taken {
+            let eb: u32 = self.p.nfc[cur / 65536][cur % 65536]
+            self.ncw = i
+            self.ct_wpush(3, self.p.nns[eb / 65536][eb % 65536], 0)
+            return
+        }
+        self.ct_if_next(i, self.p.nns[cur / 65536][cur % 65536])
+    }
+
+    # Переход к следующей ветке if: elif — вычислить условие, else —
+    # исполнить блок, конец — снять задачу.
+    func ct_if_next(var self, i: u32, nxt: u32)
+        requires i < 4096
+        ensures true
+    {
+        if nxt == NONE {
+            self.ncw = i
+            return
+        }
+        let k: u32 = self.p.nk[nxt / 65536][nxt % 65536]
+        if k == 16 {
+            self.cw_p[i] = 2
+            self.cw_x[i] = u64(nxt)
+            self.ct_wpush(1, self.p.nfc[nxt / 65536][nxt % 65536], 0)
+            return
+        }
+        # else: единственный ребёнок — блок
+        self.ncw = i
+        self.ct_wpush(3, self.p.nfc[nxt / 65536][nxt % 65536], 0)
+    }
+
+    func ct_s_for(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        if ph == 0 {
+            let rb: u32 = self.range_of(n)
+            if rb == NONE or self.ncq >= 512 {
+                self.ct_fail("comptime: trap: не константа")
+                return
+            }
+            let g: u32 = self.ncq
+            self.cq_c[g] = self.ct_rb_i64(self.rb_ss[rb & 511], self.rb_sm[rb & 511])
+            self.cq_e[g] = self.ct_rb_i64(self.rb_es[rb & 511], self.rb_em[rb & 511])
+            self.cq_b[g] = self.ncl
+            self.cq_v[g] = NONE
+            if not self.span_is(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536], "_") {
+                if self.ncl < 4480 {
+                    self.cl_s[self.ncl] = self.p.nss[n / 65536][n % 65536]
+                    self.cl_l[self.ncl] = self.p.nsl[n / 65536][n % 65536]
+                    self.cl_k[self.ncl] = self.yk[self.nty[n / 65536][n % 65536]]
+                    self.cl_u[self.ncl] = 0
+                    self.cl_i[self.ncl] = 0
+                    self.cq_v[g] = self.ncl
+                    self.ncl = self.ncl + 1
+                }
+            }
+            self.ncq = g + 1
+            self.cw_p[i] = 1
+            return
+        }
+        let g2: u32 = (self.ncq - 1) & 511
+        if self.cq_c[g2] >= self.cq_e[g2] {
+            self.ncl = self.cq_b[g2]
+            self.ncq = self.ncq - 1
+            self.ncw = i
+            return
+        }
+        self.ct_step_tick()
+        if self.failed {
+            return
+        }
+        let v: u32 = self.cq_v[g2]
+        if v != NONE {
+            let ky: u32 = self.cl_k[v & 4479]
+            if ky == 0 or ky == 14 {
+                self.cl_i[v & 4479] = self.cq_c[g2]
+            } else {
+                self.cl_u[v & 4479] = u64(self.cq_c[g2])
+            }
+        }
+        self.cq_c[g2] = self.cq_c[g2] + 1
+        # тело — ребёнок-блок (kind 12)
+        var c: u32 = self.p.nfc[n / 65536][n % 65536]
+        for _ in 0..8 {
+            if c == NONE {
+                break
+            }
+            if self.p.nk[c / 65536][c % 65536] == 12 {
+                self.ct_wpush(3, c, 0)
+                c = NONE
+            } else {
+                c = self.p.nns[c / 65536][c % 65536]
+            }
+        }
+    }
+
+    # Граница диапазона (sign, mag) -> i64 с насыщением: магнитуды за
+    # i64 недостижимы до бюджета (1М витков << 2^63).
+    func ct_rb_i64(var self, s: u32, m: u64) -> i64
+        requires true
+        ensures true
+    {
+        if s == 1 {
+            if m >= 9223372036854775808 {
+                return -9223372036854775808
+            }
+            let z: i64 = 0 - i64(m)
+            return z
+        }
+        if m > 9223372036854775807 {
+            return 9223372036854775807
+        }
+        return i64(m)
+    }
+
+    func ct_s_ret(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let g: u32 = (self.ncg - 1) & 63
+        if ph == 0 {
+            let c: u32 = self.p.nfc[n / 65536][n % 65536]
+            if c != NONE {
+                self.cw_p[i] = 1
+                self.ct_wpush(1, c, 0)
+                return
+            }
+            self.cg_rk[g] = NONE
+        } else {
+            self.ncv = self.ncv - 1
+            let j: u32 = self.ncv & 2047
+            self.cg_rk[g] = self.cv_k[j]
+            self.cg_ru[g] = self.cv_u[j]
+            self.cg_ri[g] = self.cv_i[j]
+        }
+        # раскрутка до CALLX кадра (остаётся вершиной)
+        self.ncw = self.cg_wb[g] + 1
+        self.ncv = self.cg_vb[g]
+        self.ncq = self.cg_qb[g]
+    }
+
+    func ct_s_break(var self, i: u32)
+        requires i < 4096
+        ensures true
+    {
+        var j: u32 = i
+        var found: bool = false
+        for _ in 0..4096 {
+            if found or j == 0 {
+                break
+            }
+            j = j - 1
+            let t: u32 = self.cw_t[j]
+            let m: u32 = self.cw_n[j] & 131071
+            if t == 2 and self.p.nk[m / 65536][m % 65536] == 18 and self.cw_p[j] == 1 {
+                let g: u32 = (self.ncq - 1) & 511
+                self.ncl = self.cq_b[g]
+                self.ncq = self.ncq - 1
+                self.ncw = j
+                found = true
+            }
+        }
+        if not found {
+            self.ct_fail("comptime: trap: не константа")
+        }
+    }
+
+    # assert (24) / exprstmt (25) / discard (26): вычислить значение,
+    # затем проверить/пропустить/выбросить.
+    func ct_s_val(var self, i: u32, n: u32, ph: u32, k: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(1, self.p.nfc[n / 65536][n % 65536], 0)
+            return
+        }
+        if k == 24 {
+            self.ncv = self.ncv - 1
+            if self.cv_u[self.ncv & 2047] == 0 {
+                self.ct_fail("comptime: trap: assert не выполнен")
+                return
+            }
+        } elif k == 26 {
+            self.ncv = self.ncv - 1
+        }
+        self.ncw = i
+    }
+
     # --- сбор объявлений ---------------------------------------------------
 
     # Имя занято на верхнем уровне (правило 6 + встроенные имена)?
@@ -1203,6 +2985,20 @@ struct Check {
             return
         }
         let ty: u32 = self.resolve(self.p.nfc[d / 65536][d % 65536])
+        # comptime-константа (§9.4): значение с вызовом (или именем
+        # отложенной) вычисляется фазой 3.5 после типизации тел
+        if self.has_call_deep(self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][self.p.nfc[d / 65536][d % 65536] % 65536]) {
+            let j: u32 = self.ncon
+            self.cn_s[j] = self.p.nss[d / 65536][d % 65536]
+            self.cn_l[j] = self.p.nsl[d / 65536][d % 65536]
+            self.cty[j] = ty
+            self.cvs[j] = 0
+            self.cvm[j] = 0
+            self.cnd[j] = d
+            self.ncon = j + 1
+            self.ndef = self.ndef + 1
+            return
+        }
         self.const_eval(self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][self.p.nfc[d / 65536][d % 65536] % 65536])
         if self.failed {
             return
@@ -1218,6 +3014,49 @@ struct Check {
         self.cvs[i] = self.ces
         self.cvm[i] = self.cem
         self.ncon = i + 1
+    }
+
+    # Есть ли в поддереве значения вызов (call/method) или имя уже
+    # отложенной константы — признак comptime-константы (§9.4; зеркало
+    # _expr_has_call + _Deferred по Name эталона).
+    func has_call_deep(var self, root: u32) -> bool
+        requires root < 131072
+        ensures true
+    {
+        var st: [u32; 64] = [0; 64]
+        var sp: u32 = 1
+        st[0] = root
+        var found: bool = false
+        for _ in 0..131072 {
+            if sp == 0 or found {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            let k: u32 = self.p.nk[n / 65536][n % 65536]
+            if k == 41 or k == 42 {
+                found = true
+            } elif k == 37 {
+                let ci: u32 = self.find_const(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536])
+                if ci != NONE {
+                    if self.cnd[ci] != NONE {
+                        found = true
+                    }
+                }
+            } else {
+                # глубина выражений ≤ 32 (SPEC §6) — стек не переполнить
+                var c: u32 = self.p.nfc[n / 65536][n % 65536]
+                for _ in 0..64 {
+                    if c == NONE or sp >= 64 {
+                        break
+                    }
+                    st[sp] = c
+                    sp = sp + 1
+                    c = self.p.nns[c / 65536][c % 65536]
+                }
+            }
+        }
+        return found
     }
 
     # Сигнатура функции d в таблицу (owner — struct | NONE).
@@ -1676,6 +3515,21 @@ struct Check {
             return
         }
         self.check_main()
+        if self.failed {
+            return
+        }
+        # comptime-константы (§9.5): значения нужны любому дампу (sig
+        # печатает «= значение») — при отложенных догоняем типизацию
+        # тел и фазу 3.5 прямо здесь; bdone гасит повтор в run_typed
+        if self.ndef > 0 {
+            self.init_builtins()
+            self.run_bodies()
+            self.bdone = 1
+            if self.failed {
+                return
+            }
+            self.comptime_pass()
+        }
     }
 
     # --- дамп типа (итеративный принтер) -----------------------------------
@@ -1996,7 +3850,13 @@ struct Check {
         for i in 0..10 {
             self.p.lex.sb_set(self.bn_pe + i, u8(pe[i]))
         }
-        self.p.lex.sblen = self.bn_pe + 10
+        # "result" — имя-локаль ensures в comptime-вычислителе (§9.6)
+        let rs: str<8> = "result"
+        self.bn_res = self.bn_pe + 10
+        for i in 0..6 {
+            self.p.lex.sb_set(self.bn_res + i, u8(rs[i]))
+        }
+        self.p.lex.sblen = self.bn_res + 6
         self.ty_sq = self.intern(6, NONE, NONE, NONE, 0)
         let t_io: u32 = self.intern(9, NONE, NONE, self.bn_io, 7)
         let t_pe: u32 = self.intern(9, NONE, NONE, self.bn_pe, 10)
@@ -4328,8 +6188,10 @@ struct Check {
         if self.failed {
             return
         }
-        self.init_builtins()
-        self.run_bodies()
+        if self.bdone == 0 {
+            self.init_builtins()
+            self.run_bodies()
+        }
         if self.failed {
             return
         }

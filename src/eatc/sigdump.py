@@ -53,6 +53,12 @@ def dump_signatures(
         raise tc.err(
             main.node, "main не принимает параметров и ничего не возвращает"
         )
+    if tc._deferred_consts:
+        # comptime-константы (§5): их значения печатаются в дампе —
+        # догоняем типизацию тел и фазу 3.5 (COMPTIME_PLAN §9.5);
+        # программы без comptime идут прежним лёгким путём
+        tc.check_bodies()
+        tc._eval_deferred_consts()
 
     lines: list[str] = []
     for decl in program.decls:

@@ -18,3 +18,6 @@ MAX_MODULE_PATH = 128  # длина канонического пути моду
 # фиксировано в SPEC §6 и зеркалится в selfhost Eval.eat байт-в-байт.
 # 1e6: таблица CRC 256×8 ≈ 20К шагов, запас ×50.
 MAX_COMPTIME_STEPS = 1_000_000
+# глубина comptime-вызовов: ёмкость пула кадров вычислителя selfhost
+# (COMPTIME_PLAN §9.6) — та же граница у Python-эталона для паритета
+MAX_COMPTIME_CALL_DEPTH = 64

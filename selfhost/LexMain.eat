@@ -3,7 +3,7 @@
 # Вывод построчно совпадает с эталоном `eatc lex` (сверка в make verify_selfhost).
 
 func main() {
-    var lex: Lexer = Lexer { state: 0, line: 1, col: 1, tline: 1, tcol: 1, val: [0; 256], vlen: 0, depth: 0, failed: false, ch: 0, tk: [[0; 65536]; 2], tl: [[0; 65536]; 2], tc: [[0; 65536]; 2], tvs: [[0; 65536]; 2], tvl: [[0; 65536]; 2], tsg: [[0; 65536]; 2], tns: [[0; 65536]; 2], ntok: 0, sbuf: [[0; 65536]; 2], sblen: 0, sgk: [0; 2048], sga: [0; 2048], sgb: [0; 2048], nseg: 0, hexv: 0, hexn: 0 }
+    var lex: Lexer = Lexer { state: 0, line: 1, col: 1, tline: 1, tcol: 1, val: [0; 256], vlen: 0, depth: 0, failed: false, ch: 0, tk: [[0; 65536]; 2], tl: [[0; 65536]; 2], tc: [[0; 65536]; 2], tvs: [[0; 65536]; 2], tvl: [[0; 65536]; 2], tsg: [[0; 65536]; 2], tns: [[0; 65536]; 2], ntok: 0, sbuf: [[0; 65536]; 4], sblen: 0, sgk: [0; 2048], sga: [0; 2048], sgb: [0; 2048], nseg: 0, hexv: 0, hexn: 0 }
     var eof: bool = false
     loop {
         match read_byte() {

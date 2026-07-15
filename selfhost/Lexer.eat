@@ -112,7 +112,7 @@ struct Lexer {
     tns: [[u32; 65536]; 2]
     ntok: u32
     # пул байтов значений (131072 = 2 x 65536)
-    sbuf: [[u8; 65536]; 2]
+    sbuf: [[u8; 65536]; 4]
     sblen: u32
     # сегменты интерполяции: 0 — литерал (старт/длина в sbuf),
     # 1 — выражение (первый токен/число токенов)
@@ -186,7 +186,7 @@ struct Lexer {
     }
 
     func sb_at(var self, i: u32) -> u8
-        requires i < 131072
+        requires i < 262144
         ensures true
     {
         return self.sbuf[i / 65536][i % 65536]
@@ -204,7 +204,7 @@ struct Lexer {
             if left == 0 {
                 break
             }
-            let bk: u32 = (pos >> 16) & 1
+            let bk: u32 = (pos >> 16) & 3
             let off: u32 = pos & 65535
             var run: u32 = 65536 - off
             if left < run {
@@ -217,7 +217,7 @@ struct Lexer {
     }
 
     func sb_set(var self, i: u32, b: u8)
-        requires i < 131072
+        requires i < 262144
         ensures true
     {
         self.sbuf[i / 65536][i % 65536] = b
@@ -250,7 +250,7 @@ struct Lexer {
         requires k <= 67
         ensures true
     {
-        if self.sblen >= 130816 {
+        if self.sblen >= 261888 {
             self.fail("пул значений токенов переполнен")
             return
         }
@@ -904,7 +904,7 @@ struct Lexer {
         requires true
         ensures true
     {
-        if self.sblen >= 131072 {
+        if self.sblen >= 262144 {
             self.fail("пул значений токенов переполнен")
             return
         }

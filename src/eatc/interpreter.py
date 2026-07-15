@@ -35,6 +35,11 @@ class ComptimeBudget(Exception):
     прогоне (step_budget=None) не возникает."""
 
 
+class ComptimeDepth(Exception):
+    """Превышена глубина comptime-вызовов (COMPTIME_PLAN §9.2).
+    Ловится comptime-входом; вне comptime-режима не возникает."""
+
+
 @dataclass
 class Slot:
     value: object
@@ -85,6 +90,33 @@ _BINOP_FNS = {
 }
 
 
+# Нечистые встроенные (аксиомы ОС + обёртки вывода): в comptime-режиме
+# (§5) их вызов — trap, а не побочный эффект. Зеркало множества —
+# comptime.IMPURE_BUILTINS (статическая годность) и selfhost Eval.eat.
+IMPURE_AXIOMS = frozenset({
+    "read_byte", "write_byte", "write_span", "write_err_byte", "exit",
+    "arg_count", "arg_len", "arg_byte", "print", "write",
+})
+
+
+def _expr_has_call(node) -> bool:
+    """Есть ли Call/MethodCall в поддереве выражения (для отсрочки
+    comptime-констант в _collect: их значение вычисляется после сбора
+    сигнатур)."""
+    if node is None:
+        return False
+    if isinstance(node, (ast.Call, ast.MethodCall)):
+        return True
+    for attr in ("operand", "left", "right", "obj", "index"):
+        if _expr_has_call(getattr(node, attr, None)):
+            return True
+    for lst in ("args",):
+        for c in getattr(node, lst, None) or ():
+            if _expr_has_call(c):
+                return True
+    return False
+
+
 def _copy_value(v):
     """Копия by-value. int/bool/str неизменяемы в Python — как есть;
     рекурсивно копируются только составные (list, struct и обёртки
@@ -127,6 +159,14 @@ class Interpreter:
         # ComptimeBudget. Шаг фиксирован в SPEC §6 (паритет с Eval.eat).
         self.step_budget: int | None = None
         self.steps: int = 0
+        # comptime-режим: аксиомы ОС недоступны (trap); ставится вокруг
+        # вычисления const-из-вызовов (§5). _const_pending — comptime-
+        # константы (значение содержит вызов): вычисляются лениво по
+        # обращению, чтобы порядок объявлений не влиял.
+        self._comptime_mode: bool = False
+        self._comptime_depth: int = 0
+        self._const_pending: dict = {}
+        self._const_resolving: set = set()
         self._collect()
 
     # --- подготовка -----------------------------------------------------
@@ -146,6 +186,12 @@ class Interpreter:
                 self.funcs[decl.name] = decl
         for decl in self.program.decls:
             if isinstance(decl, ast.ConstDecl):
+                # comptime-константа (значение через вызов) — отложить:
+                # тела функций читаются как есть, порядок объявлений не
+                # должен влиять; вычисляется лениво (_resolve_pending_const)
+                if _expr_has_call(decl.value):
+                    self._const_pending[decl.name] = decl
+                    continue
                 value = self._const_eval(decl.value)
                 kind = self._kind(decl.type)
                 self._fit(decl, kind, value)
@@ -176,7 +222,12 @@ class Interpreter:
         if isinstance(expr, ast.IntLit):
             return expr.value
         if isinstance(expr, ast.Name):
-            return self.consts[expr.ident].value
+            name = expr.ident
+            if name in self._const_resolving:
+                raise self.trap(expr, f"цикл в comptime-константе {name}")
+            if name not in self.consts and name in self._const_pending:
+                self._resolve_pending_const(name)
+            return self.consts[name].value
         if isinstance(expr, ast.UnaryOp):
             return -self._const_eval(expr.operand)
         if isinstance(expr, ast.BinOp):
@@ -189,7 +240,119 @@ class Interpreter:
                 "/": lambda: self._trunc_div(expr, left, right),
                 "%": lambda: self._trunc_mod(expr, left, right),
             }[expr.op]()
+        if isinstance(expr, ast.Call):
+            # comptime-вызов (§5): чистая функция с константными
+            # аргументами — вычисляется в comptime-режиме (бюджет шагов +
+            # аксиомы недоступны). Ярус A: только скаляр.
+            args = [self._const_eval(a) for a in expr.args]
+            return self._comptime_call(self.funcs[expr.name], args, expr)
         raise self.trap(expr, "не константа")
+
+    def _resolve_pending_const(self, name: str) -> None:
+        """Ленивое вычисление отложенной comptime-константы. Cycle-guard:
+        значение const во время вычисления помечено None — повторный
+        вход по имени = цикл const->...->const (правило 1 покрывает
+        только func->func)."""
+        decl = self._const_pending.pop(name)
+        kind = self._kind(decl.type)
+        self._const_resolving.add(name)
+        try:
+            value = self._const_eval_ct(decl.value, kind)
+        finally:
+            self._const_resolving.discard(name)
+        self._fit(decl, kind, value)
+        self.consts[name] = Slot(value, kind)
+
+    def _const_eval_ct(self, expr: ast.Expr, kind: str | None):
+        """const-выражение comptime-константы (§9 COMPTIME_PLAN):
+        строгая по-операционная семантика — каждая операция фитится к
+        типу объявляемой константы (узлы const-значений не типизированы,
+        гомогенность к типу константы), деление trunc, шаги не
+        считаются. Обычные const'ы (без вызовов) идут прежним путём."""
+        if isinstance(expr, ast.IntLit):
+            return expr.value
+        if isinstance(expr, ast.Name):
+            name = expr.ident
+            if name in self._const_resolving:
+                raise self.trap(
+                    expr, f"цикл в comptime-константе {name}"
+                )
+            if name not in self.consts and name in self._const_pending:
+                self._resolve_pending_const(name)
+            return self.consts[name].value
+        if isinstance(expr, ast.UnaryOp):
+            if expr.op != "-":
+                raise self.trap(expr, "не константа")
+            value = -self._const_eval_ct(expr.operand, kind)
+            self._fit_ct(expr, kind, value)
+            return value
+        if isinstance(expr, ast.BinOp):
+            left = self._const_eval_ct(expr.left, kind)
+            right = self._const_eval_ct(expr.right, kind)
+            op = expr.op
+            if op in ("+", "-", "*"):
+                value = {"+": left + right, "-": left - right,
+                         "*": left * right}[op]
+                self._fit_ct(expr, kind, value)
+                return value
+            if op in ("/", "%"):
+                if right == 0:
+                    raise self.trap(expr, "деление на ноль")
+                if kind in ("i32", "i64") and right == -1 \
+                        and left == INT_RANGES[kind][0]:
+                    raise self.trap(expr, f"переполнение {kind}")
+                return (self._tdiv(left, right) if op == "/"
+                        else left - self._tdiv(left, right) * right)
+        if isinstance(expr, ast.Call):
+            if expr.name in INT_RANGES:
+                # каст в const-выражении: чек диапазона, текст кодогена
+                value = self._const_eval_ct(expr.args[0], kind)
+                lo, hi = INT_RANGES[expr.name]
+                if not lo <= value <= hi:
+                    raise self.trap(
+                        expr, f"переполнение при {expr.name}()"
+                    )
+                return value
+            func = self.funcs.get(expr.name)
+            if func is None:
+                raise self.trap(
+                    expr, f"неизвестная функция {expr.name}"
+                )
+            if func.ret is None:
+                raise self.trap(
+                    expr,
+                    "функция ничего не возвращает — это не значение",
+                )
+            args = [self._const_eval_ct(a, kind) for a in expr.args]
+            return self._comptime_call(func, args, expr)
+        raise self.trap(expr, "не константа")
+
+    def _fit_ct(self, node, kind: str | None, value) -> None:
+        if kind is None:
+            return
+        lo, hi = INT_RANGES[kind]
+        if not lo <= value <= hi:
+            raise self.trap(node, f"переполнение {kind}")
+
+    def _comptime_call(self, func: ast.FuncDecl, args: list, site):
+        """Вызов чистой функции на компиляции: бюджет шагов + запрет
+        аксиом. Бюджет — на верхнеуровневый вызов (§9.2): вложенный
+        _comptime_call (ленивая резолюция const внутри тела) НЕ
+        сбрасывает счётчик — шаги копятся в бюджете корня."""
+        prev_mode = self._comptime_mode
+        fresh = self.step_budget is None
+        from .limits import MAX_COMPTIME_STEPS
+        self._comptime_mode = True
+        if fresh:
+            self.step_budget = MAX_COMPTIME_STEPS
+            self.steps = 0
+        try:
+            return self.call_func(func, args, None, site)
+        finally:
+            self._comptime_mode = prev_mode
+            if fresh:
+                self.step_budget = None
+                self.steps = 0
 
     # --- ошибки и хранение ---------------------------------------------
 
@@ -232,6 +395,10 @@ class Interpreter:
         for scope in reversed(self.frames[-1]):
             if name in scope:
                 return scope[name]
+        if name in self._const_resolving:
+            raise self.trap(node, f"цикл в comptime-константе {name}")
+        if name not in self.consts and name in self._const_pending:
+            self._resolve_pending_const(name)  # comptime-const по доступу
         if name in self.consts:
             return self.consts[name]
         raise self.trap(node, f"нет переменной {name}")
@@ -278,6 +445,11 @@ class Interpreter:
             )
         self.frames.append([{}])
         try:
+            if self._comptime_mode:
+                from .limits import MAX_COMPTIME_CALL_DEPTH
+                self._comptime_depth += 1
+                if self._comptime_depth > MAX_COMPTIME_CALL_DEPTH:
+                    raise ComptimeDepth()
             if self_value is not None:
                 self.declare("self", Slot(self_value))
             arg_i = 0
@@ -320,6 +492,8 @@ class Interpreter:
             # кадр снимается и при trap'е: иначе внешние finally
             # чистили бы чужие области видимости
             self.frames.pop()
+            if self._comptime_mode:
+                self._comptime_depth -= 1
 
     # --- инструкции --------------------------------------------------------
 
@@ -570,6 +744,11 @@ class Interpreter:
             mask = INT_RANGES[node.operand.ty.kind][1]
             return value ^ mask
         result = -value
+        if self._comptime_mode:  # текст кодогена (§9.1)
+            lo, hi = INT_RANGES[node.ty.kind]
+            if not lo <= result <= hi:
+                raise self.trap(node, f"переполнение {node.ty.kind}")
+            return result
         self._fit(node, node.ty.kind, result)
         return result
 
@@ -583,7 +762,14 @@ class Interpreter:
         right = self.eval(node.right)
         fn = _BINOP_FNS.get(op)
         if fn is not None:
-            return fn(left, right)
+            result = fn(left, right)
+            if self._comptime_mode and op in ("+", "-", "*"):
+                # строгая по-операционная семантика (§9.1 COMPTIME_PLAN):
+                # comptime == бинарник; тексты — кодогена
+                lo, hi = INT_RANGES[node.ty.kind]
+                if not lo <= result <= hi:
+                    raise self.trap(node, f"переполнение {node.ty.kind}")
+            return result
         if op in ("<<", ">>"):
             return self._shift(node, op, left, right)
         if op == "/":
@@ -594,7 +780,12 @@ class Interpreter:
         kind = node.left.ty.kind
         width = {"u8": 8, "u16": 16, "u64": 64}.get(kind, 32)
         if right >= width:
+            if self._comptime_mode:  # текст кодогена (§9.1)
+                raise self.trap(node, f"сдвиг ≥ ширины {kind}")
             raise self.trap(node, f"сдвиг на {right} ≥ ширины {kind}")
+        if op == "<<" and self._comptime_mode:
+            # семантика бинарника: shl усечён по ширине (LLVM wrap)
+            return (left << right) & INT_RANGES[kind][1]
         return left << right if op == "<<" else left >> right
 
     @staticmethod
@@ -603,14 +794,28 @@ class Interpreter:
         q = abs(left) // abs(right)
         return -q if (left < 0) != (right < 0) else q
 
+    def _div_edge(self, node, left: int, right: int) -> None:
+        """Строгий режим (§9.1): INT_MIN/(-1) знаковых — переполнение,
+        как edge-проверка кодогена перед sdiv/srem."""
+        kind = node.ty.kind
+        if kind in ("i32", "i64") and right == -1 \
+                and left == INT_RANGES[kind][0]:
+            raise self.trap(node, f"переполнение {kind}")
+
     def _trunc_div(self, node, left: int, right: int) -> int:
         if right == 0:
             raise self.trap(node, "деление на ноль")
+        if self._comptime_mode:
+            self._div_edge(node, left, right)
         return self._tdiv(left, right)
 
     def _trunc_mod(self, node, left: int, right: int) -> int:
         if right == 0:
+            if self._comptime_mode:  # текст кодогена — общий с делением
+                raise self.trap(node, "деление на ноль")
             raise self.trap(node, "деление на ноль (остаток)")
+        if self._comptime_mode:
+            self._div_edge(node, left, right)
         return left - self._tdiv(left, right) * right
 
     def _check_bounds(self, node, obj, index: int) -> None:
@@ -628,6 +833,12 @@ class Interpreter:
             return Tagged(node.ctor, _copy_value(self.eval(node.args[0])))
         args = [self.eval(a) for a in node.args]
         name = node.name
+        if self._comptime_mode and name in IMPURE_AXIOMS:
+            # защита: даже при обходе годности аксиома не даёт побочного
+            # эффекта на компиляции — trap → ошибка компиляции (§5)
+            raise self.trap(
+                node, f"аксиома {name} недоступна в comptime"
+            )
         if name == "print":
             self._write_bytes(args[0] + "\n")
             return None
@@ -675,6 +886,11 @@ class Interpreter:
         if name in INT_RANGES:
             if isinstance(args[0], str):  # u8(char): код байта
                 return ord(args[0])
+            if self._comptime_mode:  # текст кодогена (§9.1)
+                lo, hi = INT_RANGES[name]
+                if not lo <= args[0] <= hi:
+                    raise self.trap(node, f"переполнение при {name}()")
+                return args[0]
             self._fit(node, name, args[0])
             return args[0]
         return self.call_func(self.funcs[name], args, None, node)

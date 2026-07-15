@@ -1,0 +1,28 @@
+#! expect: bounds=2/2
+# Ярус A (§5): const-из-вызова — comptime-годная функция вычисляется
+# компилятором; значение — обычная константа (точка [v, v] для
+# верификатора: индекс по маске доказан).
+
+const CRC7: u32 = crc_entry(7)
+const SMALL: u32 = CRC7 % 16
+
+func crc_entry(i: u32) -> u32
+    requires i < 256
+    ensures true
+{
+    var c: u32 = i
+    for _ in 0..8 {
+        if c % 2 == 1 {
+            c = (c / 2) ^ 3988292384
+        } else {
+            c = c / 2
+        }
+    }
+    return c
+}
+
+func main() {
+    var t: [u32; 16] = [0; 16]
+    t[SMALL] = CRC7
+    print("{t[SMALL]}")
+}

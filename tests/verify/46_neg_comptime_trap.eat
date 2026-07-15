@@ -1,0 +1,15 @@
+#! expect: error=comptime: trap: переполнение u32
+# Негатив: trap при comptime-вычислении — ошибка компиляции
+# (строгая по-операционная семантика = семантика бинарника, §9.1).
+
+const BIG: u32 = 2657392035
+const X: u32 = doubler(BIG)
+
+func doubler(x: u32) -> u32
+    requires true
+    ensures true
+{
+    return x + x
+}
+
+func main() {}
