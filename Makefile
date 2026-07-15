@@ -124,8 +124,11 @@ SELFHOST_VERIFY = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
 # Курируемый список кейсов (растёт по мере покрытия, как verify_suite):
 # этап 1 — bounds/overflow/div/cast/requires/ensures/assert.
 VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \
-	04_pool_append 05_prefix_scan 06_div_nonzero 09_countdown 10_accumulator \
-	16_neg_loop_overflow
+	04_pool_append 05_prefix_scan 06_div_nonzero 07_max_relational \
+	08_ensures_structural 09_countdown 10_accumulator 13_off_by_one \
+	14_len_capacity 15_neg_wrong_ensures 16_neg_loop_overflow \
+	19_assign_relation 24_byte_io 34_neg_module_mask_hidden \
+	36_neg_ctor_bounds 37_neg_ctor_context 38_neg_none_parens
 
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
 # (пулы компилятора живут в кадре main — как в src/eatc/codegen.py;

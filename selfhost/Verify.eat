@@ -4,10 +4,17 @@
 # машина потока по образцу Check.eat, дамп обязательств `eatc verify`
 # (стабильный порядок строка→колонка→вид + футер-агрегат).
 #
+# Этап 2 (реляционно-структурное ядро): разностные ограничения
+# p <= q + d разреженным списком рёбер в St + замыкание Флойда–Уоршелла
+# во временный буфер cl_*; решатели decide_rel/decide_offset, floor_zero
+# вычитания; структурное равенство expr_equal (явный стек, раскрытие
+# result); дотовые пути self.поле/var.поле (пул с pp_par/pp_sf).
+#
 # Паритет байт-в-байт с `eatc verify` на курируемом списке кейсов
-# (tests/verify 01–06, 09–10, 16 — bounds/overflow/div/cast/requires/
-# ensures/assert). Реляционный анализ, пулы-инварианты, дырки, summary
-# и элизия в IR — этапы 2–5.
+# (VERIFY_GATE): этап 1 — bounds/overflow/div/cast/requires/ensures/
+# assert (01–06,09,10,16,14,15,24,34,36–38); этап 2 — реляционные и
+# структурные 07,08,13,19. Контракты/summary/lockstep, пулы-инварианты,
+# дырки и элизия в IR — далее (этапы 2 хвост, 3–5).
 #
 # Три бездонных ямы EATLang (нет куч, рекурсии, хеш-мап) обойдены как
 # в Check.eat: фиксированные пулы + явные стек-машины. Значения —
@@ -23,15 +30,31 @@ struct St {
     hs: [u32; 64]       # знак верхней границы
     hm: [u64; 64]       # величина верхней границы
     nz: [u32; 64]       # путь доказанно != 0
+    # --- разностные ограничения (этап 2): ребро e — факт
+    # pp[rp[e]] <= pp[rq[e]] + (rs[e], rm[e]) (минимальное известное d).
+    # Разреженный список рёбер (не матрица NP×NP): St копируется по
+    # значению на каждом кадре потока, матрица раздула бы копии/замыкание
+    # (риск §5, O(n³)). Замыкание Флойда–Уоршелла — во временный
+    # плотный буфер Verify.cl_* по индексу пути, не в St.
+    rp: [u32; 32]
+    rq: [u32; 32]
+    rs: [u32; 32]
+    rm: [u64; 32]
+    nrel: u32
 }
 
 struct Verify {
     c: Check
     failed: bool
 
-    # --- пул интернированных путей (этап 1: только простые имена) ------
+    # --- пул интернированных путей ------------------------------------
+    # путь — цепочка компонент: простое имя (par=NONE, sf=0, span=имя),
+    # бара self (par=NONE, sf=1), либо поле par.имя (par=pid, span=поле).
+    # Так `self.pos`, `c.total` различимы (этап 2, дотовые пути).
     pp_a: [u32; 64]
     pp_l: [u32; 64]
+    pp_par: [u32; 64]
+    pp_sf: [u32; 64]
     npp: u32
 
     # --- текущее состояние потока -------------------------------------
@@ -212,6 +235,31 @@ struct Verify {
     rc_olm: u64
     rc_ohs: u32
     rc_ohm: u64
+
+    # --- замыкание разностных ограничений (Флойд–Уоршелл) -------------
+    # плотный буфер по индексу пути: клетка [p*64+q] — доказанное d
+    # (знак/величина) для факта p <= q + d. Строится из env.r* на каждый
+    # запрос decide/floor_zero (как env.closure() эталона), не хранится.
+    cl_k: [u32; 4096]
+    cl_s: [u32; 4096]
+    cl_m: [u64; 4096]
+
+    # --- разложение выражения p ± c: (база-путь | NONE, знак, величина)
+    # dc_* — последнее разложение, dl_* — сохранённая левая сторона
+    # (обход предела в 6 параметров: decide_offset читает dl_* и dc_*)
+    dc_p: u32
+    dc_s: u32
+    dc_m: u64
+    dl_p: u32
+    dl_s: u32
+    dl_m: u64
+
+    # --- стек структурного равенства (_expr_equal без рекурсии) --------
+    eq_a: [u32; 256]
+    eq_b: [u32; 256]
+    neq2: u32
+    # выражение текущего return (result раскрывается в него)
+    res_expr: u32
 
     func nk(var self, n: u32) -> u32
         requires n < 131072
@@ -495,7 +543,8 @@ struct Verify {
 
     # --- пул путей -----------------------------------------------------
 
-    func path_find(var self, a: u32, l: u32) -> u32
+    # общий поиск слота пула по (родитель, self-флаг, span компоненты)
+    func slot_find(var self, par: u32, sf: u32, a: u32, l: u32) -> u32
         requires true
         ensures true
     {
@@ -504,18 +553,20 @@ struct Verify {
             if i >= self.npp or r != NONE {
                 break
             }
-            if self.c.span_eq(self.pp_a[i], self.pp_l[i], a, l) {
-                r = i
+            if self.pp_par[i] == par and self.pp_sf[i] == sf {
+                if sf == 1 or sf == 2 or self.c.span_eq(self.pp_a[i], self.pp_l[i], a, l) {
+                    r = i
+                }
             }
         }
         return r
     }
 
-    func path_intern(var self, a: u32, l: u32) -> u32
+    func slot_intern(var self, par: u32, sf: u32, a: u32, l: u32) -> u32
         requires true
         ensures true
     {
-        let e: u32 = self.path_find(a, l)
+        let e: u32 = self.slot_find(par, sf, a, l)
         if e != NONE {
             return e
         }
@@ -526,15 +577,120 @@ struct Verify {
         let i: u32 = self.npp
         self.pp_a[i] = a
         self.pp_l[i] = l
+        self.pp_par[i] = par
+        self.pp_sf[i] = sf
         self.npp = i + 1
         return i
+    }
+
+    # простое имя (совместимость: прежние вызовы path_find/path_intern)
+    func path_find(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        return self.slot_find(NONE, 0, a, l)
+    }
+
+    func path_intern(var self, a: u32, l: u32) -> u32
+        requires true
+        ensures true
+    {
+        return self.slot_intern(NONE, 0, a, l)
+    }
+
+    # снять прозрачные касты char/u8(char): для путей каст незаметен
+    func uncast(var self, n: u32) -> u32
+        requires n < 131072
+        ensures true
+    {
+        var cur: u32 = n
+        var done: bool = false
+        for _ in 0..16 {
+            if done {
+                break
+            }
+            if self.nk(cur) != 41 or self.c.nchildren(cur) != 1 {
+                done = true
+            } else {
+                let a: u32 = self.nss(cur)
+                let l: u32 = self.nsl(cur)
+                var transp: bool = self.c.span_is(a, l, "char")
+                let argn: u32 = self.nfc(cur)
+                let argty: u32 = self.nty(argn)
+                if self.c.span_is(a, l, "u8") and argty != NONE and self.c.yk[argty] == 4 {
+                    transp = true
+                }
+                if not transp {
+                    done = true
+                } else {
+                    cur = argn
+                }
+            }
+        }
+        return cur
+    }
+
+    # путь узла-выражения (имя | self | цепочка полей) -> pid | NONE.
+    # Рекурсии нет: цепочка полей собирается явным стеком.
+    func node_path(var self, n: u32) -> u32
+        requires n < 131072
+        ensures true
+    {
+        var chain: [u32; 16] = [0; 16]
+        var nch: u32 = 0
+        var cur: u32 = self.uncast(n)
+        var basek: u32 = 0
+        var ok: bool = false
+        var done: bool = false
+        for _ in 0..16 {
+            if done {
+                break
+            }
+            let k: u32 = self.nk(cur)
+            if k == 37 {
+                basek = 37
+                ok = true
+                done = true
+            } elif k == 38 {
+                basek = 38
+                ok = true
+                done = true
+            } elif k == 43 and nch < 16 {
+                chain[nch] = cur
+                nch = nch + 1
+                cur = self.uncast(self.nfc(cur))
+            } else {
+                done = true
+            }
+        }
+        if not ok {
+            return NONE
+        }
+        var pid: u32 = NONE
+        if basek == 37 {
+            if self.c.span_is(self.nss(cur), self.nsl(cur), "result") {
+                pid = self.slot_intern(NONE, 2, 0, 0)
+            } else {
+                pid = self.slot_intern(NONE, 0, self.nss(cur), self.nsl(cur))
+            }
+        } else {
+            pid = self.slot_intern(NONE, 1, 0, 0)
+        }
+        for t in 0..16 {
+            if t >= nch or self.failed {
+                break
+            }
+            let m: u32 = chain[nch - 1 - t]
+            pid = self.slot_intern(pid, 0, self.nss(m), self.nsl(m))
+        }
+        return pid
     }
 
     func fresh_st(var self) -> St
         requires true
         ensures true
     {
-        return St { kn: [0; 64], ls: [0; 64], lm: [0; 64], hs: [0; 64], hm: [0; 64], nz: [0; 64] }
+        return St { kn: [0; 64], ls: [0; 64], lm: [0; 64], hs: [0; 64], hm: [0; 64], nz: [0; 64], rp: [0; 32], rq: [0; 32], rs: [0; 32], rm: [0; 32], nrel: 0 }
     }
 
     # --- отметки -------------------------------------------------------
@@ -867,7 +1023,36 @@ struct Verify {
         self.om_lm = lom
         self.om_hs = self.oas
         self.om_hm = self.oam
+        # a − b при известном b ≤ a не уходит ниже нуля (floor_zero):
+        # только для бинарного вычитания (kind 39), не унарного минуса
+        if self.nk(n) == 39 and self.sub_floor(n) {
+            self.smax(self.om_ls, self.om_lm, 0, 0)
+            self.om_ls = self.oas
+            self.om_lm = self.oam
+            self.smax(self.om_hs, self.om_hm, 0, 0)
+            self.om_hs = self.oas
+            self.om_hm = self.oam
+        }
         self.overflow_mark(n, ov)
+    }
+
+    # b ≤ a доказуемо (пути с одним и тем же или разностным ограничением)
+    func sub_floor(var self, n: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        let left: u32 = self.nfc(n)
+        let right: u32 = self.nns(left)
+        let lp: u32 = self.node_path(left)
+        let rp: u32 = self.node_path(right)
+        if lp == NONE or rp == NONE {
+            return false
+        }
+        if lp == rp {
+            return true
+        }
+        self.closure()
+        return self.cl_le(rp, lp)
     }
 
     # отметка overflow + результат = пересечение [lo,hi] с диапазоном
@@ -1635,8 +1820,52 @@ struct Verify {
         self.rb_lm = self.rlm
         self.rb_hs = self.rhs
         self.rb_hm = self.rhm
-        self.ebvpush(self.cmp(op))
+        var r: u32 = self.cmp(op)
+        if r == 2 {
+            r = self.cmp_rel(n, op)
+        }
+        self.ebvpush(r)
         self.neb = f
+    }
+
+    # реляционно-структурный резерв сравнения (эталон _eval_bool BinOp:
+    # decide_rel → decide_offset → expr_equal). Возвращает 0/1/2.
+    func cmp_rel(var self, n: u32, op: u32) -> u32
+        requires n < 131072
+        ensures true
+    {
+        let left: u32 = self.nfc(n)
+        let right: u32 = self.nns(left)
+        let numl: bool = self.numeric_node(left)
+        let numr: bool = self.numeric_node(right)
+        if numl and numr {
+            let lp: u32 = self.node_path(left)
+            let rp: u32 = self.node_path(right)
+            if lp != NONE and rp != NONE {
+                let r: u32 = self.decide_rel(lp, op, rp)
+                if r != 2 {
+                    return r
+                }
+            }
+        }
+        if numl and numr and self.decompose(left) {
+            self.dl_p = self.dc_p
+            self.dl_s = self.dc_s
+            self.dl_m = self.dc_m
+            if self.decompose(right) {
+                let r: u32 = self.decide_offset(op)
+                if r != 2 {
+                    return r
+                }
+            }
+        }
+        if self.expr_equal(left, right) {
+            if op == 4 or op == 7 or op == 9 {
+                return 1
+            }
+            return 0
+        }
+        return 2
     }
 
     func cmp(var self, op: u32) -> u32
@@ -1855,7 +2084,34 @@ struct Verify {
         if op == 4 or op == 6 or op == 7 or op == 8 or op == 9 {
             self.refine_cmp(left, op, right)
             self.refine_cmp(right, self.mirror_op(op), left)
+            self.refine_rel(left, op, right)
         }
+    }
+
+    # разностный факт между путями со смещением (хвост эталонного
+    # _refine): из `i + 1 < n` следует ребро i <= n + (0 - 1).
+    func refine_rel(var self, left: u32, op: u32, right: u32)
+        requires left < 131072 and right < 131072
+        ensures true
+    {
+        if not self.numeric_node(left) or not self.numeric_node(right) {
+            return
+        }
+        if not self.decompose(left) {
+            return
+        }
+        let lp: u32 = self.dc_p
+        let lcs: u32 = self.dc_s
+        let lcm: u64 = self.dc_m
+        if not self.decompose(right) {
+            return
+        }
+        if lp == self.dc_p {
+            return
+        }
+        let rp: u32 = self.dc_p
+        self.ssub(self.dc_s, self.dc_m, lcs, lcm)
+        self.env_relate(lp, op, rp, self.oas, self.oam)
     }
 
     func refine_cmp(var self, target: u32, op: u32, other: u32)
@@ -1998,6 +2254,490 @@ struct Verify {
         }
     }
 
+    # --- разностные ограничения (rels): факт p <= q + d ---------------
+
+    # ребро в self.env: pp[p] <= pp[q] + (ds, dm); минимальное d
+    func env_add(var self, p: u32, q: u32, ds: u32, dm: u64)
+        requires true
+        ensures true
+    {
+        if p == q or p == NONE or q == NONE {
+            return
+        }
+        var f: u32 = NONE
+        for e in 0..32 {
+            if e >= self.env.nrel or f != NONE {
+                break
+            }
+            if self.env.rp[e] == p and self.env.rq[e] == q {
+                f = e
+            }
+        }
+        if f != NONE {
+            if self.sless(ds, dm, self.env.rs[f], self.env.rm[f]) {
+                self.env.rs[f] = ds
+                self.env.rm[f] = dm
+            }
+            return
+        }
+        if self.env.nrel >= 32 {
+            return
+        }
+        let i: u32 = self.env.nrel
+        self.env.rp[i] = p
+        self.env.rq[i] = q
+        self.env.rs[i] = ds
+        self.env.rm[i] = dm
+        self.env.nrel = i + 1
+    }
+
+    # факт lp op rp + (ds, dm); op 4 ==,6 <,7 <=,8 >,9 >=
+    func env_relate(var self, lp: u32, op: u32, rp: u32, ds: u32, dm: u64)
+        requires true
+        ensures true
+    {
+        if op == 7 {
+            self.env_add(lp, rp, ds, dm)
+        } elif op == 6 {
+            self.ssub(ds, dm, 0, 1)
+            self.env_add(lp, rp, self.oas, self.oam)
+        } elif op == 9 {
+            self.ssub(0, 0, ds, dm)
+            self.env_add(rp, lp, self.oas, self.oam)
+        } elif op == 8 {
+            self.ssub(0, 0, ds, dm)
+            let ns: u32 = self.oas
+            let nm: u64 = self.oam
+            self.ssub(ns, nm, 0, 1)
+            self.env_add(rp, lp, self.oas, self.oam)
+        } elif op == 4 {
+            self.env_add(lp, rp, ds, dm)
+            self.ssub(0, 0, ds, dm)
+            self.env_add(rp, lp, self.oas, self.oam)
+        }
+    }
+
+    # удалить рёбра, касающиеся pid (kill пути)
+    func rels_kill(var self, pid: u32)
+        requires true
+        ensures true
+    {
+        var w: u32 = 0
+        for e in 0..32 {
+            if e >= self.env.nrel {
+                break
+            }
+            if self.env.rp[e] != pid and self.env.rq[e] != pid {
+                self.env.rp[w] = self.env.rp[e]
+                self.env.rq[w] = self.env.rq[e]
+                self.env.rs[w] = self.env.rs[e]
+                self.env.rm[w] = self.env.rm[e]
+                w = w + 1
+            }
+        }
+        self.env.nrel = w
+    }
+
+    # --- замыкание Флойда–Уоршелла в cl_* по индексу пути -------------
+
+    func closure(var self)
+        requires true
+        ensures true
+    {
+        for i in 0..4096 {
+            self.cl_k[i] = 0
+        }
+        for e in 0..32 {
+            if e >= self.env.nrel {
+                break
+            }
+            let p: u32 = self.env.rp[e]
+            let q: u32 = self.env.rq[e]
+            if p < 64 and q < 64 {
+                let idx: u32 = p * 64 + q
+                if self.cl_k[idx] == 0 or self.sless(self.env.rs[e], self.env.rm[e], self.cl_s[idx], self.cl_m[idx]) {
+                    self.cl_k[idx] = 1
+                    self.cl_s[idx] = self.env.rs[e]
+                    self.cl_m[idx] = self.env.rm[e]
+                }
+            }
+        }
+        for k in 0..64 {
+            if k >= self.npp {
+                break
+            }
+            self.closure_k(k)
+        }
+    }
+
+    func closure_k(var self, k: u32)
+        requires k < 64
+        ensures true
+    {
+        for i in 0..64 {
+            if i >= self.npp {
+                break
+            }
+            if i != k and self.cl_k[i * 64 + k] == 1 {
+                self.closure_ik(i, k)
+            }
+        }
+    }
+
+    func closure_ik(var self, i: u32, k: u32)
+        requires i < 64 and k < 64
+        ensures true
+    {
+        let dik_s: u32 = self.cl_s[i * 64 + k]
+        let dik_m: u64 = self.cl_m[i * 64 + k]
+        for j in 0..64 {
+            if j >= self.npp {
+                break
+            }
+            if j != i and j != k and self.cl_k[k * 64 + j] == 1 {
+                self.sadd(dik_s, dik_m, self.cl_s[k * 64 + j], self.cl_m[k * 64 + j])
+                let idx: u32 = i * 64 + j
+                if self.cl_k[idx] == 0 or self.sless(self.oas, self.oam, self.cl_s[idx], self.cl_m[idx]) {
+                    self.cl_k[idx] = 1
+                    self.cl_s[idx] = self.oas
+                    self.cl_m[idx] = self.oam
+                }
+            }
+        }
+    }
+
+    # x <= y (по замыканию; default d=+1 → неизвестно)
+    func cl_le(var self, x: u32, y: u32) -> bool
+        requires x < 64 and y < 64
+        ensures true
+    {
+        if x == y {
+            return true
+        }
+        let idx: u32 = x * 64 + y
+        if self.cl_k[idx] == 0 {
+            return false
+        }
+        return self.sleq(self.cl_s[idx], self.cl_m[idx], 0, 0)
+    }
+
+    func cl_lt(var self, x: u32, y: u32) -> bool
+        requires x < 64 and y < 64
+        ensures true
+    {
+        let idx: u32 = x * 64 + y
+        if self.cl_k[idx] == 0 {
+            return false
+        }
+        return self.sleq(self.cl_s[idx], self.cl_m[idx], 1, 1)
+    }
+
+    # решить lp op rp по отношениям (0 ложь, 1 истина, 2 неизв.)
+    func decide_rel(var self, lp: u32, op: u32, rp: u32) -> u32
+        requires lp < 64 and rp < 64
+        ensures true
+    {
+        self.closure()
+        if op == 6 {
+            if self.cl_lt(lp, rp) {
+                return 1
+            }
+            if self.cl_le(rp, lp) {
+                return 0
+            }
+        } elif op == 7 {
+            if self.cl_le(lp, rp) {
+                return 1
+            }
+            if self.cl_lt(rp, lp) {
+                return 0
+            }
+        } elif op == 8 {
+            if self.cl_lt(rp, lp) {
+                return 1
+            }
+            if self.cl_le(lp, rp) {
+                return 0
+            }
+        } elif op == 9 {
+            if self.cl_le(rp, lp) {
+                return 1
+            }
+            if self.cl_lt(lp, rp) {
+                return 0
+            }
+        } elif op == 4 {
+            if lp == rp or (self.cl_le(lp, rp) and self.cl_le(rp, lp)) {
+                return 1
+            }
+            if self.cl_lt(lp, rp) or self.cl_lt(rp, lp) {
+                return 0
+            }
+        } elif op == 5 {
+            if self.cl_lt(lp, rp) or self.cl_lt(rp, lp) {
+                return 1
+            }
+            if lp == rp {
+                return 0
+            }
+        }
+        return 2
+    }
+
+    # решить (dl_*)+a op (dc_*)+b через разностные ограничения (delta=a-b);
+    # левая сторона — в dl_p/dl_s/dl_m, правая — в dc_p/dc_s/dc_m
+    func decide_offset(var self, op: u32) -> u32
+        requires self.dl_p < 64 and self.dc_p < 64
+        ensures true
+    {
+        let pp: u32 = self.dl_p
+        let qp: u32 = self.dc_p
+        self.ssub(self.dl_s, self.dl_m, self.dc_s, self.dc_m)
+        let dls: u32 = self.oas
+        let dlm: u64 = self.oam
+        if pp == qp {
+            return self.decide_delta(op, dls, dlm)
+        }
+        self.closure()
+        let ipq: u32 = pp * 64 + qp
+        let iqp: u32 = qp * 64 + pp
+        self.ssub(0, 0, dls, dlm)
+        let nds: u32 = self.oas
+        let ndm: u64 = self.oam
+        if op == 7 {
+            if self.cl_k[ipq] == 1 and self.sleq(self.cl_s[ipq], self.cl_m[ipq], nds, ndm) {
+                return 1
+            }
+        } elif op == 6 {
+            self.ssub(nds, ndm, 0, 1)
+            if self.cl_k[ipq] == 1 and self.sleq(self.cl_s[ipq], self.cl_m[ipq], self.oas, self.oam) {
+                return 1
+            }
+        } elif op == 9 {
+            if self.cl_k[iqp] == 1 and self.sleq(self.cl_s[iqp], self.cl_m[iqp], dls, dlm) {
+                return 1
+            }
+        } elif op == 8 {
+            self.ssub(dls, dlm, 0, 1)
+            if self.cl_k[iqp] == 1 and self.sleq(self.cl_s[iqp], self.cl_m[iqp], self.oas, self.oam) {
+                return 1
+            }
+        } elif op == 4 {
+            if self.cl_k[ipq] == 1 and self.cl_k[iqp] == 1 and self.sleq(self.cl_s[ipq], self.cl_m[ipq], nds, ndm) and self.sleq(self.cl_s[iqp], self.cl_m[iqp], dls, dlm) {
+                return 1
+            }
+        }
+        return 2
+    }
+
+    func decide_delta(var self, op: u32, ds: u32, dm: u64) -> u32
+        requires true
+        ensures true
+    {
+        if op == 6 {
+            if self.sless(ds, dm, 0, 0) {
+                return 1
+            }
+            return 0
+        }
+        if op == 7 {
+            if self.sleq(ds, dm, 0, 0) {
+                return 1
+            }
+            return 0
+        }
+        if op == 8 {
+            if self.sless(0, 0, ds, dm) {
+                return 1
+            }
+            return 0
+        }
+        if op == 9 {
+            if self.sleq(0, 0, ds, dm) {
+                return 1
+            }
+            return 0
+        }
+        if op == 4 {
+            if ds == 0 and dm == 0 {
+                return 1
+            }
+            return 0
+        }
+        if op == 5 {
+            if dm != 0 {
+                return 1
+            }
+            return 0
+        }
+        return 2
+    }
+
+    # разложить узел в (база-путь, смещение) -> dc_p/dc_s/dc_m; bool успех
+    func decompose(var self, n: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        let p: u32 = self.node_path(n)
+        if p != NONE {
+            self.dc_p = p
+            self.dc_s = 0
+            self.dc_m = 0
+            return true
+        }
+        if self.nk(n) != 39 {
+            return false
+        }
+        let op: u32 = self.nx(n)
+        if op != 10 and op != 11 {
+            return false
+        }
+        let left: u32 = self.nfc(n)
+        let right: u32 = self.nns(left)
+        var base: u32 = self.node_path(left)
+        var step: u32 = right
+        if base == NONE and op == 10 {
+            base = self.node_path(right)
+            step = left
+        }
+        if base == NONE {
+            return false
+        }
+        if not self.const_of(step) {
+            return false
+        }
+        self.dc_p = base
+        if op == 11 {
+            self.ssub(0, 0, self.csig, self.cmag)
+            self.dc_s = self.oas
+            self.dc_m = self.oam
+        } else {
+            self.dc_s = self.csig
+            self.dc_m = self.cmag
+        }
+        return true
+    }
+
+    func numeric_node(var self, n: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        let ty: u32 = self.nty(n)
+        if ty == NONE {
+            return false
+        }
+        let k: u32 = self.c.yk[ty]
+        return self.numeric_kind(k) or k == 4
+    }
+
+    # --- структурное равенство выражений (без рекурсии, явный стек) ----
+
+    func expr_equal(var self, a: u32, b: u32) -> bool
+        requires a < 131072 and b < 131072
+        ensures true
+    {
+        self.neq2 = 0
+        self.eq_a[0] = a
+        self.eq_b[0] = b
+        self.neq2 = 1
+        var res: bool = true
+        for _ in 0..4096 {
+            if self.neq2 == 0 or not res {
+                break
+            }
+            let t: u32 = self.neq2 - 1
+            let x: u32 = self.eq_a[t]
+            let y: u32 = self.eq_b[t]
+            self.neq2 = t
+            if not self.eq_one(x, y) {
+                res = false
+            }
+        }
+        return res
+    }
+
+    func eq_push(var self, a: u32, b: u32)
+        requires true
+        ensures true
+    {
+        if self.neq2 >= 256 {
+            return
+        }
+        self.eq_a[self.neq2] = a
+        self.eq_b[self.neq2] = b
+        self.neq2 = self.neq2 + 1
+    }
+
+    # сравнить пару узлов; при равенстве — протолкнуть детей; иначе false
+    func eq_one(var self, ain: u32, bin: u32) -> bool
+        requires ain < 131072 and bin < 131072
+        ensures true
+    {
+        var a: u32 = self.uncast(ain)
+        var b: u32 = self.uncast(bin)
+        if self.res_expr != NONE and self.nk(a) == 37 and self.c.span_is(self.nss(a), self.nsl(a), "result") {
+            a = self.uncast(self.res_expr)
+        }
+        if self.res_expr != NONE and self.nk(b) == 37 and self.c.span_is(self.nss(b), self.nsl(b), "result") {
+            b = self.uncast(self.res_expr)
+        }
+        let ka: u32 = self.nk(a)
+        let kb: u32 = self.nk(b)
+        if ka != kb {
+            return false
+        }
+        if ka == 32 {
+            return self.ny(a) == self.ny(b) and self.c.p.mag(a) == self.c.p.mag(b)
+        }
+        if ka == 33 {
+            return self.nx(a) == self.nx(b)
+        }
+        if ka == 34 {
+            return self.c.p.lex.sb_at(self.nss(a)) == self.c.p.lex.sb_at(self.nss(b))
+        }
+        if ka == 37 {
+            return self.c.span_eq(self.nss(a), self.nsl(a), self.nss(b), self.nsl(b))
+        }
+        if ka == 38 {
+            return true
+        }
+        if ka == 43 {
+            if not self.c.span_eq(self.nss(a), self.nsl(a), self.nss(b), self.nsl(b)) {
+                return false
+            }
+            self.eq_push(self.nfc(a), self.nfc(b))
+            return true
+        }
+        if ka == 40 {
+            if self.nx(a) != self.nx(b) {
+                return false
+            }
+            self.eq_push(self.nfc(a), self.nfc(b))
+            return true
+        }
+        if ka == 39 {
+            return self.eq_bin(a, b)
+        }
+        return false
+    }
+
+    func eq_bin(var self, a: u32, b: u32) -> bool
+        requires a < 131072 and b < 131072
+        ensures true
+    {
+        if self.nx(a) != self.nx(b) {
+            return false
+        }
+        # Упрощение этапа 2: коммутативность +/* не раскрывается (эталон
+        # _expr_equal её учитывает, но под-сравнение перестановки замкнуло
+        # бы граф вызовов eq_one→…→eq_one, правило 1). Целевые кейсы
+        # (08,18,21) держат один порядок операндов — прямое сравнение
+        # покрывает их; расхождение только там, где стороны переставлены.
+        self.eq_push(self.nfc(a), self.nfc(b))
+        self.eq_push(self.nns(self.nfc(a)), self.nns(self.nfc(b)))
+        return true
+    }
+
     # --- машина потока (0 блок, 1 if, 2 for) --------------------------
 
     func fpush_block(var self, node: u32)
@@ -2103,15 +2843,18 @@ struct Verify {
     {
         let ty: u32 = self.nty(cur)
         self.iv_eval(self.nns(self.nfc(cur)), 1)
-        self.flush_requires()
-        if ty == NONE or not self.numeric_kind(self.c.yk[ty]) {
-            return
-        }
+        # r-регистры захватываются ДО flush_requires: проверка requires
+        # переоценивает выражения и затирает r-регистры (значение — в
+        # состоянии до присваивания, как _iv возвращает iv до _check)
         let vk_: u32 = self.rk
         let vls_: u32 = self.rls
         let vlm_: u64 = self.rlm
         let vhs_: u32 = self.rhs
         let vhm_: u64 = self.rhm
+        self.flush_requires()
+        if ty == NONE or not self.numeric_kind(self.c.yk[ty]) {
+            return
+        }
         let pid: u32 = self.path_intern(self.nss(cur), self.nsl(cur))
         self.kind_range(self.c.yk[ty])
         if vk_ == 1 {
@@ -2129,6 +2872,11 @@ struct Verify {
         self.env.lm[pid] = self.rlm
         self.env.hs[pid] = self.rhs
         self.env.hm[pid] = self.rhm
+        # отношение через присваивание выражения: let j = i + 1 → j == i+1
+        let value: u32 = self.nns(self.nfc(cur))
+        if self.decompose(value) {
+            self.env_relate(pid, 4, self.dc_p, self.dc_s, self.dc_m)
+        }
     }
 
     func flow_assign(var self, cur: u32)
@@ -2142,18 +2890,20 @@ struct Verify {
             self.iv_eval(tgt, 1)
         }
         self.iv_eval(value, 1)
-        self.flush_requires()
-        if self.nk(tgt) != 37 {
-            return
-        }
+        # захват до flush_requires (см. flow_let)
         let vk_: u32 = self.rk
         let vls_: u32 = self.rls
         let vlm_: u64 = self.rlm
         let vhs_: u32 = self.rhs
         let vhm_: u64 = self.rhm
+        self.flush_requires()
+        if self.nk(tgt) != 37 {
+            return
+        }
         let pid: u32 = self.path_intern(self.nss(tgt), self.nsl(tgt))
         self.env.kn[pid] = 0
         self.env.nz[pid] = 0
+        self.rels_kill(pid)
         if tty == NONE or not self.numeric_kind(self.c.yk[tty]) or vk_ == 0 {
             return
         }
@@ -2169,6 +2919,11 @@ struct Verify {
             self.env.hs[pid] = self.oas
             self.env.hm[pid] = self.oam
         }
+        # x = y + 1 → факт x == y + 1 (сам путь в правой части — старое
+        # значение, факт не записываем)
+        if self.decompose(value) and self.dc_p != pid {
+            self.env_relate(pid, 4, self.dc_p, self.dc_s, self.dc_m)
+        }
     }
 
     func flow_return(var self, cur: u32)
@@ -2177,22 +2932,40 @@ struct Verify {
     {
         let value: u32 = self.nfc(cur)
         var vk_: u32 = 0
+        var vls_: u32 = 0
+        var vlm_: u64 = 0
+        var vhs_: u32 = 0
+        var vhm_: u64 = 0
         if value != NONE {
             self.iv_eval(value, 1)
+            # захват до flush_requires (см. flow_let)
             vk_ = self.rk
+            vls_ = self.rls
+            vlm_ = self.rlm
+            vhs_ = self.rhs
+            vhm_ = self.rhm
             self.flush_requires()
         }
         if self.ens_node == NONE {
             return
         }
+        # ensures оценивается в копии состояния: result связывается
+        # интервалом (res_*), разностным фактом (result == выражение
+        # return) и раскрытием в выражение (res_expr, _expr_equal)
+        var saved: St = self.env
         self.res_on = 1
         self.res_kn = 0
         if value != NONE and vk_ == 1 {
             self.res_kn = 1
-            self.res_ls = self.rls
-            self.res_lm = self.rlm
-            self.res_hs = self.rhs
-            self.res_hm = self.rhm
+            self.res_ls = vls_
+            self.res_lm = vlm_
+            self.res_hs = vhs_
+            self.res_hm = vhm_
+        }
+        self.res_expr = value
+        if value != NONE and self.decompose(value) {
+            let rpid: u32 = self.slot_intern(NONE, 2, 0, 0)
+            self.env_relate(rpid, 4, self.dc_p, self.dc_s, self.dc_m)
         }
         self.eval_bool(self.ens_node, 1)
         self.ens_saw = 1
@@ -2200,6 +2973,8 @@ struct Verify {
             self.ens_all = 0
         }
         self.res_on = 0
+        self.res_expr = NONE
+        self.env = saved
     }
 
     func flow_assert(var self, cur: u32)
@@ -2343,6 +3118,41 @@ struct Verify {
                 self.fsb[f].nz[pid] = 0
             }
         }
+        self.meet_rels(f)
+    }
+
+    # пересечение разностных ограничений двух ветвей: ребро (p,q) остаётся,
+    # если есть в обеих, с максимальным (слабейшим) d (эталон _join)
+    func meet_rels(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        var w: u32 = 0
+        for e in 0..32 {
+            if e >= self.fsb[f].nrel {
+                break
+            }
+            let p: u32 = self.fsb[f].rp[e]
+            let q: u32 = self.fsb[f].rq[e]
+            var g: u32 = NONE
+            for e2 in 0..32 {
+                if e2 >= self.env.nrel or g != NONE {
+                    break
+                }
+                if self.env.rp[e2] == p and self.env.rq[e2] == q {
+                    g = e2
+                }
+            }
+            if g != NONE {
+                self.smax(self.fsb[f].rs[e], self.fsb[f].rm[e], self.env.rs[g], self.env.rm[g])
+                self.fsb[f].rp[w] = p
+                self.fsb[f].rq[w] = q
+                self.fsb[f].rs[w] = self.oas
+                self.fsb[f].rm[w] = self.oam
+                w = w + 1
+            }
+        }
+        self.fsb[f].nrel = w
     }
 
     func block_exits(var self, blk: u32) -> bool
@@ -2413,6 +3223,7 @@ struct Verify {
         if pt != NONE {
             self.env.kn[pt] = 0
             self.env.nz[pt] = 0
+            self.rels_kill(pt)
         }
         for j in 0..32 {
             if j >= self.nac {
@@ -2432,6 +3243,7 @@ struct Verify {
         let pid: u32 = self.ac_p[j]
         self.env.kn[pid] = 0
         self.env.nz[pid] = 0
+        self.rels_kill(pid)
         if self.fsb[f].kn[pid] == 1 {
             self.env.kn[pid] = 1
             self.env.ls[pid] = self.fsb[f].ls[pid]
@@ -2938,6 +3750,7 @@ struct Verify {
                 if pid != NONE {
                     self.env.kn[pid] = 0
                     self.env.nz[pid] = 0
+                    self.rels_kill(pid)
                 }
             }
             var c: u32 = self.nfc(n)
@@ -2974,6 +3787,7 @@ struct Verify {
         self.ens_saw = 0
         self.ens_all = 1
         self.res_on = 0
+        self.res_expr = NONE
         self.seed_params(fi)
         let req: u32 = self.func_clause(fi, 9)
         if req != NONE {
