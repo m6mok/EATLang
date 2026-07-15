@@ -25,7 +25,7 @@ uv run python tests/bench/bench.py --only stress,selfhost
 
 **runtime** — программы `programs/*.eat`: арифметика, вызовы функций,
 массивы, структуры, строки, а с 2026-07-14 — метрики слоёв плана
-оптимизаций (по одной программе на слой, см. docs/COMPTIME_PLAN.md §0
+оптимизаций (по одной программе на слой, см. docs/plans/COMPTIME_PLAN.md §0
 и TRACKS.md):
 
 - `U64Bench`/`I64Bench` — 64-битная арифметика (виды 13/14), деление,

@@ -43,7 +43,7 @@ make link    SRC="Mod.eat Main.eat"    # → build/Main
 # библиотека lib/ (Ascii, Buf, Const, Fmt, Hex, Io, Num, Parse) подключается тем же списком:
 make run SRC="lib/Ascii.eat lib/Num.eat examples/modules/Main.eat"
 
-# либо импортами (docs/MODULES_PLAN.md §2): драйвер сам строит DAG
+# либо импортами (docs/plans/MODULES_PLAN.md §2): драйвер сам строит DAG
 # модулей и подставляет Rt.eat и lib/; пути — от корня (--lib .)
 #
 #   import {

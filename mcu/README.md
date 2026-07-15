@@ -3,7 +3,7 @@
 Логика — на EATLang со всеми гарантиями (тотальность, Power of 10,
 отчёт §8), железо — за узкой границей: шесть аксиом ОС поверх UART
 платы плюс `extern func` для периферии проекта
-([docs/MCU_PLAN.md](../docs/MCU_PLAN.md)).
+([docs/plans/MCU_PLAN.md](../docs/plans/MCU_PLAN.md)).
 
 ## Сборка и сверка
 

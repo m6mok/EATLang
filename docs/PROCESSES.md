@@ -88,7 +88,7 @@ trap и аргументы командной строки (`arg_count`/`arg_len
 выключено, на обкатку); наблюдаемое поведение не меняется. Канон
 `eatc ir` ни один флаг не меняет.
 
-Программа собирается двумя способами (docs/MODULES_PLAN.md):
+Программа собирается двумя способами (docs/plans/MODULES_PLAN.md):
 
 - **низкоуровневый список**: несколько файлов с единым пространством
   имён; последний — главный. Self-hosted эквивалент — `cat` файлов
@@ -140,7 +140,7 @@ src/eatc/        Python-бутстрап (эталон): лексер … codege
 selfhost/        self-hosted компилятор + Rt.eat + планы фаз
 lib/             библиотека на EATLang (Ascii, Buf, Const, Fmt, Hex, Io, Num, Parse);
                  подключается списком файлов после Rt.eat
-                 (docs/MODULES_PLAN.md, этап 0 — конкатенация)
+                 (docs/plans/MODULES_PLAN.md, этап 0 — конкатенация)
 examples/        эталонные примеры; крупные: mos6502, lexer (проба)
 tests/lex|parse|ir/   стресс-кейсы дампов (входят в verify_selfhost)
 tests/verify/    регрессионный набор верификатора (verify_suite)
