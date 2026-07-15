@@ -115,6 +115,17 @@ SELFHOST_IR = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat selfhost/Lexer.eat
 SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
 	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
 	selfhost/Ir.eat selfhost/IrCodesMain.eat
+# Фаза 7 — статический верификатор (docs/SELFHOST_VERIFIER_PLAN.md).
+# Зеркало verifier.py; вход как у `eatc verify` — одиночный .eat со stdin
+# (без Rt/lib). Этап 1: интервальное ядро на курируемом списке кейсов.
+SELFHOST_VERIFY = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat selfhost/Verify.eat \
+	selfhost/VerifyMain.eat
+# Курируемый список кейсов (растёт по мере покрытия, как verify_suite):
+# этап 1 — bounds/overflow/div/cast/requires/ensures/assert.
+VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \
+	04_pool_append 05_prefix_scan 06_div_nonzero 09_countdown 10_accumulator \
+	16_neg_loop_overflow
 
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
 # (пулы компилятора живут в кадре main — как в src/eatc/codegen.py;
@@ -269,6 +280,19 @@ verify_trapcodes:
 	@diff /tmp/eat_tc_ref.ll /tmp/eat_tc_self.ll > /dev/null \
 		&& echo "TRAPCODES OK (IR режима кодов == эталон eatc ir --trap-codes)" \
 		|| { echo "TRAPCODES DIFF"; exit 1; }
+
+# Фаза 7 — self-hosted верификатор (docs/SELFHOST_VERIFIER_PLAN.md,
+# этап 1): SelfVerify == эталон `eatc verify` байт-в-байт на курируемом
+# списке кейсов (дамп обязательств в стабильном порядке + футер).
+verify_selfhost_verify:
+	@$(EATC) build $(SELFHOST_VERIFY) -o build/SelfVerify > /dev/null
+	@for c in $(VERIFY_GATE); do \
+		$(EATC) verify tests/verify/$$c.eat > /tmp/eat_vfy_ref.txt; \
+		./build/SelfVerify < tests/verify/$$c.eat > /tmp/eat_vfy_self.txt; \
+		diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
+			&& echo "VERIFY OK $$c" \
+			|| { echo "VERIFY DIFF $$c"; exit 1; }; \
+	done
 
 # ==== Трек 2 (МК): кросс-компиляция ARM Cortex-M ========================
 # Структура портов (docs/MCU_PLAN.md §4): mcu/common/ — стартап,
