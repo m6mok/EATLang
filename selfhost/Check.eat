@@ -222,6 +222,23 @@ struct Check {
     csteps: u32
     ct_ci: u32
     bn_res: u32
+    # ярус A2: транзитивная куча массивов вычислителя (сбрасывается на
+    # каждую const): заголовки (kind элемента, длина, база в элементах)
+    # и хранилище элементов (u/i как на v-стеке). Значение-массив на
+    # v-стеке: cv_k = 7, cv_u = id массива (индекс заголовка).
+    ca_ek: [u32; 512]
+    ca_ln: [u32; 512]
+    ca_bs: [u32; 512]
+    ca_eu: [u64; 4096]
+    ca_ei: [i64; 4096]
+    nca: u32
+    ncae: u32
+    # постоянное хранилище итоговых массивов-констант (для Ir): база в
+    # элементах на const ci (длина/тип — из cty[ci]); NONE — не массив
+    cca_bs: [u32; 128]
+    cca_u: [u64; 4096]
+    cca_i: [i64; 4096]
+    ncca: u32
 
     # --- инфраструктура ---------------------------------------------------
 
@@ -886,6 +903,10 @@ struct Check {
         if k == 32 or k == 33 or k == 37 or k == 39 or k == 40 or k == 41 or k == 49 {
             return true
         }
+        # A2: индексация (44), массив-литерал (47), array-fill (48)
+        if k == 44 or k == 47 or k == 48 {
+            return true
+        }
         if k == 6 or k == 7 or k == 8 or k == 9 or k == 10 {
             return true
         }
@@ -895,6 +916,18 @@ struct Check {
                 return true
             }
             return self.span_is(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536], "bool")
+        }
+        if k == 28 {
+            # A2: тип-массив [скаляр; N] — элемент обязан быть скалярным
+            # именем типа (вложенные массивы 2D — вне яруса A)
+            let e: u32 = self.p.nfc[n / 65536][n % 65536]
+            if self.p.nk[e / 65536][e % 65536] != 27 {
+                return false
+            }
+            if self.ct_cast_span(self.p.nss[e / 65536][e % 65536], self.p.nsl[e / 65536][e % 65536]) {
+                return true
+            }
+            return self.span_is(self.p.nss[e / 65536][e % 65536], self.p.nsl[e / 65536][e % 65536], "bool")
         }
         return false
     }
@@ -1231,6 +1264,8 @@ struct Check {
         self.ncl = 0
         self.ncq = 0
         self.csteps = 0
+        self.nca = 0
+        self.ncae = 0
         let d: u32 = self.cnd[ci] & 131071
         self.crs2[ci] = 1
         self.ct_wpush(5, ci, 0)
@@ -1665,10 +1700,19 @@ struct Check {
             self.ct_fail("comptime: превышена глубина вызовов (предел 64)")
             return
         }
+        var uu: u64 = self.cv_u[vj]
+        if self.cv_k[vj] == 7 {
+            # значение-массив на связывании (let/параметр) — глубокая копия
+            let nid: u32 = self.ct_arr_copy(u32(uu))
+            if self.failed {
+                return
+            }
+            uu = u64(nid)
+        }
         self.cl_s[self.ncl] = a
         self.cl_l[self.ncl] = l
         self.cl_k[self.ncl] = self.cv_k[vj]
-        self.cl_u[self.ncl] = self.cv_u[vj]
+        self.cl_u[self.ncl] = uu
         self.cl_i[self.ncl] = self.cv_i[vj]
         self.ncl = self.ncl + 1
     }
@@ -1749,6 +1793,14 @@ struct Check {
         let ci: u32 = self.cw_n[i] & 127
         self.ncv = self.ncv - 1
         let j: u32 = self.ncv & 2047
+        if self.yk[self.cty[ci]] == 7 {
+            # A2: значение-массив -> постоянное хранилище (для Ir)
+            self.ct_store_arr_const(ci, u32(self.cv_u[j]))
+            self.cnd[ci] = NONE
+            self.crs2[ci] = 0
+            self.ncw = i
+            return
+        }
         let s: u32 = u32(self.cv_i[j])
         let m: u64 = self.cv_u[j]
         if not self.int_fits(self.cty[ci], s, m) {
@@ -1760,6 +1812,30 @@ struct Check {
         self.cnd[ci] = NONE
         self.crs2[ci] = 0
         self.ncw = i
+    }
+
+    # A2: скопировать итоговый массив aid из транзитивной кучи в
+    # постоянное хранилище констант (cca), база -> cca_bs[ci].
+    func ct_store_arr_const(var self, ci: u32, aid: u32)
+        requires ci < 128
+        ensures true
+    {
+        let ln: u32 = self.ca_ln[aid & 511]
+        if self.ncca + ln > 4096 {
+            self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
+            return
+        }
+        let sb: u32 = self.ca_bs[aid & 511]
+        let db: u32 = self.ncca
+        self.cca_bs[ci] = db
+        for q in 0..4096 {
+            if q >= ln {
+                break
+            }
+            self.cca_u[(db + q) & 4095] = self.ca_eu[(sb + q) & 4095]
+            self.cca_i[(db + q) & 4095] = self.ca_ei[(sb + q) & 4095]
+        }
+        self.ncca = self.ncca + ln
     }
 
     # BLOCK: последовательность инструкций со своей базой локалей
@@ -1851,6 +1927,12 @@ struct Check {
             self.ct_e_un(i, n, ph)
         } elif k == 41 {
             self.ct_e_call(i, n, ph)
+        } elif k == 44 {
+            self.ct_e_index(i, n, ph)
+        } elif k == 47 {
+            self.ct_e_alit(i, n, ph)
+        } elif k == 48 {
+            self.ct_e_afill(i, n, ph)
         } else {
             self.ct_fail("comptime: trap: не константа")
         }
@@ -1886,10 +1968,44 @@ struct Check {
             self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
             return
         }
+        if self.yk[self.cty[ci]] == 7 {
+            # A2: массив-константа -> копия в транзитивную кучу, ref
+            let id: u32 = self.ct_arr_from_const(ci)
+            if self.failed {
+                return
+            }
+            self.ct_vpush(7, u64(id), i64(self.ca_ek[id & 511]))
+            self.ncw = i
+            return
+        }
         # значение const -> kind-вид (в диапазоне своего типа)
         self.ct_vpush(99, self.cvm[ci], i64(self.cvs[ci]))
         self.ct_sm2k((self.ncv - 1) & 2047, self.yk[self.cty[ci]])
         self.ncw = i
+    }
+
+    # A2: развернуть массив-константу ci из постоянного хранилища в
+    # транзитивную кучу вычислителя -> id (ссылка на копию).
+    func ct_arr_from_const(var self, ci: u32) -> u32
+        requires ci < 128
+        ensures true
+    {
+        let ty: u32 = self.cty[ci]
+        let ln: u32 = self.yb[ty]
+        let id: u32 = self.ct_arr_alloc(self.yk[self.ya[ty]], ln)
+        if id == NONE {
+            return NONE
+        }
+        let sb: u32 = self.cca_bs[ci & 127]
+        let db: u32 = self.ca_bs[id & 511]
+        for q in 0..4096 {
+            if q >= ln {
+                break
+            }
+            self.ca_eu[(db + q) & 4095] = self.cca_u[(sb + q) & 4095]
+            self.ca_ei[(db + q) & 4095] = self.cca_i[(sb + q) & 4095]
+        }
+        return id
     }
 
     func ct_e_bin(var self, i: u32, n: u32, ph: u32)
@@ -2274,6 +2390,156 @@ struct Check {
         self.cv_k[j] = tk
     }
 
+    # --- ярус A2: куча массивов вычислителя --------------------------------
+
+    # Выделить массив (kind элемента ek, длина ln) -> id; переполнение
+    # кучи -> ошибка класса «бюджет» (капасити, как SPEC §6).
+    func ct_arr_alloc(var self, ek: u32, ln: u32) -> u32
+        requires true
+        ensures true
+    {
+        if self.nca >= 512 or self.ncae + ln > 4096 {
+            self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
+            return NONE
+        }
+        let id: u32 = self.nca
+        self.ca_ek[id] = ek
+        self.ca_ln[id] = ln
+        self.ca_bs[id] = self.ncae
+        self.ncae = self.ncae + ln
+        self.nca = self.nca + 1
+        return id
+    }
+
+    # Глубокая копия массива src -> новый id (значение-семантика на
+    # связывании let/параметра/присваивания целого массива).
+    func ct_arr_copy(var self, src: u32) -> u32
+        requires true
+        ensures true
+    {
+        let id: u32 = self.ct_arr_alloc(self.ca_ek[src & 511], self.ca_ln[src & 511])
+        if id == NONE {
+            return NONE
+        }
+        let sb: u32 = self.ca_bs[src & 511]
+        let db: u32 = self.ca_bs[id & 511]
+        let ln: u32 = self.ca_ln[src & 511]
+        for j in 0..4096 {
+            if j >= ln {
+                break
+            }
+            self.ca_eu[(db + j) & 4095] = self.ca_eu[(sb + j) & 4095]
+            self.ca_ei[(db + j) & 4095] = self.ca_ei[(sb + j) & 4095]
+        }
+        return id
+    }
+
+    # INDEX (44): obj[index]. Python — eval(obj), eval(index), проверка
+    # границ, элемент. Значение-массив obj: cv_k = 7, cv_u = id.
+    func ct_e_index(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(1, c, 0)
+            return
+        }
+        if ph == 1 {
+            self.cw_p[i] = 2
+            self.ct_wpush(1, self.p.nns[c / 65536][c % 65536], 0)
+            return
+        }
+        let jx: u32 = (self.ncv - 1) & 2047
+        let jo: u32 = (self.ncv - 2) & 2047
+        let aid: u32 = u32(self.cv_u[jo])
+        var idx: i64 = self.cv_i[jx]
+        let kk: u32 = self.cv_k[jx]
+        if kk != 0 and kk != 14 {
+            idx = i64(self.cv_u[jx])
+        }
+        if idx < 0 or idx >= i64(self.ca_ln[aid & 511]) {
+            self.ct_fail("comptime: trap: индекс вне границ")
+            return
+        }
+        let sl: u32 = (self.ca_bs[aid & 511] + u32(idx)) & 4095
+        self.ncv = self.ncv - 2
+        self.ct_vpush(self.ca_ek[aid & 511], self.ca_eu[sl], self.ca_ei[sl])
+        self.ncw = i
+    }
+
+    # ARRAYLIT (47): [e0, e1, ...]. Каждый элемент — eval (+1 шаг),
+    # затем сборка массива. cw_x = cnt * 2^32 + курсор-ребёнок.
+    func ct_e_alit(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        if ph == 0 {
+            self.cw_x[i] = u64(self.nchildren(n)) * 4294967296 + u64(self.p.nfc[n / 65536][n % 65536])
+            self.cw_p[i] = 1
+            return
+        }
+        let cur: u32 = u32(self.cw_x[i] % 4294967296)
+        if cur != NONE {
+            self.cw_x[i] = (self.cw_x[i] / 4294967296) * 4294967296 + u64(self.p.nns[cur / 65536][cur % 65536])
+            self.ct_wpush(1, cur, 0)
+            return
+        }
+        let cnt: u32 = u32(self.cw_x[i] / 4294967296)
+        let base: u32 = (self.ncv - cnt) & 2047
+        let id: u32 = self.ct_arr_alloc(self.cv_k[base], cnt)
+        if id == NONE {
+            return
+        }
+        let db: u32 = self.ca_bs[id & 511]
+        for j in 0..4096 {
+            if j >= cnt {
+                break
+            }
+            let sj: u32 = (base + j) & 2047
+            self.ca_eu[(db + j) & 4095] = self.cv_u[sj]
+            self.ca_ei[(db + j) & 4095] = self.cv_i[sj]
+        }
+        self.ncv = base
+        self.ct_vpush(7, u64(id), i64(self.ca_ek[id & 511]))
+        self.ncw = i
+    }
+
+    # ARRAYFILL (48): [value; N]. eval(value) (+1 шаг), затем N копий.
+    # Тип/размер/элемент — из типа узла (nty), посчитан тайпчекером.
+    func ct_e_afill(var self, i: u32, n: u32, ph: u32)
+        requires i < 4096 and n < 131072
+        ensures true
+    {
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(1, self.p.nfc[n / 65536][n % 65536], 0)
+            return
+        }
+        let t: u32 = self.nty[n / 65536][n % 65536]
+        let sz: u32 = self.yb[t]
+        let ek: u32 = self.yk[self.ya[t]]
+        let j: u32 = (self.ncv - 1) & 2047
+        let vu: u64 = self.cv_u[j]
+        let vi: i64 = self.cv_i[j]
+        let id: u32 = self.ct_arr_alloc(ek, sz)
+        if id == NONE {
+            return
+        }
+        let db: u32 = self.ca_bs[id & 511]
+        for q in 0..4096 {
+            if q >= sz {
+                break
+            }
+            self.ca_eu[(db + q) & 4095] = vu
+            self.ca_ei[(db + q) & 4095] = vi
+        }
+        self.ncv = self.ncv - 1
+        self.ct_vpush(7, u64(id), i64(ek))
+        self.ncw = i
+    }
+
     # STMT: инструкция тела (+1 шаг на входе).
     func ct_stmt(var self, i: u32)
         requires i < 4096
@@ -2327,6 +2593,11 @@ struct Check {
         ensures true
     {
         let t: u32 = self.p.nfc[n / 65536][n % 65536]
+        # A2: цель — индексация массива (t[idx] = value)
+        if self.p.nk[t / 65536][t % 65536] == 44 {
+            self.ct_s_iassign(i, n, ph, t)
+            return
+        }
         if ph == 0 {
             self.cw_p[i] = 1
             self.ct_wpush(1, self.p.nns[t / 65536][t % 65536], 0)
@@ -2339,8 +2610,59 @@ struct Check {
             self.ct_fail("comptime: trap: не константа")
             return
         }
-        self.cl_u[sl & 4479] = self.cv_u[j]
+        var uu: u64 = self.cv_u[j]
+        if self.cv_k[j] == 7 {
+            # присваивание целого массива — глубокая копия (значение-семантика)
+            let nid: u32 = self.ct_arr_copy(u32(uu))
+            if self.failed {
+                return
+            }
+            uu = u64(nid)
+        }
+        self.cl_u[sl & 4479] = uu
         self.cl_i[sl & 4479] = self.cv_i[j]
+        self.ncw = i
+    }
+
+    # A2: t[idx] = value. Python порядок — eval(value), eval(obj),
+    # eval(index), проверка границ, запись элемента (те же шаги/трапы).
+    func ct_s_iassign(var self, i: u32, n: u32, ph: u32, t: u32)
+        requires i < 4096 and n < 131072 and t < 131072
+        ensures true
+    {
+        if ph == 0 {
+            self.cw_p[i] = 1
+            self.ct_wpush(1, self.p.nns[t / 65536][t % 65536], 0)
+            return
+        }
+        if ph == 1 {
+            self.cw_p[i] = 2
+            self.ct_wpush(1, self.p.nfc[t / 65536][t % 65536], 0)
+            return
+        }
+        if ph == 2 {
+            self.cw_p[i] = 3
+            let ob: u32 = self.p.nfc[t / 65536][t % 65536]
+            self.ct_wpush(1, self.p.nns[ob / 65536][ob % 65536], 0)
+            return
+        }
+        let jx: u32 = (self.ncv - 1) & 2047
+        let jo: u32 = (self.ncv - 2) & 2047
+        let jv: u32 = (self.ncv - 3) & 2047
+        let aid: u32 = u32(self.cv_u[jo])
+        var idx: i64 = self.cv_i[jx]
+        let kk: u32 = self.cv_k[jx]
+        if kk != 0 and kk != 14 {
+            idx = i64(self.cv_u[jx])
+        }
+        if idx < 0 or idx >= i64(self.ca_ln[aid & 511]) {
+            self.ct_fail("comptime: trap: индекс вне границ")
+            return
+        }
+        let sl: u32 = (self.ca_bs[aid & 511] + u32(idx)) & 4095
+        self.ca_eu[sl] = self.cv_u[jv]
+        self.ca_ei[sl] = self.cv_i[jv]
+        self.ncv = self.ncv - 3
         self.ncw = i
     }
 
@@ -3691,10 +4013,15 @@ struct Check {
             write(" {ln}:{cl} :: ")
             self.write_type(self.cty[ci])
             write(" = ")
-            if self.cvs[ci] == 1 {
-                write("-")
+            if self.yk[self.cty[ci]] == 7 {
+                self.dump_arr_const(ci)
+                write("\n")
+            } else {
+                if self.cvs[ci] == 1 {
+                    write("-")
+                }
+                write("{self.cvm[ci]}\n")
             }
-            write("{self.cvm[ci]}\n")
         } elif k == 6 or k == 50 {
             let fi: u32 = self.func_by_node(d)
             if k == 50 {
@@ -3723,6 +4050,34 @@ struct Check {
         } elif k == 53 {
             self.dump_export(d)
         }
+    }
+
+    # A2: значение массива-константы для дампов — `[v0, v1, ...]`
+    # (беззнаковые — магнитуда, знаковые — со знаком, как эталон).
+    func dump_arr_const(var self, ci: u32)
+        requires ci < 128
+        ensures true
+    {
+        let ty: u32 = self.cty[ci]
+        let ln: u32 = self.yb[ty]
+        let ek: u32 = self.yk[self.ya[ty]]
+        let base: u32 = self.cca_bs[ci & 127]
+        write("[")
+        for q in 0..4096 {
+            if q >= ln {
+                break
+            }
+            if q > 0 {
+                write(", ")
+            }
+            let sl: u32 = (base + q) & 4095
+            if ek == 0 or ek == 14 {
+                write("{self.cca_i[sl]}")
+            } else {
+                write("{self.cca_u[sl]}")
+            }
+        }
+        write("]")
     }
 
     # `import {локальное} {l}:{c} :: {путь} {публичное}` на связку.

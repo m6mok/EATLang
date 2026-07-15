@@ -1,0 +1,23 @@
+#! expect: bounds=2/2
+# Ярус A2 (§5): const-массив, вычисленный компилятором — таблица
+# в `__const` (флеш) вместо кода инициализации на старте. Индекс —
+# comptime-константа: верификатор получает точку [v, v] и доказывает
+# границу (bounds=1/1), trap-проверка снимается.
+
+const SQUARES: [u32; 8] = squares()
+const PICK: u32 = 5
+
+func squares() -> [u32; 8]
+    requires true
+    ensures true
+{
+    var t: [u32; 8] = [0; 8]
+    for i in 0..8 {
+        t[i] = i * i
+    }
+    return t
+}
+
+func main() {
+    print("{SQUARES[PICK]}")
+}

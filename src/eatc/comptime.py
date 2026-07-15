@@ -22,7 +22,7 @@ from . import ast_nodes as ast
 from .errors import EatError
 from .interpreter import ComptimeBudget, ComptimeDepth, Interpreter, Trap
 from .limits import MAX_COMPTIME_CALL_DEPTH, MAX_COMPTIME_STEPS
-from .types import INT_RANGES, BoolType, IntType
+from .types import INT_RANGES, ArrayType, BoolType, IntType
 
 # Нечистые встроенные: аксиомы ОС и обёртки вывода. Функция,
 # достигающая любой из них по графу вызовов, не comptime-годна.
@@ -104,9 +104,12 @@ def _is_extern(checker, key: str) -> bool:
     return bool(node is not None and getattr(node, "is_extern", False))
 
 
-# Скалярное подмножество яруса A (§9.3 COMPTIME_PLAN): инструкции,
-# выражения и виды типов, которые вычислитель selfhost (зеркало)
-# обязан поддерживать. Всё вне множества — не годно в A1.
+# Подмножество яруса A (§9.3 COMPTIME_PLAN): инструкции, выражения и
+# виды типов, которые вычислитель selfhost (зеркало) обязан
+# поддерживать. A1 — скаляры; A2 добавляет одномерные массивы скаляров
+# (`[скаляр; N]`): индексация, array-литералы, array-fill. Всё вне
+# множества (char/str/self/struct/enum/match/loop/2D-массивы …) — не
+# годно в ярусе A.
 _SCALAR_STMTS = (
     ast.Block, ast.LetStmt, ast.AssignStmt, ast.IfStmt, ast.ForStmt,
     ast.ReturnStmt, ast.BreakStmt, ast.AssertStmt, ast.ExprStmt,
@@ -114,36 +117,54 @@ _SCALAR_STMTS = (
 )
 _SCALAR_EXPRS = (
     ast.IntLit, ast.BoolLit, ast.Name, ast.BinOp, ast.UnaryOp,
-    ast.Call, ast.RangeExpr,
+    ast.Call, ast.RangeExpr, ast.Index, ast.ArrayLit, ast.ArrayFill,
 )
 _SCALAR_TYPE_NAMES = frozenset(INT_RANGES) | {"bool"}
 
 
+def _a2_type_ok(t) -> bool:
+    """Тип годен для яруса A: скаляр (A1) или одномерный массив
+    скаляров `[скаляр; N]` (A2). Вложенные массивы — вне A2."""
+    if isinstance(t, (IntType, BoolType)):
+        return True
+    if isinstance(t, ArrayType):
+        return isinstance(t.elem, (IntType, BoolType))
+    return False
+
+
 def _scalar_walk(node, bad: list) -> None:
-    """Обход поддерева: любой узел вне скалярного подмножества —
-    в bad. Узлы типов: TypeName со скалярным именем — ок."""
+    """Обход поддерева: любой узел вне подмножества яруса A — в bad.
+    Узлы типов: TypeName со скалярным именем ок; ArrayType с
+    одномерным скалярным элементом ок (A2)."""
     if node is None or bad:
         return
     if isinstance(node, ast.TypeName):
         if node.name not in _SCALAR_TYPE_NAMES:
             bad.append(node)
         return
+    if isinstance(node, ast.ArrayType):
+        # A2: [скаляр; N] — элемент скалярный, размер — const-выражение;
+        # вложенные массивы (2D) вне яруса A
+        if not (isinstance(node.elem, ast.TypeName)
+                and node.elem.name in _SCALAR_TYPE_NAMES):
+            bad.append(node)
+        return
     if isinstance(node, (_SCALAR_STMTS + _SCALAR_EXPRS)):
         if isinstance(node, ast.Call) and (
             getattr(node, "ctor", None) or node.name in ("char", "len")
         ):
-            bad.append(node)  # Ok/Err/Some/char()/len() — вне A1
+            bad.append(node)  # Ok/Err/Some/char()/len() — вне яруса A
             return
     else:
         bad.append(node)
         return
     for attr in ("body", "then", "els", "value", "cond", "operand",
                  "left", "right", "start", "end", "iterable", "expr",
-                 "target", "type"):
+                 "target", "type", "obj", "index", "count"):
         child = getattr(node, attr, None)
         if child is not None and not isinstance(child, (str, int, bool)):
             _scalar_walk(child, bad)
-    for lst in ("stmts", "args", "elifs"):
+    for lst in ("stmts", "args", "elifs", "elems"):
         seq = getattr(node, lst, None)
         if isinstance(seq, list):
             for c in seq:
@@ -155,14 +176,12 @@ def _scalar_walk(node, bad: list) -> None:
 
 
 def _scalar_ok(decl, sig) -> bool:
-    """Функция в скалярном подмножестве A1: сигнатура int/bool,
-    тело/requires/ensures без нескалярных конструкций."""
+    """Функция в подмножестве яруса A: сигнатура int/bool/[скаляр; N],
+    тело/requires/ensures без конструкций вне подмножества."""
     for _, t in sig.params:
-        if not isinstance(t, (IntType, BoolType)):
+        if not _a2_type_ok(t):
             return False
-    if sig.ret is not None and not isinstance(
-        sig.ret, (IntType, BoolType)
-    ):
+    if sig.ret is not None and not _a2_type_ok(sig.ret):
         return False
     bad: list = []
     _scalar_walk(getattr(decl, "body", None), bad)

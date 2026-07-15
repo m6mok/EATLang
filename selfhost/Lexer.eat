@@ -195,7 +195,7 @@ struct Lexer {
     # Спан пула значений в stdout батчем (write_span); спан может
     # пересекать границу банка — не более одного раза (l <= 256).
     func w_span(var self, a: u32, l: u32)
-        requires a <= 131072 and l <= 131072
+        requires a <= 262144 and l <= 131072
         ensures true
     {
         var pos: u32 = a

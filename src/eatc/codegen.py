@@ -126,6 +126,10 @@ class Codegen:
             self.rt["eat_trap_code"].attributes.add("cold")
         self.cstr_cache: dict[bytes, ir.GlobalVariable] = {}
         self.strlit_cache: dict[bytes, ir.GlobalVariable] = {}
+        # comptime-константы-массивы (§5, ярус A2): readonly-глобал
+        # @"const.ИМЯ" на каждую, эмитятся до функций (детерминированный
+        # порядок = порядок объявления) — таблица во флеш вместо кода
+        self.const_globals: dict[str, ir.GlobalVariable] = {}
         # declare_intrinsic ищет глобал по манглированному имени на
         # каждый арифметический оператор — кэшируем результат
         self.intr_cache: dict[tuple, ir.Function] = {}
@@ -239,6 +243,23 @@ class Codegen:
             g.linkage = "private"
             self.strlit_cache[data] = g
         return self.strlit_cache[data].bitcast(STRP)
+
+    def const_array_global(self, name: str, cty: ArrayType, values: list):
+        """Глобал readonly-массива для comptime-константы (§5, A2).
+        Инициализатор — литерал из вычисленных значений; линковка
+        private (как строковые литералы). Читатели индексируют глобал
+        по ссылке — данные в `__const`, кода инициализации нет."""
+        g = self.const_globals.get(name)
+        if g is None:
+            llty = self.ll(cty)
+            elem_ll = self.ll(cty.elem)
+            init = ir.Constant(llty, [elem_ll(v) for v in values])
+            g = ir.GlobalVariable(self.module, llty, name=f"const.{name}")
+            g.global_constant = True
+            g.linkage = "private"
+            g.initializer = init
+            self.const_globals[name] = g
+        return g
 
     def rtm(self, name: str):
         """Метод рантайм-модуля RtStr (selfhost/Rt.eat)."""
@@ -392,6 +413,11 @@ class Codegen:
             self.field_index[name] = {
                 fname: i for i, fname in enumerate(info.fields)
             }
+        # ярус A2: константы-массивы — readonly-глобалы до функций,
+        # в порядке объявления (детерминированно, зеркалируемо)
+        for cname, (cty, cval) in self.checker.consts.items():
+            if isinstance(cty, ArrayType):
+                self.const_array_global(cname, cty, cval)
         decls = []
         for decl in self.program.decls:
             if isinstance(decl, ast.FuncDecl):
@@ -920,6 +946,10 @@ class Codegen:
             ty, ptr = found
             return ptr if self.is_agg(ty) else self.b.load(ptr)
         cty, cval = self.checker.consts[node.ident]
+        if isinstance(cty, ArrayType):
+            # константа-массив (A2) — агрегат: возвращаем указатель на
+            # readonly-глобал (индексация/чтение — по ссылке)
+            return self.const_array_global(cty=cty, name=node.ident, values=cval)
         return self.ll(cty)(cval)
 
     def gen_strlit(self, node: ast.StrLit):
@@ -1477,6 +1507,11 @@ def _memory_report(cg: Codegen, checker, machine) -> dict:
     globals_bytes = sum(len(data) for data in cg.cstr_cache) + (
         4 + STR_CAP
     ) * len(cg.strlit_cache)
+    # константы-массивы (A2): count * ширина элемента в байтах —
+    # ровно эти данные лежат в `__const` (флеш)
+    for g in cg.const_globals.values():
+        arr = g.value_type
+        globals_bytes += arr.count * (arr.element.width // 8)
     return {
         "frames": frames,
         "stack_bytes": worst("main"),

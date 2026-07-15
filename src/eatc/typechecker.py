@@ -742,7 +742,7 @@ class TypeChecker:
                     )
         for decl, ctype in self._deferred_consts:
             value = ct.eval_const(decl, decl)
-            self._check_int_fits(decl, ctype, value)
+            self._check_const_fits(decl, ctype, value)
             self.consts[decl.name] = (ctype, value)
 
     def _const_size(self, expr: ast.Expr, what: str) -> int:
@@ -1711,6 +1711,22 @@ class TypeChecker:
             raise self.err(
                 node, f"{value} не помещается в {t.kind} [{lo}, {hi}]"
             )
+
+    def _check_const_fits(self, node: ast.Node, t: Type, value) -> None:
+        """Проверка результата comptime-константы (§5, ярус A). Скаляр —
+        как _check_int_fits; массив (A2) — форма и поэлементный фит.
+        Вычислитель уже фитит каждую операцию к типу результата, но
+        итоговый массив сверяется ещё раз (защита от рассинхрона)."""
+        if isinstance(t, ArrayType):
+            if not isinstance(value, list) or len(value) != t.size:
+                raise self.err(
+                    node, "результат comptime-константы не массив нужной "
+                    f"длины {t.size}",
+                )
+            for elem in value:
+                self._check_int_fits(node, t.elem, elem)
+            return
+        self._check_int_fits(node, t, value)
 
     # --- правило 1: DAG вызовов и глубина стека ------------------------------
 

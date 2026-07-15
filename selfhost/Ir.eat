@@ -1278,6 +1278,11 @@ struct Ir {
                 self.lb_dec(a)
                 self.lb_lit("\"")
             }
+        } elif k == 6 {
+            # A2: указатель на глобал массива-константы (a,b — спан имени)
+            self.lb_lit("@\"const.")
+            self.lb_sb(a, b)
+            self.lb_lit("\"")
         } else {
             self.lb_lit("null")
         }
@@ -2554,6 +2559,13 @@ struct Ir {
             return
         }
         let ci: u32 = self.c.find_const(a, l)
+        if self.c.yk[self.c.cty[ci]] == 7 {
+            # A2: имя массива-константы -> указатель на @"const.ИМЯ"
+            # (kind 6: спан имени в sbuf; k==5 занят широкой константой)
+            self.ser(6, a, l)
+            self.ert = self.c.cty[ci]
+            return
+        }
         let cm: u64 = self.c.cvm[ci]
         self.ser(self.cw_k(cm), self.c.cvs[ci], self.cw_b(cm))
         self.ert = self.c.cty[ci]
@@ -5341,6 +5353,11 @@ struct Ir {
             write("{b}")
         } elif k == 3 {
             write("@\"str.{a}\"")
+        } elif k == 6 {
+            # A2: указатель на глобал массива-константы (a,b — спан имени)
+            write("@\"const.")
+            self.o_sb(a, b)
+            write("\"")
         } else {
             write("null")
         }
@@ -5540,6 +5557,64 @@ struct Ir {
 
     # --- точка входа эмиттера ------------------------------------------------------
 
+    # A2: readonly-глобалы массивов-констант @"const.ИМЯ" — после
+    # declare'ов, до функций (порядок объявления). Строка без хвостового
+    # \n: завершит её следующий p_sep (соглашение p_glob).
+    func p_const_globals(var self)
+        requires true
+        ensures true
+    {
+        var d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
+            if d == NONE {
+                break
+            }
+            if self.c.p.nk[d / 65536][d % 65536] == 1 {
+                let a: u32 = self.c.p.nss[d / 65536][d % 65536]
+                let l: u32 = self.c.p.nsl[d / 65536][d % 65536]
+                let ci: u32 = self.c.find_const(a, l)
+                if self.c.yk[self.c.cty[ci]] == 7 {
+                    self.p_one_const(ci, a, l)
+                }
+            }
+            d = self.c.p.nns[d / 65536][d % 65536]
+        }
+    }
+
+    func p_one_const(var self, ci: u32, na: u32, nl: u32)
+        requires ci < 128
+        ensures true
+    {
+        let ty: u32 = self.c.cty[ci]
+        let et: u32 = self.c.ya[ty]
+        let ek: u32 = self.c.yk[et]
+        let ln: u32 = self.c.yb[ty]
+        let base: u32 = self.c.cca_bs[ci & 127]
+        self.p_sep()
+        write("@\"const.")
+        self.o_sb(na, nl)
+        write("\" = private constant ")
+        self.o_ty(ty)
+        write(" [")
+        for q in 0..4096 {
+            if q >= ln {
+                break
+            }
+            if q > 0 {
+                write(", ")
+            }
+            self.o_ty(et)
+            write(" ")
+            let sl: u32 = (base + q) & 4095
+            if ek == 0 or ek == 14 {
+                write("{self.c.cca_i[sl]}")
+            } else {
+                write("{self.c.cca_u[sl]}")
+            }
+        }
+        write("]")
+    }
+
     func emit(var self)
         requires true
         ensures true
@@ -5548,6 +5623,7 @@ struct Ir {
             self.tyl[t] = NONE
         }
         self.p_head()
+        self.p_const_globals()
         var d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
             if d == NONE or self.failed {
