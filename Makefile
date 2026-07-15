@@ -127,8 +127,10 @@ VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \
 	04_pool_append 05_prefix_scan 06_div_nonzero 07_max_relational \
 	08_ensures_structural 09_countdown 10_accumulator 11_modular_const \
 	12_modular_relation 13_off_by_one 14_len_capacity 15_neg_wrong_ensures \
-	16_neg_loop_overflow 19_assign_relation 21_modular_arith_ensures \
-	22_char_byte 23_enum_payload 24_byte_io 26_bitwise_shift 27_break_for \
+	16_neg_loop_overflow 18_cursor_subtraction 19_assign_relation \
+	20_lockstep_counters 21_modular_arith_ensures \
+	22_char_byte 23_enum_payload 24_byte_io \
+	25_var_self_pool 26_bitwise_shift 27_break_for \
 	28_write_span 29_write_span_guard 30_hex_bnot_interval \
 	31_u16_cast 32_u64_cast 33_module_ensures_boundary \
 	34_neg_module_mask_hidden 35_ctor_payload_bounds \

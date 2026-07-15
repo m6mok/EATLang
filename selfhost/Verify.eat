@@ -60,6 +60,7 @@ struct Verify {
     # --- текущее состояние потока -------------------------------------
     env: St
     ein: St             # состояние на входе цикла (источник v0 для accel)
+    msnap: St           # снимок self/self.поле для call-env метода
 
     # --- стек кадров машины потока (0 блок, 1 if, 2 for) ---------------
     fk: [u32; 64]
@@ -176,6 +177,11 @@ struct Verify {
     pend_n: [u32; 64]
     npend: u32
     rec_off: u32
+    # отложенный kill получателя var-self метода: kill после проверки
+    # requires (иначе факты о получателе затрутся до счёта сайта, как
+    # r-регистры в flow_let). Обрабатывается в flush_requires.
+    pk_n: [u32; 32]
+    npk: u32
 
     # --- контекст анализируемой функции -------------------------------
     cur_fn: u32
@@ -875,7 +881,7 @@ struct Verify {
         let f: u32 = self.nes - 1
         let n: u32 = self.esn[f]
         let k: u32 = self.nk(n)
-        if k == 32 or k == 34 or k == 33 or k == 37 or k == 38 {
+        if k == 32 or k == 34 or k == 33 or k == 37 or k == 38 or k == 43 {
             self.iv_leaf(n, k)
         } elif k == 39 {
             self.iv_bin(f, n)
@@ -883,6 +889,8 @@ struct Verify {
             self.iv_un(f, n)
         } elif k == 41 {
             self.iv_call(f, n)
+        } elif k == 42 {
+            self.iv_method(f, n)
         } elif k == 44 {
             self.iv_index(f, n)
         } elif k == 35 {
@@ -920,11 +928,31 @@ struct Verify {
             self.rk = 0
         } elif k == 38 {
             self.set_ty(self.nty(n))
+        } elif k == 43 {
+            self.iv_field(n)
         } else {
             self.iv_name(n)
         }
         self.vpush()
         self.nes = self.nes - 1
+    }
+
+    # чтение дотового пути self.поле / var.поле: интервал из состояния
+    # (эталон _iv FieldAccess: env.ivs[path] иначе диапазон типа)
+    func iv_field(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        let p: u32 = self.node_path(n)
+        if p != NONE and p < 64 and self.env.kn[p] == 1 {
+            self.rk = 1
+            self.rls = self.env.ls[p]
+            self.rlm = self.env.lm[p]
+            self.rhs = self.env.hs[p]
+            self.rhm = self.env.hm[p]
+        } else {
+            self.set_ty(self.nty(n))
+        }
     }
 
     func iv_name(var self, n: u32)
@@ -1789,6 +1817,79 @@ struct Verify {
         self.env = saved
     }
 
+    # вызов метода (kind 42): получатель — ребёнок 0, аргументы дальше.
+    # Как iv_call, но разрешение по типу получателя (struct.method).
+    func iv_method(var self, f: u32, n: u32)
+        requires f < 96 and n < 131072
+        ensures true
+    {
+        let ph: u32 = self.esp[f]
+        if ph == 0 {
+            self.esx[f] = self.c.nchildren(n)
+            self.esc[f] = self.nfc(n)
+            self.esp[f] = 1
+        } elif ph == 1 {
+            let cur: u32 = self.esc[f]
+            if cur == NONE {
+                self.esp[f] = 2
+            } else {
+                self.esc[f] = self.nns(cur)
+                self.espush(cur)
+            }
+        } else {
+            self.iv_method_fin(f, n)
+        }
+    }
+
+    func iv_method_fin(var self, f: u32, n: u32)
+        requires f < 96 and n < 131072
+        ensures true
+    {
+        let argc: u32 = self.esx[f]
+        let mfi: u32 = self.resolve_method(n)
+        if mfi != NONE and self.rec_off == 0 and self.npend < 64 {
+            self.pend_n[self.npend] = n
+            self.npend = self.npend + 1
+        }
+        self.pop_args(argc)
+        # мутирующий метод: факты о получателе устаревают — kill отложен
+        # до проверки requires (flush_requires), чтобы не затереть их до счёта
+        if mfi != NONE and self.c.fvs[mfi] == 1 and self.rec_off == 0 and self.npk < 32 {
+            self.pk_n[self.npk] = self.nfc(n)
+            self.npk = self.npk + 1
+        }
+        var ret: u32 = NONE
+        if mfi != NONE {
+            ret = self.c.fret[mfi]
+        }
+        if ret == NONE {
+            self.rk = 0
+        } elif self.c.fmod[mfi] != self.c.fmod[self.cur_fn] {
+            self.contract_iv(mfi, n, self.node_path(self.nfc(n)))
+        } else {
+            self.set_ty(ret)
+        }
+        self.vpush()
+        self.nes = f
+    }
+
+    # разрешить метод по типу получателя -> fi, либо NONE (не struct-метод)
+    func resolve_method(var self, n: u32) -> u32
+        requires n < 131072
+        ensures true
+    {
+        let obj: u32 = self.nfc(n)
+        let tres: u32 = self.nty(obj)
+        if tres == NONE or self.c.yk[tres] != 8 {
+            return NONE
+        }
+        let si: u32 = self.c.find_struct(self.c.ys[tres], self.c.yl[tres])
+        if si == NONE {
+            return NONE
+        }
+        return self.c.fh_find(si, self.nss(n), self.nsl(n))
+    }
+
     # обработать накопленные вызовы: для каждого — проверить requires
     # на месте вызова (аргументы в текущем состоянии потока)
     func flush_requires(var self)
@@ -1804,6 +1905,49 @@ struct Verify {
             self.npend = t
             self.check_requires_site(cn)
         }
+        # kill получателей var-self методов — после счёта requires
+        for _ in 0..32 {
+            if self.npk == 0 {
+                break
+            }
+            let t: u32 = self.npk - 1
+            let obj: u32 = self.pk_n[t]
+            self.npk = t
+            let op: u32 = self.node_path(obj)
+            if op != NONE and op < 64 {
+                self.kill_subtree(op)
+            }
+        }
+    }
+
+    # kill пути op и всех его потомков op.* (эталон State.kill: путь и
+    # префикс) — факты о получателе после мутирующего метода
+    func kill_subtree(var self, op: u32)
+        requires true
+        ensures true
+    {
+        for k in 0..64 {
+            if k >= self.npp {
+                break
+            }
+            var anc: u32 = k
+            var hit: bool = false
+            for _ in 0..16 {
+                if anc == NONE or hit {
+                    break
+                }
+                if anc == op {
+                    hit = true
+                } else {
+                    anc = self.pp_par[anc]
+                }
+            }
+            if hit {
+                self.env.kn[k] = 0
+                self.env.nz[k] = 0
+                self.rels_kill(k)
+            }
+        }
     }
 
     # проверка requires на месте вызова: собрать интервалы аргументов
@@ -1812,7 +1956,14 @@ struct Verify {
         requires cn < 131072
         ensures true
     {
-        let fi: u32 = self.c.find_func(self.nss(cn), self.nsl(cn))
+        var fi: u32 = NONE
+        var obj: u32 = NONE
+        if self.nk(cn) == 42 {
+            fi = self.resolve_method(cn)
+            obj = self.node_path(self.nfc(cn))
+        } else {
+            fi = self.c.find_func(self.nss(cn), self.nsl(cn))
+        }
         if fi == NONE {
             return
         }
@@ -1822,7 +1973,11 @@ struct Verify {
         }
         self.rec_off = 1
         var saved: St = self.env
-        self.build_call_env(fi, cn)
+        if self.nk(cn) == 42 {
+            self.build_method_env(fi, cn, obj)
+        } else {
+            self.build_call_env(fi, cn)
+        }
         self.eval_bool(reqnode, 0)
         var ok: u32 = 0
         if self.tb == 1 {
@@ -1832,6 +1987,104 @@ struct Verify {
         self.rec_off = 0
         self.rq_t[fi] = self.rq_t[fi] + 1
         self.rq_p[fi] = self.rq_p[fi] + ok
+    }
+
+    # call-env метода: параметры <- аргументы (дети 1..), self и self.поле
+    # <- пути получателя obj из состояния вызывающего (эталон _call_env
+    # с obj_path). obj — pid пути получателя, либо NONE.
+    func build_method_env(var self, fi: u32, cn: u32, obj: u32)
+        requires fi < 1024 and cn < 131072
+        ensures true
+    {
+        var tk: [u32; 8] = [0; 8]
+        var tls: [u32; 8] = [0; 8]
+        var tlm: [u64; 8] = [0; 8]
+        var ths: [u32; 8] = [0; 8]
+        var thm: [u64; 8] = [0; 8]
+        var c: u32 = self.nns(self.nfc(cn))
+        var i: u32 = 0
+        for _ in 0..8 {
+            if c == NONE or i >= 8 {
+                break
+            }
+            self.iv_eval(c, 0)
+            tk[i] = self.rk
+            tls[i] = self.rls
+            tlm[i] = self.rlm
+            ths[i] = self.rhs
+            thm[i] = self.rhm
+            c = self.nns(c)
+            i = i + 1
+        }
+        # снимок self / self.поле из состояния вызывающего до сброса env
+        let selfpid: u32 = self.slot_intern(NONE, 1, 0, 0)
+        self.snapshot_self(obj, selfpid)
+        self.env = self.fresh_st()
+        let pbase: u32 = self.c.fps[fi]
+        for k in 0..8 {
+            if k >= self.c.fpc[fi] or k >= i {
+                break
+            }
+            if tk[k] == 1 {
+                let pid: u32 = self.path_intern(self.c.pn_s[pbase + k], self.c.pn_l[pbase + k])
+                self.env.kn[pid] = 1
+                self.env.ls[pid] = tls[k]
+                self.env.lm[pid] = tlm[k]
+                self.env.hs[pid] = ths[k]
+                self.env.hm[pid] = thm[k]
+            }
+        }
+        self.restore_self()
+    }
+
+    # скопировать интервал получателя obj и его прямых полей в snapshot
+    # (через слоты self/self.поле): вызывается до сброса env. Пишет во
+    # временный St self.msnap (self=selfpid, self.поле=slot(selfpid,поле))
+    func snapshot_self(var self, obj: u32, selfpid: u32)
+        requires true
+        ensures true
+    {
+        self.msnap = self.fresh_st()
+        if obj == NONE {
+            return
+        }
+        for k in 0..64 {
+            if k >= self.npp {
+                break
+            }
+            var dst: u32 = NONE
+            if self.env.kn[k] == 1 and k == obj {
+                dst = selfpid
+            } elif self.env.kn[k] == 1 and self.pp_par[k] == obj and self.pp_sf[k] == 0 {
+                dst = self.slot_intern(selfpid, 0, self.pp_a[k], self.pp_l[k])
+            }
+            if dst != NONE and dst < 64 {
+                self.msnap.kn[dst] = 1
+                self.msnap.ls[dst] = self.env.ls[k]
+                self.msnap.lm[dst] = self.env.lm[k]
+                self.msnap.hs[dst] = self.env.hs[k]
+                self.msnap.hm[dst] = self.env.hm[k]
+            }
+        }
+    }
+
+    # наложить снимок self/self.поле (msnap) на свежий call-env метода
+    func restore_self(var self)
+        requires true
+        ensures true
+    {
+        for k in 0..64 {
+            if k >= self.npp {
+                break
+            }
+            if self.msnap.kn[k] == 1 {
+                self.env.kn[k] = 1
+                self.env.ls[k] = self.msnap.ls[k]
+                self.env.lm[k] = self.msnap.lm[k]
+                self.env.hs[k] = self.msnap.hs[k]
+                self.env.hm[k] = self.msnap.hm[k]
+            }
+        }
     }
 
     # call-env: параметры функции fi <- интервалы аргументов вызова cn
@@ -3709,10 +3962,16 @@ struct Verify {
         let vhs_: u32 = self.rhs
         let vhm_: u64 = self.rhm
         self.flush_requires()
+        let pid: u32 = self.path_intern(self.nss(cur), self.nsl(cur))
+        # struct-литерал: интервалы полей — факты о var.поле (эталон flow_let);
+        # до numeric-возврата — тип var'а нечисловой (struct)
+        let value: u32 = self.nns(self.nfc(cur))
+        if self.nk(value) == 45 {
+            self.seed_structlit(pid, value)
+        }
         if ty == NONE or not self.numeric_kind(self.c.yk[ty]) {
             return
         }
-        let pid: u32 = self.path_intern(self.nss(cur), self.nsl(cur))
         self.kind_range(self.c.yk[ty])
         if vk_ == 1 {
             self.set_inter(vls_, vlm_, vhs_, vhm_)
@@ -3730,7 +3989,6 @@ struct Verify {
         self.env.hs[pid] = self.rhs
         self.env.hm[pid] = self.rhm
         # отношение через присваивание выражения: let j = i + 1 → j == i+1
-        let value: u32 = self.nns(self.nfc(cur))
         if self.decompose(value) {
             self.env_relate(pid, 4, self.dc_p, self.dc_s, self.dc_m)
         }
@@ -3741,6 +3999,37 @@ struct Verify {
             if cfi != NONE {
                 self.assume_ensures(cfi, value, pid, NONE)
             }
+        }
+    }
+
+    # let c = Struct{ f: e, ... } -> env.ivs[c.f] = iv(e) (эталон flow_let)
+    func seed_structlit(var self, base: u32, sl: u32)
+        requires sl < 131072
+        ensures true
+    {
+        var c: u32 = self.nfc(sl)
+        for _ in 0..64 {
+            if c == NONE {
+                break
+            }
+            if self.nk(c) == 46 {
+                let fexpr: u32 = self.nfc(c)
+                if fexpr != NONE {
+                    self.iv_eval(fexpr, 0)
+                    if self.rk == 1 {
+                        let fpid: u32 = self.slot_intern(base, 0, self.nss(c), self.nsl(c))
+                        if fpid < 64 {
+                            self.env.kn[fpid] = 1
+                            self.env.nz[fpid] = 0
+                            self.env.ls[fpid] = self.rls
+                            self.env.lm[fpid] = self.rlm
+                            self.env.hs[fpid] = self.rhs
+                            self.env.hm[fpid] = self.rhm
+                        }
+                    }
+                }
+            }
+            c = self.nns(c)
         }
     }
 
@@ -4247,6 +4536,33 @@ struct Verify {
             self.ssub(self.fr_es, self.fr_em, 0, 1)
             self.env.hs[pid] = self.oas
             self.env.hm[pid] = self.oam
+            if pid < 64 and not self.c.span_is(self.nss(node), self.nsl(node), "_") {
+                self.lockstep(pid)
+            }
+        }
+    }
+
+    # инвариант связи счётчиков (эталон _lockstep): путь p с единственным
+    # безусловным `p = p + 1` идёт в ногу с переменной цикла tpid —
+    # p <= tpid + (v0_hi − start) и p >= tpid + (v0_lo − start) (условный
+    # даёт только верх). v0 — значение на входе цикла (ein), start — начало
+    func lockstep(var self, tpid: u32)
+        requires tpid < 64
+        ensures true
+    {
+        for j in 0..32 {
+            if j >= self.nac {
+                break
+            }
+            let pid: u32 = self.ac_p[j]
+            if self.ac_bad[j] == 0 and self.ac_ds[j] == 0 and self.ac_dm[j] == 1 and self.ein.kn[pid] == 1 {
+                self.ssub(self.ein.hs[pid], self.ein.hm[pid], self.fr_ss, self.fr_sm)
+                self.env_relate(pid, 7, tpid, self.oas, self.oam)
+                if self.ac_cond[j] == 0 {
+                    self.ssub(self.ein.ls[pid], self.ein.lm[pid], self.fr_ss, self.fr_sm)
+                    self.env_relate(pid, 9, tpid, self.oas, self.oam)
+                }
+            }
         }
     }
 
