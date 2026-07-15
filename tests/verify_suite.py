@@ -23,7 +23,7 @@ from eatc.checks import check_program  # noqa: E402
 from eatc.errors import EatError  # noqa: E402
 from eatc.parser import parse_file  # noqa: E402
 from eatc.typechecker import typecheck  # noqa: E402
-from eatc.verifier import verify  # noqa: E402
+from eatc.verifier import verify, verify_dump  # noqa: E402
 
 
 def parse_expectations(path: Path) -> dict:
@@ -60,6 +60,17 @@ def run_case(path: Path) -> list[str]:
         kind: f"{v[0]}/{v[1]}" for kind, v in stats["by_kind"].items()
     }
     failures = []
+    # Дамп `eatc verify` (SELFHOST_VERIFIER_PLAN этап 0) — источник
+    # тех же чисел, что и `#! expect:`: агрегат построчных обязательств
+    # обязан сходиться со stats
+    dumped: dict = {}
+    for line in verify_dump(program, typed.checker)[:-1]:
+        kind, _pos, verdict = line.split()
+        entry = dumped.setdefault(kind, [0, 0])
+        entry[1] += 1
+        entry[0] += 1 if verdict == "proven" else 0
+    if dumped != stats["by_kind"]:
+        failures.append("дамп eatc verify расходится со stats верификатора")
     for kind, want in expects.items():
         got = actual.get(kind, "0/0")
         if got != want:

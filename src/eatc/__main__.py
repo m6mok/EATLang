@@ -8,6 +8,10 @@ python -m eatc lex <файл>         — эталонный дамп токен
                                     с self-hosted лексером, selfhost/)
 python -m eatc parse <файл>       — эталонный дамп AST (сверка
                                     с self-hosted парсером, selfhost/)
+python -m eatc verify <файл>      — эталонный дамп верификатора:
+                                    обязательства в стабильном порядке
+                                    (сверка с будущим self-hosted
+                                    верификатором, SELFHOST_VERIFIER_PLAN)
 python -m eatc ir <файл>          — эталонный текстовый LLVM IR без
                                     верификатора (сверка с self-hosted
                                     эмиттером, selfhost/Ir.eat)
@@ -167,6 +171,25 @@ def cmd_typed(path: str) -> int:
     return 0
 
 
+def cmd_verify(path: str) -> int:
+    """Дамп верификатора (SELFHOST_VERIFIER_PLAN этап 0): обязательства
+    в стабильном порядке (строка → колонка → вид) + футер-агрегат —
+    эталон сверки с будущим self-hosted верификатором."""
+    from .verifier import verify_dump
+
+    try:
+        program = parse_file(path)
+        check_program(program, path)
+        typed = typecheck(program, path)
+        lines = verify_dump(program, typed.checker)
+    except (OSError, EatError) as err:
+        print(err, file=sys.stderr)
+        return 1
+    for line in lines:
+        print(line)
+    return 0
+
+
 def cmd_ir(path: str, trap_codes: bool = False) -> int:
     from .codegen import emit_ir
 
@@ -309,6 +332,8 @@ def main(argv: list[str]) -> int:
         return cmd_sig(argv[1])
     if len(argv) == 2 and argv[0] == "typed":
         return cmd_typed(argv[1])
+    if len(argv) == 2 and argv[0] == "verify":
+        return cmd_verify(argv[1])
     if len(argv) == 2 and argv[0] == "ir":
         return cmd_ir(argv[1], trap_codes=trap_codes)
     if len(argv) == 2 and argv[0] == "stream":
@@ -333,7 +358,8 @@ def main(argv: list[str]) -> int:
         "(check <файлы.eat...> | run <файлы...> [-- <арг>...] | "
         "build <файлы...> [-o out] [--trap-codes] [--release|-r] [--fold] | "
         "lex <файл> | "
-        "parse <файл> | ir <файл> [--trap-codes] | stream <файл>) "
+        "parse <файл> | verify <файл> | ir <файл> [--trap-codes] | "
+        "stream <файл>) "
         "[--lib DIR]...",
         file=sys.stderr,
     )

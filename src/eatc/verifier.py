@@ -2246,3 +2246,44 @@ class Verifier:
 
 def verify(program: ast.Program, checker) -> dict:
     return Verifier(program, checker).run()
+
+
+# Канонический порядок видов проверок — ключ сортировки обязательств
+# на одной позиции и порядок счётчиков футера (`eatc verify`,
+# SELFHOST_VERIFIER_PLAN этап 0). Порядок фиксирован контрактом
+# паритета с selfhost — не переставлять.
+_KIND_ORDER = (
+    "bounds", "overflow", "div", "cast", "shift",
+    "requires", "ensures", "assert",
+)
+
+
+def verify_dump(program: ast.Program, checker) -> list[str]:
+    """Детерминированный дамп обязательств — канон `eatc verify`.
+
+    Карта `Verifier.checks` ((вид, id(узла)) → [доказано, узел])
+    невоспроизводима по порядку; дамп сортирует обязательства по
+    позиции узла (строка → колонка → вид), давая построчный срез для
+    diff'а с self-hosted верификатором — как `lex/parse/sig/typed/ir`.
+    """
+    verifier = Verifier(program, checker)
+    stats = verifier.run()
+    kind_key = {kind: i for i, kind in enumerate(_KIND_ORDER)}
+    marks = sorted(
+        (
+            (node.line, node.col, kind_key[kind], kind, ok)
+            for (kind, _), (ok, node) in verifier.checks.items()
+        ),
+        key=lambda m: m[:3],
+    )
+    lines = [
+        f"{kind} {line}:{col} {'proven' if ok else 'runtime'}"
+        for line, col, _, kind, ok in marks
+    ]
+    by_kind = stats["by_kind"]
+    footer = f"verify proven={stats['proven']} total={stats['total']}"
+    for kind in _KIND_ORDER:
+        proven, total = by_kind.get(kind, (0, 0))
+        footer += f" {kind}={proven}/{total}"
+    lines.append(footer)
+    return lines
