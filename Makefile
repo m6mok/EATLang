@@ -34,6 +34,7 @@ check:
 	$(EATC) check --lib . $(JSON_MAIN)
 	$(EATC) check --lib . examples/blinky_cli/BlinkyCli.eat
 	$(EATC) check examples/async/Async.eat
+	$(EATC) check examples/async/Pipe.eat
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -63,6 +64,13 @@ ASYNC_EXAMPLE = $(RT) examples/async/Async.eat
 
 run_async:
 	EAT_TICKS=virt $(EATC) run $(ASYNC_EXAMPLE) < examples/async/input.txt
+
+# Второй пример асинхронности (ASYNC_PLAN §10): конвейер фильтров
+# stdin с бюджетом на виток — связанные задачи, кольца, backpressure
+PIPE_EXAMPLE = $(RT) examples/async/Pipe.eat
+
+run_async_pipe:
+	EAT_TICKS=virt $(EATC) run $(PIPE_EXAMPLE) < examples/async/pipe_input.txt
 
 # Проба self-host лексера: все кирпичи разом, вход — собственный исходник
 LEXER_PROBE = $(RT) lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
@@ -677,3 +685,8 @@ verify: build_all_examples
 	@EAT_TICKS=virt ./build/Async < examples/async/input.txt > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Async" || exit 1
+	@$(EATC) build $(PIPE_EXAMPLE) -o build/Pipe > /dev/null
+	@EAT_TICKS=virt $(EATC) run $(PIPE_EXAMPLE) < examples/async/pipe_input.txt > /tmp/eat_interp.txt
+	@EAT_TICKS=virt ./build/Pipe < examples/async/pipe_input.txt > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED Pipe" || exit 1

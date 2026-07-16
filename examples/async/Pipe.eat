@@ -1,0 +1,341 @@
+# Второй пример кооперативной асинхронности (docs/plans/ASYNC_PLAN.md
+# §10): конвейер фильтров stdin с бюджетом на виток. Сосед Async.eat
+# показывает две независимые задачи; здесь задачи СВЯЗАНЫ данными:
+#
+#   stdin → Src → кольцо → Caps (нижний → ВЕРХНИЙ) → кольцо → Snk
+#
+# Идиома та же: кадр — struct (кольца, счётчики, недописанная строка
+# переживают точку ожидания), шаг — step(var self), «ждать нечего» —
+# ранний return. Новое по сравнению с первым примером:
+#   - бюджет на виток: каждый step делает не больше *_BUDGET байтов —
+#     латентность витка ограничена по построению (тотальность §8);
+#   - backpressure: кольцо фиксированной ёмкости; полный приёмник —
+#     Pending у отправителя, и давление доходит до самого stdin
+#     (Src перестаёт читать, in_avail копит);
+#   - перекладка между кадрами — в main: у функций нет var-аргументов
+#     кроме self (Power of 10), поэтому «шины» конвейера — явные циклы
+#     суперцикла, байт вынимается только когда у приёмника есть место.
+#
+# Сверка make verify детерминирована: stdin — файл (in_avail — остаток
+# до EOF), EAT_TICKS=virt — виртуальные часы (+1 на вызов ticks());
+# Snk печатает только целые строки, поэтому отчёты Stat не рвут текст.
+
+# ёмкость колец конвейера (тип массива требует литерала — там 8)
+const RCAP: u32 = 8
+# бюджеты задач на один виток: источник читает пачкой,
+# фильтр — узкое место, сток чуть шире фильтра
+const SRC_BUDGET: u32 = 4
+const CAPS_BUDGET: u32 = 2
+const SNK_BUDGET: u32 = 3
+# бюджет «шины» — перекладки между кольцами за виток
+const BUS_BUDGET: u32 = 2
+# предел собираемой строки у стока
+const LINE_CAP: u32 = 64
+# период отчёта Stat в тиках (на виртуальных часах тик = виток)
+const STAT_PERIOD: u64 = 8
+
+# Кольцевой буфер на 8 байт — канал между задачами конвейера.
+struct Ring {
+    buf: [u8; 8]
+    head: u32
+    len: u32
+
+    func push(var self, b: u8)
+        requires self.len < RCAP
+        ensures true
+    {
+        self.buf[(self.head + self.len) % RCAP] = b
+        self.len = self.len + 1
+    }
+
+    func pop(var self) -> Option<u8>
+        requires true
+        ensures true
+    {
+        if self.len == 0 {
+            return None
+        }
+        let b: u8 = self.buf[self.head % RCAP]
+        self.head = (self.head + 1) % RCAP
+        self.len = self.len - 1
+        return Some(b)
+    }
+
+    func empty(self) -> bool
+        requires true
+        ensures true
+    {
+        return self.len == 0
+    }
+}
+
+# Задача-источник: дренирует stdin в своё кольцо, не блокируясь —
+# read_byte зовётся только при in_avail() > 0; байт q — конец потока.
+struct Src {
+    q: Ring
+    got: u32
+    done: bool
+
+    func step(var self)
+        requires true
+        ensures true
+    {
+        if self.done {
+            return
+        }
+        for _ in 0..SRC_BUDGET {
+            if self.q.len >= RCAP {
+                # Pending: кольцо полно — backpressure дошёл до stdin
+                return
+            }
+            if in_avail() == 0 {
+                # Pending: ждать нечего — уступаем виток
+                return
+            }
+            match read_byte() {
+                Ok(b) {
+                    if b == u8('q') {
+                        self.done = true
+                        return
+                    }
+                    self.q.push(b)
+                    self.got = self.got + 1
+                }
+                Err(_) {
+                    # конец потока без q — тоже штатная остановка
+                    self.done = true
+                    return
+                }
+            }
+        }
+    }
+}
+
+# Задача-фильтр: нижний регистр ASCII → ВЕРХНИЙ, остальное без правок.
+# Узкое место конвейера: бюджет меньше, чем у источника.
+struct Caps {
+    inq: Ring
+    outq: Ring
+    ups: u32
+
+    func step(var self)
+        requires true
+        ensures true
+    {
+        for _ in 0..CAPS_BUDGET {
+            if self.outq.len >= RCAP {
+                # Pending: приёмник полон
+                return
+            }
+            match self.inq.pop() {
+                Some(b) {
+                    var c: u8 = b
+                    if b >= u8('a') and b <= u8('z') {
+                        c = b - 32
+                        self.ups = self.ups + 1
+                    }
+                    self.outq.push(c)
+                }
+                None {
+                    # Pending: вход пуст
+                    return
+                }
+            }
+        }
+    }
+
+    func drained(self) -> bool
+        requires true
+        ensures true
+    {
+        return self.inq.empty() and self.outq.empty()
+    }
+}
+
+# Задача-сток: копит байты в строку и печатает её целиком по переводу
+# строки — вывод конвейера не перемешивается с отчётами Stat.
+struct Snk {
+    q: Ring
+    line: [u8; 64]
+    llen: u32
+    lines: u32
+    put: u32
+
+    # выталкивает накопленную строку (даже пустую) с переводом строки
+    func put_line(var self)
+        requires true
+        ensures true
+    {
+        for i in 0..LINE_CAP {
+            if i >= self.llen {
+                break
+            }
+            write_byte(self.line[i])
+        }
+        write_byte(10)
+        self.lines = self.lines + 1
+        self.llen = 0
+    }
+
+    func step(var self)
+        requires true
+        ensures true
+    {
+        for _ in 0..SNK_BUDGET {
+            match self.q.pop() {
+                Some(b) {
+                    self.put = self.put + 1
+                    if b == 10 {
+                        self.put_line()
+                    } elif self.llen < LINE_CAP {
+                        self.line[self.llen] = b
+                        self.llen = self.llen + 1
+                    } else {
+                        # строка длиннее буфера: выталкиваем накопленное
+                        self.put_line()
+                        self.line[0] = b
+                        self.llen = 1
+                    }
+                }
+                None {
+                    # Pending: вход пуст
+                    return
+                }
+            }
+        }
+    }
+}
+
+# Задача-отчёт: по дедлайну монотонных часов печатает прогресс —
+# счётчики чужих кадров приходят аргументами (у step нет var-чужих).
+struct Stat {
+    next: u64
+    n: u32
+
+    func step(var self, got: u32, put: u32)
+        requires true
+        ensures true
+    {
+        let now: u64 = ticks()
+        if now < self.next {
+            # Pending: дедлайн не наступил
+            return
+        }
+        self.n = self.n + 1
+        print("stat: отчёт №{self.n} на тике {now}: прочитано {got}, напечатано {put}")
+        self.next = now + STAT_PERIOD
+    }
+}
+
+func main()
+    requires true
+    ensures true
+{
+    var src: Src = Src {
+        q: Ring { buf: [0; 8], head: 0, len: 0 },
+        got: 0,
+        done: false,
+    }
+    var caps: Caps = Caps {
+        inq: Ring { buf: [0; 8], head: 0, len: 0 },
+        outq: Ring { buf: [0; 8], head: 0, len: 0 },
+        ups: 0,
+    }
+    var snk: Snk = Snk {
+        q: Ring { buf: [0; 8], head: 0, len: 0 },
+        line: [0; 64],
+        llen: 0,
+        lines: 0,
+        put: 0,
+    }
+    var stat: Stat = Stat { next: 0, n: 0 }
+    print("pipe: конвейер stdin → ВЕРХНИЙ регистр → строки, бюджет на виток")
+    # реактивная модель: единственный бесконечный loop в main; виток —
+    # конечная композиция тотальных шагов и ограниченных перекладок
+    loop {
+        src.step()
+        # шина src → caps: вынимаем, только когда у фильтра есть место
+        for _ in 0..BUS_BUDGET {
+            if caps.inq.len < RCAP {
+                match src.q.pop() {
+                    Some(b) {
+                        caps.inq.push(b)
+                    }
+                    None {}
+                }
+            }
+        }
+        caps.step()
+        # шина caps → snk
+        for _ in 0..BUS_BUDGET {
+            if snk.q.len < RCAP {
+                match caps.outq.pop() {
+                    Some(b) {
+                        snk.q.push(b)
+                    }
+                    None {}
+                }
+            }
+        }
+        snk.step()
+        stat.step(src.got, snk.put)
+        if src.done and src.q.empty() and caps.drained() and snk.q.empty() {
+            break
+        }
+    }
+    if snk.llen > 0 {
+        # хвост без перевода строки — дожимаем как последнюю строку
+        snk.put_line()
+    }
+    print("pipe: итог — строк {snk.lines}, байтов {snk.put}, замен {caps.ups}")
+}
+
+test pipe_ring {
+    var r: Ring = Ring { buf: [0; 8], head: 0, len: 0 }
+    # десять push в кольцо на 8: последние два упираются в ёмкость
+    for i in 0..10 {
+        if r.len < RCAP {
+            r.push(u8('0') + u8(i % 8))
+        }
+    }
+    assert r.len == RCAP
+    match r.pop() {
+        Some(b) {
+            assert b == u8('0')
+        }
+        None {
+            assert false
+        }
+    }
+    assert r.len == RCAP - 1
+    assert not r.empty()
+}
+
+test pipe_caps {
+    var f: Caps = Caps {
+        inq: Ring { buf: [0; 8], head: 0, len: 0 },
+        outq: Ring { buf: [0; 8], head: 0, len: 0 },
+        ups: 0,
+    }
+    f.inq.push(u8('a'))
+    f.inq.push(u8('!'))
+    f.step()
+    match f.outq.pop() {
+        Some(b) {
+            assert b == u8('A')
+        }
+        None {
+            assert false
+        }
+    }
+    match f.outq.pop() {
+        Some(b) {
+            assert b == u8('!')
+        }
+        None {
+            assert false
+        }
+    }
+    assert f.ups == 1
+    assert f.drained()
+}

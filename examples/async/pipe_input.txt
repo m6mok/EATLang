@@ -1,0 +1,4 @@
+eat: async pipe demo
+budget per tick keeps the loop bounded
+totality makes every step return
+q
