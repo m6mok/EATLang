@@ -5800,3 +5800,34 @@ struct Ir {
         }
     }
 }
+
+# свежая структура фазы: вся память — в кадре вызывающего
+func ir_new(c: Check) -> Ir
+    requires true
+    ensures true
+{
+    return Ir {
+        c: c, failed: false, tp: [0; 65536], tpl: 0, tys: [0; 512], tyl: [0; 512],
+        yb1: [0; 32], yb2: [0; 32], ybp: 0, gp: [[0; 65536]; 32], gpl: 0, gmk: 0,
+        gss: [0; 65536], gsl: [0; 65536], gsh: [0; 65536], gvk: [0; 65536], ngl: 0,
+        ghx: [[NONE; 65536]; 2], tlk: [0; 65536], tlx: [0; 65536], ntl: 0, itr: [0; 32],
+        cwm: [0; 256], ncw: 0, lb: [[0; 65536]; 64], lbl: 0, lcu: 0, lns: [0; 65536],
+        lnl: [0; 65536], lnn: [0; 65536], nln: 0, bns: [0; 16384], bnl: [0; 16384],
+        bkf: [0; 16384], bkl: [0; 16384], bkt: [0; 16384], bks: [0; 16384], nbk: 0,
+        cb: 0, swk: [0; 512], swa: [0; 512], swb: [0; 512], swd: [0; 512],
+        swf: [0; 512], swz: [0; 512], nsw: 0, csv: [0; 4096], csb: [0; 4096],
+        csn: [0; 4096], ncs: 0, nb: [0; 65536], nbn: 0, uns: [0; 256], unl: [0; 256],
+        nun: 0, bss: [0; 256], bsl: [0; 256], bsc: [0; 256], nbs: 0, ctr: 0, dds: 0,
+        ddl: 0, vns: [0; 256], vnl: [0; 256], vty: [0; 256], vkk: [0; 256],
+        vka: [0; 256], vkb: [0; 256], nvr: 0, scb: [0; 64], nsb: 0, fi2: 0, rett: 0,
+        aggr: 0, sty2: 0, rsk: 0, rsa: 0, rsb: 0, exb: 0, res_on: 0, lpx: [0; 8],
+        nlx: 0, w1k: 0, w1a: 0, w1b: 0, w2k: 0, w2a: 0, w2b: 0, w3k: 0, w3a: 0, w3b: 0,
+        rrk: 0, rra: 0, rrb: 0, erk: 0, era: 0, erb: 0, ert: 0, u1k: 0, u1a: 0, u1b: 0,
+        u2k: 0, u2a: 0, u2b: 0, uty: 0, lvk: 0, lva: 0, lvb: 0, idxw: 0, xn3: [0; 64],
+        xp3: [0; 64], xa3: [0; 64], xb3: [0; 64], xc3: [0; 64], xd3: [0; 64],
+        xe3: [0; 64], xf3: [0; 64], xg3: [0; 64], nx3: 0, agk: [0; 256], aga: [0; 256],
+        agb: [0; 256], agt: [0; 256], nag: 0, sk4: [0; 64], sn4: [0; 64], sp4: [0; 64],
+        sa4: [0; 64], sb4: [0; 64], sc4: [0; 64], sd4: [0; 64], se4: [0; 64],
+        sf4: [0; 64], sg4: [0; 64], ns4: 0, fst: 0, tmode: 0
+    }
+}

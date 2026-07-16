@@ -38,7 +38,7 @@ backlog.
 
 | № | План | Статус | Роль · следующий шаг |
 | --- | --- | --- | --- |
-| 1 | [REFACTOR_SELFHOST_PLAN](REFACTOR_SELFHOST_PLAN.md) | 🚧 | Читаемость selfhost: потолок 100 симв./строку в гейте (этап 1 ✅ — `tests/check_style.py` в `make check`, 227 строк переформатированы), конструкторы фаз, `extend` для распила Verify/Check/Ir. → **этап 2: конструкторы фаз** (D1 — синтаксис `extend` — нужен только к этапу 3) |
+| 1 | [REFACTOR_SELFHOST_PLAN](REFACTOR_SELFHOST_PLAN.md) | 🚧 | Читаемость selfhost: потолок 100 симв./строку в гейте (этап 1 ✅), конструкторы фаз `*_new()` вместо 7 копий литералов в `*Main.eat` (этап 2 ✅, −426 строк), `extend` для распила Verify/Check/Ir. → **этап 3: `extend` в языке** — блокер: решение пользователя **D1** (синтаксис) |
 | 2 | [SELFHOST_VERIFIER_PLAN](SELFHOST_VERIFIER_PLAN.md) | 🚧 | Порт `verifier.py` в selfhost. Этапы 0–4 и 6 ✅: весь репозиторий + **самоприменение** байт-в-байт (гейты `verify_selfhost_verify`, `verify_selfhost_verify_all`). Остался этап 5 «элизия» → ждёт D0 [SELFHOST_OPT_PLAN](SELFHOST_OPT_PLAN.md) |
 | 3 | [SELFHOST_OPT_PLAN](SELFHOST_OPT_PLAN.md) | 📋 | Оптимизационная ось `eatc ir -O ↔ SelfIrOpt`, ярус B (fold) — первый проход. Ждёт решения D0 → шаг 1: тонкая обёртка `eatc ir -O` |
 | 4 | [ASYNC_PLAN](ASYNC_PLAN.md) | 📋 | Кооперативная асинхронность через циклический исполнитель (superloop в `main`). Черновик → эскиз аксиом §6 (ярус 0) |

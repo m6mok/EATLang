@@ -2435,3 +2435,20 @@ struct Parser {
         }
     }
 }
+
+# свежая структура фазы: вся память — в кадре вызывающего
+func parser_new(lex: Lexer) -> Parser
+    requires true
+    ensures true
+{
+    return Parser {
+        lex: lex, cur: 0, ret: NONE, bdepth: 0, failed: false, done: false, smod: false,
+        sexp: false, simp: false, sdecl: false, nk: [[0; 65536]; 2], nl: [[0; 65536]; 2],
+        nc: [[0; 65536]; 2], nss: [[0; 65536]; 2], nsl: [[0; 65536]; 2], nx: [[0; 65536]; 2],
+        ny: [[0; 65536]; 2], nxh: [[0; 65536]; 2], nfc: [[0; 65536]; 2], nlc: [[0; 65536]; 2],
+        nns: [[0; 65536]; 2], nnode: 0, fk: [0; 64], fp: [0; 64], fnod: [0; 64], fat: [0; 64],
+        fx: [0; 64], nf: 0, opnd: [0; 64], nos: 0, pk: [0; 64], pa: [0; 64], pb: [0; 64],
+        pc2: [0; 64], pd2: [0; 64], pfl: [0; 64], pln: [0; 64], pcl: [0; 64], nop: 0,
+        dstk: [0; 64], dn: 0, dcur: 0, ddepth: 0, ddone: false
+    }
+}

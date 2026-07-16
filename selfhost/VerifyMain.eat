@@ -4,13 +4,7 @@
 # сверка в make verify_selfhost_verify на курируемом списке кейсов).
 
 func main() {
-    var lex: Lexer = Lexer {
-        state: 0, line: 1, col: 1, tline: 1, tcol: 1, val: [0; 256], vlen: 0, depth: 0,
-        failed: false, ch: 0, tk: [[0; 65536]; 4], tl: [[0; 65536]; 4], tc: [[0; 65536]; 4],
-        tvs: [[0; 65536]; 4], tvl: [[0; 65536]; 4], tsg: [[0; 65536]; 4], tns: [[0; 65536]; 4],
-        ntok: 0, sbuf: [[0; 65536]; 4], sblen: 0, sgk: [0; 2048], sga: [0; 2048], sgb: [0; 2048],
-        nseg: 0, hexv: 0, hexn: 0
-    }
+    var lex: Lexer = lexer_new()
     var eof: bool = false
     loop {
         match read_byte() {
@@ -31,150 +25,11 @@ func main() {
     }
     var bad: bool = lex.failed
     if not bad {
-        var p: Parser = Parser {
-            lex: lex, cur: 0, ret: NONE, bdepth: 0, failed: false, done: false, smod: false,
-            sexp: false, simp: false, sdecl: false, nk: [[0; 65536]; 2], nl: [[0; 65536]; 2],
-            nc: [[0; 65536]; 2], nss: [[0; 65536]; 2], nsl: [[0; 65536]; 2], nx: [[0; 65536]; 2],
-            ny: [[0; 65536]; 2], nxh: [[0; 65536]; 2], nfc: [[0; 65536]; 2], nlc: [[0; 65536]; 2],
-            nns: [[0; 65536]; 2], nnode: 0, fk: [0; 64], fp: [0; 64], fnod: [0; 64], fat: [0; 64],
-            fx: [0; 64], nf: 0, opnd: [0; 64], nos: 0, pk: [0; 64], pa: [0; 64], pb: [0; 64],
-            pc2: [0; 64], pd2: [0; 64], pfl: [0; 64], pln: [0; 64], pcl: [0; 64], nop: 0,
-            dstk: [0; 64], dn: 0, dcur: 0, ddepth: 0, ddone: false
-        }
+        var p: Parser = parser_new(lex)
         p.parse()
         if not p.failed {
-            var v: Verify = Verify {
-                c: Check {
-                    p: p, failed: false, yk: [0; 512], ya: [0; 512], yb: [0; 512], ys: [0; 512],
-                    yl: [0; 512], ntype: 0, cn_s: [0; 128], cn_l: [0; 128], cty: [0; 128],
-                    cvs: [0; 128], cvm: [0; 128], ncon: 0, fn_s: [0; 1024], fn_l: [0; 1024],
-                    fown: [0; 1024], fps: [0; 1024], fpc: [0; 1024], fret: [0; 1024],
-                    fvs: [0; 1024], fnd: [0; 1024], nfun: 0, pn_s: [0; 4096], pn_l: [0; 4096],
-                    pty: [0; 4096], npar: 0, sn_s: [0; 128], sn_l: [0; 128], sgs: [0; 128],
-                    sgc: [0; 128], snd: [0; 128], nstr: 0, gn_s: [0; 1024], gn_l: [0; 1024],
-                    gty: [0; 1024], ngld: 0, en_s: [0; 64], en_l: [0; 64], evs: [0; 64],
-                    evc: [0; 64], nenu: 0, wn_s: [0; 256], wn_l: [0; 256], wpl: [0; 256], nvar: 0,
-                    ces: 0, cem: 0, dep_k: 0, dep_cnt: 0, dep_found: 0, total_stmts: 0,
-                    mnd: [0; 64], nmod: 0, exp_s: [0; 256], exp_l: [0; 256], exi_s: [0; 256],
-                    exi_l: [0; 256], exm: [0; 256], nexp: 0, iml_s: [0; 512], iml_l: [0; 512],
-                    imt_s: [0; 512], imt_l: [0; 512], imm: [0; 512], nimp: 0, fmod: [0; 1024],
-                    cmod: 0, nty: [[0; 65536]; 2], nrt: [[0; 65536]; 2], rb_n: [0; 512],
-                    rb_ss: [0; 512], rb_sm: [0; 512], rb_es: [0; 512], rb_em: [0; 512], nrb: 0,
-                    pnd: [0; 4096], sv_s: [0; 256], sv_l: [0; 256], sv_t: [0; 256], sv_m: [0; 256],
-                    sv_u: [0; 256], sv_ln: [0; 256], sv_cl: [0; 256], nsv: 0, scp: [0; 64], nsc: 0,
-                    cur_key: 0, main_fi: 0, self_ty2: 0, self_mu: 0, res_ty2: 0, loopd: 0, cr: 0,
-                    brkc: [0; 8], nexit: 0, eg_c: [0; 4096], eg_d: [0; 4096], neg: 0, tt_s: [0; 64],
-                    tt_l: [0; 64], ttn: 0, erk: [0; 4096], fhx: [NONE; 2048], xn: [0; 64],
-                    xp: [0; 64], xe: [0; 64], xa: [0; 64], xb: [0; 64], nxq: 0, tres: 0, xvoid: 0,
-                    qk2: [0; 128], qn: [0; 128], qp: [0; 128], qx: [0; 128], qy: [0; 128], nq: 0,
-                    ty_sq: 0, ty_rl: 0, ty_rb: 0, ty_pi: 0, bn_io: 0, bn_pe: 0, sdep: 0,
-                    cnd: [NONE; 128], crs2: [0; 128], ndef: 0, bdone: 0, cseen: [0; 1024], cgen: 0,
-                    cimp: 0, cnsc: 0, cw_t: [0; 4096], cw_n: [0; 4096], cw_p: [0; 4096],
-                    cw_x: [0; 4096], ncw: 0, cv_k: [0; 2048], cv_u: [0; 2048], cv_i: [0; 2048],
-                    ncv: 0, cg_f: [0; 64], cg_lb: [0; 64], cg_vb: [0; 64], cg_wb: [0; 64],
-                    cg_qb: [0; 64], cg_rk: [0; 64], cg_ru: [0; 64], cg_ri: [0; 64], ncg: 0,
-                    cl_s: [0; 4480], cl_l: [0; 4480], cl_k: [0; 4480], cl_u: [0; 4480],
-                    cl_i: [0; 4480], ncl: 0, cq_c: [0; 512], cq_e: [0; 512], cq_v: [0; 512],
-                    cq_b: [0; 512], ncq: 0, csteps: 0, ct_ci: 0, bn_res: 0, ca_ek: [0; 512],
-                    ca_ln: [0; 512], ca_bs: [0; 512], ca_eu: [0; 4096], ca_ei: [0; 4096], nca: 0,
-                    ncae: 0, cca_bs: [NONE; 128], cca_u: [0; 4096], cca_i: [0; 4096], ncca: 0
-                },
-                failed: false, pp_a: [0; 512], pp_l: [0; 512], pp_par: [0; 512], pp_sf: [0; 512],
-                npp: 0,
-                env: St {
-                    kn: [0; 512], ls: [0; 512], lm: [0; 512], hs: [0; 512], hm: [0; 512],
-                    nz: [0; 512], rp: [0; 32], rq: [0; 32], rs: [0; 32], rm: [0; 32], nrel: 0,
-                    hk: [0; 512], hls: [0; 512], hlm: [0; 512], hhs: [0; 512], hhm: [0; 512],
-                    hss: [0; 512], hsm: [0; 512]
-                },
-                ein: St {
-                    kn: [0; 512], ls: [0; 512], lm: [0; 512], hs: [0; 512], hm: [0; 512],
-                    nz: [0; 512], rp: [0; 32], rq: [0; 32], rs: [0; 32], rm: [0; 32], nrel: 0,
-                    hk: [0; 512], hls: [0; 512], hlm: [0; 512], hhs: [0; 512], hhm: [0; 512],
-                    hss: [0; 512], hsm: [0; 512]
-                },
-                msnap: St {
-                    kn: [0; 512], ls: [0; 512], lm: [0; 512], hs: [0; 512], hm: [0; 512],
-                    nz: [0; 512], rp: [0; 32], rq: [0; 32], rs: [0; 32], rm: [0; 32], nrel: 0,
-                    hk: [0; 512], hls: [0; 512], hlm: [0; 512], hhs: [0; 512], hhm: [0; 512],
-                    hss: [0; 512], hsm: [0; 512]
-                },
-                fk: [0; 64], fnn: [0; 64], fc2: [0; 64], fp2: [0; 64], fx2: [0; 64], fcc: [0; 64],
-                fbk: [0; 64], fhe: [0; 64],
-                fsa: [
-                    St {
-                        kn: [0; 512], ls: [0; 512], lm: [0; 512], hs: [0; 512], hm: [0; 512],
-                        nz: [0; 512], rp: [0; 32], rq: [0; 32], rs: [0; 32], rm: [0; 32], nrel: 0,
-                        hk: [0; 512], hls: [0; 512], hlm: [0; 512], hhs: [0; 512], hhm: [0; 512],
-                        hss: [0; 512], hsm: [0; 512]
-                    }; 64
-                ],
-                fsb: [
-                    St {
-                        kn: [0; 512], ls: [0; 512], lm: [0; 512], hs: [0; 512], hm: [0; 512],
-                        nz: [0; 512], rp: [0; 32], rq: [0; 32], rs: [0; 32], rm: [0; 32], nrel: 0,
-                        hk: [0; 512], hls: [0; 512], hlm: [0; 512], hhs: [0; 512], hhm: [0; 512],
-                        hss: [0; 512], hsm: [0; 512]
-                    }; 64
-                ],
-                fbrk: [0; 64], nf2: 0, obs_brk: 0, fr_ss: 0, fr_sm: 0, fr_es: 0, fr_em: 0,
-                for_ns: 0, for_nm: 0, esn: [0; 96], esp: [0; 96], esc: [0; 96], esx: [0; 96],
-                nes: 0, vk: [0; 96], vls: [0; 96], vlm: [0; 96], vhs: [0; 96], vhm: [0; 96], nvv: 0,
-                ann: 0, rk: 0, rls: 0, rlm: 0, rhs: 0, rhm: 0, a_k: 0, a_ls: 0, a_lm: 0, a_hs: 0,
-                a_hm: 0, b_k: 0, b_ls: 0, b_lm: 0, b_hs: 0, b_hm: 0, opkind: 0, la_k: 0, la_ls: 0,
-                la_lm: 0, la_hs: 0, la_hm: 0, rb_k: 0, rb_ls: 0, rb_lm: 0, rb_hs: 0, rb_hm: 0,
-                kls: 0, klm: 0, khs: 0, khm: 0, oas: 0, oam: 0, oov: 0, av_k: 0, av_ls: 0, av_lm: 0,
-                av_hs: 0, av_hm: 0, res_on: 0, res_kn: 0, res_ls: 0, res_lm: 0, res_hs: 0,
-                res_hm: 0, ebn: [0; 64], ebp: [0; 64], ebval: [0; 64], neb: 0, nebv: 0, tb: 0,
-                rf_n: [0; 128], rf_a: [0; 128], nrf: 0, ck_k: [0; 16384], ck_n: [0; 16384],
-                ck_o: [0; 16384], nck: 0, rq_p: [0; 1024], rq_t: [0; 1024], pend_n: [0; 64],
-                npend: 0, rec_off: 0, pk_n: [0; 32], npk: 0, torder: [0; 1024], tordn: 0,
-                tseen: [0; 1024], cur_fn: 0, cur_mod: 0, cur_own: 0, ret_ty: 0, ens_node: 0,
-                ens_saw: 0, ens_all: 0, ac_p: [0; 32], ac_ds: [0; 32], ac_dm: [0; 32],
-                ac_cond: [0; 32], ac_kind: [0; 32], ac_glk: [0; 32], ac_gls: [0; 32],
-                ac_glm: [0; 32], ac_ghk: [0; 32], ac_ghs: [0; 32], ac_ghm: [0; 32], ac_bad: [0; 32],
-                nac: 0, cs_n: [0; 64], cs_c: [0; 64], cs_g: [0; 64], ncs: 0, dfs_n: [0; 256],
-                ndfs: 0, dord: [0; 16384], dused: [0; 16384], dsig: 0, dmag: 0, csig: 0, cmag: 0,
-                ac_seen: [0; 32], om_ls: 0, om_lm: 0, om_hs: 0, om_hm: 0, dq_los: 0, dq_lom: 0,
-                dq_his: 0, dq_him: 0, rc_cls: 0, rc_clm: 0, rc_chs: 0, rc_chm: 0, rc_ols: 0,
-                rc_olm: 0, rc_ohs: 0, rc_ohm: 0, cl_k: [0; 4096], cl_s: [0; 4096], cl_m: [0; 4096],
-                cln_pid: [0; 64], ncln: 0, dc_p: 0, dc_s: 0, dc_m: 0, dl_p: 0, dl_s: 0, dl_m: 0,
-                eq_a: [0; 256], eq_b: [0; 256], neq2: 0, res_expr: NONE, ae_fi: 0, ae_call: 0,
-                ae_bind: 0, ae_obj: 0, aec: [0; 64], naec: 0, ms_n: [0; 64], ms_ph: [0; 64], nms: 0,
-                mv_t: [0; 64], mv_p: [0; 64], mv_cs: [0; 64], mv_cm: [0; 64], mv_ls: [0; 64],
-                mv_lm: [0; 64], mv_hs: [0; 64], mv_hm: [0; 64], nmv: 0, ms_t: 0, ms_p: 0, ms_cs: 0,
-                ms_cm: 0, ms_ls: 0, ms_lm: 0, ms_hs: 0, ms_hm: 0, rpi_ls: 0, rpi_lm: 0, rpi_hs: 0,
-                rpi_hm: 0, siv_ok: 0, siv_ls: 0, siv_lm: 0, siv_hs: 0, siv_hm: 0, lz_t: 0, lz_p: 0,
-                lz_cs: 0, lz_cm: 0, lz_ls: 0, lz_lm: 0, lz_hs: 0, lz_hm: 0, rz_t: 0, rz_p: 0,
-                rz_cs: 0, rz_cm: 0, rz_ls: 0, rz_lm: 0, rz_hs: 0, rz_hm: 0, pki_loc: [0; 2048],
-                pki_own: [0; 2048], pki_a: [0; 2048], pki_l: [0; 2048], npki: 0, piv_kn: [0; 2048],
-                piv_ls: [0; 2048], piv_lm: [0; 2048], piv_hs: [0; 2048], piv_hm: [0; 2048],
-                piv_sk: [0; 2048], piv_ss: [0; 2048], piv_sm: [0; 2048], fiv_kn: [0; 2048],
-                fiv_ls: [0; 2048], fiv_lm: [0; 2048], fiv_hs: [0; 2048], fiv_hm: [0; 2048],
-                psa_kn: [0; 2048], psa_ls: [0; 2048], psa_lm: [0; 2048], psa_hs: [0; 2048],
-                psa_hm: [0; 2048], psa_dead: [0; 2048], psa_sk: [0; 2048], psa_ss: [0; 2048],
-                psa_sm: [0; 2048], psa_smulti: [0; 2048], fda_kn: [0; 2048], fda_ls: [0; 2048],
-                fda_lm: [0; 2048], fda_hs: [0; 2048], fda_hm: [0; 2048], fda_dead: [0; 2048],
-                pd_dst: [0; 256], pd_src: [0; 256], npd: 0, pd_kn: [0; 2048], npass: 0, ho_on: 0,
-                hc_on: 0, hc_ls: 0, hc_lm: 0, hc_hs: 0, hc_hm: 0, hc_ss: 0, hc_sm: 0, ho_node: 0,
-                ho_ls: 0, ho_lm: 0, ho_hs: 0, ho_hm: 0, ho_ss: 0, ho_sm: 0, sum_tag: [0; 1024],
-                sum_ls: [0; 1024], sum_lm: [0; 1024], sum_hs: [0; 1024], sum_hm: [0; 1024],
-                sum_ss: [0; 1024], sum_sm: [0; 1024], sum_pn: [0; 1024], nret: 0, racc_bad: 0,
-                rd_kn: 0, rd_ls: 0, rd_lm: 0, rd_hs: 0, rd_hm: 0, rs_has: 0, rs_multi: 0, rs_s: 0,
-                rs_m: 0, rsym: 0, rsym_bad: 0, ri_kn: 0, ri_ls: 0, ri_lm: 0, ri_hs: 0, ri_hm: 0,
-                rh_on: 0, rh_ls: 0, rh_lm: 0, rh_hs: 0, rh_hm: 0, rh_ss: 0, rh_sm: 0, probe: 0,
-                er_active: 0, er_pid: [0; 64], er_n: 0, er_excl: [0; 512], er_bad: [0; 64],
-                er_dkn: [0; 64], er_dls: [0; 64], er_dlm: [0; 64], er_dhs: [0; 64], er_dhm: [0; 64],
-                er_shas: [0; 64], er_smulti: [0; 64], er_ss: [0; 64], er_sm: [0; 64],
-                er_smaxk: [0; 64], er_sxs: [0; 64], er_sxm: [0; 64], er_rkn: [0; 64],
-                er_rls: [0; 64], er_rlm: [0; 64], er_rhs: [0; 64], er_rhm: [0; 64],
-                er_rhon: [0; 64], er_rhls: [0; 64], er_rhlm: [0; 64], er_rhhs: [0; 64],
-                er_rhhm: [0; 64], er_rhss: [0; 64], er_rhsm: [0; 64], er_v0k: [0; 64],
-                er_v0ls: [0; 64], er_v0lm: [0; 64], er_v0hs: [0; 64], er_v0hm: [0; 64],
-                er_v0hk: [0; 64], er_v0hls: [0; 64], er_v0hlm: [0; 64], er_v0hhs: [0; 64],
-                er_v0hhm: [0; 64], er_v0hss: [0; 64], er_v0hsm: [0; 64], fov_p: [[0; 16]; 64],
-                fov_n: [0; 64], fac_p: [[0; 32]; 64], fac_n: [0; 64]
-            }
+            var c: Check = check_new(p)
+            var v: Verify = verify_new(c)
             v.c.run_typed()
             if not v.c.failed {
                 v.verify()
