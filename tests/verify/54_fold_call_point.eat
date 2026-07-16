@@ -1,0 +1,21 @@
+#! expect: overflow=0/1 assert=0/1
+# Синергия свёртки и верификатора (SELFHOST_VERIFIER_PLAN этап 5):
+# без -O сводка pick — интервал [3, 250], переполнение произведения и
+# assert недоказуемы; под конвейером оси (`verify -O`, fold перед
+# verify) вызов свёрнут в точку [3,3] — оба обязательства доказаны.
+# Ожидание выше — канонный режим (verify_suite гоняет без -O).
+
+func pick(a: bool) -> i32
+    requires true
+    ensures true
+{
+    if a {
+        return 3
+    }
+    return 250
+}
+
+func main() {
+    let x: i32 = pick(true) * 10000000
+    assert x == 30000000
+}

@@ -1,6 +1,7 @@
 # Свёртка вызовов -O (SELFHOST_OPT_PLAN §11, ярус B): проход ct_fold_pass —
-# зеркало comptime.fold_calls; включается только в SELFHOST_IR_OPT (SelfIrOpt),
-# канонные цели файл не подключают.
+# зеркало comptime.fold_calls; включается в SELFHOST_IR_OPT (SelfIrOpt) и
+# SELFHOST_VERIFY (SelfVerify: `-O` — дамп решений под конвейером оси,
+# SELFHOST_VERIFIER_PLAN этап 5), канонные цели файл не подключают.
 # Методы extend сливаются в struct Check, как объявленные в его блоке;
 # порядок склейки файлов — списки SELFHOST_* в Makefile.
 
@@ -8,8 +9,8 @@ extend Check {
     # --- свёртка вызовов -O (SELFHOST_OPT_PLAN §11, ярус B) ---------------
     # Зеркало comptime.fold_calls: post-order эталона достигается
     # фикспойнтом плоских сканов (вложенность вызовов ≤ глубины
-    # выражения 64). Вызывает только IrOptMain; канонные мейны пасс
-    # не зовут — nfs остаётся NONE и эмиссия не меняется.
+    # выражения 64). Вызывают IrOptMain и VerifyMain при `-O`; канонные
+    # мейны пасс не зовут — nfs остаётся NONE и эмиссия не меняется.
 
     # Годность функции fi с кэшем (свёртка дёргает по всем вызовам).
     func ct_fold_elig(var self, fi: u32) -> bool

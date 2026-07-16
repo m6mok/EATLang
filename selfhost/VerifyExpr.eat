@@ -971,6 +971,8 @@ extend Verify {
             self.call_cast(n, a, l)
         } elif self.c.span_is(a, l, "len") {
             self.call_len(n)
+        } elif self.c.span_is(a, l, "arg_len") or self.c.span_is(a, l, "arg_byte") {
+            self.call_arg_axiom(n, argc)
         } elif self.c.span_is(a, l, "write_span") {
             self.call_write_span(n, argc)
         } elif self.c.find_func(a, l) != NONE {
@@ -1015,6 +1017,21 @@ extend Verify {
             self.mark(0, n, okmark)
         }
         self.rk = 0
+    }
+
+    # arg_len/arg_byte: границы argv (i < arg_count(), j < arg_len(i))
+    # известны только в рантайме — обязательство bounds всегда остаётся
+    # (эталон _iv_call, ветка name in ("arg_len", "arg_byte"));
+    # значение вызова — диапазон типа результата
+    func call_arg_axiom(var self, n: u32, argc: u32)
+        requires n < 131072
+        ensures true
+    {
+        self.pop_args(argc)
+        if self.ann == 1 {
+            self.mark(0, n, 0)
+        }
+        self.set_ty(self.nty(n))
     }
 
     func pop_args(var self, argc: u32)
@@ -1155,6 +1172,22 @@ extend Verify {
             self.contract_iv(fi, n, NONE)
         } else {
             self.apply_summary(fi, n)
+        }
+        # ось -O (этап 5): вызов свёрнут в литерал (nfs/nfm от
+        # ct_fold_pass) — точка [v,v] у́же контракта/сводки (эталон:
+        # чтение folded/fold_value в _iv). Учёт requires/аргументов
+        # выше сохранён; вне -O nfs = NONE и ветка мертва
+        let fs: u32 = self.c.nfs[n / 65536][n % 65536]
+        let tv: u32 = self.nty(n)
+        if fs != NONE and tv != NONE {
+            if self.numeric_kind(self.c.yk[tv]) {
+                let fm: u64 = self.c.nfm[n / 65536][n % 65536]
+                self.rk = 1
+                self.rls = fs
+                self.rlm = fm
+                self.rhs = fs
+                self.rhm = fm
+            }
         }
     }
 

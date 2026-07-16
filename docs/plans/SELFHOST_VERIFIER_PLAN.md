@@ -438,11 +438,19 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
 зеркало selfhost меняются только вместе, иначе гейт `verify_selfhost_opt`
 краснеет):
 
-1. **5.1 Диагностика решений (Э2), гейты зелёные:** `eatc verify -O`;
-   `SelfVerify -O` (argv → `ct_fold_pass` перед `verify` + чтение
-   `nfs`/`nfm` в машине интервалов); сверка `-O`-дампов в
-   `verify_selfhost_verify_all` (весь репозиторий + самоприменение).
-   Эмиссия не меняется.
+1. ✅ 2026-07-17 **5.1 Диагностика решений (Э2), гейты зелёные:**
+   `eatc verify -O`; `SelfVerify -O` (argv-флаг → `ct_fold_pass`
+   перед `verify`; чтение `nfs`/`nfm` в `call_user` — точка `[v,v]`
+   поверх контракта/сводки, зеркало verifier.py:2214); сверка
+   `-O`-дампов в `verify_selfhost_verify_all` — каждый вход в двух
+   режимах: 142 файла × 2 + самоприменение × 2, байт-в-байт. Кейс
+   `tests/verify/54_fold_call_point.eat` (без `-O` сводка [3,250] —
+   overflow/assert runtime; под `-O` точка [3,3] — доказаны) — в
+   VERIFY_GATE (51 кейс). Эмиссия не изменилась. Попутно (FAULTS
+   2026-07-17): закрыт пробел зеркала `arg_len`/`arg_byte`
+   (`call_arg_axiom` в VerifyExpr — bounds всегда runtime),
+   вскрытый самоприменением; страховка `test -f` от ложного OK
+   пустых дампов в курируемом гейте.
 2. **5.2 Эмиссия одним пакетом:** `cmd_ir -O` += `verify()`; массивы
    аннотаций на Check + заполнение из Verify; чтение в Ir (полное
    зеркало Э1); `IrOptMain` += verify; входы `verify_selfhost_opt`
@@ -457,6 +465,15 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
 порядка `_mark` (AND-слияние повторных отметок) — selfhost заполняет
 маску из финального `ck_o`, а не по ходу анализа; сверка Э2 ловит
 расхождения решений до эмиссии.
+
+**→ следующий шаг — подэтап 5.2 (эмиссия одним пакетом):** `cmd_ir -O`
++= `verify()`; массивы аннотаций по id узла на Check (маска
+overflow/bounds/div/cast/shift/assert + пофункционные
+requires/ensures), заполнение из финальных `ck_*` Verify; чтение в Ir —
+полное зеркало Э1 (элизия trap-блоков, `nsw`/`nuw`, `llvm.assume` +
+зеркало `assume_safe`); `IrOptMain` += verify; входы
+`verify_selfhost_opt` расширить `tests/verify/`; замерить кадр `main`
+SelfIrOpt (риск потолка стека 256 МБ).
 
 ### Этап 6. Документация — ✅ СДЕЛАН 2026-07-16
 

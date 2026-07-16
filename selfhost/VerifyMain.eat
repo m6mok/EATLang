@@ -2,8 +2,18 @@
 # stdin -> stdout: детерминированный дамп обязательств, построчно
 # совпадающий с эталоном `eatc verify` (SELFHOST_VERIFIER_PLAN этап 1,
 # сверка в make verify_selfhost_verify на курируемом списке кейсов).
+# Аргумент `-O` (этап 5, решение Э2): дамп решений под конвейером оси
+# оптимизаций — свёртка вызовов (ct_fold_pass) перед verify, порядок
+# проходов как в build; эталон — `eatc verify -O`. Сверка множества
+# решений элизии идёт ДО сверки эмиссии (урок SELFHOST_OPT_PLAN §9).
 
 func main() {
+    var opt: bool = false
+    if arg_count() >= 1 {
+        if arg_len(0) == 2 and arg_byte(0, 0) == 45 and arg_byte(0, 1) == 79 {
+            opt = true
+        }
+    }
     var lex: Lexer = lexer_new()
     var eof: bool = false
     loop {
@@ -32,6 +42,9 @@ func main() {
             var v: Verify = verify_new(c)
             v.c.run_typed()
             if not v.c.failed {
+                if opt {
+                    v.c.ct_fold_pass()
+                }
                 v.verify()
                 if v.failed {
                     bad = true

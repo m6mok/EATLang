@@ -149,9 +149,11 @@ SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
 # Фаза 7 — статический верификатор (docs/SELFHOST_VERIFIER_PLAN.md).
 # Зеркало verifier.py; вход как у `eatc verify` — одиночный .eat со stdin
 # (без Rt/lib). Этап 1: интервальное ядро на курируемом списке кейсов.
+# CheckFold — для `-O` (этап 5): ct_fold_pass перед verify по argv-флагу.
 SELFHOST_VERIFY = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
 	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
+	selfhost/CheckFold.eat \
 	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \
 	selfhost/VerifyFlow.eat selfhost/VerifyDump.eat selfhost/VerifyMain.eat
 # Курируемый список кейсов (растёт по мере покрытия, как verify_suite):
@@ -173,7 +175,7 @@ VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \
 	42_loop_hole_accumulator 43_neg_loop_hole_widened \
 	44_comptime_const 45_neg_comptime_impure 46_neg_comptime_trap \
 	47_neg_comptime_budget 48_neg_comptime_cycle 49_comptime_array \
-	50_neg_comptime_array_trap
+	50_neg_comptime_array_trap 54_fold_call_point
 
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
 # (пулы компилятора живут в кадре main — как в src/eatc/codegen.py;
@@ -357,6 +359,8 @@ verify_selfhost_opt:
 verify_selfhost_verify:
 	@$(EATC) build $(SELFHOST_VERIFY) -o build/SelfVerify > /dev/null
 	@for c in $(VERIFY_GATE); do \
+		test -f tests/verify/$$c.eat \
+			|| { echo "VERIFY NO CASE $$c (пустые дампы дали бы ложный OK)"; exit 1; }; \
 		$(EATC) verify tests/verify/$$c.eat > /tmp/eat_vfy_ref.txt; \
 		./build/SelfVerify < tests/verify/$$c.eat > /tmp/eat_vfy_self.txt; \
 		diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
@@ -369,6 +373,9 @@ verify_selfhost_verify:
 # паритет отрицательного случая: оба дампа пусты) и главный тест —
 # верификатор верифицирует сам себя (конкатенация Rt + lib + фронтенд +
 # Verify + VerifyMain одним входом, 138K токенов, 8K обязательств).
+# Этап 5 (решение Э2): каждый вход дополнительно сверяется под `-O`
+# (fold перед verify) — множество решений элизии сверяется ДО сверки
+# эмиссии (урок SELFHOST_OPT_PLAN §9).
 verify_selfhost_verify_all:
 	@$(EATC) build $(SELFHOST_VERIFY) -o build/SelfVerify > /dev/null
 	@for f in $$(find examples lib selfhost tests -name '*.eat' | sort); do \
@@ -379,6 +386,11 @@ verify_selfhost_verify_all:
 		diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
 			&& echo "VERIFY OK $$f" \
 			|| { echo "VERIFY DIFF $$f"; exit 1; }; \
+		$(EATC) verify /tmp/eat_vfy_in.eat -O > /tmp/eat_vfy_ref.txt 2>/dev/null; \
+		./build/SelfVerify -O < /tmp/eat_vfy_in.eat > /tmp/eat_vfy_self.txt 2>/dev/null; \
+		diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
+			&& echo "VERIFY-O OK $$f" \
+			|| { echo "VERIFY-O DIFF $$f"; exit 1; }; \
 	done
 	@cat $(SELFHOST_VERIFY) > /tmp/eat_vfy_selfapp.eat
 	@$(EATC) verify /tmp/eat_vfy_selfapp.eat > /tmp/eat_vfy_ref.txt
@@ -386,6 +398,11 @@ verify_selfhost_verify_all:
 	@diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
 		&& echo "VERIFY OK (самоприменение: верификатор верифицирует сам себя)" \
 		|| { echo "VERIFY DIFF (самоприменение)"; exit 1; }
+	@$(EATC) verify /tmp/eat_vfy_selfapp.eat -O > /tmp/eat_vfy_ref.txt
+	@./build/SelfVerify -O < /tmp/eat_vfy_selfapp.eat > /tmp/eat_vfy_self.txt
+	@diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
+		&& echo "VERIFY-O OK (самоприменение под конвейером оси -O)" \
+		|| { echo "VERIFY-O DIFF (самоприменение)"; exit 1; }
 
 # ==== Трек 2 (МК): кросс-компиляция ARM Cortex-M ========================
 # Структура портов (docs/MCU_PLAN.md §4): mcu/common/ — стартап,
