@@ -205,4 +205,7 @@ make verify_selfhost_verify_all # self-hosted верификатор: весь
   (верификатор верифицирует сам себя: 8 001 обязательство);
   гейты `make verify_selfhost_verify` (смок, 50 кейсов) и
   `verify_selfhost_verify_all`; пределы §6 подняты (262 144 токена,
-  стек 256 МБ)
+  стек 256 МБ); элизия доказанных проверок — в оптимизационной оси
+  `-O` (`SelfIrOpt` == `eatc ir -O`, `make verify_selfhost_opt`):
+  по примерам trap-блоков −73…−81 %, IR −31…−40 %
+  ([метрики](tests/bench/FINDINGS.md))
