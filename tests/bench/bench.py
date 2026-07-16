@@ -389,10 +389,10 @@ def bench_read(quick: bool, rows: list):
 def bench_stress(quick: bool):
     section("СТРЕСС ЛИМИТОВ (SPEC.md §6): принять или быстро отказать")
     cases = [
-        ("токены: ~130К (под пределом)", genprog.stress_tokens(130_000),
+        ("токены: ~260К (под пределом)", genprog.stress_tokens(260_000),
          "lex", True),
-        ("токены: ~140К (за пределом 131072)",
-         genprog.stress_tokens(140_000), "lex", False),
+        ("токены: ~270К (за пределом 262144)",
+         genprog.stress_tokens(270_000), "lex", False),
         ("функции: 1024 (на пределе)", genprog.stress_funcs(1024),
          "check", True),
         ("функции: 1025 (за пределом)", genprog.stress_funcs(1025),
@@ -672,8 +672,9 @@ def darwin_sections(binary):
             if line.startswith("Section __"):
                 name, _, val = line.partition(":")
                 key = name.split()[1]
-                # __const бывает и в __TEXT, и в __DATA_CONST — сумма
-                secs[key] = secs.get(key, 0) + int(val)
+                # __const бывает и в __TEXT, и в __DATA_CONST — сумма;
+                # после числа бывает пометка вида «(zerofill)» — отрезаем
+                secs[key] = secs.get(key, 0) + int(val.split()[0])
         return secs
     r = subprocess.run(["size", "-A", str(binary)],
                        capture_output=True, text=True)
