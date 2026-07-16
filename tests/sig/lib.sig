@@ -85,7 +85,134 @@ test hex_roundtrip 74:1
 module lib/Io.eat 79:1
 export read_line 8:5 :: read_line
 func read_line 11:1 () -> Result<str<256>, IoError>
-module lib/Num.eat 29:1
+module lib/Json.eat 29:1
+export JErr 16:5 :: JErr
+export JNode 17:5 :: JNode
+export JDoc 18:5 :: JDoc
+export JOut 19:5 :: JOut
+export json_doc 20:5 :: json_doc
+export json_out 21:5 :: json_out
+export J_NULL 22:5 :: J_NULL
+export J_BOOL 23:5 :: J_BOOL
+export J_NUM 24:5 :: J_NUM
+export J_STR 25:5 :: J_STR
+export J_ARR 26:5 :: J_ARR
+export J_OBJ 27:5 :: J_OBJ
+import hex_val 31:5 :: lib/Hex.eat hex_val
+const JSENT 36:1 :: u32 = 4294967295
+const J_NULL 39:1 :: u32 = 0
+const J_BOOL 40:1 :: u32 = 1
+const J_NUM 41:1 :: u32 = 2
+const J_STR 42:1 :: u32 = 3
+const J_ARR 43:1 :: u32 = 4
+const J_OBJ 44:1 :: u32 = 5
+enum JErr 47:1
+  variant Capacity
+  variant Depth
+  variant Input
+  variant Syntax
+  variant Num
+  variant Str
+struct JNode 58:1
+  field kind :: u32
+  field ival :: i32
+  field bval :: bool
+  field s_off :: u32
+  field s_len :: u32
+  field kid :: u32
+  field sib :: u32
+  field k_off :: u32
+  field k_len :: u32
+struct JDoc 71:1
+  field nodes :: [JNode; 4096]
+  field n :: u32
+  field arena :: [u8; 65536]
+  field a :: u32
+  field src :: [u8; 65536]
+  field sn :: u32
+  field src_over :: bool
+  field pos :: u32
+  field tival :: i32
+  field toff :: u32
+  field tlen :: u32
+  field fc :: [u32; 64]
+  field fl :: [u32; 64]
+  field fst :: [u32; 64]
+  field fko :: [u32; 64]
+  field fkl :: [u32; 64]
+  field d :: u32
+  field root :: u32
+  field err :: u32
+  field done :: u32
+  field dry :: u32
+  field tcount :: u32
+  method put 108:5 (b: u8) var_self
+  method load 120:5 (s: str<256>) var_self
+  method clear 132:5 () var_self
+  method cb 146:5 () var_self -> u8
+  method skip_ws 156:5 () var_self
+  method next 171:5 () var_self -> u32
+  method lex_str 218:5 () var_self -> u32
+  method esc 253:5 () var_self
+  method esc_u 282:5 () var_self
+  method lex_word 322:5 () var_self -> u32
+  method word_is 343:5 (w: str<8>) var_self -> bool
+  method lex_num 364:5 () var_self -> u32
+  method aput 417:5 (b: u8) var_self
+  method alloc 433:5 (k: u32) var_self -> u32
+  method value 456:5 (k: u32) var_self -> u32
+  method attach 497:5 (id: u32) var_self
+  method push 526:5 (id: u32, obj: bool) var_self
+  method on_value 546:5 (k: u32) var_self
+  method step 565:5 (k: u32) var_self
+  method rewind 625:5 () var_self
+  method run 641:5 () var_self
+  method jerr 672:5 () -> JErr
+  method validate 699:5 () var_self -> Result<u32, JErr>
+  method parse 715:5 () var_self -> Result<u32, JErr>
+  method kind_of 729:5 (id: u32) -> u32
+  method is_null 736:5 (id: u32) -> bool
+  method as_int 743:5 (id: u32) -> Option<i32>
+  method as_bool 753:5 (id: u32) -> Option<bool>
+  method count 764:5 (id: u32) -> u32
+  method at 781:5 (id: u32, i: u32) -> Option<u32>
+  method get 805:5 (id: u32, key: str<256>) -> Option<u32>
+  method span_is 831:5 (off: u32, ln: u32, s: str<256>) -> bool
+  method key_is 852:5 (id: u32, key: str<256>) -> bool
+  method str_is 859:5 (id: u32, s: str<256>) -> bool
+  method str_len 869:5 (id: u32) -> u32
+  method as_str 879:5 (id: u32) -> Option<str<256>>
+struct JOut 909:1
+  field n :: u32
+  field over :: bool
+  field deep :: bool
+  field sc :: [u32; 64]
+  field scur :: [u32; 64]
+  field sd :: u32
+  field buf :: [u8; 65536]
+  method byte 918:5 (b: u8) var_self
+  method word 929:5 (w: str<8>) var_self
+  method dec 941:5 (v: i32) var_self
+  method uesc 970:5 (b: u8) var_self
+  method eb 992:5 (b: u8) var_self
+  method qstr 1033:5 (d: JDoc, off: u32, ln: u32) var_self
+  method open 1049:5 (id: u32, kid: u32) var_self
+  method val 1062:5 (d: JDoc, id: u32) var_self
+  method walk 1095:5 (d: JDoc) var_self
+  method ser 1127:5 (d: JDoc, root: u32) var_self -> Result<u32, JErr>
+  method out_is 1152:5 (s: str<256>) -> bool
+func json_doc 1173:1 () -> JDoc
+func json_out 1181:1 () -> JOut
+test json_scalars 1188:1
+test json_object 1237:1
+test json_escapes 1282:1
+test json_errors 1306:1
+test json_depth 1366:1
+test json_capacity 1391:1
+test json_input_overflow 1413:1
+test json_validate 1433:1
+test json_ser 1452:1
+module lib/Num.eat 1478:1
 export min 7:5 :: min
 export max 8:5 :: max
 export clamp 9:5 :: clamp
@@ -109,7 +236,9 @@ import Dec 25:5 :: lib/Fmt.eat Dec
 import fmt_u32 26:5 :: lib/Fmt.eat fmt_u32
 import hex_digit 30:5 :: lib/Hex.eat hex_digit
 import read_line 34:5 :: lib/Io.eat read_line
-import min 38:5 :: lib/Num.eat min
-import parse_i32 42:5 :: lib/Parse.eat parse_i32
-func main 45:1 ()
-stats funcs=39 structs=2 stmts=302
+import JDoc 38:5 :: lib/Json.eat JDoc
+import json_doc 39:5 :: lib/Json.eat json_doc
+import min 43:5 :: lib/Num.eat min
+import parse_i32 47:5 :: lib/Parse.eat parse_i32
+func main 50:1 ()
+stats funcs=88 structs=5 stmts=842

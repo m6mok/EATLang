@@ -1,0 +1,1477 @@
+# lib/Json.eat — разбор и печать JSON с фиксированными потолками
+# (docs/plans/JSON_PLAN.md). Рекурсия JSON выражается без нарушения
+# Power of 10: дерево — плоский пул узлов с u32-индексами (правило 3),
+# «стек вызовов» разбора — явный массив кадров (правило 1), драйвер —
+# for со статической границей (правило 2). Превышение любого потолка —
+# Result::Err, не trap и не молчаливое усечение.
+#
+# Потолки (JSON_PLAN §2): вход 65 536 байт, пул 4 096 узлов,
+# глубина вложенности 64, арена строк 65 536 байт. Числа — MVP
+# (JSON_PLAN §7): только целые i32; дробь и экспонента — Err(JErr.Num)
+# (fixed-point — отдельный план FIXED_POINT_PLAN). Суррогатные пары
+# \uD800..\uDFFF вне MVP — Err(JErr.Str); остальные \uXXXX кодируются
+# в UTF-8 (1..3 байта).
+
+export {
+    JErr,
+    JNode,
+    JDoc,
+    JOut,
+    json_doc,
+    json_out,
+    J_NULL,
+    J_BOOL,
+    J_NUM,
+    J_STR,
+    J_ARR,
+    J_OBJ,
+}
+
+import {
+    hex_val,
+} from "lib/Hex.eat"
+
+# «нет узла»: валидные индексы пула < 4096, максимум u32 не совпадает
+# ни с одним настоящим (как NONE в lib/Const.eat)
+const JSENT: u32 = 4294967295
+
+# виды узлов (kind_of)
+const J_NULL: u32 = 0
+const J_BOOL: u32 = 1
+const J_NUM: u32 = 2
+const J_STR: u32 = 3
+const J_ARR: u32 = 4
+const J_OBJ: u32 = 5
+
+# Ошибки-значения: у каждого потолка и каждого дефекта входа — имя
+enum JErr {
+    Capacity,   # пул узлов / арена / буфер вывода исчерпаны
+    Depth,      # вложенность глубже 64
+    Input,      # вход длиннее 65 536 байт
+    Syntax,     # неожиданный токен / обрыв документа
+    Num,        # плохое число: дробь, экспонента, >11 цифр, вне i32
+    Str,        # плохая строка: управляющий байт, escape, суррогат
+}
+
+# Тегированный узел без union: kind плюс поля, часть которых не
+# используется при данном виде; «ссылки» — u32-индексы (правило 9)
+struct JNode {
+    kind: u32    # J_NULL..J_OBJ
+    ival: i32    # J_NUM
+    bval: bool   # J_BOOL
+    s_off: u32   # J_STR: срез в арене
+    s_len: u32
+    kid: u32     # первый ребёнок (J_ARR/J_OBJ), иначе JSENT
+    sib: u32     # следующий брат, иначе JSENT
+    k_off: u32   # ключ члена объекта (срез в арене)
+    k_len: u32
+}
+
+# Документ: весь «heap» дерева — пул с курсором в кадре владельца
+struct JDoc {
+    # пул узлов и арена строк
+    nodes: [JNode; 4096]
+    n: u32
+    arena: [u8; 65536]
+    a: u32
+
+    # вход (put/load); переполнение — флаг, parse вернёт Err(Input)
+    src: [u8; 65536]
+    sn: u32
+    src_over: bool
+
+    # лексер: курсор и полезная нагрузка текущего токена
+    pos: u32
+    tival: i32
+    toff: u32
+    tlen: u32
+
+    # явный стек кадров разбора (вместо стека вызовов)
+    fc: [u32; 64]    # контейнер кадра
+    fl: [u32; 64]    # последний присоединённый ребёнок (O(1) append)
+    fst: [u32; 64]   # состояние грамматики кадра (см. step)
+    fko: [u32; 64]   # ожидающий ключ члена объекта (срез в арене)
+    fkl: [u32; 64]
+    d: u32
+
+    # результат прохода
+    root: u32
+    err: u32     # 0 ок; 1..6 — коды JErr (см. jerr)
+    done: u32    # верхнеуровневое значение завершено
+    dry: u32     # SAX-режим (validate): без пула и арены
+    tcount: u32  # принятых токенов (результат validate)
+
+    # --- ввод -------------------------------------------------------
+
+    # байт входа; при переполнении — флаг, не молчаливое усечение:
+    # parse/validate вернут Err(JErr.Input)
+    func put(var self, b: u8)
+        requires true
+    {
+        if self.sn >= 65536 {
+            self.src_over = true
+            return
+        }
+        self.src[self.sn] = b
+        self.sn = self.sn + 1
+    }
+
+    # строка в хвост входа (длинный вход — несколько вызовов подряд)
+    func load(var self, s: str<256>)
+        requires true
+    {
+        for i in 0..256 {
+            if i >= len(s) {
+                break
+            }
+            self.put(u8(s[i]))
+        }
+    }
+
+    # начать новый документ: сбросить вход и результаты прохода
+    func clear(var self)
+        requires true
+    {
+        self.sn = 0
+        self.src_over = false
+        self.rewind()
+    }
+
+    # --- лексер -----------------------------------------------------
+
+    # байт под курсором; 0 за концом (вне алфавита JSON).
+    # var self без мутации: горячий путь лексера — защитная копия
+    # немутирующего self стоила бы копии всего документа на каждый байт
+    # (эталон-интерпретатор копирует, бинарник элидирует)
+    func cb(var self) -> u8
+        requires true
+        ensures true
+    {
+        if self.pos >= self.sn {
+            return 0
+        }
+        return self.src[self.pos]
+    }
+
+    func skip_ws(var self)
+        requires true
+    {
+        for _ in 0..65537 {
+            let b: u8 = self.cb()
+            let ws: bool = b == 32 or b == 9 or b == 10 or b == 13
+            if not ws {
+                break
+            }
+            self.pos = self.pos + 1
+        }
+    }
+
+    # следующий токен: 0 конец · 1 { · 2 } · 3 [ · 4 ] · 5 : · 6 , ·
+    # 7 строка · 8 число · 9 true · 10 false · 11 null · 12 ошибка
+    func next(var self) -> u32
+        requires true
+        ensures true
+    {
+        self.skip_ws()
+        if self.pos >= self.sn {
+            return 0
+        }
+        let b: u8 = self.cb()
+        if b == 123 {
+            self.pos = self.pos + 1
+            return 1
+        }
+        if b == 125 {
+            self.pos = self.pos + 1
+            return 2
+        }
+        if b == 91 {
+            self.pos = self.pos + 1
+            return 3
+        }
+        if b == 93 {
+            self.pos = self.pos + 1
+            return 4
+        }
+        if b == 58 {
+            self.pos = self.pos + 1
+            return 5
+        }
+        if b == 44 {
+            self.pos = self.pos + 1
+            return 6
+        }
+        if b == 34 {
+            return self.lex_str()
+        }
+        if b == 45 or (b >= 48 and b <= 57) {
+            return self.lex_num()
+        }
+        if b == 116 or b == 102 or b == 110 {
+            return self.lex_word()
+        }
+        self.err = 4
+        return 12
+    }
+
+    # строка: байты между кавычками — в арену, escape разворачивается
+    func lex_str(var self) -> u32
+        requires true
+        ensures true
+    {
+        self.pos = self.pos + 1
+        self.toff = self.a
+        var closed: bool = false
+        for _ in 0..65537 {
+            if self.pos >= self.sn or self.err != 0 or closed {
+                break
+            }
+            let b: u8 = self.cb()
+            self.pos = self.pos + 1
+            if b == 34 {
+                closed = true
+            } elif b == 92 {
+                self.esc()
+            } elif b < 32 {
+                self.err = 6
+            } else {
+                self.aput(b)
+            }
+        }
+        if self.err != 0 {
+            return 12
+        }
+        if not closed {
+            self.err = 6
+            return 12
+        }
+        self.tlen = self.a - self.toff
+        return 7
+    }
+
+    # escape после backslash: \" \\ \/ \b \f \n \r \t \uXXXX
+    func esc(var self)
+        requires true
+    {
+        if self.pos >= self.sn {
+            self.err = 6
+            return
+        }
+        let e: u8 = self.cb()
+        self.pos = self.pos + 1
+        if e == 34 or e == 92 or e == 47 {
+            self.aput(e)
+        } elif e == 98 {
+            self.aput(8)
+        } elif e == 102 {
+            self.aput(12)
+        } elif e == 110 {
+            self.aput(10)
+        } elif e == 114 {
+            self.aput(13)
+        } elif e == 116 {
+            self.aput(9)
+        } elif e == 117 {
+            self.esc_u()
+        } else {
+            self.err = 6
+        }
+    }
+
+    # \uXXXX → UTF-8 (1..3 байта); суррогаты D800..DFFF вне MVP
+    func esc_u(var self)
+        requires true
+    {
+        if self.pos + 4 > self.sn {
+            self.err = 6
+            return
+        }
+        var cp: u32 = 0
+        var bad: bool = false
+        for i in 0..4 {
+            let v: u32 = hex_val(self.src[self.pos + i])
+            if v >= 16 {
+                bad = true    # 99 — «не hex-цифра» (lib/Hex.eat)
+            }
+            cp = cp * 16 + v % 16
+        }
+        self.pos = self.pos + 4
+        if bad {
+            self.err = 6
+            return
+        }
+        if cp >= 55296 and cp <= 57343 {
+            self.err = 6
+            return
+        }
+        if cp < 128 {
+            self.aput(u8(cp))
+            return
+        }
+        if cp < 2048 {
+            self.aput(u8(cp / 64 + 192))
+            self.aput(u8(cp % 64 + 128))
+            return
+        }
+        self.aput(u8(cp / 4096 + 224))
+        self.aput(u8(cp / 64 % 64 + 128))
+        self.aput(u8(cp % 64 + 128))
+    }
+
+    # ключевые слова true/false/null
+    func lex_word(var self) -> u32
+        requires true
+        ensures true
+    {
+        if self.word_is("true") {
+            self.pos = self.pos + 4
+            return 9
+        }
+        if self.word_is("false") {
+            self.pos = self.pos + 5
+            return 10
+        }
+        if self.word_is("null") {
+            self.pos = self.pos + 4
+            return 11
+        }
+        self.err = 4
+        return 12
+    }
+
+    # var self без мутации — по той же причине, что cb
+    func word_is(var self, w: str<8>) -> bool
+        requires true
+        ensures true
+    {
+        if self.pos + len(w) > self.sn {
+            return false
+        }
+        var ok: bool = true
+        for i in 0..8 {
+            if i >= len(w) or not ok {
+                break
+            }
+            if self.src[self.pos + i] != u8(w[i]) {
+                ok = false
+            }
+        }
+        return ok
+    }
+
+    # число: только целые i32 (MVP); строгий JSON — без ведущих нулей,
+    # дробь/экспонента/длиннее 11 цифр — JErr.Num
+    func lex_num(var self) -> u32
+        requires true
+        ensures true
+    {
+        var neg: bool = false
+        if self.cb() == 45 {
+            neg = true
+            self.pos = self.pos + 1
+        }
+        let first: u8 = self.cb()
+        if first < 48 or first > 57 {
+            self.err = 5
+            return 12
+        }
+        var v: i64 = 0
+        var nd: u32 = 0
+        for _ in 0..12 {
+            let b: u8 = self.cb()
+            if b < 48 or b > 57 {
+                break
+            }
+            v = v * 10 + i64(b - 48)
+            nd = nd + 1
+            self.pos = self.pos + 1
+        }
+        let t: u8 = self.cb()
+        if (t >= 48 and t <= 57) or t == 46 or t == 101 or t == 69 {
+            self.err = 5
+            return 12
+        }
+        if nd > 1 and first == 48 {
+            self.err = 5
+            return 12
+        }
+        if neg {
+            if v > 2147483648 {
+                self.err = 5
+                return 12
+            }
+            self.tival = i32(i64(0) - v)
+            return 8
+        }
+        if v > 2147483647 {
+            self.err = 5
+            return 12
+        }
+        self.tival = i32(v)
+        return 8
+    }
+
+    # --- арена и пул --------------------------------------------------
+
+    # байт в арену; в SAX-режиме арена не нужна (validate)
+    func aput(var self, b: u8)
+        requires true
+    {
+        if self.dry != 0 {
+            return
+        }
+        if self.a >= 65536 {
+            self.err = 1
+            return
+        }
+        self.arena[self.a] = b
+        self.a = self.a + 1
+    }
+
+    # узел из пула — инкремент курсора с явной проверкой ёмкости;
+    # JSENT — пул исчерпан (err уже стоит)
+    func alloc(var self, k: u32) -> u32
+        requires k <= 5
+        ensures true
+    {
+        if self.dry != 0 {
+            return 0
+        }
+        if self.n >= 4096 {
+            self.err = 1
+            return JSENT
+        }
+        let id: u32 = self.n
+        self.nodes[id] = JNode { kind: k, ival: 0, bval: false, s_off: 0, s_len: 0, kid: JSENT, sib: JSENT, k_off: 0, k_len: 0 }
+        self.n = id + 1
+        return id
+    }
+
+    # --- машина разбора -----------------------------------------------
+    # Состояния кадра (fst): объект — 0 ключ-или-}, 1 двоеточие,
+    # 2 значение, 3 запятая-или-}, 4 строго ключ (после запятой);
+    # массив — 10 значение-или-], 11 запятая-или-], 12 строго значение.
+
+    # узел значения по токену; не-значение — JErr.Syntax
+    func value(var self, k: u32) -> u32
+        requires k <= 12
+        ensures true
+    {
+        if k == 1 {
+            return self.alloc(J_OBJ)
+        }
+        if k == 3 {
+            return self.alloc(J_ARR)
+        }
+        if k == 7 {
+            let id: u32 = self.alloc(J_STR)
+            if self.err == 0 {
+                self.nodes[id].s_off = self.toff
+                self.nodes[id].s_len = self.tlen
+            }
+            return id
+        }
+        if k == 8 {
+            let id: u32 = self.alloc(J_NUM)
+            if self.err == 0 {
+                self.nodes[id].ival = self.tival
+            }
+            return id
+        }
+        if k == 9 or k == 10 {
+            let id: u32 = self.alloc(J_BOOL)
+            if self.err == 0 {
+                self.nodes[id].bval = k == 9
+            }
+            return id
+        }
+        if k == 11 {
+            return self.alloc(J_NULL)
+        }
+        self.err = 4
+        return JSENT
+    }
+
+    # присоединить завершённое значение к вершине стека / корню;
+    # у члена объекта — поставить ожидающий ключ кадра
+    func attach(var self, id: u32)
+        requires true
+    {
+        if self.d == 0 {
+            self.root = id
+            self.done = 1
+            return
+        }
+        let f: u32 = self.d - 1
+        if self.dry == 0 {
+            if self.fst[f] == 2 {
+                self.nodes[id].k_off = self.fko[f]
+                self.nodes[id].k_len = self.fkl[f]
+            }
+            if self.fl[f] == JSENT {
+                self.nodes[self.fc[f]].kid = id
+            } else {
+                self.nodes[self.fl[f]].sib = id
+            }
+        }
+        self.fl[f] = id
+        if self.fst[f] == 2 {
+            self.fst[f] = 3
+        } else {
+            self.fst[f] = 11
+        }
+    }
+
+    # кадр контейнера: превышение глубины — Err, не segfault
+    func push(var self, id: u32, obj: bool)
+        requires true
+    {
+        if self.d >= 64 {
+            self.err = 2
+            return
+        }
+        self.fc[self.d] = id
+        self.fl[self.d] = JSENT
+        if obj {
+            self.fst[self.d] = 0
+        } else {
+            self.fst[self.d] = 10
+        }
+        self.fko[self.d] = 0
+        self.fkl[self.d] = 0
+        self.d = self.d + 1
+    }
+
+    # токен-значение: узел, присоединение, контейнер — в стек
+    func on_value(var self, k: u32)
+        requires k <= 12
+    {
+        let id: u32 = self.value(k)
+        if self.err != 0 {
+            return
+        }
+        self.attach(id)
+        if k == 1 {
+            self.push(id, true)
+        }
+        if k == 3 {
+            self.push(id, false)
+        }
+    }
+
+    # шаг грамматики: токен против состояния вершины стека;
+    # закрытие скобки — pop (self.d = f), сверка вид/скобка бесплатна:
+    # состояния 0..4 бывают только у объекта, 10..12 — только у массива
+    func step(var self, k: u32)
+        requires k >= 1 and k <= 12
+    {
+        if self.d == 0 {
+            if self.done != 0 {
+                self.err = 4
+                return
+            }
+            self.on_value(k)
+            return
+        }
+        let f: u32 = self.d - 1
+        let st: u32 = self.fst[f]
+        if st == 0 or st == 4 {
+            if k == 7 {
+                self.fko[f] = self.toff
+                self.fkl[f] = self.tlen
+                self.fst[f] = 1
+            } elif k == 2 and st == 0 {
+                self.d = f
+            } else {
+                self.err = 4
+            }
+            return
+        }
+        if st == 1 {
+            if k == 5 {
+                self.fst[f] = 2
+            } else {
+                self.err = 4
+            }
+            return
+        }
+        if st == 3 {
+            if k == 6 {
+                self.fst[f] = 4
+            } elif k == 2 {
+                self.d = f
+            } else {
+                self.err = 4
+            }
+            return
+        }
+        if st == 11 {
+            if k == 6 {
+                self.fst[f] = 12
+            } elif k == 4 {
+                self.d = f
+            } else {
+                self.err = 4
+            }
+            return
+        }
+        if st == 10 and k == 4 {
+            self.d = f
+            return
+        }
+        self.on_value(k)
+    }
+
+    func rewind(var self)
+        requires true
+    {
+        self.n = 0
+        self.a = 0
+        self.pos = 0
+        self.d = 0
+        self.root = JSENT
+        self.err = 0
+        self.done = 0
+        self.tcount = 0
+    }
+
+    # общий драйвер parse/validate: один цикл со статической границей
+    # (вход <= 65 536 байт => токенов до конца <= 65 536), единственный
+    # break — конец или ошибка
+    func run(var self)
+        requires true
+    {
+        self.rewind()
+        if self.src_over {
+            self.err = 3
+        }
+        for _ in 0..65537 {
+            var stop: bool = false
+            if self.err != 0 {
+                stop = true
+            } else {
+                let k: u32 = self.next()
+                if self.err == 0 {
+                    if k == 0 {
+                        if self.done == 0 or self.d != 0 {
+                            self.err = 4
+                        }
+                        stop = true
+                    } else {
+                        self.tcount = self.tcount + 1
+                        self.step(k)
+                    }
+                }
+            }
+            if stop {
+                break
+            }
+        }
+    }
+
+    func jerr(self) -> JErr
+        requires true
+        ensures true
+    {
+        if self.err == 1 {
+            return JErr.Capacity
+        }
+        if self.err == 2 {
+            return JErr.Depth
+        }
+        if self.err == 3 {
+            return JErr.Input
+        }
+        if self.err == 5 {
+            return JErr.Num
+        }
+        if self.err == 6 {
+            return JErr.Str
+        }
+        return JErr.Syntax
+    }
+
+    # --- этап 0: SAX-валидатор ----------------------------------------
+
+    # корректность потока без построения дерева: лексер + стек скобок;
+    # пул узлов и арена не нужны (потолок — только глубина 64).
+    # Ok — число принятых токенов.
+    func validate(var self) -> Result<u32, JErr>
+        requires true
+        ensures true
+    {
+        self.dry = 1
+        self.run()
+        self.dry = 0
+        if self.err == 0 {
+            return Ok(self.tcount)
+        }
+        return Err(self.jerr())
+    }
+
+    # --- этап 1: DOM-парсер -------------------------------------------
+
+    # разбор в пул узлов; Ok — индекс корня (дальше kind_of/get/at/as_*)
+    func parse(var self) -> Result<u32, JErr>
+        requires true
+        ensures true
+    {
+        self.dry = 0
+        self.run()
+        if self.err == 0 {
+            return Ok(self.root)
+        }
+        return Err(self.jerr())
+    }
+
+    # --- геттеры ------------------------------------------------------
+
+    func kind_of(self, id: u32) -> u32
+        requires id < 4096
+        ensures result <= 5
+    {
+        return self.nodes[id].kind
+    }
+
+    func is_null(self, id: u32) -> bool
+        requires id < 4096
+        ensures true
+    {
+        return self.nodes[id].kind == J_NULL
+    }
+
+    func as_int(self, id: u32) -> Option<i32>
+        requires id < 4096
+        ensures true
+    {
+        if self.nodes[id].kind != J_NUM {
+            return None
+        }
+        return Some(self.nodes[id].ival)
+    }
+
+    func as_bool(self, id: u32) -> Option<bool>
+        requires id < 4096
+        ensures true
+    {
+        if self.nodes[id].kind != J_BOOL {
+            return None
+        }
+        return Some(self.nodes[id].bval)
+    }
+
+    # число детей контейнера (у скаляров 0)
+    func count(self, id: u32) -> u32
+        requires id < 4096
+        ensures true
+    {
+        var c: u32 = self.nodes[id].kid
+        var t: u32 = 0
+        for _ in 0..4096 {
+            if c == JSENT {
+                break
+            }
+            t = t + 1
+            c = self.nodes[c].sib
+        }
+        return t
+    }
+
+    # i-й элемент массива или i-й член объекта
+    func at(self, id: u32, i: u32) -> Option<u32>
+        requires id < 4096
+        ensures true
+    {
+        let k: u32 = self.nodes[id].kind
+        if k != J_ARR and k != J_OBJ {
+            return None
+        }
+        var c: u32 = self.nodes[id].kid
+        var left: u32 = i
+        for _ in 0..4096 {
+            if c == JSENT or left == 0 {
+                break
+            }
+            c = self.nodes[c].sib
+            left = left - 1
+        }
+        if c == JSENT {
+            return None
+        }
+        return Some(c)
+    }
+
+    # член объекта по ключу (первое совпадение)
+    func get(self, id: u32, key: str<256>) -> Option<u32>
+        requires id < 4096
+        ensures true
+    {
+        if self.nodes[id].kind != J_OBJ {
+            return None
+        }
+        var c: u32 = self.nodes[id].kid
+        var hit: u32 = JSENT
+        for _ in 0..4096 {
+            if c == JSENT or hit != JSENT {
+                break
+            }
+            if self.key_is(c, key) {
+                hit = c
+            } else {
+                c = self.nodes[c].sib
+            }
+        }
+        if hit == JSENT {
+            return None
+        }
+        return Some(hit)
+    }
+
+    # срез арены совпадает со строкой-эталоном? (как lib/Buf.same)
+    func span_is(self, off: u32, ln: u32, s: str<256>) -> bool
+        requires true
+        ensures true
+    {
+        if ln != len(s) {
+            return false
+        }
+        var ok: bool = true
+        for i in 0..256 {
+            if i >= ln or not ok {
+                break
+            }
+            if off + i >= 65536 {
+                ok = false
+            } elif self.arena[off + i] != u8(s[i]) {
+                ok = false
+            }
+        }
+        return ok
+    }
+
+    func key_is(self, id: u32, key: str<256>) -> bool
+        requires id < 4096
+        ensures true
+    {
+        return self.span_is(self.nodes[id].k_off, self.nodes[id].k_len, key)
+    }
+
+    func str_is(self, id: u32, s: str<256>) -> bool
+        requires id < 4096
+        ensures true
+    {
+        if self.nodes[id].kind != J_STR {
+            return false
+        }
+        return self.span_is(self.nodes[id].s_off, self.nodes[id].s_len, s)
+    }
+
+    func str_len(self, id: u32) -> u32
+        requires id < 4096
+        ensures true
+    {
+        return self.nodes[id].s_len
+    }
+
+    # строковое значение как str<256>; длиннее 256 байт — None
+    # (честный отказ; байтовый доступ — str_len + span в арене).
+    # Сборка интерполяцией за O(n^2) при n <= 256 — как lib/Io.read_line
+    func as_str(self, id: u32) -> Option<str<256>>
+        requires id < 4096
+        ensures true
+    {
+        if self.nodes[id].kind != J_STR {
+            return None
+        }
+        let ln: u32 = self.nodes[id].s_len
+        if ln > 256 {
+            return None
+        }
+        let off: u32 = self.nodes[id].s_off
+        var out: str<256> = ""
+        for i in 0..256 {
+            if i >= ln {
+                break
+            }
+            if off + i < 65536 {
+                out = "{out}{char(self.arena[off + i])}"
+            }
+        }
+        return Some(out)
+    }
+}
+
+# --- этап 2: сериализатор ------------------------------------------------
+
+# Буфер вывода и итеративная машина обхода дерева (без рекурсии,
+# явный стек кадров). Вывод минифицированный (без пробелов);
+# клиент печатает write_span(o.buf, 0, n).
+struct JOut {
+    n: u32
+    over: bool      # буфер вывода исчерпан
+    deep: bool      # вложенность глубже 64 (у деревьев parse не бывает)
+    sc: [u32; 64]   # контейнер кадра
+    scur: [u32; 64] # курсор — очередной ребёнок
+    sd: u32
+    buf: [u8; 65536]
+
+    func byte(var self, b: u8)
+        requires true
+    {
+        if self.n >= 65536 {
+            self.over = true
+            return
+        }
+        self.buf[self.n] = b
+        self.n = self.n + 1
+    }
+
+    func word(var self, w: str<8>)
+        requires true
+    {
+        for i in 0..8 {
+            if i >= len(w) {
+                break
+            }
+            self.byte(u8(w[i]))
+        }
+    }
+
+    # десятичная печать i32; магнитуда через (v + 1) — как lib/Fmt
+    func dec(var self, v: i32)
+        requires true
+    {
+        var m: u32 = 0
+        if v < 0 {
+            self.byte(45)
+            m = u32(0 - (v + 1)) + 1
+        } else {
+            m = u32(v)
+        }
+        var t: [u8; 10] = [0; 10]
+        var c: u32 = 0
+        for _ in 0..10 {
+            if c > 0 and m == 0 {
+                break
+            }
+            t[c] = u8(m % 10 + 48)
+            m = m / 10
+            c = c + 1
+        }
+        for i in 0..10 {
+            if i >= c {
+                break
+            }
+            self.byte(t[c - 1 - i])
+        }
+    }
+
+    # \u00XX для управляющих байтов без короткого escape
+    func uesc(var self, b: u8)
+        requires b < 32
+    {
+        self.byte(92)
+        self.byte(117)
+        self.byte(48)
+        self.byte(48)
+        let hi: u32 = u32(b) / 16
+        let lo: u32 = u32(b) % 16
+        if hi < 10 {
+            self.byte(u8(hi + 48))
+        } else {
+            self.byte(u8(hi + 87))
+        }
+        if lo < 10 {
+            self.byte(u8(lo + 48))
+        } else {
+            self.byte(u8(lo + 87))
+        }
+    }
+
+    # байт строки с обратным экранированием
+    func eb(var self, b: u8)
+        requires true
+    {
+        if b == 34 or b == 92 {
+            self.byte(92)
+            self.byte(b)
+            return
+        }
+        if b == 10 {
+            self.byte(92)
+            self.byte(110)
+            return
+        }
+        if b == 9 {
+            self.byte(92)
+            self.byte(116)
+            return
+        }
+        if b == 13 {
+            self.byte(92)
+            self.byte(114)
+            return
+        }
+        if b == 8 {
+            self.byte(92)
+            self.byte(98)
+            return
+        }
+        if b == 12 {
+            self.byte(92)
+            self.byte(102)
+            return
+        }
+        if b < 32 {
+            self.uesc(b)
+            return
+        }
+        self.byte(b)
+    }
+
+    # строка из арены в кавычках
+    func qstr(var self, d: JDoc, off: u32, ln: u32)
+        requires true
+    {
+        self.byte(34)
+        for i in 0..65536 {
+            if i >= ln {
+                break
+            }
+            if off + i < 65536 {
+                self.eb(d.arena[off + i])
+            }
+        }
+        self.byte(34)
+    }
+
+    # кадр открытого контейнера в стек обхода
+    func open(var self, id: u32, kid: u32)
+        requires true
+    {
+        if self.sd >= 64 {
+            self.deep = true
+            return
+        }
+        self.sc[self.sd] = id
+        self.scur[self.sd] = kid
+        self.sd = self.sd + 1
+    }
+
+    # значение: скаляр — сразу байтами, контейнер — открыть и в стек
+    func val(var self, d: JDoc, id: u32)
+        requires id < 4096
+    {
+        let k: u32 = d.nodes[id].kind
+        if k == J_ARR or k == J_OBJ {
+            if k == J_ARR {
+                self.byte(91)
+            } else {
+                self.byte(123)
+            }
+            self.open(id, d.nodes[id].kid)
+            return
+        }
+        if k == J_NULL {
+            self.word("null")
+            return
+        }
+        if k == J_BOOL {
+            if d.nodes[id].bval {
+                self.word("true")
+            } else {
+                self.word("false")
+            }
+            return
+        }
+        if k == J_NUM {
+            self.dec(d.nodes[id].ival)
+            return
+        }
+        self.qstr(d, d.nodes[id].s_off, d.nodes[id].s_len)
+    }
+
+    # шаг обхода: очередной ребёнок вершины стека или закрывающая скобка
+    func walk(var self, d: JDoc)
+        requires true
+    {
+        if self.sd == 0 {
+            return
+        }
+        let f: u32 = self.sd - 1
+        let c: u32 = self.scur[f]
+        let cont: u32 = self.sc[f]
+        if c == JSENT {
+            if d.nodes[cont].kind == J_ARR {
+                self.byte(93)
+            } else {
+                self.byte(125)
+            }
+            self.sd = f
+            return
+        }
+        if c != d.nodes[cont].kid {
+            self.byte(44)
+        }
+        if d.nodes[cont].kind == J_OBJ {
+            self.qstr(d, d.nodes[c].k_off, d.nodes[c].k_len)
+            self.byte(58)
+        }
+        self.scur[f] = d.nodes[c].sib
+        self.val(d, c)
+    }
+
+    # сериализация поддерева root; Ok — длина результата в buf.
+    # Граница цикла: каждый узел даёт <= 2 событий (вход + закрытие),
+    # узлов <= 4096 => событий <= 8192 + корень; 16384 с запасом
+    func ser(var self, d: JDoc, root: u32) -> Result<u32, JErr>
+        requires root < 4096
+        ensures true
+    {
+        self.n = 0
+        self.over = false
+        self.deep = false
+        self.sd = 0
+        self.val(d, root)
+        for _ in 0..16384 {
+            if self.sd == 0 or self.over or self.deep {
+                break
+            }
+            self.walk(d)
+        }
+        if self.deep or self.sd != 0 {
+            return Err(JErr.Depth)
+        }
+        if self.over {
+            return Err(JErr.Capacity)
+        }
+        return Ok(self.n)
+    }
+
+    # дамп буфера в тестах: собранное совпадает с эталоном?
+    func out_is(self, s: str<256>) -> bool
+        requires true
+        ensures true
+    {
+        if self.n != len(s) {
+            return false
+        }
+        var ok: bool = true
+        for i in 0..256 {
+            if i >= self.n or not ok {
+                break
+            }
+            if self.buf[i] != u8(s[i]) {
+                ok = false
+            }
+        }
+        return ok
+    }
+}
+
+# свежий документ (весь «heap» — в кадре вызывающего)
+func json_doc() -> JDoc
+    requires true
+    ensures true
+{
+    return JDoc { nodes: [JNode { kind: 0, ival: 0, bval: false, s_off: 0, s_len: 0, kid: JSENT, sib: JSENT, k_off: 0, k_len: 0 }; 4096], n: 0, arena: [0; 65536], a: 0, src: [0; 65536], sn: 0, src_over: false, pos: 0, tival: 0, toff: 0, tlen: 0, fc: [0; 64], fl: [0; 64], fst: [0; 64], fko: [0; 64], fkl: [0; 64], d: 0, root: JSENT, err: 0, done: 0, dry: 0, tcount: 0 }
+}
+
+# свежий буфер вывода
+func json_out() -> JOut
+    requires true
+    ensures true
+{
+    return JOut { n: 0, over: false, deep: false, sc: [0; 64], scur: [0; 64], sd: 0, buf: [0; 65536] }
+}
+
+test json_scalars {
+    var d: JDoc = json_doc()
+    d.load("42")
+    match d.parse() {
+        Ok(r) {
+            assert d.kind_of(r) == J_NUM
+            match d.as_int(r) {
+                Some(v) { assert v == 42 }
+                None { assert false }
+            }
+        }
+        Err(_) { assert false }
+    }
+    d.clear()
+    d.load("-2147483648")
+    match d.parse() {
+        Ok(r) {
+            match d.as_int(r) {
+                Some(v) { assert v == -2147483648 }
+                None { assert false }
+            }
+        }
+        Err(_) { assert false }
+    }
+    d.clear()
+    d.load("true")
+    match d.parse() {
+        Ok(r) {
+            match d.as_bool(r) {
+                Some(b) { assert b }
+                None { assert false }
+            }
+        }
+        Err(_) { assert false }
+    }
+    d.clear()
+    d.load("null")
+    match d.parse() {
+        Ok(r) { assert d.is_null(r) }
+        Err(_) { assert false }
+    }
+    d.clear()
+    d.load("\"hi\"")
+    match d.parse() {
+        Ok(r) { assert d.str_is(r, "hi") }
+        Err(_) { assert false }
+    }
+}
+
+test json_object {
+    var d: JDoc = json_doc()
+    d.load("{{\"a\": 1, \"b\": [true, null], \"c\": \"x\"}}")
+    match d.parse() {
+        Ok(r) {
+            assert d.kind_of(r) == J_OBJ
+            assert d.count(r) == 3
+            match d.get(r, "a") {
+                Some(a) {
+                    match d.as_int(a) {
+                        Some(v) { assert v == 1 }
+                        None { assert false }
+                    }
+                }
+                None { assert false }
+            }
+            match d.get(r, "b") {
+                Some(b) {
+                    assert d.kind_of(b) == J_ARR
+                    assert d.count(b) == 2
+                    match d.at(b, 1) {
+                        Some(e) { assert d.is_null(e) }
+                        None { assert false }
+                    }
+                }
+                None { assert false }
+            }
+            match d.get(r, "c") {
+                Some(c) {
+                    match d.as_str(c) {
+                        Some(s) { assert s == "x" }
+                        None { assert false }
+                    }
+                }
+                None { assert false }
+            }
+            match d.get(r, "nope") {
+                Some(_) { assert false }
+                None { assert true }
+            }
+        }
+        Err(_) { assert false }
+    }
+}
+
+test json_escapes {
+    var d: JDoc = json_doc()
+    d.load("\"a\\n\\t\\\\\\\"\\u0041\"")
+    match d.parse() {
+        Ok(r) { assert d.str_is(r, "a\n\t\\\"A") }
+        Err(_) { assert false }
+    }
+    d.clear()
+    d.load("\"\\uD800\"")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Str { assert true }
+                Capacity { assert false }
+                Depth { assert false }
+                Input { assert false }
+                Syntax { assert false }
+                Num { assert false }
+            }
+        }
+    }
+}
+
+test json_errors {
+    var d: JDoc = json_doc()
+    d.load("{{")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(_) { assert true }
+    }
+    d.clear()
+    d.load("[1,]")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(_) { assert true }
+    }
+    d.clear()
+    d.load("{{\"a\" 1}}")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(_) { assert true }
+    }
+    d.clear()
+    d.load("01")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Num { assert true }
+                Capacity { assert false }
+                Depth { assert false }
+                Input { assert false }
+                Syntax { assert false }
+                Str { assert false }
+            }
+        }
+    }
+    d.clear()
+    d.load("1.5")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(_) { assert true }
+    }
+    d.clear()
+    d.load("1 2")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(_) { assert true }
+    }
+    d.clear()
+    d.load("tru")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(_) { assert true }
+    }
+    d.clear()
+    d.load("")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(_) { assert true }
+    }
+}
+
+test json_depth {
+    var d: JDoc = json_doc()
+    d.load("[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[")
+    d.load("]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]")
+    match d.parse() {
+        Ok(r) { assert d.kind_of(r) == J_ARR }
+        Err(_) { assert false }
+    }
+    d.clear()
+    d.load("[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Depth { assert true }
+                Capacity { assert false }
+                Input { assert false }
+                Syntax { assert false }
+                Num { assert false }
+                Str { assert false }
+            }
+        }
+    }
+}
+
+test json_capacity {
+    var d: JDoc = json_doc()
+    d.load("[")
+    for _ in 0..4200 {
+        d.load("1,")
+    }
+    d.load("1]")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Capacity { assert true }
+                Depth { assert false }
+                Input { assert false }
+                Syntax { assert false }
+                Num { assert false }
+                Str { assert false }
+            }
+        }
+    }
+}
+
+test json_input_overflow {
+    var d: JDoc = json_doc()
+    for _ in 0..65537 {
+        d.put(32)
+    }
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Input { assert true }
+                Capacity { assert false }
+                Depth { assert false }
+                Syntax { assert false }
+                Num { assert false }
+                Str { assert false }
+            }
+        }
+    }
+}
+
+test json_validate {
+    var d: JDoc = json_doc()
+    d.load("{{\"a\": [1, 2], \"b\": null}}")
+    match d.validate() {
+        Ok(t) { assert t == 13 }
+        Err(_) { assert false }
+    }
+    match d.parse() {
+        Ok(r) { assert d.count(r) == 2 }
+        Err(_) { assert false }
+    }
+    d.clear()
+    d.load("[}}")
+    match d.validate() {
+        Ok(_) { assert false }
+        Err(_) { assert true }
+    }
+}
+
+test json_ser {
+    var d: JDoc = json_doc()
+    d.load("{{ \"a\" : [ 1 , true , null , \"x\" ] , \"b\" : {{}} , \"c\" : -5 }}")
+    match d.parse() {
+        Ok(r) {
+            var o: JOut = json_out()
+            match o.ser(d, r) {
+                Ok(_) { assert o.out_is("{{\"a\":[1,true,null,\"x\"],\"b\":{{}},\"c\":-5}}") }
+                Err(_) { assert false }
+            }
+        }
+        Err(_) { assert false }
+    }
+    d.clear()
+    d.load("\"a\\n\\\"b\\u0007\"")
+    match d.parse() {
+        Ok(r) {
+            var o: JOut = json_out()
+            match o.ser(d, r) {
+                Ok(_) { assert o.out_is("\"a\\n\\\"b\\u0007\"") }
+                Err(_) { assert false }
+            }
+        }
+        Err(_) { assert false }
+    }
+}

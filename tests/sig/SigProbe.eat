@@ -35,6 +35,11 @@ import {
 } from "lib/Io.eat"
 
 import {
+    JDoc,
+    json_doc,
+} from "lib/Json.eat"
+
+import {
     min,
 } from "lib/Num.eat"
 
@@ -49,12 +54,15 @@ func main() {
     let g: bool = is_digit(u8(48))
     let h: char = hex_digit(10)
     let x: bool = NONE == U32_MAX
+    var jd: JDoc = json_doc()
+    jd.load("[]")
+    let jn: u32 = jd.kind_of(0)
     let a: bool = false
     match get(0) {
         Ok(_) { a = true }
         Err(_) { a = false }
     }
-    print("digit={g} hex={h} ln={d.ln} same={s} x={x} a={a}")
+    print("digit={g} hex={h} ln={d.ln} same={s} x={x} j={jn} a={a}")
     match read_line() {
         Ok(line) {
             match parse_i32(line) {

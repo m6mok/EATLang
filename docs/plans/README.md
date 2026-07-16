@@ -53,7 +53,7 @@ backlog.
 | — | [SELFHOST](SELFHOST.md) | ✅ | Справка: архитектура self-hosted компилятора, фазы 1–6 (все закрыты, фикспойнт зелёный) |
 | — | [STR_MODEL_PLAN](STR_MODEL_PLAN.md) | ✅ | Справка: модель строки `str<256>`, элизия defensive-копий, алиасинг `var self`. Трек закрыт |
 | — | [CRYPTO_SUITE_PLAN](CRYPTO_SUITE_PLAN.md) | 📋 | Backlog: пример `examples/crypto/` (SHA-256/ChaCha20/CRC32/…) — проба mod-2³² без u64. Правок компилятора не требует |
-| — | [JSON_PLAN](JSON_PLAN.md) | 📋 | Backlog: `lib/Json.eat` — bounded-depth DOM/SAX (пул узлов + арена + явный стек). Правок языка не требует |
+| — | [JSON_PLAN](JSON_PLAN.md) | ✅ | Справка: `lib/Json.eat` — bounded-depth SAX/DOM/сериализатор (пул узлов + арена + явный стек), числа — MVP (целые i32); витрина `examples/json/`. Дроби — отдельное решение ([FIXED_POINT_PLAN](FIXED_POINT_PLAN.md)) |
 
 ---
 

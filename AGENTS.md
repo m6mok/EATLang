@@ -67,7 +67,7 @@ src/eatc/     Python-бутстрап (эталон): lexer → parser → check
               шим аксиом ОС (ввод/вывод, exit, trap, argv)
 selfhost/     компилятор на EATLang: Tok, Lexer, Ast, Parser, Check, Ir,
               *Main; Rt.eat — рантайм, первый модуль каждой программы
-lib/          библиотека на EATLang (Args, Ascii, Buf, Const, Fmt, Hex, Io, Num, Parse) —
+lib/          библиотека на EATLang (Args, Ascii, Buf, Const, Fmt, Hex, Io, Json, Num, Parse) —
               подключается списком файлов после Rt.eat
               (docs/plans/MODULES_PLAN.md, этап 0 — конкатенация)
 examples/     эталонные примеры (all — витрина конструкций; mos6502 —

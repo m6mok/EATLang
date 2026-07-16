@@ -1,0 +1,116 @@
+# Демо lib/Json.eat (docs/plans/JSON_PLAN.md): «любой JSON» в языке
+# невыразим (рекурсия/куча/while запрещены), но конкретный JSON
+# выразим полностью — ценой объявления потолков. Разбор — в плоский
+# пул узлов, доступ — геттерами, обратно — сериализатором; превышение
+# любого потолка — ошибка-значение Err, не trap.
+#
+#   eatc run --lib . examples/json/Main.eat   (make run_json)
+
+import {
+    JErr,
+    JDoc,
+    JOut,
+    json_doc,
+    json_out,
+    J_ARR,
+} from "lib/Json.eat"
+
+# имя ошибки для печати (исчерпывающий match — правило 7)
+func jerr_name(e: JErr) -> str<16>
+    requires true
+    ensures true
+{
+    match e {
+        Capacity { return "Capacity" }
+        Depth { return "Depth" }
+        Input { return "Input" }
+        Syntax { return "Syntax" }
+        Num { return "Num" }
+        Str { return "Str" }
+    }
+}
+
+func show_lang(d: JDoc, root: u32)
+    requires root < 4096
+{
+    match d.get(root, "lang") {
+        Some(id) {
+            match d.as_str(id) {
+                Some(s) { print("lang = {s}") }
+                None { print("lang: не строка") }
+            }
+        }
+        None { print("lang: нет ключа") }
+    }
+}
+
+func show_rules(d: JDoc, root: u32)
+    requires root < 4096
+{
+    match d.get(root, "rules") {
+        Some(id) {
+            assert d.kind_of(id) == J_ARR
+            print("rules: {d.count(id)} элементов")
+            match d.at(id, 0) {
+                Some(e) {
+                    match d.as_int(e) {
+                        Some(v) { print("rules[0] = {v}") }
+                        None { print("rules[0]: не число") }
+                    }
+                }
+                None { print("rules[0]: нет") }
+            }
+        }
+        None { print("rules: нет ключа") }
+    }
+}
+
+func show_flags(d: JDoc, root: u32)
+    requires root < 4096
+{
+    match d.get(root, "total") {
+        Some(id) {
+            match d.as_bool(id) {
+                Some(b) { print("total = {b}") }
+                None { print("total: не bool") }
+            }
+        }
+        None { print("total: нет ключа") }
+    }
+    match d.get(root, "heap") {
+        Some(id) { print("heap null: {d.is_null(id)}") }
+        None { print("heap: нет ключа") }
+    }
+}
+
+func main() {
+    var d: JDoc = json_doc()
+    d.load("{{\"lang\": \"EATLang\", \"total\": true, \"rules\": [10, 4, 2026], \"heap\": null}}")
+    match d.validate() {
+        Ok(t) { print("валиден, токенов: {t}") }
+        Err(e) { print("невалиден: {jerr_name(e)}") }
+    }
+    match d.parse() {
+        Ok(root) {
+            show_lang(d, root)
+            show_rules(d, root)
+            show_flags(d, root)
+            var o: JOut = json_out()
+            match o.ser(d, root) {
+                Ok(ln) {
+                    write("минифицировано: ")
+                    write_span(o.buf, 0, ln)
+                    print("")
+                }
+                Err(e) { print("ser: {jerr_name(e)}") }
+            }
+        }
+        Err(e) { print("parse: {jerr_name(e)}") }
+    }
+    d.clear()
+    d.load("[1, 2,]")
+    match d.parse() {
+        Ok(_) { print("не должно разобраться") }
+        Err(e) { print("ожидаемая ошибка: {jerr_name(e)}") }
+    }
+}

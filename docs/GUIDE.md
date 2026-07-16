@@ -40,7 +40,8 @@ make run    SRC="examples/math/Math.eat"   # запустить build/Math
 make compile SRC="Mod.eat Main.eat"    # → build/Main.ll
 make link    SRC="Mod.eat Main.eat"    # → build/Main
 # рантайм-модуль selfhost/Rt.eat подставляется первым автоматически
-# библиотека lib/ (Ascii, Buf, Const, Fmt, Hex, Io, Num, Parse) подключается тем же списком:
+# библиотека lib/ (Args, Ascii, Buf, Const, Fmt, Hex, Io, Json, Num, Parse)
+# подключается тем же списком:
 make run SRC="lib/Ascii.eat lib/Num.eat examples/modules/Main.eat"
 
 # либо импортами (docs/plans/MODULES_PLAN.md §2): драйвер сам строит DAG
@@ -612,7 +613,7 @@ export {
 Происхождение имени на месте вызова (`fmt_u32(...)`) не видно — Вирт
 требовал `M.x`. Компенсируют это import-шапка как единственное
 grep-место и `eatc sig`, печатающий источник каждого имени. Библиотека
-`lib/` (Args, Ascii, Buf, Const, Fmt, Hex, Io, Num, Parse) — обычные
+`lib/` (Args, Ascii, Buf, Const, Fmt, Hex, Io, Json, Num, Parse) — обычные
 модули на этом же механизме; `read_line`/`parse_i32` живут в ней
 (`lib/Io.eat`, `lib/Parse.eat`), а не среди встроенных.
 

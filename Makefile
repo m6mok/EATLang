@@ -21,11 +21,16 @@ EXAMPLES = \
 # этап 2 модулей): собирается с --lib ., отдельно от списка выше
 ELIF_MAIN = examples/if_statement/Elif.eat
 
+# JSON — витрина lib/Json.eat (docs/plans/JSON_PLAN.md): bounded-JSON
+# без рекурсии/кучи/while; check исполняет и тесты самого модуля
+JSON_MAIN = examples/json/Main.eat
+
 # Компиляция всех примеров: парсинг, проверки Power of 10, типы,
 # исполнение test-блоков
 check:
 	$(EATC) check $(EXAMPLES)
 	$(EATC) check --lib . $(ELIF_MAIN)
+	$(EATC) check --lib . $(JSON_MAIN)
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -478,6 +483,9 @@ run_if_statement:
 run_elif:
 	$(EATC) run --lib . $(ELIF_MAIN)
 
+run_json:
+	$(EATC) run --lib . $(JSON_MAIN)
+
 run_iterator:
 	$(EATC) run examples/iterator/Iterator.eat
 
@@ -513,6 +521,11 @@ verify: build_all_examples
 	@./build/Modules > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Modules" || exit 1
+	@$(EATC) build --lib . $(JSON_MAIN) -o build/Json > /dev/null
+	@$(EATC) run --lib . $(JSON_MAIN) > /tmp/eat_interp.txt
+	@./build/Json > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED Json" || exit 1
 	@$(EATC) build $(MOS6502_EXAMPLE) -o build/Mos6502 > /dev/null
 	@cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE) > /tmp/eat_interp.txt
 	@cat examples/mos6502/mul13x11.rom | ./build/Mos6502 > /tmp/eat_native.txt
