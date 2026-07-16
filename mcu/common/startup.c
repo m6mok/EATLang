@@ -27,11 +27,36 @@ __attribute__((noreturn)) void reset_handler(void) {
     semihost_exit((uint32_t)main(0, 0));
 }
 
-/* [0] — вершина стека, [1] — Reset; прерываний нет: программы
- * EATLang однопоточны, ISR живут в драйверах плат (extern). */
-__attribute__((section(".vectors"), used)) static void *const vectors[2] = {
-    (void *)__stack_top,
-    (void *)reset_handler,
+/* Программы EATLang однопоточны; прерывания — деталь драйвера платы
+ * (MCU_PLAN §2): каждый внешний IRQ уходит в общий трамплин, тот
+ * читает номер из IPSR и зовёт board_irq(irq). Слабая заглушка —
+ * пусто: IRQ не приходят, пока плата их не включила. Отказ ядра
+ * (HardFault и т.п.) — выход с кодом 70: язык тотальный, фолт
+ * означает дыру в шиме, а не в программе. */
+
+__attribute__((weak)) void board_irq(uint32_t irq) {
+    (void)irq;
+}
+
+static void irq_trampoline(void) {
+    uint32_t ipsr;
+    __asm__ volatile("mrs %0, ipsr" : "=r"(ipsr));
+    board_irq((ipsr & 0x1FFu) - 16u);
+}
+
+static void fault_handler(void) {
+    semihost_exit(70);
+}
+
+/* [0] — вершина стека, [1] — Reset, [2..15] — отказы ядра,
+ * [16..79] — 64 внешних IRQ (хватает всем портам mcu/boards/). */
+#define VECTORS_IRQS 64
+__attribute__((section(".vectors"), used)) static void *const
+    vectors[16 + VECTORS_IRQS] = {
+        (void *)__stack_top,
+        (void *)reset_handler,
+        [2 ... 15] = (void *)fault_handler,
+        [16 ...(15 + VECTORS_IRQS)] = (void *)irq_trampoline,
 };
 
 /* --- EABI-хелперы памяти -------------------------------------------- */

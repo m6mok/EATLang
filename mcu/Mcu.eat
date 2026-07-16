@@ -1,0 +1,47 @@
+# mcu/Mcu.eat — периферийный шим МК (docs/plans/MCU_PLAN.md §6).
+# Граница с железом — extern-функции (решение §1.1): реализация —
+# mcu/common/shim.c поверх хуков платы mcu/boards/*/board.c, на хосте —
+# драйвер-эталон (examples/blinky_cli/host_driver.c). Контракты как у
+# аксиом: requires проверяется у вызывающего, ensures — на вере.
+#
+# Линии GPIO логические: 0 — LED, 1 — кнопка; плата отображает их на
+# свои пины — один исходник собирается на все порты.
+
+export {
+    LINE_LED,
+    LINE_BUTTON,
+    gpio_set,
+    gpio_get,
+    systick_ms,
+    poll_byte,
+}
+
+const LINE_LED: u32 = 0
+const LINE_BUTTON: u32 = 1
+
+extern func gpio_set(line: u32, on: bool)
+    requires line <= 1
+
+extern func gpio_get(line: u32) -> bool
+    requires line <= 1
+    ensures true
+
+# Миллисекунды от старта; u64 — время без заворота (решение §1.9)
+extern func systick_ms() -> u64
+    ensures true
+
+# Опрос UART: байт 0..255 или сентинел 256 «байта нет»
+extern func uart_poll() -> u32
+    ensures result <= 256
+
+# Result-обёртка опроса (§6): сентинел шима наружу не выходит
+func poll_byte() -> Option<u8>
+    requires true
+    ensures true
+{
+    let r: u32 = uart_poll()
+    if r >= 256 {
+        return None
+    }
+    return Some(u8(r))
+}

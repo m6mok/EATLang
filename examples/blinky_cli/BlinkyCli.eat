@@ -1,0 +1,96 @@
+# Флагманский пример МК (docs/plans/MCU_PLAN.md §6): суперцикл
+# реального embedded-проекта — мигание LED по таймеру, кнопка,
+# команды по UART. Один исходник собирается на все порты mcu/boards/
+# и на хост; граница с железом — mcu/Mcu.eat (extern-шим).
+#
+# Команды: o/f — LED вкл/выкл, b — переключить мигание, s — статус,
+# t — аптайм в мс, i — номер такта суперцикла, q — выход.
+# Вывод зависит только от последовательности команд (мигание и время
+# на канал не печатаются) — QEMU-платы сверяются с хостовым эталоном
+# байт-в-байт (make verify_mcu); t и i зависят от времени и в
+# автосверку не входят — это ручные замеры латентности цикла.
+
+import {
+    LINE_LED,
+    LINE_BUTTON,
+    gpio_set,
+    gpio_get,
+    systick_ms,
+    poll_byte,
+} from "mcu/Mcu.eat"
+
+const BLINK_MS: u64 = 500
+
+func main() {
+    var blink: bool = false
+    var phase: bool = false
+    var last: u64 = systick_ms()
+    var cmds: u32 = 0
+    var quit: bool = false
+    # такты суперцикла: u64 — не завернётся за время жизни устройства
+    var iters: u64 = 0
+    print("blinky-cli: o/f вкл/выкл, b мигание, s статус, t мс, i такт, q выход")
+    # реактивная модель (SPEC §5.1): единственный бесконечный loop
+    # в main, каждая итерация тотальна, break — единственный выход
+    loop {
+        if quit {
+            break
+        }
+        iters = iters + 1
+        # мигание — деталь платы: таймер шима, в канал не печатается
+        let now: u64 = systick_ms()
+        if blink {
+            if now - last >= BLINK_MS {
+                last = now
+                phase = not phase
+                gpio_set(LINE_LED, phase)
+            }
+        }
+        match poll_byte() {
+            None {}
+            Some(b) {
+                # разделители терминала — не команды
+                if b != 10 and b != 13 and b != 32 {
+                    cmds = cmds + 1
+                    if b == u8('o') {
+                        gpio_set(LINE_LED, true)
+                        print("LED вкл")
+                    } elif b == u8('f') {
+                        blink = false
+                        gpio_set(LINE_LED, false)
+                        print("LED выкл")
+                    } elif b == u8('b') {
+                        if blink {
+                            blink = false
+                            print("мигание выкл")
+                        } else {
+                            blink = true
+                            last = now
+                            print("мигание вкл")
+                        }
+                    } elif b == u8('s') {
+                        if blink {
+                            print("статус: мигание вкл, команд {cmds}")
+                        } else {
+                            print("статус: мигание выкл, команд {cmds}")
+                        }
+                        if gpio_get(LINE_BUTTON) {
+                            print("кнопка: нажата")
+                        } else {
+                            print("кнопка: отпущена")
+                        }
+                    } elif b == u8('t') {
+                        print("аптайм: {now} мс")
+                    } elif b == u8('i') {
+                        print("такт суперцикла: {iters}")
+                    } elif b == u8('q') {
+                        print("пока")
+                        quit = true
+                    } else {
+                        print("не знаю команду {char(b)}")
+                    }
+                }
+            }
+        }
+    }
+}

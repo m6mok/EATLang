@@ -113,6 +113,7 @@ trap и аргументы командной строки (`arg_count`/`arg_len
 | `make verify_bootstrap` | фикспойнт: stage1 (`build/SelfIr`) эмитит IR самого себя == `eatc ir`; clang собирает stage2; stage2 эмитит тот же IR байт-в-байт |
 | `make verify_trapcodes` | режим trap-кодов (МК): `build/SelfIrCodes` == `eatc ir --trap-codes` байт-в-байт на bootstrap-входе |
 | `make verify_sig` | дрейф интерфейса lib/: sig потока драйвера от `tests/sig/SigProbe.eat` == снапшот `tests/sig/lib.sig` (осознанное изменение — `make regen_sig`) |
+| `make verify_mcu` | МК-порты (`mcu/`, трек 2): mos6502, Blinky и blinky_cli на 4 QEMU-платах байт-в-байт с эталоном; 4 прошивочных порта — сборка флагмана + автосверка §8 против RAM платы |
 | `make bench` / `bench_quick` | нагрузочное тестирование (`tests/bench/`): синтетика, стресс пределов SPEC §6, интерпретатор против бинарника |
 
 ## 6. Сборка языка и программ self-hosted компилятором

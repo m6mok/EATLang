@@ -31,6 +31,7 @@ check:
 	$(EATC) check $(EXAMPLES)
 	$(EATC) check --lib . $(ELIF_MAIN)
 	$(EATC) check --lib . $(JSON_MAIN)
+	$(EATC) check --lib . examples/blinky_cli/BlinkyCli.eat
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -330,7 +331,8 @@ verify_selfhost_verify:
 # на коде программы (−32 % флеша): биткодный шим lld выбрасывает
 # __aeabi_* на разрешении символов. Тулчейн: brew install lld qemu.
 
-.PHONY: mcu mcu_run verify_mcu verify_mcu_blinky verify_arm
+.PHONY: mcu mcu_run mcu_flash verify_mcu verify_mcu_blinky \
+	verify_mcu_cli verify_arm
 
 BOARD ?= mps2_an385
 include mcu/boards/$(BOARD)/board.mk
@@ -338,10 +340,18 @@ MCU_CC = clang $(ARCH_FLAGS) -O2 -ffreestanding -fno-unwind-tables \
 	-Wno-override-module
 MCU_QEMU = qemu-system-arm -M $(QEMU_MACHINE) -semihosting \
 	-display none -monitor none -serial stdio
+# llvm-objcopy для .bin/.hex прошивочных плат: в тулчейне Xcode его
+# нет — берём из brew llvm (как lld)
+MCU_OBJCOPY ?= $(shell brew --prefix llvm 2>/dev/null)/bin/llvm-objcopy
 MCU_PROG = $(basename $(notdir $(lastword $(SRC))))
 MCU_DIR = build/mcu/$(BOARD)
 MCU_COMMON = mcu/common/runtime.c mcu/common/startup.c \
-	mcu/common/eabi64.c
+	mcu/common/eabi64.c mcu/common/shim.c
+# все объекты прошивки: общий шим, board.c, BOARD_EXTRA платы (.c/.S,
+# напр. boot2 у pico), прошитый вход и extern-драйверы проекта
+MCU_OBJS = $(addprefix $(MCU_DIR)/,$(addsuffix .o,$(MCU_PROG) \
+	$(basename $(notdir $(MCU_COMMON))) board input \
+	$(basename $(notdir $(BOARD_EXTRA) $(EXTERN)))))
 
 mcu:
 	@test -n "$(SRC)" || { echo 'использование: make mcu BOARD=... SRC="Мод.eat Main.eat" [EXTERN=drv.c] [INPUT=file]'; exit 1; }
@@ -354,17 +364,24 @@ mcu:
 		uv run python mcu/common/embed_input.py /dev/null > $(MCU_DIR)/input.c; \
 	fi
 	$(MCU_CC) -flto -c $(MCU_DIR)/$(MCU_PROG).ll -o $(MCU_DIR)/$(MCU_PROG).o
-	@for f in $(MCU_COMMON) mcu/boards/$(BOARD)/board.c $(MCU_DIR)/input.c $(EXTERN); do \
-		$(MCU_CC) -c $$f -o $(MCU_DIR)/$$(basename $$f .c).o || exit 1; \
+	@for f in $(MCU_COMMON) mcu/boards/$(BOARD)/board.c $(BOARD_EXTRA) \
+			$(MCU_DIR)/input.c $(EXTERN); do \
+		o=$${f##*/}; \
+		$(MCU_CC) -c $$f -o $(MCU_DIR)/$${o%.*}.o || exit 1; \
 	done
-	ld.lld -T mcu/boards/$(BOARD)/board.ld $(MCU_DIR)/$(MCU_PROG).o \
-		$(MCU_DIR)/runtime.o $(MCU_DIR)/startup.o $(MCU_DIR)/eabi64.o \
-		$(MCU_DIR)/board.o $(MCU_DIR)/input.o \
-		$(if $(EXTERN),$(patsubst %.c,$(MCU_DIR)/%.o,$(notdir $(EXTERN)))) \
+	ld.lld -T mcu/boards/$(BOARD)/board.ld $(MCU_OBJS) \
 		-o $(MCU_DIR)/$(MCU_PROG).elf
 	@xcrun llvm-size $(MCU_DIR)/$(MCU_PROG).elf
 	@uv run python mcu/common/check_mem.py $(MCU_DIR)/$(MCU_PROG).report \
 		$(MCU_DIR)/$(MCU_PROG).elf $(RAM_SIZE)
+	$(MCU_POST)
+
+# Прошивка реальной платы: board.mk задаёт FLASH_CMD (st-flash,
+# picotool, nrfjprog — см. mcu/README.md); у QEMU-плат её нет
+mcu_flash: mcu
+	@test -n "$(FLASH_CMD)" || { \
+		echo "плата $(BOARD) — QEMU-цель, прошивать нечего"; exit 1; }
+	$(FLASH_CMD)
 
 mcu_run: mcu
 	$(MCU_QEMU) -kernel $(MCU_DIR)/$(MCU_PROG).elf
@@ -376,6 +393,11 @@ mcu_run: mcu
 #   extern-пример Blinky — вывод == хостовый бинарник с host_driver.c
 #   (интерпретатор extern не исполняет — эталоном служит хост).
 QEMU_BOARDS = mps2_an385 microbit stm32vldiscovery netduinoplus2
+# прошивочные порты (§5 MCU_PLAN): QEMU-машины нет — в CI-воротах
+# сборка прошивки + автосверка §8, проверка на железе — у пользователя
+FLASH_BOARDS = pico bluepill f4discovery nrf52840dk
+# флагманский пример §6: один исходник на все порты, граница — mcu/Mcu.eat
+BLINKY_CLI_SRC = --lib . examples/blinky_cli/BlinkyCli.eat
 
 verify_mcu:
 	@$(MAKE) -s mcu BOARD=mps2_an385 SRC="$(MOS6502_EXAMPLE)" \
@@ -397,6 +419,19 @@ verify_mcu:
 	@for b in $(QEMU_BOARDS); do \
 		$(MAKE) -s verify_mcu_blinky BOARD=$$b || exit 1; \
 	done
+	@$(EATC) build --no-bin $(BLINKY_CLI_SRC) -o build/BlinkyCli > /dev/null
+	@clang -O2 build/BlinkyCli.ll src/eatc/runtime.c \
+		examples/blinky_cli/host_driver.c -o build/BlinkyCli \
+		-Wno-override-module $(STACK_FLAGS)
+	@./build/BlinkyCli < examples/blinky_cli/cmds.txt > /tmp/eat_cli_host.txt
+	@for b in $(QEMU_BOARDS); do \
+		$(MAKE) -s verify_mcu_cli BOARD=$$b || exit 1; \
+	done
+	@for b in $(FLASH_BOARDS); do \
+		$(MAKE) -s mcu BOARD=$$b SRC="$(BLINKY_CLI_SRC)" > /dev/null \
+			&& echo "BUILD OK blinky_cli ($$b: прошивка собрана, §8 в норме)" \
+			|| exit 1; \
+	done
 
 # Один порт: Blinky в QEMU == хостовый эталон (вызывается verify_mcu)
 verify_mcu_blinky:
@@ -405,6 +440,18 @@ verify_mcu_blinky:
 	@$(MCU_QEMU) -kernel $(MCU_DIR)/Blinky.elf > /tmp/eat_mcu.txt
 	@diff /tmp/eat_host.txt /tmp/eat_mcu.txt \
 		&& echo "VERIFIED MCU Blinky ($(BOARD): QEMU == хост, extern)" \
+		|| exit 1
+
+# Один порт: blinky_cli в QEMU == хостовый эталон (вызывается verify_mcu);
+# команды идут в UART со stdin QEMU, вывод зависит только от них.
+# sleep 1 — модель USART STM32 в QEMU роняет байты, пока гость не
+# включил UART (CR1.UE|RE): вход подаётся после загрузки платы
+verify_mcu_cli:
+	@$(MAKE) -s mcu BOARD=$(BOARD) SRC="$(BLINKY_CLI_SRC)" > /dev/null
+	@{ sleep 1; cat examples/blinky_cli/cmds.txt; } | \
+		$(MCU_QEMU) -kernel $(MCU_DIR)/BlinkyCli.elf > /tmp/eat_cli_mcu.txt
+	@diff /tmp/eat_cli_host.txt /tmp/eat_cli_mcu.txt \
+		&& echo "VERIFIED MCU blinky_cli ($(BOARD): QEMU == хост, шим §6)" \
 		|| exit 1
 
 # Обратная совместимость с первым этапом трека 2
