@@ -38,7 +38,7 @@ backlog.
 
 | № | План | Статус | Роль · следующий шаг |
 | --- | --- | --- | --- |
-| 1 | [SELFHOST_VERIFIER_PLAN](SELFHOST_VERIFIER_PLAN.md) | 🚧 | Порт `verifier.py` в selfhost. Этапы 0–4 и 6 ✅: весь репозиторий + **самоприменение** байт-в-байт (гейты `verify_selfhost_verify`, `verify_selfhost_verify_all`). Остался этап 5 «элизия» — **разблокирован**: ось `-O` заведена, встраивать проходом №2 по контракту §4 [SELFHOST_OPT_PLAN](SELFHOST_OPT_PLAN.md) |
+| 1 | [SELFHOST_VERIFIER_PLAN](SELFHOST_VERIFIER_PLAN.md) | 🚧 | Порт `verifier.py` в selfhost. Этапы 0–4 и 6 ✅: весь репозиторий + **самоприменение** байт-в-байт (гейты `verify_selfhost_verify`, `verify_selfhost_verify_all`). Этап 5 «элизия» 🚧 В РАБОТЕ (проход №2 оси `-O` по контракту §4 [SELFHOST_OPT_PLAN](SELFHOST_OPT_PLAN.md); решения Э1 «полное зеркало кодогена» и Э2 «постоянный флаг `verify -O` + гейт» приняты 2026-07-16) |
 | 2 | [ASYNC_PLAN](ASYNC_PLAN.md) | 🚧 | Кооперативная асинхронность через циклический исполнитель (superloop в `main`). Этап 0 (ярус 0) ✅ 2026-07-16: аксиомы `in_avail()`/`ticks()` (решения §9, D1–D4), оба компилятора байт-в-байт, пример `examples/async/` в `verify` (`EAT_TICKS=virt`). Дальше — второй пример на идиоме задач-автоматов; ярус 1 (`lib/Async.eat`) — после 2–3 примеров |
 | 3 | [FIXED_POINT_PLAN](FIXED_POINT_PLAN.md) | 📋 | Fixed-point одним `lib/Fixed.eat` без правок компилятора (Q16.16, Deci6). Черновик → этап 0: пин семантики знакового `/` · `%` |
 | 4 | [GENERICS_PLAN](GENERICS_PLAN.md) | 📋 | Анализ параметрического полиморфизма; вывод — **вместо** дженериков дешёвые альтернативы (`?`, числовые intrinsics). Черновик-рекомендация |
