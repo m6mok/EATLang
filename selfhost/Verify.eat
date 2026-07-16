@@ -418,6 +418,14 @@ struct Verify {
     fda_hs: [u32; 512]
     fda_hm: [u64; 512]
     fda_dead: [u32; 512]
+    # рёбра копий целых массивов dst <- src (эталон _ps_deps): join по
+    # рёбрам до фикспойнта в finish_pass, сентинелы наследуются по копиям
+    pd_dst: [u32; 256]
+    pd_src: [u32; 256]
+    npd: u32
+    # известен ли источник (плотная запись | мёртв на старте | приёмник
+    # ребра): src вне этого множества нетрассируем — приёмник мёртв
+    pd_kn: [u32; 512]
     npass: u32
 
     # --- регистр дырки (эталон self._hole) ----------------------------
@@ -504,9 +512,28 @@ struct Verify {
     er_rhhm: [u64; 64]
     er_rhss: [u32; 64]
     er_rhsm: [u64; 64]
+    # значение v0 пути на входе цикла, снятое в момент наблюдения
+    # (эталон _loop_exit: env.ivs/holes на инструкции for) — поле ein
+    # клобберится вложенными ffor0 к моменту apply_loop_inv
+    er_v0k: [u32; 64]
+    er_v0ls: [u32; 64]
+    er_v0lm: [u64; 64]
+    er_v0hs: [u32; 64]
+    er_v0hm: [u64; 64]
+    er_v0hk: [u32; 64]
+    er_v0hls: [u32; 64]
+    er_v0hlm: [u64; 64]
+    er_v0hhs: [u32; 64]
+    er_v0hhm: [u64; 64]
+    er_v0hss: [u32; 64]
+    er_v0hsm: [u64; 64]
     # наблюдаемые пути кадра for (для применения инварианта на выходе)
     fov_p: [[u32; 16]; 64]
     fov_n: [u32; 64]
+    # accel-пути кадра for с сохранённым after-значением в fsb (эталон
+    # after: ключи dict) — ac_* клобберятся вложенными ffor0
+    fac_p: [[u32; 32]; 64]
+    fac_n: [u32; 64]
 
     func nk(var self, n: u32) -> u32
         requires n < 131072
@@ -1233,6 +1260,21 @@ struct Verify {
             self.note_pool(keyid, sk, 0, sm)
             return
         }
+        # копия другого пула — ребро зависимости (эталон _ps_deps);
+        # прочее (результат вызова, привязка match) — нетрассируемо
+        if k == 37 or k == 43 or k == 44 {
+            let src: u32 = self.pool_key(expr)
+            if src != NONE and src < 512 {
+                if self.npd >= 256 {
+                    self.failed = true
+                    return
+                }
+                self.pd_dst[self.npd] = keyid
+                self.pd_src[self.npd] = src
+                self.npd = self.npd + 1
+                return
+            }
+        }
         self.psa_dead[keyid] = 1
     }
 
@@ -1400,12 +1442,14 @@ struct Verify {
             self.fda_kn[i] = 0
             self.fda_dead[i] = 0
         }
+        self.npd = 0
     }
 
     func finish_pass(var self) -> bool
         requires true
         ensures true
     {
+        self.resolve_deps()
         var stable: bool = true
         for i in 0..512 {
             if i >= self.npki {
@@ -1416,6 +1460,134 @@ struct Verify {
             }
         }
         return stable
+    }
+
+    # --- копии целых массивов: разрешение рёбер (эталон _finish_pass) --
+    # join по рёбрам до фикспойнта (циклом, не рекурсией); источник без
+    # единой записи и без входящих копий нетрассируем — приёмник мёртв
+
+    func resolve_deps(var self)
+        requires true
+        ensures true
+    {
+        if self.npd == 0 {
+            return
+        }
+        for i in 0..512 {
+            if i >= self.npki {
+                break
+            }
+            self.pd_kn[i] = 0
+            if self.psa_kn[i] == 1 or self.psa_dead[i] == 1 {
+                self.pd_kn[i] = 1
+            }
+        }
+        for e in 0..256 {
+            if e >= self.npd {
+                break
+            }
+            self.pd_kn[self.pd_dst[e]] = 1
+        }
+        var live: bool = true
+        for _ in 0..257 {
+            if not live {
+                break
+            }
+            live = self.resolve_deps_pass()
+        }
+        var grow: bool = true
+        for _ in 0..257 {
+            if not grow {
+                break
+            }
+            grow = self.inherit_sents_pass()
+        }
+    }
+
+    func resolve_deps_pass(var self) -> bool
+        requires true
+        ensures true
+    {
+        var changed: bool = false
+        for e in 0..256 {
+            if e >= self.npd {
+                break
+            }
+            if self.resolve_dep_edge(e) {
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    func resolve_dep_edge(var self, e: u32) -> bool
+        requires e < 256
+        ensures true
+    {
+        let dst: u32 = self.pd_dst[e]
+        let src: u32 = self.pd_src[e]
+        if dst >= 512 or src >= 512 or self.psa_dead[dst] == 1 {
+            return false
+        }
+        if self.psa_dead[src] == 1 or self.pd_kn[src] == 0 {
+            self.psa_dead[dst] = 1
+            return true
+        }
+        if self.psa_kn[src] == 0 {
+            return false
+        }
+        if self.psa_kn[dst] == 0 {
+            self.psa_kn[dst] = 1
+            self.psa_ls[dst] = self.psa_ls[src]
+            self.psa_lm[dst] = self.psa_lm[src]
+            self.psa_hs[dst] = self.psa_hs[src]
+            self.psa_hm[dst] = self.psa_hm[src]
+            return true
+        }
+        var ch: bool = false
+        self.smin(self.psa_ls[dst], self.psa_lm[dst], self.psa_ls[src], self.psa_lm[src])
+        if not (self.oas == self.psa_ls[dst] and self.oam == self.psa_lm[dst]) {
+            self.psa_ls[dst] = self.oas
+            self.psa_lm[dst] = self.oam
+            ch = true
+        }
+        self.smax(self.psa_hs[dst], self.psa_hm[dst], self.psa_hs[src], self.psa_hm[src])
+        if not (self.oas == self.psa_hs[dst] and self.oam == self.psa_hm[dst]) {
+            self.psa_hs[dst] = self.oas
+            self.psa_hm[dst] = self.oam
+            ch = true
+        }
+        return ch
+    }
+
+    # сентинелы наследуются по копиям (эталон: sents[dst] |= sents[src]).
+    # Разные значения сентинелов на одном ключе невозможны (сентинел —
+    # максимум типа элемента, тип копий совпадает) — smulti лишь страховка
+    func inherit_sents_pass(var self) -> bool
+        requires true
+        ensures true
+    {
+        var grew: bool = false
+        for e in 0..256 {
+            if e >= self.npd {
+                break
+            }
+            let dst: u32 = self.pd_dst[e]
+            let src: u32 = self.pd_src[e]
+            if dst < 512 and src < 512 and self.psa_dead[dst] == 0 and self.psa_sk[src] == 1 {
+                if self.psa_sk[dst] == 0 {
+                    self.psa_sk[dst] = 1
+                    self.psa_ss[dst] = self.psa_ss[src]
+                    self.psa_sm[dst] = self.psa_sm[src]
+                    self.psa_smulti[dst] = self.psa_smulti[src]
+                    grew = true
+                } elif not (self.psa_ss[dst] == self.psa_ss[src] and self.psa_sm[dst] == self.psa_sm[src]) and self.psa_smulti[dst] == 0 {
+                    self.psa_smulti[dst] = 1
+                    grew = true
+                }
+            }
+        }
+        return grew
     }
 
     # зафиксировать ключ i: аккумулятор пасса -> карта; вернуть «не менялся»
@@ -4846,8 +5018,28 @@ struct Verify {
             self.fif()
         } elif k == 2 {
             self.ffor()
-        } else {
+        } elif k == 3 {
             self.fmatch()
+        } else {
+            self.floop()
+        }
+    }
+
+    # loop-кадр (kind 19; эталон _flow_stmt LoopStmt): присваиваемые
+    # пути убиты, тело гоняется ради отметок, выход — env входа тела
+    func floop(var self)
+        requires self.nf2 >= 1
+        ensures true
+    {
+        let f: u32 = self.nf2 - 1
+        if self.fp2[f] == 0 {
+            self.kill_assigned(self.nfc(self.fnn[f]))
+            self.fsa[f] = self.env
+            self.fp2[f] = 1
+            self.fpush_block(self.nfc(self.fnn[f]))
+        } else {
+            self.env = self.fsa[f]
+            self.nf2 = f
         }
     }
 
@@ -4884,6 +5076,8 @@ struct Verify {
             self.flow_assert(cur)
         } elif k == 20 {
             self.fpush_kind(cur, 3)
+        } elif k == 19 {
+            self.fpush_kind(cur, 4)
         } elif k == 25 or k == 26 {
             self.iv_eval(self.nfc(cur), 1)
             self.flush_requires()
@@ -5326,9 +5520,64 @@ struct Verify {
             self.rlm = self.sum_lm[fi]
             self.rhs = self.sum_hs[fi]
             self.rhm = self.sum_hm[fi]
+        } elif tag == 2 {
+            self.apply_param_summary(fi, n)
         } elif tag == 3 {
             self.apply_hive_summary(fi, n, ret)
         }
+    }
+
+    # тождество параметру (tag 2, эталон _apply_summary "param"): интервал
+    # аргумента сквозь вызов ОГРАНИЧЕННЫМ путём — const | env-путь |
+    # диапазон типа аргумента; полный iv_eval аргумента замкнул бы граф
+    # вызовов (правило 1: apply_summary→iv_eval→call_user→apply_summary).
+    # Эквивалентность полному _iv эталона на всём репозитории проверена
+    # экспериментом (патч эталона, дампы байт-в-байт на 124 файлах)
+    func apply_param_summary(var self, fi: u32, n: u32)
+        requires fi < 1024 and n < 131072
+        ensures true
+    {
+        var arg: u32 = self.nfc(n)
+        if self.nk(n) == 42 and arg != NONE {
+            arg = self.nns(arg)
+        }
+        var i: u32 = 0
+        for _ in 0..8 {
+            if i >= self.sum_pn[fi] or arg == NONE {
+                break
+            }
+            arg = self.nns(arg)
+            i = i + 1
+        }
+        if arg == NONE {
+            return
+        }
+        if self.const_of(arg) {
+            self.kind_range(self.c.yk[self.c.fret[fi]])
+            self.set_inter(self.csig, self.cmag, self.csig, self.cmag)
+            return
+        }
+        let pid: u32 = self.node_path(arg)
+        if pid == NONE {
+            return
+        }
+        if pid < 64 and self.env.kn[pid] == 1 {
+            self.kind_range(self.c.yk[self.c.fret[fi]])
+            self.set_inter(self.env.ls[pid], self.env.lm[pid], self.env.hs[pid], self.env.hm[pid])
+            return
+        }
+        # путь есть, значения в env нет — диапазон типа аргумента ∩ базы
+        let aty: u32 = self.nty(self.uncast(arg))
+        if aty == NONE or not self.numeric_kind(self.c.yk[aty]) {
+            return
+        }
+        self.kind_range(self.c.yk[aty])
+        let als: u32 = self.kls
+        let alm: u64 = self.klm
+        let ahs: u32 = self.khs
+        let ahm: u64 = self.khm
+        self.kind_range(self.c.yk[self.c.fret[fi]])
+        self.set_inter(als, alm, ahs, ahm)
     }
 
     func apply_hive_summary(var self, fi: u32, n: u32, ret: u32)
@@ -5728,6 +5977,9 @@ struct Verify {
         let it: u32 = self.nfc(node)
         self.for_ns = 0
         self.for_nm = 0
+        # n витков: диапазон end−start либо размер массива (эталон
+        # _flow_for); n неизвестен → ускорение выключено (accel = {})
+        var nkn: bool = false
         if self.nk(it) == 49 {
             let rbi: u32 = self.c.range_of(node)
             if rbi != NONE {
@@ -5738,18 +5990,37 @@ struct Verify {
                 self.ssub(self.fr_es, self.fr_em, self.fr_ss, self.fr_sm)
                 self.for_ns = self.oas
                 self.for_nm = self.oam
+                nkn = true
+            }
+        } else {
+            # обязательства внутри итерируемого выражения (эталон _iv)
+            self.iv_eval(it, 1)
+            self.flush_requires()
+            let aty: u32 = self.nty(it)
+            if aty != NONE and self.c.yk[aty] == 7 {
+                self.for_ns = 0
+                self.for_nm = u64(self.c.yb[aty])
+                nkn = true
             }
         }
         self.ein = self.env
-        self.accelerate(self.nns(it))
+        if nkn {
+            self.accelerate(self.nns(it))
+        } else {
+            self.nac = 0
+        }
         self.fsb[f] = self.fresh_st()
         self.fov_n[f] = 0
+        self.fac_n[f] = 0
         let body: u32 = self.nns(it)
         self.fbrk[f] = 0
         if self.has_break(body) {
             self.fbrk[f] = 1
         }
         self.loop_body(node)
+        # снимок входа тела: выход цикла строится от него (эталон
+        # _flow_for: out = body_env.copy(), эффекты прохода тела не текут)
+        self.fsa[f] = self.env
         # проба тела (фаза 1) через основную машину: собрать значения
         # выхода loop-carried путей. Вложенный цикл во время пробы своей
         # пробы не запускает (probe==1) — сразу к реальному телу.
@@ -5760,7 +6031,6 @@ struct Verify {
             self.collect_observed(body)
         }
         if self.probe == 0 and self.er_n > 0 {
-            self.fsa[f] = self.env      # снимок входа тела для реального прохода
             self.probe = 1
             self.er_active = 1
             self.fp2[f] = 1
@@ -5781,6 +6051,8 @@ struct Verify {
         self.er_active = 0
         self.env = self.fsa[f]
         self.apply_loop_inv(f)
+        # переснять вход тела С инвариантами: ffor1 строит выход от него
+        self.fsa[f] = self.env
         self.fp2[f] = 2
         self.fpush_block(self.nns(self.nfc(node)))
     }
@@ -5789,6 +6061,9 @@ struct Verify {
         requires f < 64 and node < 131072
         ensures true
     {
+        # выход цикла — от снимка входа тела (эталон out = body_env.copy();
+        # эффекты символического прохода тела не текут за цикл)
+        self.env = self.fsa[f]
         let pt: u32 = self.path_find(self.nss(node), self.nsl(node))
         if pt != NONE {
             self.env.kn[pt] = 0
@@ -5797,15 +6072,16 @@ struct Verify {
         }
         # accel-выход (линейный ход) — только БЕЗ break. При break выход
         # accel-путей идёт объединением через fov (ffor1_restore_ov ниже),
-        # ускорение к выходу неприменимо (эталон _flow_for)
-        if self.fbrk[f] == 0 {
-            for j in 0..32 {
-                if j >= self.nac {
-                    break
-                }
-                if self.ac_bad[j] == 0 {
-                    self.ffor1_apply(f, j)
-                }
+        # ускорение к выходу неприменимо (эталон _flow_for); их посев
+        # входа тела (accel_body_iv в снимке) убирается — эталон kill
+        for j in 0..32 {
+            if j >= self.fac_n[f] {
+                break
+            }
+            if self.fbrk[f] == 0 {
+                self.ffor1_apply(f, self.fac_p[f][j])
+            } else {
+                self.ffor1_kill(self.fac_p[f][j])
             }
         }
         # наблюдаемые loop-carried пути на выходе цикла (этап 3)
@@ -5816,6 +6092,16 @@ struct Verify {
             self.ffor1_restore_ov(f, m)
         }
         self.nf2 = f
+    }
+
+    func ffor1_kill(var self, pid: u32)
+        requires pid < 64
+        ensures true
+    {
+        self.env.kn[pid] = 0
+        self.env.nz[pid] = 0
+        self.env.hk[pid] = 0
+        self.rels_kill(pid)
     }
 
     func ffor1_restore_ov(var self, f: u32, m: u32)
@@ -5843,11 +6129,10 @@ struct Verify {
         }
     }
 
-    func ffor1_apply(var self, f: u32, j: u32)
-        requires f < 64 and j < 32
+    func ffor1_apply(var self, f: u32, pid: u32)
+        requires f < 64 and pid < 64
         ensures true
     {
-        let pid: u32 = self.ac_p[j]
         self.env.kn[pid] = 0
         self.env.nz[pid] = 0
         self.rels_kill(pid)
@@ -5874,19 +6159,21 @@ struct Verify {
                 self.accel_after_iv(j)
             }
         }
-        if self.for_ns == 0 and self.for_nm > 0 {
-            let pid: u32 = self.path_intern(self.nss(node), self.nsl(node))
-            self.env.kn[pid] = 1
-            self.env.nz[pid] = 0
-            self.env.ls[pid] = self.fr_ss
-            self.env.lm[pid] = self.fr_sm
-            self.ssub(self.fr_es, self.fr_em, 0, 1)
-            self.env.hs[pid] = self.oas
-            self.env.hm[pid] = self.oam
-            if pid < 64 and not self.c.span_is(self.nss(node), self.nsl(node), "_") {
-                self.lockstep(pid)
+        if self.nk(self.nfc(node)) == 49 {
+            if self.for_ns == 0 and self.for_nm > 0 {
+                let pid: u32 = self.path_intern(self.nss(node), self.nsl(node))
+                self.env.kn[pid] = 1
+                self.env.nz[pid] = 0
+                self.env.ls[pid] = self.fr_ss
+                self.env.lm[pid] = self.fr_sm
+                self.ssub(self.fr_es, self.fr_em, 0, 1)
+                self.env.hs[pid] = self.oas
+                self.env.hm[pid] = self.oam
+                if pid < 64 and not self.c.span_is(self.nss(node), self.nsl(node), "_") {
+                    self.lockstep(pid)
+                }
             }
-        } elif self.nk(self.nfc(node)) != 49 {
+        } else {
             self.seed_array_iter_var(node)
         }
     }
@@ -6060,6 +6347,20 @@ struct Verify {
         self.er_shas[s] = 0
         self.er_smulti[s] = 0
         self.er_smaxk[s] = 0
+        # v0 пути (вход цикла) снимается СЕЙЧАС: ein валиден только до
+        # первого вложенного ffor0 (эталон читает env инструкции for)
+        self.er_v0k[s] = self.ein.kn[pid]
+        self.er_v0ls[s] = self.ein.ls[pid]
+        self.er_v0lm[s] = self.ein.lm[pid]
+        self.er_v0hs[s] = self.ein.hs[pid]
+        self.er_v0hm[s] = self.ein.hm[pid]
+        self.er_v0hk[s] = self.ein.hk[pid]
+        self.er_v0hls[s] = self.ein.hls[pid]
+        self.er_v0hlm[s] = self.ein.hlm[pid]
+        self.er_v0hhs[s] = self.ein.hhs[pid]
+        self.er_v0hhm[s] = self.ein.hhm[pid]
+        self.er_v0hss[s] = self.ein.hss[pid]
+        self.er_v0hsm[s] = self.ein.hsm[pid]
         self.er_n = s + 1
     }
 
@@ -6257,16 +6558,16 @@ struct Verify {
         ensures true
     {
         let pid: u32 = self.er_pid[slot]
-        if self.ein.kn[pid] == 1 {
+        if self.er_v0k[slot] == 1 {
             self.rk = 1
-            self.rls = self.ein.ls[pid]
-            self.rlm = self.ein.lm[pid]
-            self.rhs = self.ein.hs[pid]
-            self.rhm = self.ein.hm[pid]
+            self.rls = self.er_v0ls[slot]
+            self.rlm = self.er_v0lm[slot]
+            self.rhs = self.er_v0hs[slot]
+            self.rhm = self.er_v0hm[slot]
         } else {
             self.rk = 0
         }
-        self.load_hole_ein(pid)
+        self.load_hole_er(slot)
         self.er_feed(slot)
         self.ho_on = 0
         self.er_finalize(slot)
@@ -6303,18 +6604,18 @@ struct Verify {
         return r
     }
 
-    func load_hole_ein(var self, pid: u32)
-        requires pid < 64
+    func load_hole_er(var self, slot: u32)
+        requires slot < 64
         ensures true
     {
-        if self.ein.hk[pid] == 1 {
+        if self.er_v0hk[slot] == 1 {
             self.ho_on = 1
-            self.ho_ls = self.ein.hls[pid]
-            self.ho_lm = self.ein.hlm[pid]
-            self.ho_hs = self.ein.hhs[pid]
-            self.ho_hm = self.ein.hhm[pid]
-            self.ho_ss = self.ein.hss[pid]
-            self.ho_sm = self.ein.hsm[pid]
+            self.ho_ls = self.er_v0hls[slot]
+            self.ho_lm = self.er_v0hlm[slot]
+            self.ho_hs = self.er_v0hhs[slot]
+            self.ho_hm = self.er_v0hhm[slot]
+            self.ho_ss = self.er_v0hss[slot]
+            self.ho_sm = self.er_v0hsm[slot]
         } else {
             self.ho_on = 0
         }
@@ -6489,6 +6790,13 @@ struct Verify {
         self.fsb[ff].lm[pid] = self.rlm
         self.fsb[ff].hs[pid] = self.rhs
         self.fsb[ff].hm[pid] = self.rhm
+        # регистр accel-путей кадра (эталон ключи after): ac_* к моменту
+        # ffor1 клобберятся вложенными циклами — список свой у кадра
+        let m: u32 = self.fac_n[ff]
+        if m < 32 {
+            self.fac_p[ff][m] = pid
+            self.fac_n[ff] = m + 1
+        }
     }
 
     # --- сбор обновлений цикла (accel) --------------------------------
@@ -6857,6 +7165,7 @@ struct Verify {
                 if pid != NONE and pid < 64 {
                     self.env.kn[pid] = 0
                     self.env.nz[pid] = 0
+                    self.env.hk[pid] = 0
                     self.rels_kill(pid)
                 }
             }
