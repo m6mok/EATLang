@@ -14,7 +14,11 @@ python -m eatc verify <файл>      — эталонный дамп вериф
                                     верификатором, SELFHOST_VERIFIER_PLAN)
 python -m eatc ir <файл>          — эталонный текстовый LLVM IR без
                                     верификатора (сверка с self-hosted
-                                    эмиттером, selfhost/Ir.eat)
+                                    эмиттером, selfhost/Ir.eat);
+                                    `-O` — оптимизированная ось
+                                    (конвейер проходов, сейчас fold;
+                                    сверка с SelfIrOpt,
+                                    SELFHOST_OPT_PLAN)
 
 Модули: run/build принимают несколько файлов — одна программа с
 единым пространством имён; последний файл — главный (даёт имя
@@ -190,13 +194,20 @@ def cmd_verify(path: str) -> int:
     return 0
 
 
-def cmd_ir(path: str, trap_codes: bool = False) -> int:
+def cmd_ir(path: str, trap_codes: bool = False, opt: bool = False) -> int:
     from .codegen import emit_ir
 
     try:
         program = parse_file(path)
         check_program(program, path)
         typed = typecheck(program, path)
+        if opt:
+            # оптимизированная ось `ir -O` (SELFHOST_OPT_PLAN §3):
+            # канон + конвейер проходов; сегодня -O ≡ [fold]. Решение
+            # свёртки от верификатора не зависит — множество свёрнутых
+            # совпадает с `build --fold`. Парти-эталон для SelfIrOpt
+            from .comptime import fold_calls
+            fold_calls(program, typed.checker, path)
         text = emit_ir(program, typed.checker, trap_codes=trap_codes)
     except (OSError, EatError) as err:
         print(err, file=sys.stderr)
@@ -312,6 +323,12 @@ def main(argv: list[str]) -> int:
     fold = "--fold" in argv
     if fold:
         argv = [a for a in argv if a != "--fold"]
+    # -O (ir): оптимизированная ось (SELFHOST_OPT_PLAN) — канон +
+    # конвейер проходов, сегодня ровно [fold]; эталон сверки SelfIrOpt.
+    # Канонный `eatc ir` без -O не сворачивает никогда
+    opt = "-O" in argv
+    if opt:
+        argv = [a for a in argv if a != "-O"]
     if len(argv) >= 2 and argv[0] == "check":
         return cmd_check(argv[1:])
     if len(argv) >= 2 and argv[0] == "run":
@@ -335,7 +352,7 @@ def main(argv: list[str]) -> int:
     if len(argv) == 2 and argv[0] == "verify":
         return cmd_verify(argv[1])
     if len(argv) == 2 and argv[0] == "ir":
-        return cmd_ir(argv[1], trap_codes=trap_codes)
+        return cmd_ir(argv[1], trap_codes=trap_codes, opt=opt)
     if len(argv) == 2 and argv[0] == "stream":
         return cmd_stream(argv[1])
     if len(argv) >= 2 and argv[0] == "build":
@@ -358,7 +375,7 @@ def main(argv: list[str]) -> int:
         "(check <файлы.eat...> | run <файлы...> [-- <арг>...] | "
         "build <файлы...> [-o out] [--trap-codes] [--release|-r] [--fold] | "
         "lex <файл> | "
-        "parse <файл> | verify <файл> | ir <файл> [--trap-codes] | "
+        "parse <файл> | verify <файл> | ir <файл> [--trap-codes] [-O] | "
         "stream <файл>) "
         "[--lib DIR]...",
         file=sys.stderr,
