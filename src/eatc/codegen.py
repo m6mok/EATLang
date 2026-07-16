@@ -1579,9 +1579,9 @@ def compile_binary(
     # и кадры компилятора (§8) выходят за умолчание ОС (8 МБ);
     # кадр main самого self-hosted компилятора — ~85 МБ (фаза 5)
     if sys.platform == "darwin":
-        stack_flags = ["-Wl,-stack_size,0x8000000"]
+        stack_flags = ["-Wl,-stack_size,0x10000000"]
     else:
-        stack_flags = ["-Wl,-z,stacksize=134217728"]
+        stack_flags = ["-Wl,-z,stacksize=268435456"]
     if release:
         # LTO: clang оптимизирует .ll программы и runtime.c вместе,
         # инлайня аксиомы через границу — меньше размер, дольше линковка.

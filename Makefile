@@ -153,9 +153,9 @@ VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \
 # кадр main самого self-hosted компилятора — ~85 МБ, фаза 5)
 UNAME := $(shell uname)
 ifeq ($(UNAME),Darwin)
-STACK_FLAGS = -Wl,-stack_size,0x8000000
+STACK_FLAGS = -Wl,-stack_size,0x10000000
 else
-STACK_FLAGS = -Wl,-z,stacksize=134217728
+STACK_FLAGS = -Wl,-z,stacksize=268435456
 endif
 
 run_selfhost_lexer:
@@ -314,6 +314,29 @@ verify_selfhost_verify:
 			&& echo "VERIFY OK $$c" \
 			|| { echo "VERIFY DIFF $$c"; exit 1; }; \
 	done
+
+# Этап 4: полнорепный паритет дампа + самоприменение. Каждый .eat
+# репозитория (вход `cat Rt.eat ФАЙЛ`, как IR-гейт; файлы без main —
+# паритет отрицательного случая: оба дампа пусты) и главный тест —
+# верификатор верифицирует сам себя (конкатенация Rt + lib + фронтенд +
+# Verify + VerifyMain одним входом, 138K токенов, 8K обязательств).
+verify_selfhost_verify_all:
+	@$(EATC) build $(SELFHOST_VERIFY) -o build/SelfVerify > /dev/null
+	@for f in $$(find examples lib selfhost tests -name '*.eat' | sort); do \
+		case $$f in selfhost/Verify.eat|selfhost/VerifyMain.eat) continue;; esac; \
+		cat $(RT) $$f > /tmp/eat_vfy_in.eat; \
+		$(EATC) verify /tmp/eat_vfy_in.eat > /tmp/eat_vfy_ref.txt 2>/dev/null; \
+		./build/SelfVerify < /tmp/eat_vfy_in.eat > /tmp/eat_vfy_self.txt 2>/dev/null; \
+		diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
+			&& echo "VERIFY OK $$f" \
+			|| { echo "VERIFY DIFF $$f"; exit 1; }; \
+	done
+	@cat $(SELFHOST_VERIFY) > /tmp/eat_vfy_selfapp.eat
+	@$(EATC) verify /tmp/eat_vfy_selfapp.eat > /tmp/eat_vfy_ref.txt
+	@./build/SelfVerify < /tmp/eat_vfy_selfapp.eat > /tmp/eat_vfy_self.txt
+	@diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
+		&& echo "VERIFY OK (самоприменение: верификатор верифицирует сам себя)" \
+		|| { echo "VERIFY DIFF (самоприменение)"; exit 1; }
 
 # ==== Трек 2 (МК): кросс-компиляция ARM Cortex-M ========================
 # Структура портов (docs/MCU_PLAN.md §4): mcu/common/ — стартап,

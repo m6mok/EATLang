@@ -40,9 +40,11 @@ struct Check {
     fnd: [u32; 1024]
     nfun: u32
     # параметры (без self)
-    pn_s: [u32; 1024]
-    pn_l: [u32; 1024]
-    pty: [u32; 1024]
+    # 4096: самоприменение — 1074 параметра (без self) на 705 функций;
+    # 1024 не хватало
+    pn_s: [u32; 4096]
+    pn_l: [u32; 4096]
+    pty: [u32; 4096]
     npar: u32
     # struct'ы и их поля
     sn_s: [u32; 128]
@@ -51,9 +53,11 @@ struct Check {
     sgc: [u32; 128]
     snd: [u32; 128]
     nstr: u32
-    gn_s: [u32; 512]
-    gn_l: [u32; 512]
-    gty: [u32; 512]
+    # 1024: самоприменение верификатора — struct Verify + Check +
+    # Parser + Lexer + St дают 659+ полей суммарно; 512 не хватало
+    gn_s: [u32; 1024]
+    gn_l: [u32; 1024]
+    gty: [u32; 1024]
     ngld: u32
     # enum'ы и варианты (wpl — тип нагрузки | NONE)
     en_s: [u32; 64]
@@ -105,7 +109,7 @@ struct Check {
     rb_em: [u64; 512]
     nrb: u32
     # узлы параметров (позиции для правила 10)
-    pnd: [u32; 1024]
+    pnd: [u32; 4096]
     # переменные областей видимости (sv_s = NONE — это self)
     sv_s: [u32; 256]
     sv_l: [u32; 256]
@@ -3416,7 +3420,7 @@ struct Check {
                         self.fvs[i] = self.p.nx[c / 65536][c % 65536]
                     }
                 } else {
-                    if self.npar >= 1024 {
+                    if self.npar >= 4096 {
                         self.fail_node(c, "слишком много параметров")
                     } else {
                         let pi: u32 = self.npar
@@ -3478,7 +3482,7 @@ struct Check {
         }
         self.sgs[si] = self.ngld
         var c: u32 = self.p.nfc[d / 65536][d % 65536]
-        for _ in 0..512 {
+        for _ in 0..1024 {
             if c == NONE or self.failed {
                 break
             }
@@ -3503,7 +3507,7 @@ struct Check {
         # повтор поля — ошибка
         let a: u32 = self.p.nss[c / 65536][c % 65536]
         let l: u32 = self.p.nsl[c / 65536][c % 65536]
-        for i in 0..512 {
+        for i in 0..1024 {
             if i >= self.ngld {
                 break
             }
@@ -3513,8 +3517,8 @@ struct Check {
                 }
             }
         }
-        if self.ngld >= 512 {
-            self.fail_node(c, "слишком много полей (предел 512)")
+        if self.ngld >= 1024 {
+            self.fail_node(c, "слишком много полей (предел 1024)")
             return
         }
         let gi: u32 = self.ngld
@@ -4148,7 +4152,7 @@ struct Check {
             write("\n")
         }
         var c: u32 = self.p.nfc[d / 65536][d % 65536]
-        for _ in 0..512 {
+        for _ in 0..1024 {
             if c == NONE {
                 break
             }
@@ -4488,7 +4492,9 @@ struct Check {
         self.xvoid = voidok
         self.nxq = 0
         self.xpush(root, exp)
-        for _ in 0..2048 {
+        # 32768: литерал Verify{...} в VerifyMain (~2500 узлов) требует
+        # ~7500 шагов машины; 2048 хватало до самоприменения верификатора
+        for _ in 0..32768 {
             if self.nxq == 0 or self.failed {
                 break
             }
@@ -5441,7 +5447,7 @@ struct Check {
         ensures true
     {
         var found: u32 = NONE
-        for g in 0..512 {
+        for g in 0..1024 {
             if g >= self.sgs[si] + self.sgc[si] or found != NONE {
                 break
             }
@@ -6392,7 +6398,7 @@ struct Check {
                 self.check_func_body(self.func_by_node(d))
             } elif k == 4 {
                 var m: u32 = self.p.nfc[d / 65536][d % 65536]
-                for _ in 0..512 {
+                for _ in 0..1024 {
                     if m == NONE or self.failed {
                         break
                     }

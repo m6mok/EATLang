@@ -16,7 +16,7 @@
 # Колонки считаются в символах, как у эталона: continuation-байты
 # UTF-8 (0x80..0xBF) колонку не двигают.
 #
-# Пределы пулов: 131072 токена, 131072 байта значений, 2048 сегментов
+# Пределы пулов: 262144 токена, 262144 байта значений, 2048 сегментов
 # интерполяции. NONE — сентинель «значения нет» (lib/Const.eat). Пулы
 # больше 65536 элементов (предел массива) выражены вложенными массивами:
 # элемент i — p[i / 65536][i % 65536], доступ снаружи — через методы
@@ -102,16 +102,16 @@ struct Lexer {
     depth: u32
     failed: bool
     ch: u8
-    # пул токенов (131072 = 2 x 65536: вложенные массивы)
-    tk: [[u32; 65536]; 2]
-    tl: [[u32; 65536]; 2]
-    tc: [[u32; 65536]; 2]
-    tvs: [[u32; 65536]; 2]
-    tvl: [[u32; 65536]; 2]
-    tsg: [[u32; 65536]; 2]
-    tns: [[u32; 65536]; 2]
+    # пул токенов (262144 = 4 x 65536: вложенные массивы)
+    tk: [[u32; 65536]; 4]
+    tl: [[u32; 65536]; 4]
+    tc: [[u32; 65536]; 4]
+    tvs: [[u32; 65536]; 4]
+    tvl: [[u32; 65536]; 4]
+    tsg: [[u32; 65536]; 4]
+    tns: [[u32; 65536]; 4]
     ntok: u32
-    # пул байтов значений (131072 = 2 x 65536)
+    # пул байтов значений (262144 = 4 x 65536)
     sbuf: [[u8; 65536]; 4]
     sblen: u32
     # сегменты интерполяции: 0 — литерал (старт/длина в sbuf),
@@ -127,21 +127,21 @@ struct Lexer {
     # --- доступ к вложенным пулам ----------------------------------------
 
     func tok_k(var self, ti: u32) -> u32
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         return self.tk[ti / 65536][ti % 65536]
     }
 
     func tok_l(var self, ti: u32) -> u32
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         return self.tl[ti / 65536][ti % 65536]
     }
 
     func tok_c(var self, ti: u32) -> u32
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         return self.tc[ti / 65536][ti % 65536]
@@ -150,7 +150,7 @@ struct Lexer {
     # `>>` на месте закрывающего '>' типа: первый '>' съеден,
     # остаток — GT колонкой правее (расщепление как в Rust и Java).
     func split_shr(var self, ti: u32)
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         self.tk[ti / 65536][ti % 65536] = 37
@@ -158,28 +158,28 @@ struct Lexer {
     }
 
     func tok_vs(var self, ti: u32) -> u32
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         return self.tvs[ti / 65536][ti % 65536]
     }
 
     func tok_vl(var self, ti: u32) -> u32
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         return self.tvl[ti / 65536][ti % 65536]
     }
 
     func tok_sg(var self, ti: u32) -> u32
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         return self.tsg[ti / 65536][ti % 65536]
     }
 
     func tok_ns(var self, ti: u32) -> u32
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         return self.tns[ti / 65536][ti % 65536]
@@ -229,8 +229,8 @@ struct Lexer {
         requires k <= 67
         ensures true
     {
-        if self.ntok >= 131072 {
-            self.fail("слишком много токенов (предел 131072)")
+        if self.ntok >= 262144 {
+            self.fail("слишком много токенов (предел 262144)")
             return
         }
         let hi: u32 = self.ntok / 65536
@@ -868,7 +868,7 @@ struct Lexer {
         requires true
         ensures true
     {
-        for ti in 0..131072 {
+        for ti in 0..262144 {
             if ti >= self.ntok or self.failed {
                 break
             }
@@ -881,7 +881,7 @@ struct Lexer {
     }
 
     func has_brace(var self, ti: u32) -> bool
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         let vs: u32 = self.tok_vs(ti)
@@ -959,7 +959,7 @@ struct Lexer {
 
     # Разбить значение STRING-токена ti на сегменты.
     func split_string(var self, ti: u32)
-        requires ti < 131072
+        requires ti < 262144
         ensures true
     {
         let vs: u32 = self.tok_vs(ti)
@@ -1053,7 +1053,7 @@ struct Lexer {
         requires true
         ensures true
     {
-        for ti in 0..131072 {
+        for ti in 0..262144 {
             if ti >= self.ntok {
                 break
             }

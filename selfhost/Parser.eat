@@ -212,7 +212,7 @@ struct Parser {
 
     # Строковый payload узла — значение токена ti.
     func set_str(var self, n: u32, ti: u32)
-        requires n < 131072 and ti < 131072
+        requires n < 131072 and ti < 262144
         ensures true
     {
         self.nss[n / 65536][n % 65536] = self.lex.tok_vs(ti)

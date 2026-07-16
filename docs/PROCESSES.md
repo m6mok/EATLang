@@ -113,6 +113,8 @@ trap и аргументы командной строки (`arg_count`/`arg_len
 | `make verify_bootstrap` | фикспойнт: stage1 (`build/SelfIr`) эмитит IR самого себя == `eatc ir`; clang собирает stage2; stage2 эмитит тот же IR байт-в-байт |
 | `make verify_trapcodes` | режим trap-кодов (МК): `build/SelfIrCodes` == `eatc ir --trap-codes` байт-в-байт на bootstrap-входе |
 | `make verify_sig` | дрейф интерфейса lib/: sig потока драйвера от `tests/sig/SigProbe.eat` == снапшот `tests/sig/lib.sig` (осознанное изменение — `make regen_sig`) |
+| `make verify_selfhost_verify` | self-hosted верификатор: `build/SelfVerify` == `eatc verify` байт-в-байт на курируемых 50 кейсах `tests/verify/` (смок-гейт) |
+| `make verify_selfhost_verify_all` | верификатор на **каждом** `.eat` репозитория (`cat Rt.eat ФАЙЛ`; без `main` — паритет отрицательного случая) + самоприменение: верификатор верифицирует сам себя (138K токенов, 8K обязательств, байт-в-байт) |
 | `make verify_mcu` | МК-порты (`mcu/`, трек 2): mos6502, Blinky и blinky_cli на 4 QEMU-платах байт-в-байт с эталоном; 4 прошивочных порта — сборка флагмана + автосверка §8 против RAM платы |
 | `make bench` / `bench_quick` | нагрузочное тестирование (`tests/bench/`): синтетика, стресс пределов SPEC §6, интерпретатор против бинарника |
 
@@ -131,7 +133,7 @@ make run     SRC="Mod.eat Main.eat"    # запустить build/Main
 автоматически. `COMPILER=build/eatc-self` собирает программы
 компилятором, собранным самим собой (IR байт-в-байт тот же).
 
-Бинарникам, собираемым из self-hosted IR, нужен стек 128 МБ
+Бинарникам, собираемым из self-hosted IR, нужен стек 256 МБ
 (`STACK_FLAGS` в Makefile): пулы компилятора живут в кадре `main`.
 
 ## 7. Структура репозитория
