@@ -13,9 +13,10 @@
 # 45 structlit 46 fld       47 arraylit  48 arrayfill 49 range
 # 50 extern (функция без тела, реализация на C; SPEC §7)
 # 51 module   52 import    53 export    54 bind (модули, MODULES_PLAN §2)
+# 55 extend (методы struct вне блока объявления; сливаются в Check)
 
 func write_nkind(k: u32)
-    requires k <= 54
+    requires k <= 55
     ensures true
 {
     if k < 25 {
@@ -28,13 +29,14 @@ func write_nkind(k: u32)
 }
 
 func write_nkind_c(k: u32)
-    requires k >= 51 and k <= 54
+    requires k >= 51 and k <= 55
     ensures true
 {
     if k == 51 { write("module")
     } elif k == 52 { write("import")
     } elif k == 53 { write("export")
-    } else { write("bind") }
+    } elif k == 54 { write("bind")
+    } else { write("extend") }
 }
 
 func write_nkind_a(k: u32)
@@ -128,7 +130,7 @@ func has_name(k: u32) -> bool
     if k == 51 or k == 52 {
         return true
     }
-    return k == 41 or k == 42 or k == 43 or k == 45 or k == 46 or k == 50
+    return k == 41 or k == 42 or k == 43 or k == 45 or k == 46 or k == 50 or k == 55
 }
 
 # --- операторы выражений ------------------------------------------------

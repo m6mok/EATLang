@@ -1,0 +1,80 @@
+# Стресс-тест extend (REFACTOR_SELFHOST этап 3): методы struct вне
+# блока объявления. Файл — полная программа: в verify_selfhost на нём
+# сверяются дампы parse/sig/typed (и IR с приставкой Rt.eat) — слияние
+# extend проходит в обоих компиляторах байт-в-байт.
+
+struct Counter {
+    n: u32
+    hi: u32
+
+    func get(self) -> u32
+        requires true
+        ensures result <= 4294967295
+    {
+        return self.n
+    }
+}
+
+# первый extend: var self, вызов метода из блока struct
+extend Counter {
+    func bump(var self)
+        requires self.n < 1000
+        ensures true
+    {
+        self.n = self.n + 1
+        if self.n > self.hi {
+            self.hi = self.n
+        }
+    }
+
+    func doubled(self) -> u32
+        requires self.n <= 1000
+        ensures result <= 2000
+    {
+        return self.get() * 2
+    }
+}
+
+# второй extend того же struct: методы дописываются по порядку
+extend Counter {
+    func reset(var self)
+        requires true
+        ensures true
+    {
+        self.n = 0
+    }
+}
+
+struct Pair {
+    a: u32
+    b: u32
+}
+
+# extend через одну декларацию от своего struct; пустых extend нет,
+# но метод может вызывать метод, добавленный другим extend раньше
+extend Pair {
+    func sum(self) -> u32
+        requires self.a <= 1000 and self.b <= 1000
+        ensures result <= 2000
+    {
+        return self.a + self.b
+    }
+}
+
+test extend_methods {
+    var c: Counter = Counter { n: 0, hi: 0 }
+    c.bump()
+    c.bump()
+    assert c.get() == 2
+    assert c.doubled() == 4
+    c.reset()
+    assert c.get() == 0
+    assert c.hi == 2
+}
+
+func main() {
+    var c: Counter = Counter { n: 41, hi: 41 }
+    c.bump()
+    let p: Pair = Pair { a: c.get(), b: c.doubled() / 2 }
+    print("n={c.get()} hi={c.hi} sum={p.sum()}")
+}

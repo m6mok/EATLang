@@ -52,6 +52,10 @@ class Dumper:
                 self.type_(d + 2, f.type)
             for m in node.methods:
                 self.func(d + 1, m)
+        elif isinstance(node, ast.ExtendDecl):
+            self.emit(d, f"extend {node.line}:{node.col} name={node.name}")
+            for m in node.methods:
+                self.func(d + 1, m)
         elif isinstance(node, ast.EnumDecl):
             self.emit(d, f"enum {node.line}:{node.col} name={node.name}")
             for vname, payload in node.variants:

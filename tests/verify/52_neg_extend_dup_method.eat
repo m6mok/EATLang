@@ -1,0 +1,28 @@
+#! expect: error=метод get уже объявлен в struct Foo
+# Негатив компиляции: extend не может переобъявить метод struct —
+# дубликат имени метода это ошибка с координатами метода из extend.
+
+struct Foo {
+    n: u32
+
+    func get(self) -> u32
+        requires true
+        ensures true
+    {
+        return self.n
+    }
+}
+
+extend Foo {
+    func get(self) -> u32
+        requires true
+        ensures true
+    {
+        return self.n + 1
+    }
+}
+
+func main() {
+    let f: Foo = Foo { n: 1 }
+    print("{f.get()}")
+}

@@ -43,6 +43,7 @@ class T(Enum):
     EXPORT = auto()
     FROM = auto()
     AS = auto()
+    EXTEND = auto()
 
     # директива драйвера `#module "путь"` — граница модуля в потоке
     MODULE = auto()
@@ -115,6 +116,7 @@ KEYWORDS = {
     "export": T.EXPORT,
     "from": T.FROM,
     "as": T.AS,
+    "extend": T.EXTEND,
 }
 
 

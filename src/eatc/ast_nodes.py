@@ -272,6 +272,14 @@ class StructDecl(Node):
 
 
 @dataclass
+class ExtendDecl(Node):
+    # методы struct вне блока объявления: сливаются в именованный
+    # struct до всех проверок (checks.merge_extends), полей нет
+    name: str
+    methods: list
+
+
+@dataclass
 class EnumDecl(Node):
     name: str
     variants: list  # [(имя, узел типа нагрузки | None)]

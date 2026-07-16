@@ -1,0 +1,21 @@
+#! expect: error=extend Foo: struct не объявлен раньше по потоку
+# Негатив компиляции: extend раньше своего struct по потоку —
+# слияние требует уже объявленного struct (SPEC §4).
+
+extend Foo {
+    func get(self) -> u32
+        requires true
+        ensures true
+    {
+        return self.n
+    }
+}
+
+struct Foo {
+    n: u32
+}
+
+func main() {
+    let f: Foo = Foo { n: 1 }
+    print("{f.get()}")
+}

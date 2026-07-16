@@ -3296,6 +3296,133 @@ struct Check {
         }
     }
 
+    # --- слияние extend (SPEC §4) ------------------------------------------
+
+    # Узлы extend (вид 55) сливаются в struct, объявленный раньше по
+    # потоку в том же модуле, как если бы методы были объявлены в его
+    # блоке; узел extend исчезает из списка деклараций — фазы ниже
+    # различий не видят (зеркало merge_extends, src/eatc/checks.py).
+    func extend_pass(var self)
+        requires true
+        ensures true
+    {
+        var prev: u32 = NONE
+        var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
+            if d == NONE or self.failed {
+                break
+            }
+            let nxt: u32 = self.p.nns[d / 65536][d % 65536]
+            if self.p.nk[d / 65536][d % 65536] == 55 {
+                self.merge_extend(d, prev)
+            } else {
+                prev = d
+            }
+            d = nxt
+        }
+    }
+
+    # Цель extend e: последний struct с тем же именем раньше по потоку;
+    # его модуль обязан совпадать с модулем самого extend.
+    func merge_extend(var self, e: u32, prev: u32)
+        requires e < 131072
+        ensures true
+    {
+        var tgt: u32 = NONE
+        var tmod: u32 = 0
+        var cmod: u32 = 0
+        var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
+            if d == e or d == NONE {
+                break
+            }
+            let k: u32 = self.p.nk[d / 65536][d % 65536]
+            if k == 51 {
+                cmod = cmod + 1
+            } elif k == 4 {
+                if self.span_eq(
+                    self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536],
+                    self.p.nss[e / 65536][e % 65536], self.p.nsl[e / 65536][e % 65536]
+                ) {
+                    tgt = d
+                    tmod = cmod
+                }
+            }
+            d = self.p.nns[d / 65536][d % 65536]
+        }
+        if tgt == NONE {
+            self.fail_node(e, "extend: struct не объявлен раньше по потоку")
+            return
+        }
+        if tmod != cmod {
+            self.fail_node(e, "extend: struct объявлен в другом модуле")
+            return
+        }
+        self.splice_extend(e, tgt)
+        if not self.failed {
+            self.unlink_top(e, prev)
+        }
+    }
+
+    # Перенос цепочки методов extend в конец списка детей struct;
+    # дубликат имени метода — ошибка с координатами метода из extend.
+    func splice_extend(var self, e: u32, s: u32)
+        requires e < 131072 and s < 131072
+        ensures true
+    {
+        var m: u32 = self.p.nfc[e / 65536][e % 65536]
+        for _ in 0..1024 {
+            if m == NONE or self.failed {
+                break
+            }
+            let nxt: u32 = self.p.nns[m / 65536][m % 65536]
+            var c: u32 = self.p.nfc[s / 65536][s % 65536]
+            for _ in 0..1024 {
+                if c == NONE or self.failed {
+                    break
+                }
+                if self.p.nk[c / 65536][c % 65536] == 6 {
+                    if self.span_eq(
+                        self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536],
+                        self.p.nss[m / 65536][m % 65536], self.p.nsl[m / 65536][m % 65536]
+                    ) {
+                        self.fail_node(m, "метод уже объявлен в struct")
+                    }
+                }
+                c = self.p.nns[c / 65536][c % 65536]
+            }
+            if not self.failed {
+                self.p.nns[m / 65536][m % 65536] = NONE
+                if self.p.nfc[s / 65536][s % 65536] == NONE {
+                    self.p.nfc[s / 65536][s % 65536] = m
+                } else {
+                    self.p.nns[self.p.nlc[s / 65536][s % 65536] / 65536][
+                        self.p.nlc[s / 65536][s % 65536] % 65536
+                    ] = m
+                }
+                self.p.nlc[s / 65536][s % 65536] = m
+            }
+            m = nxt
+        }
+    }
+
+    # Убрать узел e из списка деклараций программы (узел 0); prev —
+    # предыдущая декларация (NONE не встречается: struct всегда раньше).
+    func unlink_top(var self, e: u32, prev: u32)
+        requires e < 131072
+        ensures true
+    {
+        let nxt: u32 = self.p.nns[e / 65536][e % 65536]
+        if prev == NONE {
+            self.p.nfc[0 / 65536][0 % 65536] = nxt
+        } else {
+            self.p.nns[prev / 65536][prev % 65536] = nxt
+        }
+        if self.p.nlc[0 / 65536][0 % 65536] == e {
+            self.p.nlc[0 / 65536][0 % 65536] = prev
+        }
+    }
+
     func pass1(var self)
         requires true
         ensures true
@@ -3932,6 +4059,10 @@ struct Check {
         ensures true
     {
         self.init_types()
+        self.extend_pass()
+        if self.failed {
+            return
+        }
         self.modules_pass()
         if self.failed {
             return

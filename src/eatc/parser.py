@@ -134,6 +134,8 @@ class Parser:
             return self.parse_extern()
         if tok.type == T.STRUCT:
             return self.parse_struct()
+        if tok.type == T.EXTEND:
+            return self.parse_extend()
         if tok.type == T.ENUM:
             return self.parse_enum()
         if tok.type == T.CONST:
@@ -258,6 +260,24 @@ class Parser:
             self.skip_newlines()
         self.expect(T.RBRACE, "'}'")
         return ast.StructDecl(tok.line, tok.col, name.value, fields, methods)
+
+    def parse_extend(self) -> ast.ExtendDecl:
+        # extend ИМЯ { методы } — продолжение struct: только func,
+        # полей нет (раскладка читается в одном месте объявления)
+        tok = self.expect(T.EXTEND, "extend")
+        name = self.expect(T.IDENT, "имя struct")
+        self.expect(T.LBRACE, "'{'")
+        self.skip_newlines()
+        methods: list[ast.FuncDecl] = []
+        while not self.at(T.RBRACE):
+            if not self.at(T.FUNC):
+                raise self.error(
+                    "в extend допустимы только func (полей в extend нет)"
+                )
+            methods.append(self.parse_func(in_struct=True))
+            self.skip_newlines()
+        self.expect(T.RBRACE, "'}'")
+        return ast.ExtendDecl(tok.line, tok.col, name.value, methods)
 
     def parse_test(self) -> ast.TestBlock:
         tok = self.expect(T.TEST, "test")

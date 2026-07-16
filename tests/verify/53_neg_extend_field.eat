@@ -1,0 +1,16 @@
+#! expect: error=в extend допустимы только func (полей в extend нет)
+# Негатив компиляции: полей в extend нет — раскладка структуры
+# читается в одном месте, блоке объявления struct (SPEC §4).
+
+struct Foo {
+    n: u32
+}
+
+extend Foo {
+    m: u32
+}
+
+func main() {
+    let f: Foo = Foo { n: 1 }
+    print("{f.n}")
+}

@@ -40,7 +40,55 @@ def _all_funcs(program: ast.Program):
             yield from decl.methods
 
 
+def merge_extends(program: ast.Program, filename: str) -> None:
+    """extend ИМЯ { методы } (SPEC §4): методы сливаются в struct,
+    объявленный раньше по потоку в том же модуле, как если бы были
+    объявлены в его блоке; узел extend исчезает из decls — фазы ниже
+    парсера различий не видят."""
+    structs: dict = {}
+    struct_module: dict = {}
+    module = 0
+    decls = []
+    for decl in program.decls:
+        if isinstance(decl, ast.ModuleMark):
+            module += 1
+        elif isinstance(decl, ast.StructDecl):
+            structs[decl.name] = decl
+            struct_module[decl.name] = module
+        elif isinstance(decl, ast.ExtendDecl):
+            src = getattr(decl, "src_file", None) or filename
+            target = structs.get(decl.name)
+            if target is None:
+                raise EatError(
+                    src,
+                    decl.line,
+                    decl.col,
+                    f"extend {decl.name}: struct не объявлен раньше "
+                    "по потоку",
+                )
+            if struct_module[decl.name] != module:
+                raise EatError(
+                    src,
+                    decl.line,
+                    decl.col,
+                    f"extend {decl.name}: struct объявлен в другом модуле",
+                )
+            for m in decl.methods:
+                if any(m.name == x.name for x in target.methods):
+                    raise EatError(
+                        getattr(m, "src_file", None) or filename,
+                        m.line,
+                        m.col,
+                        f"метод {m.name} уже объявлен в struct {decl.name}",
+                    )
+                target.methods.append(m)
+            continue
+        decls.append(decl)
+    program.decls = decls
+
+
 def check_program(program: ast.Program, filename: str) -> dict:
+    merge_extends(program, filename)
     funcs = list(_all_funcs(program))
     if len(funcs) > MAX_FUNCS_PER_PROGRAM:
         raise CapacityError(

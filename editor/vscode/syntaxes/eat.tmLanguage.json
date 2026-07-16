@@ -60,7 +60,7 @@
             }
         },
         "type-decl": {
-            "match": "\\b(struct|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "match": "\\b(struct|extend|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
             "captures": {
                 "1": { "name": "storage.type.eat" },
                 "2": { "name": "entity.name.type.eat" }
@@ -93,7 +93,7 @@
                 },
                 {
                     "name": "storage.type.eat",
-                    "match": "\\b(let|var|const|func|struct|enum|test)\\b"
+                    "match": "\\b(let|var|const|func|struct|extend|enum|test)\\b"
                 },
                 {
                     "name": "keyword.operator.logical.eat",

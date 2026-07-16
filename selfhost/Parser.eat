@@ -4,7 +4,7 @@
 #
 # Кадры (fk): 0 program, 1 func, 2 type, 3 block, 4 expr, 5 let, 6 if,
 # 7 for, 8 match, 9 tail (return/assert), 10 discard, 11 exprstmt,
-# 12 const, 13 struct, 14 enum, 15 test, 16 loop.
+# 12 const, 13 struct, 14 enum, 15 test, 16 loop, 17 extend.
 # Фаза кадра (fp) — точка возврата после дочернего кадра.
 #
 # Записи стека операторов (pk): 0 группа '(', 1 вызов, 2 метод,
@@ -187,7 +187,7 @@ struct Parser {
     # --- пул узлов -------------------------------------------------------
 
     func alloc(var self, k: u32, ln: u32, cl: u32) -> u32
-        requires k <= 54
+        requires k <= 55
         ensures result < 131072
     {
         if self.nnode >= 131072 {
@@ -260,7 +260,7 @@ struct Parser {
     # --- кадры -----------------------------------------------------------
 
     func push_frame(var self, k: u32, ph: u32, node: u32, att: u32, x: u32)
-        requires k <= 16
+        requires k <= 17
         ensures true
     {
         if self.nf >= 64 {
@@ -357,8 +357,10 @@ struct Parser {
             self.step_enum()
         } elif k == 15 {
             self.step_test()
-        } else {
+        } elif k == 16 {
             self.step_loop()
+        } else {
+            self.step_extend()
         }
     }
 
@@ -392,6 +394,8 @@ struct Parser {
             self.start_func(att, 0)
         } elif k == 8 {
             self.start_struct(att)
+        } elif k == 68 {
+            self.start_extend(att)
         } elif k == 9 {
             self.start_enum(att)
         } elif k == 7 {
@@ -1387,6 +1391,49 @@ struct Parser {
         self.fx[f] = fld
         self.fp[f] = 1
         self.start_type(fld)
+    }
+
+    # extend ИМЯ { методы }: узел 55, внутри только func (полей нет);
+    # методы сливает в struct фаза Check (зеркало parse_extend эталона).
+    func start_extend(var self, att: u32)
+        requires true
+        ensures true
+    {
+        let ln: u32 = self.t_line()
+        let cl: u32 = self.t_col()
+        self.advance()
+        if self.tk_at() != 3 {
+            self.fail("ожидалось имя struct")
+            return
+        }
+        let n: u32 = self.alloc(55, ln, cl)
+        self.set_str(n, self.cur)
+        self.advance()
+        if self.tk_at() != 32 {
+            self.fail("ожидалось '{{'")
+            return
+        }
+        self.advance()
+        self.skip_nl()
+        self.push_frame(17, 0, n, att, 0)
+    }
+
+    func step_extend(var self)
+        requires true
+        ensures true
+    {
+        self.skip_nl()
+        let k: u32 = self.tk_at()
+        if k == 33 {
+            self.advance()
+            self.complete()
+            return
+        }
+        if k == 4 {
+            self.start_func(self.fnod[self.nf - 1], 1)
+            return
+        }
+        self.fail("в extend допустимы только func (полей в extend нет)")
     }
 
     func start_enum(var self, att: u32)

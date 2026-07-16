@@ -6,10 +6,10 @@
 # 56..60 битовые операторы (AMP PIPE CARET SHL SHR), 61 TILDE,
 # 62 EXTERN, 63 IMPORT, 64 EXPORT, 65 FROM, 66 AS (ключевые слова;
 # коды в конце — нумерацию не двигаем), 67 MODULE (директива драйвера
-# `#module "путь"`, значение — путь модуля)
+# `#module "путь"`, значение — путь модуля), 68 EXTEND
 
 func write_kind(k: u32)
-    requires k <= 67
+    requires k <= 68
     ensures true
 {
     if k < 30 {
@@ -22,14 +22,15 @@ func write_kind(k: u32)
 }
 
 func write_kind_mod(k: u32)
-    requires k >= 63 and k <= 67
+    requires k >= 63 and k <= 68
     ensures true
 {
     if k == 63 { write("IMPORT")
     } elif k == 64 { write("EXPORT")
     } elif k == 65 { write("FROM")
     } elif k == 66 { write("AS")
-    } else { write("MODULE") }
+    } elif k == 67 { write("MODULE")
+    } else { write("EXTEND") }
 }
 
 func write_kind_kw(k: u32)
@@ -111,7 +112,7 @@ func write_kind_op(k: u32)
 # (same — lib/Buf.eat)
 func kw_code(w: [u8; 16], n: u32) -> u32
     requires n <= 16
-    ensures result <= 29 or (result >= 62 and result <= 66)
+    ensures result <= 29 or (result >= 62 and result <= 66) or result == 68
 {
     if n < 2 or n > 8 {
         return 3
@@ -125,7 +126,7 @@ func kw_code(w: [u8; 16], n: u32) -> u32
 
 func kw_code_af(w: [u8; 16], n: u32) -> u32
     requires n <= 16
-    ensures result <= 29 or (result >= 62 and result <= 65)
+    ensures result <= 29 or (result >= 62 and result <= 65) or result == 68
 {
     let c: u8 = w[0]
     if c == 97 { # a
@@ -143,6 +144,7 @@ func kw_code_af(w: [u8; 16], n: u32) -> u32
         if same(w, n, "ensures") { return 22 }
         if same(w, n, "enum") { return 9 }
         if same(w, n, "export") { return 64 }
+        if same(w, n, "extend") { return 68 }
         if same(w, n, "extern") { return 62 }
     } elif c == 102 { # f
         if same(w, n, "false") { return 26 }
