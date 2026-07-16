@@ -409,15 +409,29 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
 fold), этап 5 ждёт; этапы 0–4 самодостаточны и дают полноценный
 self-hosted верификатор со сверкой дампа.
 
-### Этап 6. Документация
+### Этап 6. Документация — → СЛЕДУЮЩИЙ ШАГ
+
+Полный аудит документации после закрытия этапа 4 (правка учитывает
+весь проект — README, docs/*, SPEC, планы, editor/vscode):
 
 - [SELFHOST.md](SELFHOST.md): фаза 7 (верификатор), закрытие строки
   «— (только Python)».
-- [PROCESSES.md](PROCESSES.md): таблица фаз, новые гейты.
-- [MODIFYING.md](MODIFYING.md) §3: снять «verifier: selfhost не
-  трогается» — теперь трогается; чеклист правки верификатора +
-  зеркало.
+- [docs/PROCESSES.md](../PROCESSES.md): таблица фаз (гейты уже
+  вписаны).
+- [docs/MODIFYING.md](../MODIFYING.md) §3: снять «verifier: selfhost
+  не трогается»; чеклист правки верификатора + зеркало
+  (`tools/gen_verifymain.py --check`, порядок гейтов, самоприменение
+  как главный тест).
 - [VERIFICATION_PLAN.md](VERIFICATION_PLAN.md): ссылка на self-host.
+- [README.md](README.md) (индекс планов): строка верификатора
+  (этапы 0–4 ✅, следующий — этап 6/этап 5 за D0) + строки новых
+  документов WORKFLOW/FAULTS/AGENTS_ORCHESTRATION_PLAN — **файл был
+  занят параллельной правкой**, вносить после её коммита.
+- Обход всех поверхностей на устаревшее: «верификатор только в
+  Python», «стек 128 МБ», старые пределы (131 072 токена и т.п.),
+  список гейтов готовности (`verify_selfhost_verify_all`) — README
+  корня, AGENTS.md §3 «Определение готовности», docs/GUIDE.md,
+  editor/vscode, TRACKS.md.
 
 ## 4. Определение готовности трека
 
