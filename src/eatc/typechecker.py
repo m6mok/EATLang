@@ -127,6 +127,11 @@ BUILTINS = {
     "arg_count": FuncSig("arg_count", [], U32),
     "arg_len": FuncSig("arg_len", [("i", U32)], U32),
     "arg_byte": FuncSig("arg_byte", [("i", U32), ("j", U32)], U8),
+    # кооперативная асинхронность (ASYNC_PLAN, ярус 0): неблокирующий
+    # опрос stdin и монотонные миллисекунды — аксиомы без trap-границ
+    # (аргументов нет, результат — полный диапазон типа)
+    "in_avail": FuncSig("in_avail", [], U32),
+    "ticks": FuncSig("ticks", [], U64),
 }
 
 _FORMATTABLE = (IntType, BoolType, CharType, StrType)

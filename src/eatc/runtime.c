@@ -8,6 +8,10 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 /* Байт из stdin: 0..255, при конце потока -1 (Err(Eof)).
@@ -114,4 +118,54 @@ uint32_t eat_arg_len(uint32_t i) {
 
 uint8_t eat_arg_byte(uint32_t i, uint32_t j) {
     return (uint8_t)argv_p[i][j];
+}
+
+/* --- кооперативная асинхронность (ASYNC_PLAN, ярус 0) --------------
+ * in_avail: сколько байт stdin прочитается read_byte без блокировки.
+ * Файл — размер минус логическая позиция потока (ftello учитывает
+ * stdio-буфер: детерминизм make verify — интерпретатор зеркалит
+ * fstat+tell байт-в-байт); пайп/tty — FIONREAD, живой режим
+ * (недооценка на stdio-буфер допустима, SPEC §7). Потолок — u32. */
+uint32_t eat_in_avail(void) {
+    struct stat st;
+    if (fstat(STDIN_FILENO, &st) == 0 && S_ISREG(st.st_mode)) {
+        off_t pos = ftello(stdin);
+        if (pos < 0 || st.st_size <= pos) {
+            return 0;
+        }
+        uint64_t avail = (uint64_t)(st.st_size - pos);
+        return avail > 0xffffffffu ? 0xffffffffu : (uint32_t)avail;
+    }
+    int n = 0;
+    if (ioctl(STDIN_FILENO, FIONREAD, &n) == 0 && n > 0) {
+        return (uint32_t)n;
+    }
+    return 0;
+}
+
+/* ticks: монотонные миллисекунды, первый вызов — 0. EAT_TICKS=virt —
+ * виртуальные часы (+1 на вызов, решение D2 ASYNC_PLAN): интерпретатор
+ * и бинарник тикают одинаково без знания о витках loop. Состояние —
+ * статики шима, как у argv (граница доверия аксиом). */
+uint64_t eat_ticks(void) {
+    static int virt = -1;
+    static uint64_t vclock = 0;
+    static uint64_t base = 0;
+    static int base_set = 0;
+    if (virt < 0) {
+        const char *e = getenv("EAT_TICKS");
+        virt = e != 0 && strcmp(e, "virt") == 0;
+    }
+    if (virt) {
+        return vclock++;
+    }
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t now =
+        (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+    if (!base_set) {
+        base = now;
+        base_set = 1;
+    }
+    return now - base;
 }

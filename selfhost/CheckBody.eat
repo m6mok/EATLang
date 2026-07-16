@@ -601,6 +601,9 @@ extend Check {
         if self.xs_arg_start(f, n, argc) {
             return
         }
+        if self.xs_async_start(n, argc) {
+            return
+        }
         let fi: u32 = self.find_func(a, l)
         if fi == NONE {
             self.fail_node(n, "неизвестная функция")
@@ -678,6 +681,36 @@ extend Check {
             self.xa[f] = 117
             self.xb[f] = 0
             self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+            return true
+        }
+        return false
+    }
+
+    # Кооперативная асинхронность (ASYNC_PLAN, ярус 0): in_avail
+    # (0 арг → u32) и ticks (0 арг → u64) — аксиомы без trap-границ,
+    # результат — полный диапазон типа (как arg_count).
+    func xs_async_start(var self, n: u32, argc: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        if self.span_is(a, l, "in_avail") {
+            if argc != 0 {
+                self.fail_node(n, "ожидается 0 аргументов")
+                return true
+            }
+            self.tres = 1
+            self.xdone()
+            return true
+        }
+        if self.span_is(a, l, "ticks") {
+            if argc != 0 {
+                self.fail_node(n, "ожидается 0 аргументов")
+                return true
+            }
+            self.tres = self.u64_ty()
+            self.xdone()
             return true
         }
         return false

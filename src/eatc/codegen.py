@@ -75,6 +75,10 @@ _RUNTIME = {
     "eat_arg_count": ir.FunctionType(I32L, []),
     "eat_arg_len": ir.FunctionType(I32L, [I32L]),
     "eat_arg_byte": ir.FunctionType(I8L, [I32L, I32L]),
+    # кооперативная асинхронность (ASYNC_PLAN, ярус 0): неблокирующий
+    # опрос stdin и монотонные миллисекунды — без trap-границ
+    "eat_in_avail": ir.FunctionType(I32L, []),
+    "eat_ticks": ir.FunctionType(I64L, []),
 }
 
 _SIGNED = {"i32", "i64"}
@@ -1169,6 +1173,10 @@ class Codegen:
             return self.gen_arg_len(node)
         if name == "arg_byte":
             return self.gen_arg_byte(node)
+        if name == "in_avail":
+            return self.b.call(self.rt["eat_in_avail"], [])
+        if name == "ticks":
+            return self.b.call(self.rt["eat_ticks"], [])
         if name == "len":
             return self.gen_len(node)
         if name in ("i32", "u32", "u16", "u8", "u64", "i64", "char"):

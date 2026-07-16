@@ -240,9 +240,13 @@ extend Check {
                 or self.span_is(a, l, "print") or self.span_is(a, l, "write")) {
             return true
         }
-        return self.span_is(a, l, "arg_count") or self.span_is(a, l, "arg_len") or self.span_is(
+        if self.span_is(a, l, "arg_count") or self.span_is(a, l, "arg_len") or self.span_is(
             a, l, "arg_byte"
-        )
+        ) {
+            return true
+        }
+        # кооперативная асинхронность (ASYNC_PLAN, ярус 0)
+        return self.span_is(a, l, "in_avail") or self.span_is(a, l, "ticks")
     }
 
     # Спан — имя целочисленного каста?

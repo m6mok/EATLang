@@ -29,6 +29,7 @@ from .types import INT_RANGES, ArrayType, BoolType, IntType
 IMPURE_BUILTINS = frozenset({
     "read_byte", "write_byte", "write_span", "write_err_byte", "exit",
     "arg_count", "arg_len", "arg_byte", "print", "write",
+    "in_avail", "ticks",
 })
 
 

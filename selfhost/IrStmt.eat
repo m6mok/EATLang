@@ -1257,6 +1257,10 @@ extend Ir {
         write("declare i32 @\"eat_arg_len\"(i32 %\".1\") nounwind\n")
         self.p_sep()
         write("declare i8 @\"eat_arg_byte\"(i32 %\".1\", i32 %\".2\") nounwind\n")
+        self.p_sep()
+        write("declare i32 @\"eat_in_avail\"() nounwind\n")
+        self.p_sep()
+        write("declare i64 @\"eat_ticks\"() nounwind\n")
         if self.tmode == 1 {
             self.p_sep()
             write("declare void @\"eat_trap_code\"(i32 %\".1\") cold noreturn nounwind\n")

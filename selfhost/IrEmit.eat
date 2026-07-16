@@ -669,6 +669,26 @@ extend Ir {
         self.line_fin()
     }
 
+    # %r = call i32 @"eat_in_avail"() — асинхронность (ASYNC_PLAN)
+    func e_inavail(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_in_avail\"()")
+        self.line_fin()
+    }
+
+    # %r = call i64 @"eat_ticks"() — асинхронность (ASYNC_PLAN)
+    func e_ticks(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i64 @\"eat_ticks\"()")
+        self.line_fin()
+    }
+
     # call void @"eat_str_append_{nm}"({STR}* v1, {at} v2)
     func e_rt_si(var self, nm: str<8>, at: str<8>)
         requires true

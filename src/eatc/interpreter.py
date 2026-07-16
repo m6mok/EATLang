@@ -7,7 +7,9 @@
 """
 
 import operator
+import os
 import sys
+import time
 from dataclasses import dataclass
 
 from . import ast_nodes as ast
@@ -96,6 +98,7 @@ _BINOP_FNS = {
 IMPURE_AXIOMS = frozenset({
     "read_byte", "write_byte", "write_span", "write_err_byte", "exit",
     "arg_count", "arg_len", "arg_byte", "print", "write",
+    "in_avail", "ticks",
 })
 
 
@@ -146,6 +149,12 @@ class Interpreter:
         # аргументы командной строки программы (argv без имени),
         # каждый — bytes; наполняет cmd_run из хвоста после `--`
         self.argv: list = list(argv) if argv else []
+        # часы ticks() (ASYNC_PLAN, ярус 0): первый вызов — 0; режим
+        # виртуальных часов (EAT_TICKS=virt) — счётчик вызовов, чтобы
+        # интерпретатор и бинарник тикали одинаково в make verify
+        self._ticks_virt: bool | None = None
+        self._ticks_val: int = 0
+        self._ticks_base: int | None = None
         self.consts: dict[str, Slot] = {}
         self.funcs: dict[str, ast.FuncDecl] = {}
         self.structs: dict[str, StructRT] = {}
@@ -882,6 +891,10 @@ class Interpreter:
             if j >= len(self.argv[i]):
                 raise self.trap(node, "arg_byte вне границ аргумента")
             return self.argv[i][j]
+        if name == "in_avail":
+            return self._in_avail()
+        if name == "ticks":
+            return self._ticks()
         if name == "len":
             return len(args[0])
         if name == "char":
@@ -898,6 +911,46 @@ class Interpreter:
             return args[0]
         # у обычных функций все параметры немутабельны — аргументы без копий
         return self.call_func(self.funcs[name], args, None, node, copy_args=False)
+
+    def _in_avail(self) -> int:
+        """in_avail(): сколько байт stdin читается без блокировки.
+        Файл — размер минус логическая позиция (зеркало ftello поверх
+        stdio-буфера шима: детерминизм make verify); пайп/tty —
+        FIONREAD, живой режим (недооценка на буфер допустима, SPEC §7).
+        Потолок — u32."""
+        import fcntl
+        import stat as stat_mod
+        import struct
+        import termios
+        buf = sys.stdin.buffer
+        try:
+            fd = buf.fileno()
+            st = os.fstat(fd)
+            if stat_mod.S_ISREG(st.st_mode):
+                avail = st.st_size - buf.tell()
+            else:
+                raw = fcntl.ioctl(fd, termios.FIONREAD, b"\x00" * 4)
+                avail = struct.unpack("i", raw)[0]
+        except (OSError, ValueError):
+            return 0
+        if avail <= 0:
+            return 0
+        return min(avail, 0xFFFFFFFF)
+
+    def _ticks(self) -> int:
+        """ticks(): монотонные миллисекунды, первый вызов — 0.
+        EAT_TICKS=virt — виртуальные часы: +1 на вызов (решение D2
+        ASYNC_PLAN): паритет с бинарником без знания о витках loop."""
+        if self._ticks_virt is None:
+            self._ticks_virt = os.environ.get("EAT_TICKS") == "virt"
+        if self._ticks_virt:
+            val = self._ticks_val
+            self._ticks_val += 1
+            return val
+        now = time.monotonic_ns() // 1000000
+        if self._ticks_base is None:
+            self._ticks_base = now
+        return now - self._ticks_base
 
     # --- диспетчеры (type(node) -> метод, вместо цепочек isinstance) --------
 

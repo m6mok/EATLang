@@ -681,6 +681,14 @@ extend Ir {
             self.xf3[f] = 0
             self.xg3[f] = self.nag
             self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "in_avail") {
+            self.e_inavail()
+            self.serrr(1)
+            self.nx3 = self.nx3 - 1
+        } elif self.c.span_is(a, l, "ticks") {
+            self.e_ticks()
+            self.serrr(self.u64t())
+            self.nx3 = self.nx3 - 1
         } elif self.c.span_is(a, l, "len") {
             self.xcall_len(f, n)
         } elif self.c.span_is(a, l, "i32") {

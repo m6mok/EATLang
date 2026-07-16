@@ -1,0 +1,91 @@
+# Витрина кооперативной асинхронности (docs/plans/ASYNC_PLAN.md,
+# ярус 0): циклический исполнитель (superloop) в main поверх аксиом
+# in_avail()/ticks(). Хост-близнец examples/blinky_cli (там те же
+# задачи живут на extern-шиме МК mcu/Mcu.eat).
+#
+# Идиома задачи: кадр — struct (что живёт через точку ожидания),
+# шаг — метод step(var self), «ждать нечего» — ранний return.
+# Каждый шаг тотален; вечен только сам loop в main (SPEC §5.1).
+#
+# Сверка make verify детерминирована по построению: stdin — файл
+# (in_avail = остаток байтов до EOF), EAT_TICKS=virt — виртуальные
+# часы (+1 на вызов ticks(), решение D2 ASYNC_PLAN).
+
+# период мигания в тиках: на виртуальных часах тик = виток суперцикла
+const BLINK_PERIOD: u64 = 2
+
+# Задача «эхо»: дренирует stdin без блокировки — read_byte зовётся
+# только когда in_avail() > 0; команда q останавливает программу.
+struct Echo {
+    seen: u32
+    done: bool
+
+    func step(var self)
+        requires true
+        ensures true
+    {
+        if self.done {
+            return
+        }
+        if in_avail() == 0 {
+            # Pending: данных нет — уступаем виток другим задачам
+            return
+        }
+        match read_byte() {
+            Ok(b) {
+                if b == u8('q') {
+                    self.done = true
+                    print("echo: стоп по q")
+                } elif b != 10 and b != 13 and b != 32 {
+                    self.seen = self.seen + 1
+                    print("echo: байт {b} (№{self.seen})")
+                }
+            }
+            Err(_) {
+                # конец потока без q — тоже штатная остановка
+                self.done = true
+                print("echo: стоп по EOF")
+            }
+        }
+    }
+}
+
+# Задача «мигалка»: срабатывает по дедлайну монотонных часов —
+# состояние (следующий дедлайн, счётчик) переживает точки ожидания.
+struct Blink {
+    next: u64
+    n: u32
+
+    func step(var self)
+        requires true
+        ensures true
+    {
+        let now: u64 = ticks()
+        if now < self.next {
+            # Pending: дедлайн не наступил
+            return
+        }
+        self.n = self.n + 1
+        print("blink: №{self.n} на тике {now}")
+        self.next = now + BLINK_PERIOD
+    }
+}
+
+func main()
+    requires true
+    ensures true
+{
+    var e: Echo = Echo { seen: 0, done: false }
+    var b: Blink = Blink { next: 0, n: 0 }
+    print("async: суперцикл, задачи echo + blink")
+    # реактивная модель: единственный бесконечный loop в main,
+    # каждый виток — конечная композиция тотальных шагов задач
+    loop {
+        if e.done {
+            break
+        }
+        e.step()
+        b.step()
+    }
+    print("async: завершение, echo {e.seen}, blink {b.n}")
+}

@@ -33,6 +33,7 @@ check:
 	$(EATC) check --lib . $(ELIF_MAIN)
 	$(EATC) check --lib . $(JSON_MAIN)
 	$(EATC) check --lib . examples/blinky_cli/BlinkyCli.eat
+	$(EATC) check examples/async/Async.eat
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -53,6 +54,15 @@ MOS6502_EXAMPLE = $(RT) lib/Hex.eat examples/mos6502/Cpu6502.eat \
 
 run_mos6502:
 	cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE)
+
+# Кооперативная асинхронность (docs/plans/ASYNC_PLAN.md, ярус 0):
+# суперцикл в main на аксиомах in_avail()/ticks(). Сверка
+# детерминирована: stdin — файл (in_avail = остаток до EOF),
+# EAT_TICKS=virt — виртуальные часы (+1 на вызов ticks())
+ASYNC_EXAMPLE = $(RT) examples/async/Async.eat
+
+run_async:
+	EAT_TICKS=virt $(EATC) run $(ASYNC_EXAMPLE) < examples/async/input.txt
 
 # Проба self-host лексера: все кирпичи разом, вход — собственный исходник
 LEXER_PROBE = $(RT) lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
@@ -645,3 +655,8 @@ verify: build_all_examples
 	@cat examples/lexer/LexMain.eat | ./build/Lexer > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED LexerProbe" || exit 1
+	@$(EATC) build $(ASYNC_EXAMPLE) -o build/Async > /dev/null
+	@EAT_TICKS=virt $(EATC) run $(ASYNC_EXAMPLE) < examples/async/input.txt > /tmp/eat_interp.txt
+	@EAT_TICKS=virt ./build/Async < examples/async/input.txt > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED Async" || exit 1

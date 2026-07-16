@@ -735,6 +735,10 @@ struct Check {
         if self.span_is(a, l, "arg_byte") {
             return true
         }
+        # кооперативная асинхронность (ASYNC_PLAN, ярус 0)
+        if self.span_is(a, l, "in_avail") or self.span_is(a, l, "ticks") {
+            return true
+        }
         if self.span_is(a, l, "len") {
             return true
         }
@@ -1911,6 +1915,10 @@ struct Check {
             return true
         }
         if self.span_is(a, l, "arg_byte") {
+            return true
+        }
+        # кооперативная асинхронность (ASYNC_PLAN, ярус 0)
+        if self.span_is(a, l, "in_avail") or self.span_is(a, l, "ticks") {
             return true
         }
         if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {
