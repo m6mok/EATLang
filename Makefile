@@ -130,6 +130,12 @@ SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
 	selfhost/IrCodesMain.eat
+SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
+	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
+	selfhost/CheckFold.eat \
+	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
+	selfhost/IrOptMain.eat
 # Фаза 7 — статический верификатор (docs/SELFHOST_VERIFIER_PLAN.md).
 # Зеркало verifier.py; вход как у `eatc verify` — одиночный .eat со stdin
 # (без Rt/lib). Этап 1: интервальное ядро на курируемом списке кейсов.
@@ -312,6 +318,28 @@ verify_trapcodes:
 	@diff /tmp/eat_tc_ref.ll /tmp/eat_tc_self.ll > /dev/null \
 		&& echo "TRAPCODES OK (IR режима кодов == эталон eatc ir --trap-codes)" \
 		|| { echo "TRAPCODES DIFF"; exit 1; }
+
+# Ось -O (SELFHOST_OPT_PLAN §11): свёртка вызовов в self-hosted
+# компиляторе. SelfIrOpt == эталон `eatc ir -O` байт-в-байт на входах
+# со сворачиваемыми вызовами (D6: tests/fold + примеры) и на
+# самоприменении (годность гоняется по всем вызовам фронтенда, §9).
+verify_selfhost_opt:
+	@$(EATC) build $(SELFHOST_IR_OPT) -o build/SelfIrOpt > /dev/null
+	@for f in tests/fold/Fold.eat $$(find examples -name '*.eat' | sort); do \
+		cat $(RT) $$f > /tmp/eat_iro_in.eat; \
+		if $(EATC) ir -O /tmp/eat_iro_in.eat > /tmp/eat_iro_ref.ll 2>/dev/null; then \
+			./build/SelfIrOpt < /tmp/eat_iro_in.eat > /tmp/eat_iro_self.ll; \
+			diff /tmp/eat_iro_ref.ll /tmp/eat_iro_self.ll > /dev/null \
+				&& echo "IR-O OK $$f" \
+				|| { echo "IR-O DIFF $$f"; exit 1; }; \
+		fi; \
+	done
+	@cat $(SELFHOST_TYPED) > /tmp/eat_iro_all.eat
+	@$(EATC) ir -O /tmp/eat_iro_all.eat > /tmp/eat_iro_ref.ll
+	@./build/SelfIrOpt < /tmp/eat_iro_all.eat > /tmp/eat_iro_self.ll
+	@diff /tmp/eat_iro_ref.ll /tmp/eat_iro_self.ll > /dev/null \
+		&& echo "IR-O OK (самоприменение: -O на всём фронтенде байт-в-байт)" \
+		|| { echo "IR-O DIFF (самоприменение)"; exit 1; }
 
 # Фаза 7 — self-hosted верификатор (docs/SELFHOST_VERIFIER_PLAN.md,
 # этап 1): SelfVerify == эталон `eatc verify` байт-в-байт на курируемом

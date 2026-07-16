@@ -39,10 +39,11 @@
    selfhost.
 3. **Selfhost-зеркало**: та же логика в `Tok.eat` / `Lexer.eat` /
    `Ast.eat` / `Parser.eat` / `Check.eat` (+ extend-части CheckConst/
-   CheckBody/CheckDump) / `Ir.eat` (+ extend-части IrEmit/IrExpr/IrStmt).
+   CheckBody/CheckDump/CheckFold) / `Ir.eat` (+ extend-части
+   IrEmit/IrExpr/IrStmt).
 4. **Полная сверка**: `make check verify verify_suite
-   verify_selfhost verify_bootstrap verify_trapcodes verify_sig
-   verify_selfhost_verify verify_selfhost_verify_all`.
+   verify_selfhost verify_bootstrap verify_trapcodes verify_selfhost_opt
+   verify_sig verify_selfhost_verify verify_selfhost_verify_all`.
 5. **Документация**: SPEC.md (грамматика, семантика, пределы),
    docs/GUIDE.md (как этим пользоваться), README.md (статус).
 

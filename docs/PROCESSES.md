@@ -74,7 +74,7 @@ trap и аргументы командной строки (`arg_count`/`arg_len
 | `sig <файл>` | эталонный дамп сигнатур |
 | `typed <файл>` | эталонный типизированный дамп |
 | `verify <файл>` | эталонный дамп верификатора: обязательства в стабильном порядке (строка → колонка → вид) + футер-агрегат ([план self-host](plans/SELFHOST_VERIFIER_PLAN.md)) |
-| `ir <файл>` | эталонный текстовый LLVM IR без верификатора |
+| `ir <файл> [--trap-codes] [-O]` | эталонный текстовый LLVM IR без верификатора; `-O` — оптимизированная ось ([план](plans/SELFHOST_OPT_PLAN.md)): канон + конвейер проходов (сейчас ≡ свёртка вызовов), эталон для `SelfIrOpt` |
 | `stream <файл> [--lib DIR]` | поток драйвера: Rt + DAG модулей от главного файла, каждый за директивой `#module "путь"` |
 
 Флаги `build`: `--trap-codes` — числовые trap-коды вместо строк
@@ -86,7 +86,8 @@ trap и аргументы командной строки (`arg_count`/`arg_len
 разработки. `--fold` — ярус B comptime (COMPTIME_PLAN §11): свёртка
 вызовов с константными аргументами в телах в литералы (по умолчанию
 выключено, на обкатку); наблюдаемое поведение не меняется. Канон
-`eatc ir` ни один флаг не меняет.
+`eatc ir` ни один флаг не меняет (`-O` — отдельная ось со своим
+парти-вехиклом `SelfIrOpt`, `make verify_selfhost_opt`).
 
 Программа собирается двумя способами (docs/plans/MODULES_PLAN.md):
 
@@ -112,6 +113,7 @@ trap и аргументы командной строки (`arg_count`/`arg_len
 | `make verify_selfhost` | self-hosted лексер/парсер/sig/typed/IR против эталона на **каждом** `.eat` репозитория; самоприменение (тайпчекер типизирует себя, ≈37 000 строк байт-в-байт); interp == native |
 | `make verify_bootstrap` | фикспойнт: stage1 (`build/SelfIr`) эмитит IR самого себя == `eatc ir`; clang собирает stage2; stage2 эмитит тот же IR байт-в-байт |
 | `make verify_trapcodes` | режим trap-кодов (МК): `build/SelfIrCodes` == `eatc ir --trap-codes` байт-в-байт на bootstrap-входе |
+| `make verify_selfhost_opt` | оптимизированная ось `-O` ([план](plans/SELFHOST_OPT_PLAN.md)): `build/SelfIrOpt` == `eatc ir -O` байт-в-байт на `tests/fold` + примерах + самоприменении (сейчас `-O` ≡ свёртка вызовов) |
 | `make verify_sig` | дрейф интерфейса lib/: sig потока драйвера от `tests/sig/SigProbe.eat` == снапшот `tests/sig/lib.sig` (осознанное изменение — `make regen_sig`) |
 | `make verify_selfhost_verify` | self-hosted верификатор: `build/SelfVerify` == `eatc verify` байт-в-байт на курируемых 50 кейсах `tests/verify/` (смок-гейт) |
 | `make verify_selfhost_verify_all` | верификатор на **каждом** `.eat` репозитория (`cat Rt.eat ФАЙЛ`; без `main` — паритет отрицательного случая) + самоприменение: верификатор верифицирует сам себя (138K токенов, 8K обязательств, байт-в-байт) |

@@ -1,0 +1,216 @@
+# Свёртка вызовов -O (SELFHOST_OPT_PLAN §11, ярус B): проход ct_fold_pass —
+# зеркало comptime.fold_calls; включается только в SELFHOST_IR_OPT (SelfIrOpt),
+# канонные цели файл не подключают.
+# Методы extend сливаются в struct Check, как объявленные в его блоке;
+# порядок склейки файлов — списки SELFHOST_* в Makefile.
+
+extend Check {
+    # --- свёртка вызовов -O (SELFHOST_OPT_PLAN §11, ярус B) ---------------
+    # Зеркало comptime.fold_calls: post-order эталона достигается
+    # фикспойнтом плоских сканов (вложенность вызовов ≤ глубины
+    # выражения 64). Вызывает только IrOptMain; канонные мейны пасс
+    # не зовут — nfs остаётся NONE и эмиссия не меняется.
+
+    # Годность функции fi с кэшем (свёртка дёргает по всем вызовам).
+    func ct_fold_elig(var self, fi: u32) -> bool
+        requires fi < 1024
+        ensures true
+    {
+        if self.cfe[fi] == 0 {
+            self.cgen = self.cgen + 1
+            self.cimp = 0
+            self.cnsc = 0
+            self.ct_reason(fi)
+            self.cfe[fi] = 1
+            if self.cimp == 1 or self.cnsc == 1 {
+                self.cfe[fi] = 2
+            }
+        }
+        return self.cfe[fi] == 1
+    }
+
+    # Аргумент n — константа яруса B? Значение — в (ces, cem); реюз
+    # скратча const_eval, к моменту пасса он свободен. Зеркало
+    # _const_of: int/bool-литерал, скалярное const-имя (не char/str/
+    # массив — v1), уже свёрнутый вызов. Иначе false.
+    func ct_fold_const_of(var self, n: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        if k == 32 {
+            self.ces = self.p.ny[n / 65536][n % 65536]
+            self.cem = self.p.mag(n)
+            return true
+        }
+        if k == 33 {
+            self.ces = 0
+            self.cem = u64(self.p.nx[n / 65536][n % 65536])
+            return true
+        }
+        if k == 37 {
+            let ci: u32 = self.find_const(
+                self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]
+            )
+            if ci == NONE {
+                return false
+            }
+            let tk: u32 = self.yk[self.cty[ci]]
+            if tk == 4 or tk == 5 or tk == 7 {
+                return false
+            }
+            self.ces = self.cvs[ci]
+            self.cem = self.cvm[ci]
+            return true
+        }
+        if k == 41 and self.nfs[n / 65536][n % 65536] != NONE {
+            self.ces = self.nfs[n / 65536][n % 65536]
+            self.cem = self.nfm[n / 65536][n % 65536]
+            return true
+        }
+        return false
+    }
+
+    # Попытка свёртки вызова n (nk 41). true — узел аннотирован.
+    func ct_fold_try(var self, n: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        if self.nfs[n / 65536][n % 65536] != NONE or self.nfm[n / 65536][n % 65536] == 1 {
+            return false
+        }
+        let tk: u32 = self.yk[self.nty[n / 65536][n % 65536]]
+        var ok: bool = tk <= 3 or tk == 12 or tk == 13 or tk == 14
+        var fi: u32 = NONE
+        if ok {
+            fi = self.find_func(
+                self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]
+            )
+            if fi == NONE or not self.ct_fold_elig(fi) {
+                ok = false
+            }
+        }
+        if not ok {
+            # не пользовательская годная int/bool-функция — отказ навсегда
+            self.nfm[n / 65536][n % 65536] = 1
+            return false
+        }
+        # аргументы: все — константы? пуш на v-стек в (s, m)-форме (99)
+        self.ct_reset()
+        self.csoft = 1
+        var c: u32 = self.p.nfc[n / 65536][n % 65536]
+        var allc: bool = true
+        for _ in 0..64 {
+            if c == NONE or not allc {
+                break
+            }
+            if self.ct_fold_const_of(c) {
+                self.ct_vpush(99, self.cem, i64(self.ces))
+                c = self.p.nns[c / 65536][c % 65536]
+            } else {
+                allc = false
+            }
+        }
+        if not allc or self.failed {
+            # аргумент не константа (может свернуться позже) — без пометки
+            self.csoft = 0
+            self.failed = false
+            return false
+        }
+        self.ct_enter_frame(fi, 1)
+        if not self.failed {
+            self.ct_run()
+        }
+        self.csoft = 0
+        if self.failed or self.ncv == 0 {
+            # trap/бюджет/контракт — вызов остаётся рантайму; аргументы
+            # финальны, отказ постоянен
+            self.failed = false
+            self.nfm[n / 65536][n % 65536] = 1
+            return false
+        }
+        let j: u32 = (self.ncv - 1) & 2047
+        self.ct_k2sm(j)
+        self.nfs[n / 65536][n % 65536] = u32(self.cv_i[j])
+        self.nfm[n / 65536][n % 65536] = self.cv_u[j]
+        return true
+    }
+
+    # Один плоский скан тела: пробует все вызовы; спуск зеркалит слепые
+    # зоны эталонного _fold_node — в поля структ-литерала (45) и count
+    # array-fill (48) не заходим, у let (13) — только значение (тип
+    # пропускается). true — появились новые свёртки.
+    func ct_fold_scan(var self, body: u32) -> bool
+        requires body < 131072
+        ensures true
+    {
+        var ch: bool = false
+        var sp: u32 = 1
+        self.cfw[0][0] = body
+        for _ in 0..131072 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let i: u32 = sp & 131071
+            let n: u32 = self.cfw[i / 65536][i % 65536]
+            let k: u32 = self.p.nk[n / 65536][n % 65536]
+            if k == 41 and self.ct_fold_try(n) {
+                ch = true
+            }
+            if k == 48 or k == 13 {
+                var c1: u32 = self.p.nfc[n / 65536][n % 65536]
+                if k == 13 and c1 != NONE {
+                    c1 = self.p.nns[c1 / 65536][c1 % 65536]
+                }
+                if c1 != NONE and sp < 131071 {
+                    self.cfw[sp / 65536][sp % 65536] = c1
+                    sp = sp + 1
+                }
+            } elif k != 45 {
+                var c2: u32 = self.p.nfc[n / 65536][n % 65536]
+                for _ in 0..131072 {
+                    if c2 == NONE or sp >= 131071 {
+                        break
+                    }
+                    self.cfw[sp / 65536][sp % 65536] = c2
+                    sp = sp + 1
+                    c2 = self.p.nns[c2 / 65536][c2 % 65536]
+                }
+            }
+        }
+        return ch
+    }
+
+    # Драйвер прохода (ось -O): тела всех функций и методов (extern без
+    # тела, тестов в fnd нет); фикспойнт сканов = post-order эталона.
+    func ct_fold_pass(var self)
+        requires true
+        ensures true
+    {
+        for fi in 0..1024 {
+            if fi >= self.nfun {
+                break
+            }
+            let d: u32 = self.fnd[fi] & 131071
+            var c: u32 = self.p.nfc[d / 65536][d % 65536]
+            var body: u32 = NONE
+            for _ in 0..64 {
+                if c == NONE {
+                    break
+                }
+                if self.p.nk[c / 65536][c % 65536] == 12 {
+                    body = c
+                }
+                c = self.p.nns[c / 65536][c % 65536]
+            }
+            if body != NONE {
+                for _ in 0..64 {
+                    if not self.ct_fold_scan(body) {
+                        break
+                    }
+                }
+            }
+        }
+    }
+}
