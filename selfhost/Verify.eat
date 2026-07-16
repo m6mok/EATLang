@@ -5886,7 +5886,44 @@ struct Verify {
             if pid < 64 and not self.c.span_is(self.nss(node), self.nsl(node), "_") {
                 self.lockstep(pid)
             }
+        } elif self.nk(self.nfc(node)) != 49 {
+            self.seed_array_iter_var(node)
         }
+    }
+
+    # for x in массив: переменная цикла — элемент, интервал = тип элемента ∩
+    # инвариант пула (эталон _loop_body_env, ветвь array: inter(pool_iv,eiv))
+    func seed_array_iter_var(var self, node: u32)
+        requires node < 131072
+        ensures true
+    {
+        if self.c.span_is(self.nss(node), self.nsl(node), "_") {
+            return
+        }
+        let it: u32 = self.nfc(node)
+        let ety: u32 = self.array_elem_type(self.nty(it))
+        if ety == NONE or not self.numeric_kind(self.c.yk[ety]) {
+            return
+        }
+        let vpid: u32 = self.path_intern(self.nss(node), self.nsl(node))
+        if vpid >= 64 {
+            return
+        }
+        self.set_ty(ety)
+        let pk: u32 = self.pool_key(it)
+        if pk != NONE and pk < 512 and self.piv_kn[pk] == 1 {
+            self.kls = self.rls
+            self.klm = self.rlm
+            self.khs = self.rhs
+            self.khm = self.rhm
+            self.set_inter(self.piv_ls[pk], self.piv_lm[pk], self.piv_hs[pk], self.piv_hm[pk])
+        }
+        self.env.kn[vpid] = 1
+        self.env.nz[vpid] = 0
+        self.env.ls[vpid] = self.rls
+        self.env.lm[vpid] = self.rlm
+        self.env.hs[vpid] = self.rhs
+        self.env.hm[vpid] = self.rhm
     }
 
     # --- пробный проход тела + инвариант loop-carried путей (этап 3) ----
