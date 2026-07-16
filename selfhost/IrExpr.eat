@@ -294,26 +294,40 @@ extend Ir {
             # унарный минус: 0 - x с проверкой переполнения i32/i64
             let mt: u32 = self.ert
             let mk2: u32 = self.c.yk[mt]
-            var mi: u32 = 2
-            if mk2 == 14 {
-                mi = 17
+            if self.an(n, 2) {
+                # переполнение доказано (ось -O) — plain sub с nsw/nuw
+                # (эталон codegen.arith: flags=("nsw",)/("nuw",))
+                var sg: u32 = 0
+                if mk2 == 0 or mk2 == 14 {
+                    sg = 1
+                }
+                self.set1(2, 0, 0)
+                self.set2er()
+                self.e_binf(2, mt, sg)
+                self.serrr(mt)
+            } else {
+                var mi: u32 = 2
+                if mk2 == 14 {
+                    mi = 17
+                }
+                self.use_intr(mi)
+                self.set1(2, 0, 0)
+                self.set2er()
+                self.e_ov(mi)
+                let pk: u32 = self.rrk
+                let pa: u32 = self.rra
+                let pb: u32 = self.rrb
+                self.set1(pk, pa, pb)
+                self.e_exv(mi, 1)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2,
+                    mk2, 0
+                )
+                self.set1(pk, pa, pb)
+                self.e_exv(mi, 0)
+                self.serrr(mt)
             }
-            self.use_intr(mi)
-            self.set1(2, 0, 0)
-            self.set2er()
-            self.e_ov(mi)
-            let pk: u32 = self.rrk
-            let pa: u32 = self.rra
-            let pb: u32 = self.rrb
-            self.set1(pk, pa, pb)
-            self.e_exv(mi, 1)
-            self.set1rr()
-            self.trap_if(
-                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, mk2, 0
-            )
-            self.set1(pk, pa, pb)
-            self.e_exv(mi, 0)
-            self.serrr(mt)
         }
         self.nx3 = self.nx3 - 1
     }
@@ -457,6 +471,21 @@ extend Ir {
         let lt: u32 = self.xd3[f]
         let lk: u32 = self.c.yk[lt]
         if op <= 12 {
+            if self.an(n, 2) {
+                # переполнение доказуемо невозможно (ось -O) — обычная
+                # инструкция; nsw/nuw отдаёт доказательство верификатора
+                # оптимизатору (эталон codegen.arith, plain-ветка)
+                var sg: u32 = 0
+                if lk == 0 or lk == 14 {
+                    sg = 1
+                }
+                self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+                self.set2er()
+                self.e_binf(op - 9, lt, sg)
+                self.serrr(lt)
+                self.nx3 = self.nx3 - 1
+                return
+            }
             var iid: u32 = op - 9
             if lk == 1 {
                 iid = op - 6
@@ -535,15 +564,28 @@ extend Ir {
         } elif lk == 13 {
             width = 64
         }
-        self.set1(rk, ra, rb)
-        self.set2(2, 0, width)
-        self.e_icmp(10, lt)
-        self.set1rr()
-        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 7, lk, 0)
+        if not self.an(n, 16) {
+            self.set1(rk, ra, rb)
+            self.set2(2, 0, width)
+            self.e_icmp(10, lt)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 7, lk, 0
+            )
+        }
         if op == 20 { # >>
             self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
             self.set2(rk, ra, rb)
             self.e_bin(12, lt)
+            self.serrr(lt)
+            return
+        }
+        if self.an(n, 2) {
+            # вынос битов доказуемо невозможен (ось -O) — shl nuw для
+            # оптимизатора, без обратного lshr (эталон codegen.shift)
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2(rk, ra, rb)
+            self.e_binf(11, lt, 0)
             self.serrr(lt)
             return
         }
@@ -574,37 +616,46 @@ extend Ir {
         let rk: u32 = self.erk
         let ra: u32 = self.era
         let rb: u32 = self.erb
-        self.set1(rk, ra, rb)
-        self.set2(2, 0, 0)
-        self.e_icmp(1, lt)
-        self.set1rr()
-        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 3, 0, 0)
+        # деление доказано безопасным (ось -O): оба trap'а — и ноль, и
+        # знаковый край MIN/-1 — элидируются (эталон codegen: div_safe)
+        let safe: bool = self.an(n, 4)
+        if not safe {
+            self.set1(rk, ra, rb)
+            self.set2(2, 0, 0)
+            self.e_icmp(1, lt)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 3, 0, 0
+            )
+        }
         var o: u32 = 6
         if op == 14 {
             o = 7
         }
         if self.c.yk[lt] == 0 or self.c.yk[lt] == 14 {
-            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
-            var mn: u64 = 2147483648
-            if self.c.yk[lt] == 14 {
-                mn = 9223372036854775808
+            if not safe {
+                self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+                var mn: u64 = 2147483648
+                if self.c.yk[lt] == 14 {
+                    mn = 9223372036854775808
+                }
+                self.set2(self.cw_k(mn), 1, self.cw_b(mn))
+                self.e_icmp(1, lt)
+                let c1k: u32 = self.rrk
+                let c1a: u32 = self.rra
+                let c1b: u32 = self.rrb
+                self.set1(rk, ra, rb)
+                self.set2(2, 1, 1)
+                self.e_icmp(1, lt)
+                self.set2rr()
+                self.set1(c1k, c1a, c1b)
+                self.e_bin(8, 3)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2,
+                    self.c.yk[lt], 0
+                )
             }
-            self.set2(self.cw_k(mn), 1, self.cw_b(mn))
-            self.e_icmp(1, lt)
-            let c1k: u32 = self.rrk
-            let c1a: u32 = self.rra
-            let c1b: u32 = self.rrb
-            self.set1(rk, ra, rb)
-            self.set2(2, 1, 1)
-            self.e_icmp(1, lt)
-            self.set2rr()
-            self.set1(c1k, c1a, c1b)
-            self.e_bin(8, 3)
-            self.set1rr()
-            self.trap_if(
-                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2,
-                self.c.yk[lt], 0
-            )
             o = 4
             if op == 14 {
                 o = 5
@@ -856,30 +907,35 @@ extend Ir {
         let arg0: u32 = self.c.p.nfc[n / 65536][n % 65536]
         let at: u32 = self.c.nty[arg0 / 65536][arg0 % 65536]
         let sz: u32 = self.c.yb[at]
-        # rem = sub N, off
-        self.set1(2, 0, sz)
-        self.set2(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
-        self.e_bin(2, 1)
-        let mk1: u32 = self.rrk
-        let ma1: u32 = self.rra
-        let mb1: u32 = self.rrb
-        # bad1 = icmp ugt off, N
-        self.set1(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
-        self.set2(2, 0, sz)
-        self.e_icmp(9, 1)
-        let bk1: u32 = self.rrk
-        let ba1: u32 = self.rra
-        let bb1: u32 = self.rrb
-        # bad2 = icmp ugt len, rem
-        self.set1(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
-        self.set2(mk1, ma1, mb1)
-        self.e_icmp(9, 1)
-        # bad = or bad1, bad2
-        self.set2rr()
-        self.set1(bk1, ba1, bb1)
-        self.e_bin(9, 3)
-        self.set1rr()
-        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 8, 0, 0)
+        if not self.an(n, 1) {
+            # границы не доказаны (ось -O элидирует блок целиком)
+            # rem = sub N, off
+            self.set1(2, 0, sz)
+            self.set2(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+            self.e_bin(2, 1)
+            let mk1: u32 = self.rrk
+            let ma1: u32 = self.rra
+            let mb1: u32 = self.rrb
+            # bad1 = icmp ugt off, N
+            self.set1(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+            self.set2(2, 0, sz)
+            self.e_icmp(9, 1)
+            let bk1: u32 = self.rrk
+            let ba1: u32 = self.rra
+            let bb1: u32 = self.rrb
+            # bad2 = icmp ugt len, rem
+            self.set1(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
+            self.set2(mk1, ma1, mb1)
+            self.e_icmp(9, 1)
+            # bad = or bad1, bad2
+            self.set2rr()
+            self.set1(bk1, ba1, bb1)
+            self.e_bin(9, 3)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 8, 0, 0
+            )
+        }
         # ptr = gep [N x i8] arr, 0, off
         self.set1(self.agk[base], self.aga[base], self.agb[base])
         self.set2(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
@@ -1338,20 +1394,26 @@ extend Ir {
                 zb = self.rrb
             }
         }
-        self.set1(ik, ia, ib)
-        self.set2(2, 0, 0)
-        self.e_icmp(3, it2)
-        let lk2: u32 = self.rrk
-        let la2: u32 = self.rra
-        let lb2: u32 = self.rrb
-        self.set1(ik, ia, ib)
-        self.set2(zk, za, zb)
-        self.e_icmp(6, it2)
-        self.set2rr()
-        self.set1(lk2, la2, lb2)
-        self.e_bin(9, 3)
-        self.set1rr()
-        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 4, 0, 0)
+        if not self.an(n, 1) {
+            # границы не доказаны — trap-блок; при доказанных (ось -O)
+            # load размера str выше остаётся, как у эталона indexed_ptr
+            self.set1(ik, ia, ib)
+            self.set2(2, 0, 0)
+            self.e_icmp(3, it2)
+            let lk2: u32 = self.rrk
+            let la2: u32 = self.rra
+            let lb2: u32 = self.rrb
+            self.set1(ik, ia, ib)
+            self.set2(zk, za, zb)
+            self.e_icmp(6, it2)
+            self.set2rr()
+            self.set1(lk2, la2, lb2)
+            self.e_bin(9, 3)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 4, 0, 0
+            )
+        }
         if iw == 1 {
             self.set1(ik, ia, ib)
             self.e_cvt(1, it2, 0)
@@ -1659,7 +1721,7 @@ extend Ir {
             return
         }
         if code == 100 {
-            if sk2 == 1 {
+            if sk2 == 1 and not self.an(n, 8) {
                 self.set1er()
                 self.set2(2, 0, 2147483647)
                 self.e_icmp(9, st2)
@@ -1672,7 +1734,7 @@ extend Ir {
             return
         }
         if code == 101 {
-            if sk2 == 0 {
+            if sk2 == 0 and not self.an(n, 8) {
                 self.set1er()
                 self.set2(2, 0, 0)
                 self.e_icmp(3, st2)
@@ -1698,13 +1760,15 @@ extend Ir {
             return
         }
         if code == 102 {
-            self.set1er()
-            self.set2(2, 0, 255)
-            self.e_icmp(9, st2)
-            self.set1rr()
-            self.trap_if(
-                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 2, 0
-            )
+            if not self.an(n, 8) {
+                self.set1er()
+                self.set2(2, 0, 255)
+                self.e_icmp(9, st2)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 2, 0
+                )
+            }
             self.set1er()
             self.e_cvt(1, st2, 2)
             self.serrr(2)
@@ -1776,56 +1840,67 @@ extend Ir {
             return
         }
         let tk2: u32 = self.cast_kind(code)
+        # доказанный cast (ось -O): trap-блоки сужения элидируются
+        let prov: bool = self.an(n, 8)
         if sk2 == 13 {
             # u64: единственная проверка — верхняя граница цели
-            let hi: u64 = self.cast_hi(code)
-            self.set1er()
-            self.set2(self.cw_k(hi), 0, self.cw_b(hi))
-            self.e_icmp(9, st2)
-            self.set1rr()
-            self.trap_if(
-                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, tk2, 0
-            )
+            if not prov {
+                let hi: u64 = self.cast_hi(code)
+                self.set1er()
+                self.set2(self.cw_k(hi), 0, self.cw_b(hi))
+                self.e_icmp(9, st2)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6,
+                    tk2, 0
+                )
+            }
             if code == 112 {
                 self.ert = self.c.nty[n / 65536][n % 65536]
                 return
             }
         } elif code == 111 {
             # i64 -> u64: trap на отрицательном, ширина та же
-            self.set1er()
-            self.set2(2, 0, 0)
-            self.e_icmp(3, st2)
-            self.set1rr()
-            self.trap_if(
-                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 13, 0
-            )
+            if not prov {
+                self.set1er()
+                self.set2(2, 0, 0)
+                self.e_icmp(3, st2)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6,
+                    13, 0
+                )
+            }
             self.ert = self.c.nty[n / 65536][n % 65536]
             return
         } else {
             # i64 -> 32/16/8: обе границы знаково
-            var los: u32 = 0
-            var lom: u64 = 0
-            if code == 100 {
-                los = 1
-                lom = 2147483648
+            if not prov {
+                var los: u32 = 0
+                var lom: u64 = 0
+                if code == 100 {
+                    los = 1
+                    lom = 2147483648
+                }
+                self.set1er()
+                self.set2(self.cw_k(lom), los, self.cw_b(lom))
+                self.e_icmp(3, st2)
+                let lk2: u32 = self.rrk
+                let la2: u32 = self.rra
+                let lb2: u32 = self.rrb
+                let hi2: u64 = self.cast_hi(code)
+                self.set1er()
+                self.set2(self.cw_k(hi2), 0, self.cw_b(hi2))
+                self.e_icmp(5, st2)
+                self.set2rr()
+                self.set1(lk2, la2, lb2)
+                self.e_bin(9, 3)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6,
+                    tk2, 0
+                )
             }
-            self.set1er()
-            self.set2(self.cw_k(lom), los, self.cw_b(lom))
-            self.e_icmp(3, st2)
-            let lk2: u32 = self.rrk
-            let la2: u32 = self.rra
-            let lb2: u32 = self.rrb
-            let hi2: u64 = self.cast_hi(code)
-            self.set1er()
-            self.set2(self.cw_k(hi2), 0, self.cw_b(hi2))
-            self.e_icmp(5, st2)
-            self.set2rr()
-            self.set1(lk2, la2, lb2)
-            self.e_bin(9, 3)
-            self.set1rr()
-            self.trap_if(
-                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, tk2, 0
-            )
         }
         var tt: u32 = 0
         if code == 102 {
@@ -1845,7 +1920,7 @@ extend Ir {
         ensures true
     {
         if sk2 == 0 {
-            if code == 111 {
+            if code == 111 and not self.an(n, 8) {
                 self.set1er()
                 self.set2(2, 0, 0)
                 self.e_icmp(3, st2)
@@ -1869,26 +1944,30 @@ extend Ir {
         requires n < 131072 and st2 < 512
         ensures true
     {
-        if sk2 == 0 {
-            self.set1er()
-            self.set2(2, 0, 0)
-            self.e_icmp(3, st2)
-            let lk2: u32 = self.rrk
-            let la2: u32 = self.rra
-            let lb2: u32 = self.rrb
-            self.set1er()
-            self.set2(2, 0, 65535)
-            self.e_icmp(5, st2)
-            self.set2rr()
-            self.set1(lk2, la2, lb2)
-            self.e_bin(9, 3)
-        } else {
-            self.set1er()
-            self.set2(2, 0, 65535)
-            self.e_icmp(9, st2)
+        if not self.an(n, 8) {
+            if sk2 == 0 {
+                self.set1er()
+                self.set2(2, 0, 0)
+                self.e_icmp(3, st2)
+                let lk2: u32 = self.rrk
+                let la2: u32 = self.rra
+                let lb2: u32 = self.rrb
+                self.set1er()
+                self.set2(2, 0, 65535)
+                self.e_icmp(5, st2)
+                self.set2rr()
+                self.set1(lk2, la2, lb2)
+                self.e_bin(9, 3)
+            } else {
+                self.set1er()
+                self.set2(2, 0, 65535)
+                self.e_icmp(9, st2)
+            }
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 12, 0
+            )
         }
-        self.set1rr()
-        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 12, 0)
         self.set1er()
         self.e_cvt(1, st2, self.u16t())
         self.serrr(self.u16t())
@@ -1898,26 +1977,30 @@ extend Ir {
         requires n < 131072 and st2 < 512
         ensures true
     {
-        if sk2 == 0 {
-            self.set1er()
-            self.set2(2, 0, 0)
-            self.e_icmp(3, st2)
-            let lk2: u32 = self.rrk
-            let la2: u32 = self.rra
-            let lb2: u32 = self.rrb
-            self.set1er()
-            self.set2(2, 0, 255)
-            self.e_icmp(5, st2)
-            self.set2rr()
-            self.set1(lk2, la2, lb2)
-            self.e_bin(9, 3)
-        } else {
-            self.set1er()
-            self.set2(2, 0, 255)
-            self.e_icmp(9, st2)
+        if not self.an(n, 8) {
+            if sk2 == 0 {
+                self.set1er()
+                self.set2(2, 0, 0)
+                self.e_icmp(3, st2)
+                let lk2: u32 = self.rrk
+                let la2: u32 = self.rra
+                let lb2: u32 = self.rrb
+                self.set1er()
+                self.set2(2, 0, 255)
+                self.e_icmp(5, st2)
+                self.set2rr()
+                self.set1(lk2, la2, lb2)
+                self.e_bin(9, 3)
+            } else {
+                self.set1er()
+                self.set2(2, 0, 255)
+                self.e_icmp(9, st2)
+            }
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 2, 0
+            )
         }
-        self.set1rr()
-        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 2, 0)
         self.set1er()
         self.e_cvt(1, st2, 2)
         self.serrr(2)

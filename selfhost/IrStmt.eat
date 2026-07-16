@@ -161,6 +161,11 @@ extend Ir {
         requires cur < 131072
         ensures true
     {
+        if self.an(cur, 128) {
+            # доказан статически (ось -O) — проверка не нужна, условие
+            # не вычисляется (эталон codegen: if stmt.proven: return)
+            return
+        }
         self.expr_run(self.c.p.nfc[cur / 65536][cur % 65536])
         if self.failed {
             return
@@ -806,6 +811,23 @@ extend Ir {
         if rq == NONE {
             return
         }
+        if self.an(d, 32) {
+            # доказанный requires (ось -O) не эмитится веткой; факт
+            # диапазона возвращается оптимизатору как llvm.assume —
+            # только если вычисление заведомо не trap'ает (эталон
+            # codegen.py:584: elif assume_safe(func.requires))
+            let re: u32 = self.c.p.nfc[rq / 65536][rq % 65536]
+            if self.assume_safe(re) {
+                self.use_intr(19)
+                self.expr_run(re)
+                if self.failed {
+                    return
+                }
+                self.set1er()
+                self.e_assume()
+            }
+            return
+        }
         self.expr_run(self.c.p.nfc[rq / 65536][rq % 65536])
         if self.failed {
             return
@@ -819,6 +841,76 @@ extend Ir {
         )
     }
 
+    # Зеркало codegen.assume_safe: выражение, чьё вычисление заведомо
+    # не trap'ает и дёшево — сравнения имён/полей/литералов и их
+    # and-конъюнкции (арифметика внутри assume дала бы poison).
+    # Обход and-дерева явным стеком (правило 1: рекурсии нет).
+    func assume_safe(var self, e: u32) -> bool
+        requires e < 131072
+        ensures true
+    {
+        var st: [u32; 256] = [0; 256]
+        var sp: u32 = 1
+        st[0] = e
+        var ok: bool = true
+        for _ in 0..512 {
+            if sp == 0 or not ok {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            if self.c.p.nk[n / 65536][n % 65536] != 39 {
+                ok = false
+            } else {
+                let op: u32 = self.c.p.nx[n / 65536][n % 65536]
+                let l: u32 = self.c.p.nfc[n / 65536][n % 65536]
+                let r: u32 = self.c.p.nns[l / 65536][l % 65536]
+                if op == 2 {
+                    if sp + 2 <= 256 {
+                        st[sp] = l
+                        st[sp + 1] = r
+                        sp = sp + 2
+                    } else {
+                        ok = false
+                    }
+                } elif op >= 4 and op <= 9 {
+                    if not self.assume_leaf(l) or not self.assume_leaf(r) {
+                        ok = false
+                    }
+                } else {
+                    ok = false
+                }
+            }
+        }
+        return ok
+    }
+
+    # Лист assume_safe: литерал/имя/self, member — по цепочке объектов
+    # (эталон codegen._assume_leaf; цепочка — циклом, не рекурсией).
+    func assume_leaf(var self, e: u32) -> bool
+        requires e < 131072
+        ensures true
+    {
+        var cur: u32 = e
+        var res: bool = false
+        var done: bool = false
+        for _ in 0..64 {
+            if done {
+                break
+            }
+            let k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
+            if k == 32 or k == 33 or k == 37 or k == 38 {
+                res = true
+                done = true
+            } elif k == 43 {
+                cur = self.c.p.nfc[cur / 65536][cur % 65536]
+            } else {
+                done = true
+            }
+        }
+        return res
+    }
+
     func gen_ens(var self, fi: u32)
         requires fi < 1024
         ensures true
@@ -826,6 +918,11 @@ extend Ir {
         let d: u32 = self.c.fnd[fi]
         let en: u32 = self.find_child(d, 10)
         if en == NONE {
+            return
+        }
+        if self.an(d, 64) {
+            # доказанный ensures (ось -O): эпилог не эмитится, условие
+            # не вычисляется (эталон codegen: not ensures_proven)
             return
         }
         if self.rett != NONE {
@@ -1196,6 +1293,11 @@ extend Ir {
         if id == 0 {
             write("declare void @\"llvm.memcpy.p0i8.p0i8.i64\"(")
             write("i8* %\".1\", i8* %\".2\", i64 %\".3\", i1 %\".4\")\n")
+            return
+        }
+        if id == 19 {
+            # llvm.assume (ось -O): доказанный requires как факт диапазона
+            write("declare void @\"llvm.assume\"(i1 %\".1\")\n")
             return
         }
         write("declare {{")

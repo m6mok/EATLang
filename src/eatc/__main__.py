@@ -18,7 +18,8 @@ python -m eatc ir <файл>          — эталонный текстовый 
                                     верификатора (сверка с self-hosted
                                     эмиттером, selfhost/Ir.eat);
                                     `-O` — оптимизированная ось
-                                    (конвейер проходов, сейчас fold;
+                                    (конвейер проходов fold → verify:
+                                    элизия проверок, nsw/nuw, assume;
                                     сверка с SelfIrOpt,
                                     SELFHOST_OPT_PLAN)
 
@@ -211,11 +212,15 @@ def cmd_ir(path: str, trap_codes: bool = False, opt: bool = False) -> int:
         typed = typecheck(program, path)
         if opt:
             # оптимизированная ось `ir -O` (SELFHOST_OPT_PLAN §3):
-            # канон + конвейер проходов; сегодня -O ≡ [fold]. Решение
-            # свёртки от верификатора не зависит — множество свёрнутых
-            # совпадает с `build --fold`. Парти-эталон для SelfIrOpt
+            # канон + конвейер проходов [fold, verify] — порядок как в
+            # cmd_build (точки [v,v] свёртки снимают проверки ниже).
+            # verify ставит аннотации на узлы AST; кодоген (общий с
+            # build) читает их: элизия trap-блоков, nsw/nuw, llvm.assume
+            # (SELFHOST_VERIFIER_PLAN этап 5, решение Э1). Эталон SelfIrOpt
             from .comptime import fold_calls
+            from .verifier import verify
             fold_calls(program, typed.checker, path)
+            verify(program, typed.checker)
         text = emit_ir(program, typed.checker, trap_codes=trap_codes)
     except (OSError, EatError) as err:
         print(err, file=sys.stderr)
@@ -332,9 +337,9 @@ def main(argv: list[str]) -> int:
     if fold:
         argv = [a for a in argv if a != "--fold"]
     # -O (ir/verify): оптимизированная ось (SELFHOST_OPT_PLAN) — канон +
-    # конвейер проходов, сегодня ровно [fold]; эталон сверки SelfIrOpt.
+    # конвейер проходов [fold, verify]; эталон сверки SelfIrOpt.
     # У verify — дамп решений под конвейером (fold перед verify).
-    # Канонный `eatc ir` без -O не сворачивает никогда
+    # Канонный `eatc ir` без -O не сворачивает и не элидирует никогда
     opt = "-O" in argv
     if opt:
         argv = [a for a in argv if a != "-O"]

@@ -152,6 +152,8 @@ SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
 	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/CheckFold.eat \
+	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \
+	selfhost/VerifyFlow.eat selfhost/VerifyDump.eat \
 	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
 	selfhost/IrOptMain.eat
 # Фаза 7 — статический верификатор (docs/SELFHOST_VERIFIER_PLAN.md).
@@ -339,13 +341,16 @@ verify_trapcodes:
 		&& echo "TRAPCODES OK (IR режима кодов == эталон eatc ir --trap-codes)" \
 		|| { echo "TRAPCODES DIFF"; exit 1; }
 
-# Ось -O (SELFHOST_OPT_PLAN §11): свёртка вызовов в self-hosted
-# компиляторе. SelfIrOpt == эталон `eatc ir -O` байт-в-байт на входах
-# со сворачиваемыми вызовами (D6: tests/fold + примеры) и на
-# самоприменении (годность гоняется по всем вызовам фронтенда, §9).
+# Ось -O (SELFHOST_OPT_PLAN §11, SELFHOST_VERIFIER_PLAN этап 5):
+# конвейер проходов fold → verify в self-hosted компиляторе — элизия
+# доказанных проверок, nsw/nuw, llvm.assume. SelfIrOpt == эталон
+# `eatc ir -O` байт-в-байт на входах со сворачиваемыми вызовами
+# (D6: tests/fold + примеры), на кейсах верификатора (tests/verify —
+# концентрат доказуемых обязательств) и на самоприменении (годность
+# и элизия гоняются по всем вызовам фронтенда, §9).
 verify_selfhost_opt:
 	@$(EATC) build $(SELFHOST_IR_OPT) -o build/SelfIrOpt > /dev/null
-	@for f in tests/fold/Fold.eat $$(find examples -name '*.eat' | sort); do \
+	@for f in tests/fold/Fold.eat $$(find examples tests/verify -name '*.eat' | sort); do \
 		cat $(RT) $$f > /tmp/eat_iro_in.eat; \
 		if $(EATC) ir -O /tmp/eat_iro_in.eat > /tmp/eat_iro_ref.ll 2>/dev/null; then \
 			./build/SelfIrOpt < /tmp/eat_iro_in.eat > /tmp/eat_iro_self.ll; \

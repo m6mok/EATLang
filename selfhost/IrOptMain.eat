@@ -1,6 +1,11 @@
 # Self-hosted эмиттер LLVM IR, оптимизированная ось `-O` (фаза 4,
-# SELFHOST_OPT_PLAN): точка входа SelfIrOpt. Как IrMain, плюс проход
-# свёртки вызовов ct_fold_pass между типизацией и эмиссией. Фильтр
+# SELFHOST_OPT_PLAN): точка входа SelfIrOpt. Как IrMain, плюс конвейер
+# проходов оси между типизацией и эмиссией — ct_fold_pass (свёртка
+# вызовов), затем верификатор (SELFHOST_VERIFIER_PLAN этап 5, решение
+# Э1): analyze ставит обязательства, annotate переносит доказанные в
+# маску Check.nvm, эмиссия читает её зеркально codegen.py (элизия
+# trap-блоков, nsw/nuw, llvm.assume). Порядок fold → verify фиксирован
+# (как в cmd_build: точки [v,v] свёртки снимают проверки ниже). Фильтр
 # stdin → stdout: текстовый модуль LLVM, байт-в-байт совпадающий с
 # эталоном `eatc ir -O` (сверка в make verify_selfhost_opt).
 
@@ -30,12 +35,19 @@ func main() {
         p.parse()
         if not p.failed {
             var c: Check = check_new(p)
-            c.run_typed()
-            if not c.failed {
-                c.ct_fold_pass()
-                var ir: Ir = ir_new(c)
-                ir.emit()
-                if ir.failed {
+            var v: Verify = verify_new(c)
+            v.c.run_typed()
+            if not v.c.failed {
+                v.c.ct_fold_pass()
+                v.analyze()
+                v.annotate()
+                if not v.failed {
+                    var ir: Ir = ir_new(v.c)
+                    ir.emit()
+                    if ir.failed {
+                        bad = true
+                    }
+                } else {
                     bad = true
                 }
             } else {

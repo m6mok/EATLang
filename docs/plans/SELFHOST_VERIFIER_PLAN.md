@@ -451,12 +451,30 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
    (`call_arg_axiom` в VerifyExpr — bounds всегда runtime),
    вскрытый самоприменением; страховка `test -f` от ложного OK
    пустых дампов в курируемом гейте.
-2. **5.2 Эмиссия одним пакетом:** `cmd_ir -O` += `verify()`; массивы
-   аннотаций на Check + заполнение из Verify; чтение в Ir (полное
-   зеркало Э1); `IrOptMain` += verify; входы `verify_selfhost_opt`
-   расширить кейсами `tests/verify/`. Замерить кадр `main` SelfIrOpt
-   (Lexer+Parser+Check+Verify(Check)+Ir(Check) — риск потолка стека
-   256 МБ).
+2. ✅ 2026-07-17 **5.2 Эмиссия одним пакетом:** `cmd_ir -O` +=
+   `verify()` после `fold_calls` (кодоген не тронут — Э1). Selfhost:
+   маска аннотаций `Check.nvm` по id узла (бит = `1 << вид ck_k`;
+   requires/ensures — на узле декларации функции), `Verify.annotate()`
+   заполняет её из финальных `ck_*` (последний пасс — как
+   `_begin_pass` эталона чистит `checks`); `Verify.verify()` расщеплён
+   на `analyze()`+`dump()`. Ir читает `nvm` (`an(n, bit)`) во всех
+   ветках, зеркальных codegen.py: `idx_gep` (границы 32/64 бит, обе
+   точки — rvalue и lvalue; load размера str при доказанных границах
+   остаётся, как у эталона), `xwspan`, `xarith`/унарный минус
+   (интринзик → plain `e_binf` c nsw/nuw), `xdiv` (оба trap'а — ноль и
+   MIN/−1), `xshift` (`shl nuw` без обратного lshr), cast-семейство
+   (7 точек), `s_assert` (условие не вычисляется), `gen_req` (элизия +
+   `llvm.assume` через зеркало `assume_safe`/`assume_leaf` явным
+   стеком; интринзик id 19, declare в хвосте), `gen_ens`. `IrOptMain`:
+   `run_typed → ct_fold_pass → analyze → annotate → emit`.
+   `SELFHOST_IR_OPT` += Verify*, входы гейта += `tests/verify/`.
+   Паритет байт-в-байт с первого прогона: смоук, tests/fold, examples,
+   tests/verify, самоприменение. Метрики на самоприменении фронтенда:
+   IR 104 412 → 63 107 строк (−40 %), trap-блоков 5 810 → 1 180
+   (−80 %), 245 plain-инструкций с nsw/nuw, 119 `llvm.assume`;
+   SelfIrOpt 0.26 с (эталон 1.17 с). Кадр `main` SelfIrOpt —
+   **179,5 МБ**, худшая цепочка 217,2 МБ — в потолок `STACK_FLAGS`
+   256 МБ помещается (запас ~15 %).
 3. **5.3 Готовность:** полный гейт (10 целей) + доки (PROCESSES,
    MODIFYING §3, AGENTS при новых целях, индекс планов) + метрики
    в FINDINGS (снятые trap-блоки/инструкции до→после).
@@ -464,16 +482,16 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
 **Риск паритета:** порядок и состав аннотаций у эталона зависят от
 порядка `_mark` (AND-слияние повторных отметок) — selfhost заполняет
 маску из финального `ck_o`, а не по ходу анализа; сверка Э2 ловит
-расхождения решений до эмиссии.
+расхождения решений до эмиссии. На 5.2 риск не выстрелил: атрибут
+эталона синхронен AND-слитому `checks[key][0]`, дамп и эмиссия
+согласованы.
 
-**→ следующий шаг — подэтап 5.2 (эмиссия одним пакетом):** `cmd_ir -O`
-+= `verify()`; массивы аннотаций по id узла на Check (маска
-overflow/bounds/div/cast/shift/assert + пофункционные
-requires/ensures), заполнение из финальных `ck_*` Verify; чтение в Ir —
-полное зеркало Э1 (элизия trap-блоков, `nsw`/`nuw`, `llvm.assume` +
-зеркало `assume_safe`); `IrOptMain` += verify; входы
-`verify_selfhost_opt` расширить `tests/verify/`; замерить кадр `main`
-SelfIrOpt (риск потолка стека 256 МБ).
+**→ следующий шаг — подэтап 5.3 (готовность):** полный гейт (10
+целей); документация — PROCESSES (описание оси `-O` = fold+verify),
+MODIFYING §3 (чеклист: правка эмиссии — оба конца оси разом),
+SELFHOST/OPT-план (проход №2 доставлен), индекс планов; метрики
+до→после в FINDINGS; строка индекса планов из очереди этапа 6
+(README docs/plans), если файл свободен.
 
 ### Этап 6. Документация — ✅ СДЕЛАН 2026-07-16
 

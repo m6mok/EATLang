@@ -295,6 +295,29 @@ extend Ir {
         self.line_fin()
     }
 
+    # v1, v2 — операнды типа t; plain-инструкция с флагом wrap (sg:
+    # 1 nsw, 0 nuw): переполнение доказано верификатором (ось -O,
+    # аннотация no_overflow) — факт отдаётся оптимизатору LLVM
+    # (эталон codegen.arith/shift, flags=("nsw",)/("nuw",)).
+    func e_binf(var self, o: u32, t: u32, sg: u32)
+        requires o >= 1 and o <= 12 and t < 512 and sg <= 1
+        ensures true
+    {
+        self.rpre()
+        self.w_bop(o)
+        if sg == 1 {
+            self.lb_lit(" nsw ")
+        } else {
+            self.lb_lit(" nuw ")
+        }
+        self.wty(t)
+        self.lb_lit(" ")
+        self.wr1()
+        self.lb_lit(", ")
+        self.wr2()
+        self.line_fin()
+    }
+
     # not: xor i1 v1, -1.
     func e_not(var self)
         requires true
@@ -768,6 +791,19 @@ extend Ir {
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_read_byte\"()")
+        self.line_fin()
+    }
+
+    # v1 — i1: call void @"llvm.assume"(i1 v1) — возврат факта диапазона
+    # доказанного requires оптимизатору (ось -O, эталон codegen.py:589).
+    func e_assume(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"llvm.assume\"(i1 ")
+        self.wr1()
+        self.lb_lit(")")
         self.line_fin()
     }
 

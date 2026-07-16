@@ -1007,6 +1007,17 @@ struct Ir {
         }
     }
 
+    # Бит аннотации верификатора у узла n (Check.nvm, ось -O; этап 5
+    # SELFHOST_VERIFIER_PLAN): 1 bounds, 2 overflow, 4 div, 8 cast,
+    # 16 shift, 32 requires, 64 ensures, 128 assert. Без -O маска 0 —
+    # канонная эмиссия не меняется (зеркало getattr(node, ..., False)).
+    func an(var self, n: u32, bit: u32) -> bool
+        requires n < 131072
+        ensures true
+    {
+        return (self.c.nvm[n / 65536][n % 65536] & bit) != 0
+    }
+
     func g_commit(var self, vk: u32) -> u32
         requires vk <= 1
         ensures result < 65536
