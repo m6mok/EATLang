@@ -215,6 +215,13 @@ extend Check {
         requires true
         ensures true
     {
+        if self.csoft == 1 {
+            # soft-fail (D4): попытка свёртки — не ошибка компиляции;
+            # failed останавливает машину как обычно (без печати m),
+            # драйвер свёртки снимает флаг и оставляет рантайм-вызов
+            self.failed = true
+            return
+        }
         self.fail_node(self.cnd[self.ct_ci] & 131071, m)
     }
 
@@ -632,11 +639,11 @@ extend Check {
         }
     }
 
-    # Запуск машины для const ci: CRES снизу, CEXPR значения сверху.
-    # Драйвер — один ограниченный цикл; бюджет шагов срабатывает раньше
-    # границы (машинных переходов ≤ 16 на шаг).
-    func ct_eval_const(var self, ci: u32)
-        requires ci < 128
+    # D4 (SELFHOST_OPT_PLAN): общий вход машины — сброс состояния перед
+    # верхнеуровневым вычислением; используют ярус A (ct_eval_const,
+    # ошибка-при-fail) и свёртка -O (skip-при-fail, csoft = 1).
+    func ct_reset(var self)
+        requires true
         ensures true
     {
         self.ncw = 0
@@ -647,13 +654,14 @@ extend Check {
         self.csteps = 0
         self.nca = 0
         self.ncae = 0
-        let d: u32 = self.cnd[ci] & 131071
-        self.crs2[ci] = 1
-        self.ct_wpush(5, ci, 0)
-        let v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
-            self.p.nfc[d / 65536][d % 65536] % 65536
-        ]
-        self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
+    }
+
+    # D4: общий драйвер — один ограниченный цикл; бюджет шагов
+    # срабатывает раньше границы (машинных переходов ≤ 16 на шаг).
+    func ct_run(var self)
+        requires true
+        ensures true
+    {
         for _ in 0..16000000 {
             if self.ncw == 0 or self.failed {
                 break
@@ -663,6 +671,22 @@ extend Check {
         if self.ncw != 0 and not self.failed {
             self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
         }
+    }
+
+    # Запуск машины для const ci: CRES снизу, CEXPR значения сверху.
+    func ct_eval_const(var self, ci: u32)
+        requires ci < 128
+        ensures true
+    {
+        self.ct_reset()
+        let d: u32 = self.cnd[ci] & 131071
+        self.crs2[ci] = 1
+        self.ct_wpush(5, ci, 0)
+        let v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
+            self.p.nfc[d / 65536][d % 65536] % 65536
+        ]
+        self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
+        self.ct_run()
     }
 
     func ct_step(var self)
