@@ -113,21 +113,31 @@ SELFHOST_LEXER = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
 SELFHOST_PARSER = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
 	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParseMain.eat
 SELFHOST_SIG = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat selfhost/SigMain.eat
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
+	selfhost/SigMain.eat
 SELFHOST_TYPED = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat selfhost/TypedMain.eat
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
+	selfhost/TypedMain.eat
 SELFHOST_IR = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat selfhost/Ir.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
+	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
 	selfhost/IrMain.eat
 SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
 	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
-	selfhost/Ir.eat selfhost/IrCodesMain.eat
+	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
+	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
+	selfhost/IrCodesMain.eat
 # Фаза 7 — статический верификатор (docs/SELFHOST_VERIFIER_PLAN.md).
 # Зеркало verifier.py; вход как у `eatc verify` — одиночный .eat со stdin
 # (без Rt/lib). Этап 1: интервальное ядро на курируемом списке кейсов.
 SELFHOST_VERIFY = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat selfhost/Verify.eat \
-	selfhost/VerifyMain.eat
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
+	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \
+	selfhost/VerifyFlow.eat selfhost/VerifyDump.eat selfhost/VerifyMain.eat
 # Курируемый список кейсов (растёт по мере покрытия, как verify_suite):
 # этап 1 — bounds/overflow/div/cast/requires/ensures/assert.
 VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \

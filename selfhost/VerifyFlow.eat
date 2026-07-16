@@ -1,0 +1,2283 @@
+# Распил Verify.eat (REFACTOR_SELFHOST_PLAN §6.4): машина потока, кадры if/match/for, пробный
+# проход цикла, сбор обновлений (accel).
+# Методы extend сливаются в struct Verify, как объявленные в его блоке;
+# порядок склейки файлов — списки SELFHOST_* в Makefile.
+
+extend Verify {
+    # --- машина потока (0 блок, 1 if, 2 for) --------------------------
+
+    func fpush_block(var self, node: u32)
+        requires true
+        ensures true
+    {
+        if self.nf2 >= 64 {
+            self.failed = true
+            eprint("DBGFAIL 4979")
+            return
+        }
+        let f: u32 = self.nf2
+        self.fk[f] = 0
+        self.fnn[f] = node
+        self.fc2[f] = self.nfc(node)
+        self.fp2[f] = 0
+        self.nf2 = f + 1
+    }
+
+    func fpush_kind(var self, node: u32, kind: u32)
+        requires true
+        ensures true
+    {
+        if self.nf2 >= 64 {
+            self.failed = true
+            eprint("DBGFAIL 4995")
+            return
+        }
+        let f: u32 = self.nf2
+        self.fk[f] = kind
+        self.fnn[f] = node
+        self.fp2[f] = 0
+        self.nf2 = f + 1
+    }
+
+    func run_flow(var self, body: u32)
+        requires body < 131072
+        ensures true
+    {
+        self.nf2 = 0
+        self.fpush_block(body)
+        for _ in 0..1000000 {
+            if self.nf2 == 0 or self.failed {
+                break
+            }
+            self.flow_step()
+        }
+    }
+
+    func flow_step(var self)
+        requires self.nf2 >= 1
+        ensures true
+    {
+        let f: u32 = self.nf2 - 1
+        let k: u32 = self.fk[f]
+        if k == 0 {
+            self.fblock()
+        } elif k == 1 {
+            self.fif()
+        } elif k == 2 {
+            self.ffor()
+        } elif k == 3 {
+            self.fmatch()
+        } else {
+            self.floop()
+        }
+    }
+
+    # loop-кадр (kind 19; эталон _flow_stmt LoopStmt): присваиваемые
+    # пути убиты, тело гоняется ради отметок, выход — env входа тела
+    func floop(var self)
+        requires self.nf2 >= 1
+        ensures true
+    {
+        let f: u32 = self.nf2 - 1
+        if self.fp2[f] == 0 {
+            self.kill_assigned(self.nfc(self.fnn[f]))
+            self.fsa[f] = self.env
+            self.fp2[f] = 1
+            self.fpush_block(self.nfc(self.fnn[f]))
+        } else {
+            self.env = self.fsa[f]
+            self.nf2 = f
+        }
+    }
+
+    func fblock(var self)
+        requires self.nf2 >= 1
+        ensures true
+    {
+        let f: u32 = self.nf2 - 1
+        let cur: u32 = self.fc2[f]
+        if cur == NONE {
+            self.nf2 = f
+            return
+        }
+        self.fc2[f] = self.nns(cur)
+        self.flow_stmt(cur)
+    }
+
+    func flow_stmt(var self, cur: u32)
+        requires cur < 131072
+        ensures true
+    {
+        let k: u32 = self.nk(cur)
+        if k == 13 {
+            self.flow_let(cur)
+        } elif k == 14 {
+            self.flow_assign(cur)
+        } elif k == 15 {
+            self.fpush_kind(cur, 1)
+        } elif k == 18 {
+            self.fpush_kind(cur, 2)
+        } elif k == 22 {
+            self.flow_return(cur)
+        } elif k == 24 {
+            self.flow_assert(cur)
+        } elif k == 20 {
+            self.fpush_kind(cur, 3)
+        } elif k == 19 {
+            self.fpush_kind(cur, 4)
+        } elif k == 25 or k == 26 {
+            self.iv_eval(self.nfc(cur), 1)
+            self.flush_requires()
+        }
+    }
+
+    func capture_hole(var self, value: u32)
+        requires true
+        ensures true
+    {
+        self.hc_on = 0
+        if self.ho_on == 1 and self.ho_node == value {
+            self.hc_on = 1
+            self.hc_ls = self.ho_ls
+            self.hc_lm = self.ho_lm
+            self.hc_hs = self.ho_hs
+            self.hc_hm = self.ho_hm
+            self.hc_ss = self.ho_ss
+            self.hc_sm = self.ho_sm
+            self.ho_on = 0
+        }
+    }
+
+    func flow_let(var self, cur: u32)
+        requires cur < 131072
+        ensures true
+    {
+        let ty: u32 = self.nty(cur)
+        self.iv_eval(self.nns(self.nfc(cur)), 1)
+        # r-регистры захватываются ДО flush_requires: проверка requires
+        # переоценивает выражения и затирает r-регистры (значение — в
+        # состоянии до присваивания, как _iv возвращает iv до _check)
+        let vk_: u32 = self.rk
+        let vls_: u32 = self.rls
+        let vlm_: u64 = self.rlm
+        let vhs_: u32 = self.rhs
+        let vhm_: u64 = self.rhm
+        self.capture_hole(self.nns(self.nfc(cur)))
+        self.flush_requires()
+        let pid: u32 = self.path_intern(self.nss(cur), self.nsl(cur))
+        # struct-литерал: интервалы полей — факты о var.поле (эталон flow_let);
+        # до numeric-возврата — тип var'а нечисловой (struct)
+        let value: u32 = self.nns(self.nfc(cur))
+        if self.nk(value) == 45 {
+            self.seed_structlit(pid, value)
+            # поля struct-литерала → инварианты пулов/полей (этап 3; в
+            # машине выражений вызвать нельзя — замкнёт граф, правило 1)
+            self.note_structlit(value)
+        }
+        # локальный массив: запись в пул-инвариант (этап 3)
+        if ty != NONE and self.c.yk[ty] == 7 {
+            self.store_array(self.pki_intern(1, self.cur_own, self.nss(cur), self.nsl(cur)), value)
+        }
+        if ty == NONE or not self.numeric_kind(self.c.yk[ty]) {
+            return
+        }
+        self.kind_range(self.c.yk[ty])
+        if vk_ == 1 {
+            self.set_inter(vls_, vlm_, vhs_, vhm_)
+        } else {
+            self.rk = 1
+            self.rls = self.kls
+            self.rlm = self.klm
+            self.rhs = self.khs
+            self.rhm = self.khm
+        }
+        self.env.kn[pid] = 1
+        self.env.nz[pid] = 0
+        self.env.ls[pid] = self.rls
+        self.env.lm[pid] = self.rlm
+        self.env.hs[pid] = self.rhs
+        self.env.hm[pid] = self.rhm
+        # дырка значения (эталон flow_let: _hole совпал с value) → env.h*
+        self.env.hk[pid] = 0
+        if self.hc_on == 1 {
+            self.env.hk[pid] = 1
+            self.env.hls[pid] = self.hc_ls
+            self.env.hlm[pid] = self.hc_lm
+            self.env.hhs[pid] = self.hc_hs
+            self.env.hhm[pid] = self.hc_hm
+            self.env.hss[pid] = self.hc_ss
+            self.env.hsm[pid] = self.hc_sm
+            self.hc_on = 0
+        }
+        # отношение через присваивание выражения: let j = i + 1 → j == i+1
+        if self.decompose(value) {
+            self.env_relate(pid, 4, self.dc_p, self.dc_s, self.dc_m)
+        }
+        # модульный контракт: ensures вызванной функции гарантирован
+        # рантаймом — предполагаем его факт о связанном результате.
+        # Для метода (kind 42) obj — путь получателя (эталон _flow_stmt:
+        # MethodCall → _assume_ensures с _path_of(obj))
+        if self.nk(value) == 41 {
+            let cfi: u32 = self.c.find_func(self.nss(value), self.nsl(value))
+            if cfi != NONE {
+                self.assume_ensures(cfi, value, pid, NONE)
+            }
+        } elif self.nk(value) == 42 {
+            let mfi: u32 = self.resolve_method(value)
+            if mfi != NONE {
+                self.assume_ensures(mfi, value, pid, self.node_path(self.nfc(value)))
+            }
+        }
+    }
+
+    # let c = Struct{ f: e, ... } -> env.ivs[c.f] = iv(e) (эталон flow_let)
+    func seed_structlit(var self, base: u32, sl: u32)
+        requires sl < 131072
+        ensures true
+    {
+        var c: u32 = self.nfc(sl)
+        for _ in 0..1024 {
+            if c == NONE {
+                break
+            }
+            if self.nk(c) == 46 {
+                let fexpr: u32 = self.nfc(c)
+                if fexpr != NONE {
+                    self.iv_eval(fexpr, 0)
+                    if self.rk == 1 {
+                        let fpid: u32 = self.slot_intern(base, 0, self.nss(c), self.nsl(c))
+                        if fpid < 512 {
+                            self.env.kn[fpid] = 1
+                            self.env.nz[fpid] = 0
+                            self.env.ls[fpid] = self.rls
+                            self.env.lm[fpid] = self.rlm
+                            self.env.hs[fpid] = self.rhs
+                            self.env.hm[fpid] = self.rhm
+                        }
+                    }
+                }
+            }
+            c = self.nns(c)
+        }
+    }
+
+    func flow_assign(var self, cur: u32)
+        requires cur < 131072
+        ensures true
+    {
+        let tgt: u32 = self.nfc(cur)
+        let value: u32 = self.nns(tgt)
+        let tty: u32 = self.nty(tgt)
+        # значение РАНЬШЕ цели (эталон _flow_stmt AssignStmt: value = _iv(
+        # stmt.value), затем _iv(stmt.target)) — kill var-self получателя из
+        # value виден отметкам цели; сайты между — flush (kill отложенный)
+        self.iv_eval(value, 1)
+        # захват до flush_requires (см. flow_let)
+        let vk_: u32 = self.rk
+        let vls_: u32 = self.rls
+        let vlm_: u64 = self.rlm
+        let vhs_: u32 = self.rhs
+        let vhm_: u64 = self.rhm
+        self.capture_hole(value)
+        self.flush_requires()
+        if self.nk(tgt) == 44 {
+            self.iv_eval(tgt, 1)
+            self.flush_requires()
+        }
+        # запись цели в инвариант пула/поля (этап 3): Index/поле/лок.массив
+        let tk2: u32 = self.nk(tgt)
+        if tk2 == 44 or tk2 == 43 or (tk2 == 37 and tty != NONE and self.c.yk[tty] == 7) {
+            if vk_ == 1 {
+                self.rk = 1
+                self.rls = vls_
+                self.rlm = vlm_
+                self.rhs = vhs_
+                self.rhm = vhm_
+            } elif tty != NONE and self.numeric_kind(self.c.yk[tty]) {
+                self.set_ty(tty)
+            } else {
+                self.rk = 0
+            }
+            self.note_write_target(tgt, tk2, tty, value)
+        }
+        # обновление env-пути цели (эталон verifier.py: path=_path_of(target)
+        # для Name И FieldAccess; Index даёт None). self.поле=выражение
+        # ставит интервал пути self.поле в env — так ensures self.ln==0 после
+        # self.ln=0 доказуемо (иначе чтение уходит в инвариант поля).
+        # Захваченное значение — в av_* (иначе flow_assign > 60 инструкций).
+        let tk3: u32 = self.nk(tgt)
+        if tk3 != 37 and tk3 != 43 {
+            return
+        }
+        self.av_k = vk_
+        self.av_ls = vls_
+        self.av_lm = vlm_
+        self.av_hs = vhs_
+        self.av_hm = vhm_
+        self.assign_env(tgt, value, tty)
+    }
+
+    # env-обновление пути цели присваивания (Name/FieldAccess): kill старого
+    # пути, установка интервала из av_*, дырки, разностного факта x==y+c
+    func assign_env(var self, tgt: u32, value: u32, tty: u32)
+        requires tgt < 131072
+        ensures true
+    {
+        let pid: u32 = self.node_path(tgt)
+        if pid == NONE or pid >= 512 {
+            return
+        }
+        self.env.kn[pid] = 0
+        self.env.nz[pid] = 0
+        self.env.hk[pid] = 0
+        self.rels_kill(pid)
+        # дырка значения (эталон flow_stmt: _hole совпал с value) → env.h*
+        if self.hc_on == 1 {
+            self.env.hk[pid] = 1
+            self.env.hls[pid] = self.hc_ls
+            self.env.hlm[pid] = self.hc_lm
+            self.env.hhs[pid] = self.hc_hs
+            self.env.hhm[pid] = self.hc_hm
+            self.env.hss[pid] = self.hc_ss
+            self.env.hsm[pid] = self.hc_sm
+            self.hc_on = 0
+        }
+        if tty == NONE or not self.numeric_kind(self.c.yk[tty]) or self.av_k == 0 {
+            if self.er_active == 1 {
+                self.er_record(pid, tty)
+            }
+            return
+        }
+        self.kind_range(self.c.yk[tty])
+        self.smax(self.av_ls, self.av_lm, self.kls, self.klm)
+        let nls: u32 = self.oas
+        let nlm: u64 = self.oam
+        self.smin(self.av_hs, self.av_hm, self.khs, self.khm)
+        if self.sleq(nls, nlm, self.oas, self.oam) {
+            self.env.kn[pid] = 1
+            self.env.ls[pid] = nls
+            self.env.lm[pid] = nlm
+            self.env.hs[pid] = self.oas
+            self.env.hm[pid] = self.oam
+        }
+        # x = y + 1 → факт x == y + 1 (сам путь в правой части — старое
+        # значение, факт не записываем)
+        if self.decompose(value) and self.dc_p != pid {
+            self.env_relate(pid, 4, self.dc_p, self.dc_s, self.dc_m)
+        }
+        if self.er_active == 1 {
+            self.er_record(pid, tty)
+        }
+    }
+
+    func flow_return(var self, cur: u32)
+        requires cur < 131072
+        ensures true
+    {
+        let value: u32 = self.nfc(cur)
+        var vk_: u32 = 0
+        var vls_: u32 = 0
+        var vlm_: u64 = 0
+        var vhs_: u32 = 0
+        var vhm_: u64 = 0
+        if value != NONE {
+            self.iv_eval(value, 1)
+            # захват до flush_requires (см. flow_let)
+            vk_ = self.rk
+            vls_ = self.rls
+            vlm_ = self.rlm
+            vhs_ = self.rhs
+            vhm_ = self.rhm
+            self.flush_requires()
+            # return Struct{...}: поля заносятся в инвариант struct (эталон
+            # _iv StructLit → _note_field на каждом вычислении, вкл. пробу)
+            if self.nk(value) == 45 {
+                self.note_structlit(value)
+            }
+        }
+        # проба не учитывает return (эталон: if self._probe: return env)
+        if self.probe == 1 {
+            return
+        }
+        # интервал возврата в res_* (для сводки и ensures)
+        self.res_kn = 0
+        if value != NONE and vk_ == 1 {
+            self.res_kn = 1
+            self.res_ls = vls_
+            self.res_lm = vlm_
+            self.res_hs = vhs_
+            self.res_hm = vhm_
+        }
+        # накопить возврат для сводки функции (эталон returns/ret_syms/ret_holes)
+        self.acc_return(value)
+        if self.ens_node == NONE {
+            return
+        }
+        # ensures оценивается в копии состояния: result связывается
+        # интервалом (res_*), разностным фактом (result == выражение
+        # return) и раскрытием в выражение (res_expr, _expr_equal)
+        var saved: St = self.env
+        self.res_on = 1
+        self.res_expr = value
+        if value != NONE and self.decompose(value) {
+            let rpid: u32 = self.slot_intern(NONE, 2, 0, 0)
+            self.env_relate(rpid, 4, self.dc_p, self.dc_s, self.dc_m)
+        }
+        self.eval_bool(self.ens_node, 1)
+        self.ens_saw = 1
+        if self.tb != 1 {
+            self.ens_all = 0
+        }
+        self.res_on = 0
+        self.res_expr = NONE
+        self.env = saved
+    }
+
+    # накопить один возврат в сводку (эталон returns/ret_syms/ret_holes +
+    # тело _summary/_hive_summary). Интервал возврата — в res_kn/res_*
+    func acc_return(var self, value: u32)
+        requires true
+        ensures true
+    {
+        self.nret = self.nret + 1
+        self.acc_sym(value)
+        if self.res_kn == 0 {
+            self.racc_bad = 1
+            return
+        }
+        # iv-hull всех возвратов
+        if self.ri_kn == 0 {
+            self.ri_kn = 1
+            self.ri_ls = self.res_ls
+            self.ri_lm = self.res_lm
+            self.ri_hs = self.res_hs
+            self.ri_hm = self.res_hm
+        } else {
+            self.smin(self.ri_ls, self.ri_lm, self.res_ls, self.res_lm)
+            self.ri_ls = self.oas
+            self.ri_lm = self.oam
+            self.smax(self.ri_hs, self.ri_hm, self.res_hs, self.res_hm)
+            self.ri_hs = self.oas
+            self.ri_hm = self.oam
+        }
+        self.acc_hive(value)
+    }
+
+    # тождество параметру: все возвраты — один и тот же параметр (эталон
+    # _ret_sym + set(ret_syms)). NONE-возврат ломает тождество
+    func acc_sym(var self, value: u32)
+        requires true
+        ensures true
+    {
+        let sym: u32 = self.ret_sym_index(value)
+        if self.nret == 1 {
+            self.rsym = sym
+        }
+        if sym == NONE or sym != self.rsym {
+            self.rsym_bad = 1
+        }
+    }
+
+    # индекс параметра, которому тождественен возврат (возможно через
+    # прозрачный/сужающий каст одного аргумента), либо NONE (эталон _ret_sym)
+    func ret_sym_index(var self, value: u32) -> u32
+        requires true
+        ensures true
+    {
+        if value == NONE {
+            return NONE
+        }
+        var v: u32 = value
+        if (self.nk(v) == 41
+                and self.c.nchildren(v) == 1 and self.is_cast_name(self.nss(v), self.nsl(v))) {
+            let arg: u32 = self.nfc(v)
+            if self.nk(arg) == 37 {
+                v = arg
+            }
+        }
+        if self.nk(v) != 37 {
+            return NONE
+        }
+        return self.param_index(self.cur_fn, self.nss(v), self.nsl(v))
+    }
+
+    # накопить hive-часть возврата: дырка/точечный-сентинел/плотное
+    # (эталон тело _hive_summary). Сентинел единствен, иначе hive недоступен
+    func acc_hive(var self, value: u32)
+        requires true
+        ensures true
+    {
+        # тип-максимум возврата
+        var smk: u32 = 0
+        var sms: u32 = 0
+        var smm: u64 = 0
+        if self.ret_ty != NONE and self.int_kind(self.c.yk[self.ret_ty]) {
+            self.kind_range(self.c.yk[self.ret_ty])
+            smk = 1
+            smm = self.khm
+        }
+        # дырка возвращаемого пути
+        let rpid: u32 = self.hole_pid_of(value)
+        if rpid != NONE and rpid < 512 and self.env.hk[rpid] == 1 {
+            self.acc_hive_sent(self.env.hss[rpid], self.env.hsm[rpid])
+            self.acc_hive_dense(
+                self.env.hls[rpid], self.env.hlm[rpid], self.env.hhs[rpid], self.env.hhm[rpid]
+            )
+        } elif (smk == 1
+                and self.res_ls == sms and self.res_lm == smm and self.res_hs == sms
+                and self.res_hm == smm) {
+            self.acc_hive_sent(sms, smm)
+        } else {
+            self.acc_hive_dense(self.res_ls, self.res_lm, self.res_hs, self.res_hm)
+        }
+    }
+
+    func hole_pid_of(var self, value: u32) -> u32
+        requires true
+        ensures true
+    {
+        if value == NONE {
+            return NONE
+        }
+        return self.node_path(value)
+    }
+
+    func acc_hive_sent(var self, ss: u32, sm: u64)
+        requires true
+        ensures true
+    {
+        if self.rs_has == 1 and not (self.rs_s == ss and self.rs_m == sm) {
+            self.rs_multi = 1
+        }
+        self.rs_has = 1
+        self.rs_s = ss
+        self.rs_m = sm
+    }
+
+    func acc_hive_dense(var self, ls: u32, lm: u64, hs: u32, hm: u64)
+        requires true
+        ensures true
+    {
+        if self.rd_kn == 0 {
+            self.rd_kn = 1
+            self.rd_ls = ls
+            self.rd_lm = lm
+            self.rd_hs = hs
+            self.rd_hm = hm
+        } else {
+            self.smin(self.rd_ls, self.rd_lm, ls, lm)
+            self.rd_ls = self.oas
+            self.rd_lm = self.oam
+            self.smax(self.rd_hs, self.rd_hm, hs, hm)
+            self.rd_hs = self.oas
+            self.rd_hm = self.oam
+        }
+    }
+
+    # сводка на месте вызова (эталон _apply_summary): tag 1 интервал,
+    # 3 hive (дырка). Тождество параметру (tag 2) на этапе 3 отдаётся
+    # диапазоном типа — интервал аргумента сквозь (эталон) требует
+    # переоценки аргумента, что замкнуло бы граф (правило 1; в гейте
+    # одномодульных вызовов-тождеств нет). Полное — этап 4
+    func apply_summary(var self, fi: u32, n: u32)
+        requires fi < 1024 and n < 131072
+        ensures true
+    {
+        let ret: u32 = self.c.fret[fi]
+        self.set_ty(ret)
+        let tag: u32 = self.sum_tag[fi]
+        if tag == 0 or self.rk == 0 {
+            return
+        }
+        if tag == 1 {
+            self.rk = 1
+            self.rls = self.sum_ls[fi]
+            self.rlm = self.sum_lm[fi]
+            self.rhs = self.sum_hs[fi]
+            self.rhm = self.sum_hm[fi]
+        } elif tag == 2 {
+            self.apply_param_summary(fi, n)
+        } elif tag == 3 {
+            self.apply_hive_summary(fi, n, ret)
+        }
+    }
+
+    # тождество параметру (tag 2, эталон _apply_summary "param"): интервал
+    # аргумента сквозь вызов ОГРАНИЧЕННЫМ путём — const | env-путь |
+    # диапазон типа аргумента; полный iv_eval аргумента замкнул бы граф
+    # вызовов (правило 1: apply_summary→iv_eval→call_user→apply_summary).
+    # Эквивалентность полному _iv эталона на всём репозитории проверена
+    # экспериментом (патч эталона, дампы байт-в-байт на 124 файлах)
+    func apply_param_summary(var self, fi: u32, n: u32)
+        requires fi < 1024 and n < 131072
+        ensures true
+    {
+        var arg: u32 = self.nfc(n)
+        if self.nk(n) == 42 and arg != NONE {
+            arg = self.nns(arg)
+        }
+        var i: u32 = 0
+        for _ in 0..8 {
+            if i >= self.sum_pn[fi] or arg == NONE {
+                break
+            }
+            arg = self.nns(arg)
+            i = i + 1
+        }
+        if arg == NONE {
+            return
+        }
+        if self.const_of(arg) {
+            self.kind_range(self.c.yk[self.c.fret[fi]])
+            self.set_inter(self.csig, self.cmag, self.csig, self.cmag)
+            return
+        }
+        let pid: u32 = self.node_path(arg)
+        if pid == NONE {
+            return
+        }
+        if pid < 512 and self.env.kn[pid] == 1 {
+            self.kind_range(self.c.yk[self.c.fret[fi]])
+            self.set_inter(self.env.ls[pid], self.env.lm[pid], self.env.hs[pid], self.env.hm[pid])
+            return
+        }
+        # путь есть, значения в env нет — диапазон типа аргумента ∩ базы
+        let aty: u32 = self.nty(self.uncast(arg))
+        if aty == NONE or not self.numeric_kind(self.c.yk[aty]) {
+            return
+        }
+        self.kind_range(self.c.yk[aty])
+        let als: u32 = self.kls
+        let alm: u64 = self.klm
+        let ahs: u32 = self.khs
+        let ahm: u64 = self.khm
+        self.kind_range(self.c.yk[self.c.fret[fi]])
+        self.set_inter(als, alm, ahs, ahm)
+    }
+
+    func apply_hive_summary(var self, fi: u32, n: u32, ret: u32)
+        requires fi < 1024 and n < 131072
+        ensures true
+    {
+        # плотная часть (обрезанная типом) — в дырку
+        self.kind_range(self.c.yk[ret])
+        self.set_inter(self.sum_ls[fi], self.sum_lm[fi], self.sum_hs[fi], self.sum_hm[fi])
+        self.ho_on = 1
+        self.ho_node = n
+        self.ho_ls = self.rls
+        self.ho_lm = self.rlm
+        self.ho_hs = self.rhs
+        self.ho_hm = self.rhm
+        self.ho_ss = self.sum_ss[fi]
+        self.ho_sm = self.sum_sm[fi]
+        # наружу — hull(плотное, сент) ∩ тип
+        self.kind_range(self.c.yk[ret])
+        self.smin(self.sum_ls[fi], self.sum_lm[fi], self.sum_ss[fi], self.sum_sm[fi])
+        let los: u32 = self.oas
+        let lom: u64 = self.oam
+        self.smax(self.sum_hs[fi], self.sum_hm[fi], self.sum_ss[fi], self.sum_sm[fi])
+        self.set_inter(los, lom, self.oas, self.oam)
+    }
+
+    func flow_assert(var self, cur: u32)
+        requires cur < 131072
+        ensures true
+    {
+        let cond: u32 = self.nfc(cur)
+        self.eval_bool(cond, 1)
+        self.flush_requires()
+        var ok: u32 = 0
+        if self.tb == 1 and not self.has_call(cond) {
+            ok = 1
+        }
+        self.mark(7, cur, ok)
+        self.refine(cond, 1)
+    }
+
+    # --- if-кадр -------------------------------------------------------
+
+    func fif(var self)
+        requires self.nf2 >= 1
+        ensures true
+    {
+        let f: u32 = self.nf2 - 1
+        let node: u32 = self.fnn[f]
+        let ph: u32 = self.fp2[f]
+        if ph == 0 {
+            self.fsa[f] = self.env
+            self.fx2[f] = 0
+            self.fhe[f] = 0
+            self.fc2[f] = self.nfc(node)
+            self.fp2[f] = 1
+        } elif ph == 1 {
+            self.fif1(f)
+        } else {
+            self.fif2(f)
+        }
+    }
+
+    func fif1(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        let cur: u32 = self.fc2[f]
+        if cur == NONE {
+            self.fif_tail(f)
+            return
+        }
+        let k: u32 = self.nk(cur)
+        if k == 17 {
+            self.fhe[f] = 1
+            self.env = self.fsa[f]
+            self.fcc[f] = NONE
+            self.fbk[f] = self.nfc(cur)
+            self.fc2[f] = NONE
+            self.fp2[f] = 2
+            self.fpush_block(self.nfc(cur))
+        } elif k == 16 {
+            self.fif_branch(f, self.nfc(cur), self.nns(self.nfc(cur)), self.nns(cur))
+        } else {
+            self.fif_branch(f, cur, self.nns(cur), self.nns(self.nns(cur)))
+        }
+    }
+
+    func fif_branch(var self, f: u32, cnd: u32, blk: u32, nextc: u32)
+        requires f < 64 and cnd < 131072 and blk < 131072
+        ensures true
+    {
+        self.env = self.fsa[f]
+        # обязательства внутри условия ветви отмечаются (эталон _flow_if:
+        # _eval_bool(cond) до уточнения) — напр. границы a[i] в `if a[i] > x`
+        self.eval_bool(cnd, 1)
+        self.flush_requires()
+        # эффекты оценки условия (kill var-self получателя) текут и в
+        # нег-путь (эталон: _eval_bool мутирует neg_env, ветвь — копия)
+        self.fsa[f] = self.env
+        self.refine(cnd, 1)
+        self.fcc[f] = cnd
+        self.fbk[f] = blk
+        self.fc2[f] = nextc
+        self.fp2[f] = 2
+        self.fpush_block(blk)
+    }
+
+    func fif2(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        if not self.block_exits(self.fbk[f]) {
+            self.join_into(f)
+        }
+        let cond: u32 = self.fcc[f]
+        if cond != NONE {
+            self.env = self.fsa[f]
+            self.refine(cond, 0)
+            self.fsa[f] = self.env
+        }
+        self.fp2[f] = 1
+    }
+
+    func fif_tail(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        if self.fhe[f] == 0 {
+            self.env = self.fsa[f]
+            self.join_into(f)
+        }
+        if self.fx2[f] == 1 {
+            self.env = self.fsb[f]
+        } else {
+            self.env = self.fresh_st()
+        }
+        self.nf2 = f
+    }
+
+    func join_into(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        if self.fx2[f] == 0 {
+            self.fsb[f] = self.env
+            self.fx2[f] = 1
+            return
+        }
+        self.meet(f)
+    }
+
+    func meet(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        for pid in 0..512 {
+            if pid >= self.npp {
+                break
+            }
+            if self.fsb[f].kn[pid] == 1 and self.env.kn[pid] == 1 {
+                self.smin(
+                    self.fsb[f].ls[pid], self.fsb[f].lm[pid], self.env.ls[pid], self.env.lm[pid]
+                )
+                self.fsb[f].ls[pid] = self.oas
+                self.fsb[f].lm[pid] = self.oam
+                self.smax(
+                    self.fsb[f].hs[pid], self.fsb[f].hm[pid], self.env.hs[pid], self.env.hm[pid]
+                )
+                self.fsb[f].hs[pid] = self.oas
+                self.fsb[f].hm[pid] = self.oam
+            } else {
+                self.fsb[f].kn[pid] = 0
+            }
+            if not (self.fsb[f].nz[pid] == 1 and self.env.nz[pid] == 1) {
+                self.fsb[f].nz[pid] = 0
+            }
+            # дырка сохраняется только если совпала в обеих ветвях
+            # (эталон _join: holes[k] == h0 для всех ветвей)
+            if not (self.fsb[f].hk[pid] == 1 and self.env.hk[pid] == 1 and self.hole_eq(f, pid)) {
+                self.fsb[f].hk[pid] = 0
+            }
+        }
+        self.meet_rels(f)
+    }
+
+    func hole_eq(var self, f: u32, pid: u32) -> bool
+        requires f < 64 and pid < 512
+        ensures true
+    {
+        return (
+            self.fsb[f].hls[pid] == self.env.hls[pid]
+            and self.fsb[f].hlm[pid] == self.env.hlm[pid]
+            and self.fsb[f].hhs[pid] == self.env.hhs[pid]
+            and self.fsb[f].hhm[pid] == self.env.hhm[pid]
+            and self.fsb[f].hss[pid] == self.env.hss[pid]
+            and self.fsb[f].hsm[pid] == self.env.hsm[pid]
+        )
+    }
+
+    # пересечение разностных ограничений двух ветвей: ребро (p,q) остаётся,
+    # если есть в обеих, с максимальным (слабейшим) d (эталон _join)
+    func meet_rels(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        var w: u32 = 0
+        for e in 0..32 {
+            if e >= self.fsb[f].nrel {
+                break
+            }
+            let p: u32 = self.fsb[f].rp[e]
+            let q: u32 = self.fsb[f].rq[e]
+            var g: u32 = NONE
+            for e2 in 0..32 {
+                if e2 >= self.env.nrel or g != NONE {
+                    break
+                }
+                if self.env.rp[e2] == p and self.env.rq[e2] == q {
+                    g = e2
+                }
+            }
+            if g != NONE {
+                self.smax(self.fsb[f].rs[e], self.fsb[f].rm[e], self.env.rs[g], self.env.rm[g])
+                self.fsb[f].rp[w] = p
+                self.fsb[f].rq[w] = q
+                self.fsb[f].rs[w] = self.oas
+                self.fsb[f].rm[w] = self.oam
+                w = w + 1
+            }
+        }
+        self.fsb[f].nrel = w
+    }
+
+    func block_exits(var self, blk: u32) -> bool
+        requires blk < 131072
+        ensures true
+    {
+        var c: u32 = self.nfc(blk)
+        var ex: bool = false
+        for _ in 0..256 {
+            if c == NONE or ex {
+                break
+            }
+            let k: u32 = self.nk(c)
+            if k == 22 or k == 23 {
+                ex = true
+            }
+            c = self.nns(c)
+        }
+        return ex
+    }
+
+    # блок кончается return (эталон _block_returns): плечо match, не
+    # доходящее до join, — только return (break из арма вне цикла нет)
+    func block_returns(var self, blk: u32) -> bool
+        requires blk < 131072
+        ensures true
+    {
+        var c: u32 = self.nfc(blk)
+        var r: bool = false
+        for _ in 0..256 {
+            if c == NONE or r {
+                break
+            }
+            if self.nk(c) == 22 {
+                r = true
+            }
+            c = self.nns(c)
+        }
+        return r
+    }
+
+    # --- match-кадр (kind 19; арм — kind 21) ---------------------------
+    # Эталон _flow_match: subject оценивается (интервал + сайты requires),
+    # каждый арм — копия входного состояния с интервалом связки (тип
+    # нагрузки), плечи без return join'ятся; всё вернули — входное env.
+
+    func fmatch(var self)
+        requires self.nf2 >= 1
+        ensures true
+    {
+        let f: u32 = self.nf2 - 1
+        let node: u32 = self.fnn[f]
+        let ph: u32 = self.fp2[f]
+        if ph == 0 {
+            let subj: u32 = self.nfc(node)
+            self.iv_eval(subj, 1)
+            self.flush_requires()
+            self.fsa[f] = self.env
+            self.fx2[f] = 0
+            self.fc2[f] = self.nns(subj)
+            self.fp2[f] = 1
+        } elif ph == 1 {
+            self.fmatch1(f)
+        } else {
+            self.fmatch2(f)
+        }
+    }
+
+    func fmatch1(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        let cur: u32 = self.fc2[f]
+        if cur == NONE {
+            if self.fx2[f] == 1 {
+                self.env = self.fsb[f]
+            } else {
+                self.env = self.fsa[f]
+            }
+            self.nf2 = f
+            return
+        }
+        self.env = self.fsa[f]
+        self.seed_binding(cur)
+        self.fbk[f] = self.nfc(cur)
+        self.fc2[f] = self.nns(cur)
+        self.fp2[f] = 2
+        self.fpush_block(self.nfc(cur))
+    }
+
+    func fmatch2(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        if not self.block_returns(self.fbk[f]) {
+            self.join_into(f)
+        }
+        self.fp2[f] = 1
+    }
+
+    # интервал связки арма — диапазон типа нагрузки (эталон _ty_iv)
+    func seed_binding(var self, arm: u32)
+        requires arm < 131072
+        ensures true
+    {
+        let bs: u32 = self.nx(arm)
+        if bs == NONE {
+            return
+        }
+        let pty: u32 = self.nty(arm)
+        if pty == NONE or not self.numeric_kind(self.c.yk[pty]) {
+            return
+        }
+        let pid: u32 = self.path_intern(bs, self.ny(arm))
+        self.set_ty(pty)
+        self.env.kn[pid] = 1
+        self.env.nz[pid] = 0
+        self.env.ls[pid] = self.rls
+        self.env.lm[pid] = self.rlm
+        self.env.hs[pid] = self.rhs
+        self.env.hm[pid] = self.rhm
+    }
+
+    # --- for-кадр ------------------------------------------------------
+
+    func ffor(var self)
+        requires self.nf2 >= 1
+        ensures true
+    {
+        let f: u32 = self.nf2 - 1
+        if self.fp2[f] == 0 {
+            self.ffor0(f, self.fnn[f])
+        } elif self.fp2[f] == 1 {
+            self.ffor_probe_done(f, self.fnn[f])
+        } else {
+            self.ffor1(f, self.fnn[f])
+        }
+    }
+
+    # прямой break в теле цикла (эталон _has_direct_break): во вложенные
+    # циклы не спускаемся. При break ускорение к ВЫХОДУ неприменимо (цикл
+    # мог прерваться на любом витке) — loop-carried пути, включая accel,
+    # берут observed-объединение (эталон _flow_for, ветвь has_direct_break)
+    func has_break(var self, body: u32) -> bool
+        requires body < 131072
+        ensures true
+    {
+        var st: [u32; 256] = [0; 256]
+        var sp: u32 = 1
+        st[0] = body
+        var found: bool = false
+        for _ in 0..4096 {
+            if sp == 0 or found {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            if self.nk(n) == 23 {
+                found = true
+            } elif self.nk(n) != 18 and self.nk(n) != 19 {
+                var c: u32 = self.nfc(n)
+                for _ in 0..64 {
+                    if c == NONE or sp >= 255 {
+                        break
+                    }
+                    st[sp] = c
+                    sp = sp + 1
+                    c = self.nns(c)
+                }
+            }
+        }
+        return found
+    }
+
+    func ffor0(var self, f: u32, node: u32)
+        requires f < 64 and node < 131072
+        ensures true
+    {
+        let it: u32 = self.nfc(node)
+        self.for_ns = 0
+        self.for_nm = 0
+        # n витков: диапазон end−start либо размер массива (эталон
+        # _flow_for); n неизвестен → ускорение выключено (accel = {})
+        var nkn: bool = false
+        if self.nk(it) == 49 {
+            let rbi: u32 = self.c.range_of(node)
+            if rbi != NONE {
+                self.fr_ss = self.c.rb_ss[rbi]
+                self.fr_sm = self.c.rb_sm[rbi]
+                self.fr_es = self.c.rb_es[rbi]
+                self.fr_em = self.c.rb_em[rbi]
+                self.ssub(self.fr_es, self.fr_em, self.fr_ss, self.fr_sm)
+                self.for_ns = self.oas
+                self.for_nm = self.oam
+                nkn = true
+            }
+        } else {
+            # обязательства внутри итерируемого выражения (эталон _iv)
+            self.iv_eval(it, 1)
+            self.flush_requires()
+            let aty: u32 = self.nty(it)
+            if aty != NONE and self.c.yk[aty] == 7 {
+                self.for_ns = 0
+                self.for_nm = u64(self.c.yb[aty])
+                nkn = true
+            }
+        }
+        self.ein = self.env
+        if nkn {
+            self.accelerate(self.nns(it))
+        } else {
+            self.nac = 0
+        }
+        self.fsb[f] = self.fresh_st()
+        self.fov_n[f] = 0
+        self.fac_n[f] = 0
+        let body: u32 = self.nns(it)
+        self.fbrk[f] = 0
+        if self.has_break(body) {
+            self.fbrk[f] = 1
+        }
+        self.loop_body(node)
+        # снимок входа тела: выход цикла строится от него (эталон
+        # _flow_for: out = body_env.copy(), эффекты прохода тела не текут)
+        self.fsa[f] = self.env
+        # проба тела (фаза 1) через основную машину: собрать значения
+        # выхода loop-carried путей. Вложенный цикл во время пробы своей
+        # пробы не запускает (probe==1) — сразу к реальному телу.
+        # obs_brk: при break в observed попадают и accel-пути (их выход —
+        # объединение, а не линейный accel-ход)
+        if self.probe == 0 {
+            self.obs_brk = self.fbrk[f]
+            self.collect_observed(body)
+        }
+        if self.probe == 0 and self.er_n > 0 {
+            self.probe = 1
+            self.er_active = 1
+            self.fp2[f] = 1
+            self.fpush_block(body)
+        } else {
+            self.fp2[f] = 2
+            self.fpush_block(body)
+        }
+    }
+
+    # фаза 1 кадра for: проба тела завершена — восстановить вход тела,
+    # применить инварианты loop-carried путей, запустить реальное тело
+    func ffor_probe_done(var self, f: u32, node: u32)
+        requires f < 64 and node < 131072
+        ensures true
+    {
+        self.probe = 0
+        self.er_active = 0
+        self.env = self.fsa[f]
+        self.apply_loop_inv(f)
+        # переснять вход тела С инвариантами: ffor1 строит выход от него
+        self.fsa[f] = self.env
+        self.fp2[f] = 2
+        self.fpush_block(self.nns(self.nfc(node)))
+    }
+
+    func ffor1(var self, f: u32, node: u32)
+        requires f < 64 and node < 131072
+        ensures true
+    {
+        # выход цикла — от снимка входа тела (эталон out = body_env.copy();
+        # эффекты символического прохода тела не текут за цикл)
+        self.env = self.fsa[f]
+        let pt: u32 = self.path_find(self.nss(node), self.nsl(node))
+        if pt != NONE {
+            self.env.kn[pt] = 0
+            self.env.nz[pt] = 0
+            self.rels_kill(pt)
+        }
+        # accel-выход (линейный ход) — только БЕЗ break. При break выход
+        # accel-путей идёт объединением через fov (ffor1_restore_ov ниже),
+        # ускорение к выходу неприменимо (эталон _flow_for); их посев
+        # входа тела (accel_body_iv в снимке) убирается — эталон kill
+        for j in 0..32 {
+            if j >= self.fac_n[f] {
+                break
+            }
+            if self.fbrk[f] == 0 {
+                self.ffor1_apply(f, self.fac_p[f][j])
+            } else {
+                self.ffor1_kill(self.fac_p[f][j])
+            }
+        }
+        # наблюдаемые loop-carried пути на выходе цикла (этап 3)
+        for m in 0..16 {
+            if m >= self.fov_n[f] {
+                break
+            }
+            self.ffor1_restore_ov(f, m)
+        }
+        self.nf2 = f
+    }
+
+    func ffor1_kill(var self, pid: u32)
+        requires pid < 512
+        ensures true
+    {
+        self.env.kn[pid] = 0
+        self.env.nz[pid] = 0
+        self.env.hk[pid] = 0
+        self.rels_kill(pid)
+    }
+
+    func ffor1_restore_ov(var self, f: u32, m: u32)
+        requires f < 64 and m < 16
+        ensures true
+    {
+        let pid: u32 = self.fov_p[f][m]
+        self.env.kn[pid] = 0
+        self.env.nz[pid] = 0
+        self.env.hk[pid] = 0
+        self.rels_kill(pid)
+        if self.fsb[f].kn[pid] == 1 {
+            self.env.kn[pid] = 1
+            self.env.ls[pid] = self.fsb[f].ls[pid]
+            self.env.lm[pid] = self.fsb[f].lm[pid]
+            self.env.hs[pid] = self.fsb[f].hs[pid]
+            self.env.hm[pid] = self.fsb[f].hm[pid]
+            self.env.hk[pid] = self.fsb[f].hk[pid]
+            self.env.hls[pid] = self.fsb[f].hls[pid]
+            self.env.hlm[pid] = self.fsb[f].hlm[pid]
+            self.env.hhs[pid] = self.fsb[f].hhs[pid]
+            self.env.hhm[pid] = self.fsb[f].hhm[pid]
+            self.env.hss[pid] = self.fsb[f].hss[pid]
+            self.env.hsm[pid] = self.fsb[f].hsm[pid]
+        }
+    }
+
+    func ffor1_apply(var self, f: u32, pid: u32)
+        requires f < 64 and pid < 512
+        ensures true
+    {
+        self.env.kn[pid] = 0
+        self.env.nz[pid] = 0
+        self.rels_kill(pid)
+        if self.fsb[f].kn[pid] == 1 {
+            self.env.kn[pid] = 1
+            self.env.ls[pid] = self.fsb[f].ls[pid]
+            self.env.lm[pid] = self.fsb[f].lm[pid]
+            self.env.hs[pid] = self.fsb[f].hs[pid]
+            self.env.hm[pid] = self.fsb[f].hm[pid]
+        }
+    }
+
+    func loop_body(var self, node: u32)
+        requires node < 131072
+        ensures true
+    {
+        self.kill_assigned(self.nns(self.nfc(node)))
+        for j in 0..32 {
+            if j >= self.nac {
+                break
+            }
+            if self.ac_bad[j] == 0 {
+                self.accel_body_iv(j)
+                self.accel_after_iv(j)
+            }
+        }
+        if self.nk(self.nfc(node)) == 49 {
+            if self.for_ns == 0 and self.for_nm > 0 {
+                let pid: u32 = self.path_intern(self.nss(node), self.nsl(node))
+                self.env.kn[pid] = 1
+                self.env.nz[pid] = 0
+                self.env.ls[pid] = self.fr_ss
+                self.env.lm[pid] = self.fr_sm
+                self.ssub(self.fr_es, self.fr_em, 0, 1)
+                self.env.hs[pid] = self.oas
+                self.env.hm[pid] = self.oam
+                if pid < 512 and not self.c.span_is(self.nss(node), self.nsl(node), "_") {
+                    self.lockstep(pid)
+                }
+            }
+        } else {
+            self.seed_array_iter_var(node)
+        }
+    }
+
+    # for x in массив: переменная цикла — элемент, интервал = тип элемента ∩
+    # инвариант пула (эталон _loop_body_env, ветвь array: inter(pool_iv,eiv))
+    func seed_array_iter_var(var self, node: u32)
+        requires node < 131072
+        ensures true
+    {
+        if self.c.span_is(self.nss(node), self.nsl(node), "_") {
+            return
+        }
+        let it: u32 = self.nfc(node)
+        let ety: u32 = self.array_elem_type(self.nty(it))
+        if ety == NONE or not self.numeric_kind(self.c.yk[ety]) {
+            return
+        }
+        let vpid: u32 = self.path_intern(self.nss(node), self.nsl(node))
+        if vpid >= 512 {
+            return
+        }
+        self.set_ty(ety)
+        let pk: u32 = self.pool_key(it)
+        if pk != NONE and pk < 2048 and self.piv_kn[pk] == 1 {
+            self.kls = self.rls
+            self.klm = self.rlm
+            self.khs = self.rhs
+            self.khm = self.rhm
+            self.set_inter(self.piv_ls[pk], self.piv_lm[pk], self.piv_hs[pk], self.piv_hm[pk])
+        }
+        self.env.kn[vpid] = 1
+        self.env.nz[vpid] = 0
+        self.env.ls[vpid] = self.rls
+        self.env.lm[vpid] = self.rlm
+        self.env.hs[vpid] = self.rhs
+        self.env.hm[vpid] = self.rhm
+    }
+
+    # --- пробный проход тела + инвариант loop-carried путей (этап 3) ----
+    # Проба гоняется через ОСНОВНУЮ машину потока (кадр for в фазе 1),
+    # а не вложенным драйвером — иначе граф вызовов замкнулся бы
+    # (ffor0 → run_flow_sub → flow_step → ffor → ffor0, правило 1).
+
+    # пометить пути, присваиваемые ВНУТРИ вложенных циклов body, как
+    # исключённые (эталон _nested_loop_paths): их записи проба не видит
+    func nested_mark_excl(var self, body: u32)
+        requires body < 131072
+        ensures true
+    {
+        var sn: [u32; 256] = [0; 256]
+        var sl: [u32; 256] = [0; 256]
+        var sp: u32 = 1
+        sn[0] = body
+        sl[0] = 0
+        for _ in 0..4096 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = sn[sp]
+            let inl: u32 = sl[sp]
+            if inl == 1 and self.nk(n) == 14 {
+                let pid: u32 = self.target_pid(self.nfc(n))
+                if pid != NONE and pid < 512 {
+                    self.er_excl[pid] = 1
+                }
+            }
+            var cinl: u32 = inl
+            if self.nk(n) == 18 or self.nk(n) == 19 {
+                cinl = 1
+            }
+            var c: u32 = self.nfc(n)
+            for _ in 0..64 {
+                if c == NONE or sp >= 255 {
+                    break
+                }
+                sn[sp] = c
+                sl[sp] = cinl
+                sp = sp + 1
+                c = self.nns(c)
+            }
+        }
+    }
+
+    # наблюдаемые пути: Name-цели присваиваний body вне вложенных циклов,
+    # кроме accel (те точнее) и исключённых. Сброс аккумуляторов
+    func collect_observed(var self, body: u32)
+        requires body < 131072
+        ensures true
+    {
+        self.er_n = 0
+        for i in 0..512 {
+            self.er_excl[i] = 0
+        }
+        self.nested_mark_excl(body)
+        var sn: [u32; 256] = [0; 256]
+        var sl: [u32; 256] = [0; 256]
+        var sp: u32 = 1
+        sn[0] = body
+        sl[0] = 0
+        for _ in 0..4096 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = sn[sp]
+            let inl: u32 = sl[sp]
+            if inl == 0 and self.nk(n) == 14 {
+                self.observe_target(self.nfc(n))
+            }
+            var cinl: u32 = inl
+            if self.nk(n) == 18 or self.nk(n) == 19 {
+                cinl = 1
+            }
+            var c: u32 = self.nfc(n)
+            for _ in 0..64 {
+                if c == NONE or sp >= 255 {
+                    break
+                }
+                sn[sp] = c
+                sl[sp] = cinl
+                sp = sp + 1
+                c = self.nns(c)
+            }
+        }
+    }
+
+    func observe_target(var self, tgt: u32)
+        requires tgt < 131072
+        ensures true
+    {
+        let pid: u32 = self.target_pid(tgt)
+        if pid == NONE or pid >= 512 or self.er_excl[pid] == 1 {
+            return
+        }
+        # accel-путь исключается из observed ТОЛЬКО без break: тогда его
+        # выход — линейный accel-ход (точнее). При break выход берётся
+        # объединением, поэтому accel-путь тоже наблюдается (эталон:
+        # observed = tracked; в ветви has_direct_break loop_exit для всех)
+        if self.obs_brk == 0 {
+            var isaccel: bool = false
+            for j in 0..32 {
+                if j >= self.nac or isaccel {
+                    break
+                }
+                if self.ac_p[j] == pid and self.ac_bad[j] == 0 {
+                    isaccel = true
+                }
+            }
+            if isaccel {
+                return
+            }
+        }
+        var seen: bool = false
+        for s in 0..64 {
+            if s >= self.er_n or seen {
+                break
+            }
+            if self.er_pid[s] == pid {
+                seen = true
+            }
+        }
+        if seen or self.er_n >= 64 {
+            return
+        }
+        let s: u32 = self.er_n
+        self.er_pid[s] = pid
+        self.er_bad[s] = 0
+        self.er_dkn[s] = 0
+        self.er_shas[s] = 0
+        self.er_smulti[s] = 0
+        self.er_smaxk[s] = 0
+        # v0 пути (вход цикла) снимается СЕЙЧАС: ein валиден только до
+        # первого вложенного ffor0 (эталон читает env инструкции for)
+        self.er_v0k[s] = self.ein.kn[pid]
+        self.er_v0ls[s] = self.ein.ls[pid]
+        self.er_v0lm[s] = self.ein.lm[pid]
+        self.er_v0hs[s] = self.ein.hs[pid]
+        self.er_v0hm[s] = self.ein.hm[pid]
+        self.er_v0hk[s] = self.ein.hk[pid]
+        self.er_v0hls[s] = self.ein.hls[pid]
+        self.er_v0hlm[s] = self.ein.hlm[pid]
+        self.er_v0hhs[s] = self.ein.hhs[pid]
+        self.er_v0hhm[s] = self.ein.hhm[pid]
+        self.er_v0hss[s] = self.ein.hss[pid]
+        self.er_v0hsm[s] = self.ein.hsm[pid]
+        self.er_n = s + 1
+    }
+
+    func er_slot(var self, pid: u32) -> u32
+        requires true
+        ensures true
+    {
+        var r: u32 = NONE
+        for s in 0..64 {
+            if s >= self.er_n or r != NONE {
+                break
+            }
+            if self.er_pid[s] == pid {
+                r = s
+            }
+        }
+        return r
+    }
+
+    func er_add_dense(var self, slot: u32, ls: u32, lm: u64, hs: u32, hm: u64)
+        requires slot < 64
+        ensures true
+    {
+        if self.er_dkn[slot] == 0 {
+            self.er_dkn[slot] = 1
+            self.er_dls[slot] = ls
+            self.er_dlm[slot] = lm
+            self.er_dhs[slot] = hs
+            self.er_dhm[slot] = hm
+        } else {
+            self.smin(self.er_dls[slot], self.er_dlm[slot], ls, lm)
+            self.er_dls[slot] = self.oas
+            self.er_dlm[slot] = self.oam
+            self.smax(self.er_dhs[slot], self.er_dhm[slot], hs, hm)
+            self.er_dhs[slot] = self.oas
+            self.er_dhm[slot] = self.oam
+        }
+    }
+
+    func er_add_sent(var self, slot: u32, ss: u32, sm: u64)
+        requires slot < 64
+        ensures true
+    {
+        if self.er_shas[slot] == 1 and not (self.er_ss[slot] == ss and self.er_sm[slot] == sm) {
+            self.er_smulti[slot] = 1
+        }
+        self.er_shas[slot] = 1
+        self.er_ss[slot] = ss
+        self.er_sm[slot] = sm
+    }
+
+    # накопить одно значение в объединение слота: плотное в r-регистрах,
+    # дырка в ho_* (эталон union внутри _loop_exit)
+    func er_feed(var self, slot: u32)
+        requires slot < 64
+        ensures true
+    {
+        if self.er_bad[slot] == 1 {
+            return
+        }
+        if self.rk == 0 {
+            self.er_bad[slot] = 1
+            return
+        }
+        if self.ho_on == 1 {
+            self.er_add_dense(slot, self.ho_ls, self.ho_lm, self.ho_hs, self.ho_hm)
+            self.er_add_sent(slot, self.ho_ss, self.ho_sm)
+        } elif (self.er_smaxk[slot] == 1
+                and self.rls == self.er_sxs[slot] and self.rlm == self.er_sxm[slot]
+                and self.rhs == self.er_sxs[slot] and self.rhm == self.er_sxm[slot]) {
+            self.er_add_sent(slot, self.er_sxs[slot], self.er_sxm[slot])
+        } else {
+            self.er_add_dense(slot, self.rls, self.rlm, self.rhs, self.rhm)
+        }
+    }
+
+    func load_hole_env(var self, pid: u32)
+        requires pid < 512
+        ensures true
+    {
+        if self.env.hk[pid] == 1 {
+            self.ho_on = 1
+            self.ho_ls = self.env.hls[pid]
+            self.ho_lm = self.env.hlm[pid]
+            self.ho_hs = self.env.hhs[pid]
+            self.ho_hm = self.env.hhm[pid]
+            self.ho_ss = self.env.hss[pid]
+            self.ho_sm = self.env.hsm[pid]
+        } else {
+            self.ho_on = 0
+        }
+    }
+
+    # записать значение пути в объединение (проба): env[pid] после
+    # присваивания + тип-максимум (эталон _exit_rec.append + _exit_ty)
+    func er_record(var self, pid: u32, tty: u32)
+        requires pid < 512
+        ensures true
+    {
+        let slot: u32 = self.er_slot(pid)
+        if slot == NONE {
+            return
+        }
+        if tty != NONE and self.int_kind(self.c.yk[tty]) {
+            self.kind_range(self.c.yk[tty])
+            self.er_smaxk[slot] = 1
+            self.er_sxs[slot] = 0
+            self.er_sxm[slot] = self.khm
+        }
+        if self.env.kn[pid] == 1 {
+            self.rk = 1
+            self.rls = self.env.ls[pid]
+            self.rlm = self.env.lm[pid]
+            self.rhs = self.env.hs[pid]
+            self.rhm = self.env.hm[pid]
+        } else {
+            self.rk = 0
+        }
+        self.load_hole_env(pid)
+        self.er_feed(slot)
+        self.ho_on = 0
+    }
+
+    # финализировать инвариант слота из объединения (эталон _loop_exit):
+    # плотное строго ниже сентинела → дырка; иначе плотное (+ сложенный
+    # сентинел). Результат — в er_r*[slot]; er_rkn=0 — нет инварианта
+    func er_finalize(var self, slot: u32)
+        requires slot < 64
+        ensures true
+    {
+        self.er_rkn[slot] = 0
+        self.er_rhon[slot] = 0
+        if self.er_bad[slot] == 1 or self.er_dkn[slot] == 0 {
+            return
+        }
+        let dls: u32 = self.er_dls[slot]
+        let dlm: u64 = self.er_dlm[slot]
+        let dhs: u32 = self.er_dhs[slot]
+        let dhm: u64 = self.er_dhm[slot]
+        if self.er_shas[slot] == 0 {
+            self.er_set_inv(slot, dls, dlm, dhs, dhm)
+            return
+        }
+        if self.er_smulti[slot] == 0 and self.sless(dhs, dhm, self.er_ss[slot], self.er_sm[slot]) {
+            # плотное строго ниже сентинела → «плотное ∪ {сент}» с дыркой
+            self.er_rkn[slot] = 1
+            self.er_rls[slot] = dls
+            self.er_rlm[slot] = dlm
+            self.er_rhs[slot] = self.er_ss[slot]
+            self.er_rhm[slot] = self.er_sm[slot]
+            self.er_rhon[slot] = 1
+            self.er_rhls[slot] = dls
+            self.er_rhlm[slot] = dlm
+            self.er_rhhs[slot] = dhs
+            self.er_rhhm[slot] = dhm
+            self.er_rhss[slot] = self.er_ss[slot]
+            self.er_rhsm[slot] = self.er_sm[slot]
+            return
+        }
+        # сложить сентинел в плотное, без дырки
+        self.smin(dls, dlm, self.er_ss[slot], self.er_sm[slot])
+        let nls: u32 = self.oas
+        let nlm: u64 = self.oam
+        self.smax(dhs, dhm, self.er_ss[slot], self.er_sm[slot])
+        self.er_set_inv(slot, nls, nlm, self.oas, self.oam)
+    }
+
+    func er_set_inv(var self, slot: u32, ls: u32, lm: u64, hs: u32, hm: u64)
+        requires slot < 64
+        ensures true
+    {
+        self.er_rkn[slot] = 1
+        self.er_rls[slot] = ls
+        self.er_rlm[slot] = lm
+        self.er_rhs[slot] = hs
+        self.er_rhm[slot] = hm
+        self.er_rhon[slot] = 0
+    }
+
+    # применить инварианты: добавить v0 (ein) к объединению, финализировать,
+    # записать на входе тела (env) и запомнить на выход цикла (fsb + fov)
+    func apply_loop_inv(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        self.fov_n[f] = 0
+        for s in 0..64 {
+            if s >= self.er_n {
+                break
+            }
+            self.apply_one_inv(f, s)
+        }
+    }
+
+    func apply_one_inv(var self, f: u32, slot: u32)
+        requires f < 64 and slot < 64
+        ensures true
+    {
+        let pid: u32 = self.er_pid[slot]
+        if self.er_v0k[slot] == 1 {
+            self.rk = 1
+            self.rls = self.er_v0ls[slot]
+            self.rlm = self.er_v0lm[slot]
+            self.rhs = self.er_v0hs[slot]
+            self.rhm = self.er_v0hm[slot]
+        } else {
+            self.rk = 0
+        }
+        self.load_hole_er(slot)
+        self.er_feed(slot)
+        self.ho_on = 0
+        self.er_finalize(slot)
+        if self.er_rkn[slot] == 0 {
+            return
+        }
+        # вход тела accel-пути — линейный accel-ход (loop_body), НЕ объединение
+        # (эталон: инвариант входа только для observed НЕ в after). Объединение
+        # даёт лишь выход (fsb + fov). Для не-accel — и вход (set_path_inv)
+        if not self.is_accel(f, pid) {
+            self.set_path_inv(pid, slot)
+        }
+        let m: u32 = self.fov_n[f]
+        if m < 16 {
+            self.fov_p[f][m] = pid
+            self.fov_n[f] = m + 1
+        }
+        self.store_fsb_inv(f, pid, slot)
+    }
+
+    # pid — accel-путь КАДРА f (эталон `p in after`): по fac_* кадра, а не
+    # по ac_* — те клобберятся accelerate вложенных циклов к probe_done
+    func is_accel(var self, f: u32, pid: u32) -> bool
+        requires f < 64
+        ensures true
+    {
+        var r: bool = false
+        for j in 0..32 {
+            if j >= self.fac_n[f] or r {
+                break
+            }
+            if self.fac_p[f][j] == pid {
+                r = true
+            }
+        }
+        return r
+    }
+
+    func load_hole_er(var self, slot: u32)
+        requires slot < 64
+        ensures true
+    {
+        if self.er_v0hk[slot] == 1 {
+            self.ho_on = 1
+            self.ho_ls = self.er_v0hls[slot]
+            self.ho_lm = self.er_v0hlm[slot]
+            self.ho_hs = self.er_v0hhs[slot]
+            self.ho_hm = self.er_v0hhm[slot]
+            self.ho_ss = self.er_v0hss[slot]
+            self.ho_sm = self.er_v0hsm[slot]
+        } else {
+            self.ho_on = 0
+        }
+    }
+
+    # записать инвариант слота в env[pid] (вход тела): интервал + дырка
+    func set_path_inv(var self, pid: u32, slot: u32)
+        requires pid < 512 and slot < 64
+        ensures true
+    {
+        self.env.kn[pid] = 1
+        self.env.nz[pid] = 0
+        self.env.ls[pid] = self.er_rls[slot]
+        self.env.lm[pid] = self.er_rlm[slot]
+        self.env.hs[pid] = self.er_rhs[slot]
+        self.env.hm[pid] = self.er_rhm[slot]
+        self.env.hk[pid] = self.er_rhon[slot]
+        if self.er_rhon[slot] == 1 {
+            self.env.hls[pid] = self.er_rhls[slot]
+            self.env.hlm[pid] = self.er_rhlm[slot]
+            self.env.hhs[pid] = self.er_rhhs[slot]
+            self.env.hhm[pid] = self.er_rhhm[slot]
+            self.env.hss[pid] = self.er_rhss[slot]
+            self.env.hsm[pid] = self.er_rhsm[slot]
+        }
+    }
+
+    func store_fsb_inv(var self, f: u32, pid: u32, slot: u32)
+        requires f < 64 and pid < 512 and slot < 64
+        ensures true
+    {
+        self.fsb[f].kn[pid] = 1
+        self.fsb[f].ls[pid] = self.er_rls[slot]
+        self.fsb[f].lm[pid] = self.er_rlm[slot]
+        self.fsb[f].hs[pid] = self.er_rhs[slot]
+        self.fsb[f].hm[pid] = self.er_rhm[slot]
+        self.fsb[f].hk[pid] = self.er_rhon[slot]
+        if self.er_rhon[slot] == 1 {
+            self.fsb[f].hls[pid] = self.er_rhls[slot]
+            self.fsb[f].hlm[pid] = self.er_rhlm[slot]
+            self.fsb[f].hhs[pid] = self.er_rhhs[slot]
+            self.fsb[f].hhm[pid] = self.er_rhhm[slot]
+            self.fsb[f].hss[pid] = self.er_rhss[slot]
+            self.fsb[f].hsm[pid] = self.er_rhsm[slot]
+        }
+    }
+
+    # инвариант связи счётчиков (эталон _lockstep): путь p с единственным
+    # безусловным `p = p + 1` идёт в ногу с переменной цикла tpid —
+    # p <= tpid + (v0_hi − start) и p >= tpid + (v0_lo − start) (условный
+    # даёт только верх). v0 — значение на входе цикла (ein), start — начало
+    func lockstep(var self, tpid: u32)
+        requires tpid < 512
+        ensures true
+    {
+        for j in 0..32 {
+            if j >= self.nac {
+                break
+            }
+            let pid: u32 = self.ac_p[j]
+            if (self.ac_bad[j] == 0
+                    and self.ac_ds[j] == 0 and self.ac_dm[j] == 1 and self.ein.kn[pid] == 1) {
+                self.ssub(self.ein.hs[pid], self.ein.hm[pid], self.fr_ss, self.fr_sm)
+                self.env_relate(pid, 7, tpid, self.oas, self.oam)
+                if self.ac_cond[j] == 0 {
+                    self.ssub(self.ein.ls[pid], self.ein.lm[pid], self.fr_ss, self.fr_sm)
+                    self.env_relate(pid, 9, tpid, self.oas, self.oam)
+                }
+            }
+        }
+    }
+
+    func accel_body_iv(var self, j: u32)
+        requires j < 32
+        ensures true
+    {
+        let pid: u32 = self.ac_p[j]
+        if self.ein.kn[pid] == 0 {
+            return
+        }
+        let v0ls: u32 = self.ein.ls[pid]
+        let v0lm: u64 = self.ein.lm[pid]
+        let v0hs: u32 = self.ein.hs[pid]
+        let v0hm: u64 = self.ein.hm[pid]
+        self.ssub(self.for_ns, self.for_nm, 0, 1)
+        self.smul(self.oas, self.oam, self.ac_ds[j], self.ac_dm[j])
+        let ps: u32 = self.oas
+        let pm: u64 = self.oam
+        self.smin(0, 0, ps, pm)
+        self.sadd(v0ls, v0lm, self.oas, self.oam)
+        var blos: u32 = self.oas
+        var blom: u64 = self.oam
+        self.smax(0, 0, ps, pm)
+        self.sadd(v0hs, v0hm, self.oas, self.oam)
+        var bhis: u32 = self.oas
+        var bhim: u64 = self.oam
+        if self.ac_ds[j] == 0 and self.ac_dm[j] > 0 and self.ac_ghk[j] == 1 {
+            self.sadd(self.ac_ghs[j], self.ac_ghm[j], self.ac_ds[j], self.ac_dm[j])
+            self.smax(v0hs, v0hm, self.oas, self.oam)
+            self.smin(bhis, bhim, self.oas, self.oam)
+            bhis = self.oas
+            bhim = self.oam
+        }
+        if self.ac_ds[j] == 1 and self.ac_glk[j] == 1 {
+            self.sadd(self.ac_gls[j], self.ac_glm[j], self.ac_ds[j], self.ac_dm[j])
+            self.smin(v0ls, v0lm, self.oas, self.oam)
+            self.smax(blos, blom, self.oas, self.oam)
+            blos = self.oas
+            blom = self.oam
+        }
+        self.kind_range(self.ac_kind[j])
+        self.set_inter(blos, blom, bhis, bhim)
+        self.env.kn[pid] = 1
+        self.env.nz[pid] = 0
+        self.env.ls[pid] = self.rls
+        self.env.lm[pid] = self.rlm
+        self.env.hs[pid] = self.rhs
+        self.env.hm[pid] = self.rhm
+    }
+
+    func accel_after_iv(var self, j: u32)
+        requires j < 32
+        ensures true
+    {
+        let pid: u32 = self.ac_p[j]
+        if self.ein.kn[pid] == 0 {
+            return
+        }
+        let v0ls: u32 = self.ein.ls[pid]
+        let v0lm: u64 = self.ein.lm[pid]
+        let v0hs: u32 = self.ein.hs[pid]
+        let v0hm: u64 = self.ein.hm[pid]
+        self.smul(self.for_ns, self.for_nm, self.ac_ds[j], self.ac_dm[j])
+        let ps: u32 = self.oas
+        let pm: u64 = self.oam
+        if self.ac_cond[j] == 1 {
+            self.smin(0, 0, ps, pm)
+        } else {
+            self.oas = ps
+            self.oam = pm
+        }
+        self.sadd(v0ls, v0lm, self.oas, self.oam)
+        var alos: u32 = self.oas
+        var alom: u64 = self.oam
+        if self.ac_cond[j] == 1 {
+            self.smax(0, 0, ps, pm)
+        } else {
+            self.oas = ps
+            self.oam = pm
+        }
+        self.sadd(v0hs, v0hm, self.oas, self.oam)
+        var ahis: u32 = self.oas
+        var ahim: u64 = self.oam
+        if self.ac_ds[j] == 0 and self.ac_dm[j] > 0 and self.ac_ghk[j] == 1 {
+            self.sadd(self.ac_ghs[j], self.ac_ghm[j], self.ac_ds[j], self.ac_dm[j])
+            self.smax(v0hs, v0hm, self.oas, self.oam)
+            self.smin(ahis, ahim, self.oas, self.oam)
+            ahis = self.oas
+            ahim = self.oam
+        }
+        if self.ac_ds[j] == 1 and self.ac_glk[j] == 1 {
+            self.sadd(self.ac_gls[j], self.ac_glm[j], self.ac_ds[j], self.ac_dm[j])
+            self.smin(v0ls, v0lm, self.oas, self.oam)
+            self.smax(alos, alom, self.oas, self.oam)
+            alos = self.oas
+            alom = self.oam
+        }
+        self.kind_range(self.ac_kind[j])
+        self.set_inter(alos, alom, ahis, ahim)
+        let ff: u32 = self.nf2 - 1
+        self.fsb[ff].kn[pid] = 1
+        self.fsb[ff].ls[pid] = self.rls
+        self.fsb[ff].lm[pid] = self.rlm
+        self.fsb[ff].hs[pid] = self.rhs
+        self.fsb[ff].hm[pid] = self.rhm
+        # регистр accel-путей кадра (эталон ключи after): ac_* к моменту
+        # ffor1 клобберятся вложенными циклами — список свой у кадра
+        let m: u32 = self.fac_n[ff]
+        if m < 32 {
+            self.fac_p[ff][m] = pid
+            self.fac_n[ff] = m + 1
+        }
+    }
+
+    # --- сбор обновлений цикла (accel) --------------------------------
+
+    func cspush(var self, node: u32, cond: u32, guard: u32)
+        requires true
+        ensures true
+    {
+        if self.ncs >= 64 {
+            return
+        }
+        self.cs_n[self.ncs] = node
+        self.cs_c[self.ncs] = cond
+        self.cs_g[self.ncs] = guard
+        self.ncs = self.ncs + 1
+    }
+
+    func accelerate(var self, body: u32)
+        requires body < 131072
+        ensures true
+    {
+        self.nac = 0
+        self.ncs = 0
+        self.cspush(body, 0, NONE)
+        for _ in 0..4096 {
+            if self.ncs == 0 {
+                break
+            }
+            let t: u32 = self.ncs - 1
+            let blk: u32 = self.cs_n[t]
+            let cond: u32 = self.cs_c[t]
+            let g: u32 = self.cs_g[t]
+            self.ncs = t
+            self.collect_block(blk, cond, g)
+        }
+    }
+
+    func collect_block(var self, blk: u32, cond: u32, guard: u32)
+        requires blk < 131072
+        ensures true
+    {
+        var s: u32 = self.nfc(blk)
+        for _ in 0..1024 {
+            if s == NONE {
+                break
+            }
+            let k: u32 = self.nk(s)
+            if k == 14 {
+                self.collect_assign(s, cond, guard)
+            } elif k == 15 {
+                self.collect_if(s)
+            } elif k == 18 or k == 19 {
+                self.collect_nested_loop(s)
+            } elif k == 20 {
+                self.collect_match(s)
+            }
+            s = self.nns(s)
+        }
+    }
+
+    func collect_if(var self, s: u32)
+        requires s < 131072
+        ensures true
+    {
+        let cnd: u32 = self.nfc(s)
+        let thenblk: u32 = self.nns(cnd)
+        self.cspush(thenblk, 1, cnd)
+        var cur: u32 = self.nns(thenblk)
+        for _ in 0..64 {
+            if cur == NONE {
+                break
+            }
+            let k: u32 = self.nk(cur)
+            if k == 16 {
+                self.cspush(self.nns(self.nfc(cur)), 1, self.nfc(cur))
+            } elif k == 17 {
+                self.cspush(self.nfc(cur), 1, NONE)
+            }
+            cur = self.nns(cur)
+        }
+    }
+
+    func collect_match(var self, s: u32)
+        requires s < 131072
+        ensures true
+    {
+        var arm: u32 = self.nns(self.nfc(s))
+        for _ in 0..64 {
+            if arm == NONE {
+                break
+            }
+            self.cspush(self.nfc(arm), 1, NONE)
+            arm = self.nns(arm)
+        }
+    }
+
+    func collect_nested_loop(var self, s: u32)
+        requires s < 131072
+        ensures true
+    {
+        var body: u32 = self.nfc(s)
+        if self.nk(s) == 18 {
+            body = self.nns(self.nfc(s))
+        }
+        var st: [u32; 128] = [0; 128]
+        var sp: u32 = 1
+        st[0] = body
+        for _ in 0..4096 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            if self.nk(n) == 14 {
+                let pid: u32 = self.target_pid(self.nfc(n))
+                if pid != NONE and pid < 512 {
+                    let idx: u32 = self.accel_entry(pid)
+                    self.ac_bad[idx] = 1
+                }
+            }
+            var c: u32 = self.nfc(n)
+            for _ in 0..64 {
+                if c == NONE or sp >= 127 {
+                    break
+                }
+                st[sp] = c
+                sp = sp + 1
+                c = self.nns(c)
+            }
+        }
+    }
+
+    func accel_entry(var self, pid: u32) -> u32
+        requires true
+        ensures true
+    {
+        var idx: u32 = NONE
+        for i in 0..32 {
+            if i >= self.nac or idx != NONE {
+                break
+            }
+            if self.ac_p[i] == pid {
+                idx = i
+            }
+        }
+        if idx != NONE {
+            return idx
+        }
+        if self.nac >= 32 {
+            return 0
+        }
+        idx = self.nac
+        self.ac_p[idx] = pid
+        self.ac_bad[idx] = 0
+        self.ac_seen[idx] = 0
+        self.ac_ghk[idx] = 0
+        self.ac_glk[idx] = 0
+        self.nac = idx + 1
+        return idx
+    }
+
+    func collect_assign(var self, s: u32, cond: u32, guard: u32)
+        requires s < 131072
+        ensures true
+    {
+        let tgt: u32 = self.nfc(s)
+        let pid: u32 = self.target_pid(tgt)
+        if pid == NONE or pid >= 512 {
+            return
+        }
+        let idx: u32 = self.accel_entry(pid)
+        if self.ac_bad[idx] == 1 {
+            return
+        }
+        let tty: u32 = self.nty(tgt)
+        if tty == NONE or not self.int_kind(self.c.yk[tty]) {
+            self.ac_bad[idx] = 1
+            return
+        }
+        if not self.delta_of(self.nns(tgt), pid) {
+            self.ac_bad[idx] = 1
+            return
+        }
+        if self.ac_seen[idx] == 1 {
+            self.ac_bad[idx] = 1
+            return
+        }
+        self.ac_seen[idx] = 1
+        self.ac_ds[idx] = self.dsig
+        self.ac_dm[idx] = self.dmag
+        self.ac_cond[idx] = cond
+        self.ac_kind[idx] = self.c.yk[tty]
+        if guard != NONE {
+            self.guard_bounds(guard, pid, idx)
+        }
+    }
+
+    func int_kind(var self, k: u32) -> bool
+        requires true
+        ensures true
+    {
+        return k == 0 or k == 1 or k == 2 or k == 12 or k == 13 or k == 14
+    }
+
+    func delta_of(var self, value: u32, pid: u32) -> bool
+        requires value < 131072
+        ensures true
+    {
+        if self.nk(value) != 39 {
+            return false
+        }
+        let op: u32 = self.nx(value)
+        if op != 10 and op != 11 {
+            return false
+        }
+        let left: u32 = self.nfc(value)
+        let right: u32 = self.nns(left)
+        var step: u32 = NONE
+        var neg: bool = false
+        if (self.nk(left) == 37 or self.nk(left) == 43) and self.node_path(left) == pid {
+            step = right
+            if op == 11 {
+                neg = true
+            }
+        } elif op == 10 and (self.nk(right) == 37 or self.nk(right) == 43) and self.node_path(
+            right
+        ) == pid {
+            step = left
+        } else {
+            return false
+        }
+        if not self.const_of(step) {
+            return false
+        }
+        self.dsig = self.csig
+        self.dmag = self.cmag
+        if neg and self.dmag != 0 {
+            self.dsig = 1 - self.dsig
+        }
+        return true
+    }
+
+    func const_of(var self, node: u32) -> bool
+        requires node < 131072
+        ensures true
+    {
+        if self.nk(node) == 32 {
+            self.csig = self.ny(node)
+            self.cmag = self.c.p.mag(node)
+            return true
+        }
+        if self.nk(node) == 37 {
+            let ci: u32 = self.c.find_const(self.nss(node), self.nsl(node))
+            if ci != NONE {
+                self.csig = self.c.cvs[ci]
+                self.cmag = self.c.cvm[ci]
+                return true
+            }
+        }
+        return false
+    }
+
+    func guard_bounds(var self, guard: u32, pid: u32, idx: u32)
+        requires guard < 131072 and idx < 32
+        ensures true
+    {
+        var gstk: [u32; 32] = [0; 32]
+        var gsp: u32 = 1
+        gstk[0] = guard
+        for _ in 0..64 {
+            if gsp == 0 {
+                break
+            }
+            gsp = gsp - 1
+            let g: u32 = gstk[gsp]
+            if self.nk(g) == 39 and self.nx(g) == 2 {
+                if gsp < 30 {
+                    gstk[gsp] = self.nfc(g)
+                    gstk[gsp + 1] = self.nns(self.nfc(g))
+                    gsp = gsp + 2
+                }
+            } elif self.nk(g) == 39 {
+                self.guard_cmp(g, pid, idx)
+            }
+        }
+    }
+
+    func guard_cmp(var self, g: u32, pid: u32, idx: u32)
+        requires g < 131072 and idx < 32
+        ensures true
+    {
+        let op: u32 = self.nx(g)
+        if op < 4 or op > 9 {
+            return
+        }
+        let left: u32 = self.nfc(g)
+        let right: u32 = self.nns(left)
+        if (self.nk(left) == 37
+                and self.path_find(self.nss(left), self.nsl(left)) == pid
+                and self.const_of(right)) {
+            self.guard_apply(op, idx)
+        }
+        if (self.nk(right) == 37
+                and self.path_find(self.nss(right), self.nsl(right)) == pid
+                and self.const_of(left)) {
+            self.guard_apply(self.mirror_op(op), idx)
+        }
+    }
+
+    func guard_apply(var self, op: u32, idx: u32)
+        requires idx < 32
+        ensures true
+    {
+        if op == 6 {
+            self.ssub(self.csig, self.cmag, 0, 1)
+            self.gset_hi(idx, self.oas, self.oam)
+        } elif op == 7 {
+            self.gset_hi(idx, self.csig, self.cmag)
+        } elif op == 8 {
+            self.sadd(self.csig, self.cmag, 0, 1)
+            self.gset_lo(idx, self.oas, self.oam)
+        } elif op == 9 {
+            self.gset_lo(idx, self.csig, self.cmag)
+        }
+    }
+
+    func gset_hi(var self, idx: u32, s: u32, m: u64)
+        requires idx < 32
+        ensures true
+    {
+        if self.ac_ghk[idx] == 1 {
+            self.smin(self.ac_ghs[idx], self.ac_ghm[idx], s, m)
+            self.ac_ghs[idx] = self.oas
+            self.ac_ghm[idx] = self.oam
+        } else {
+            self.ac_ghk[idx] = 1
+            self.ac_ghs[idx] = s
+            self.ac_ghm[idx] = m
+        }
+    }
+
+    func gset_lo(var self, idx: u32, s: u32, m: u64)
+        requires idx < 32
+        ensures true
+    {
+        if self.ac_glk[idx] == 1 {
+            self.smax(self.ac_gls[idx], self.ac_glm[idx], s, m)
+            self.ac_gls[idx] = self.oas
+            self.ac_glm[idx] = self.oam
+        } else {
+            self.ac_glk[idx] = 1
+            self.ac_gls[idx] = s
+            self.ac_glm[idx] = m
+        }
+    }
+
+    func kill_assigned(var self, body: u32)
+        requires body < 131072
+        ensures true
+    {
+        var st: [u32; 128] = [0; 128]
+        var sp: u32 = 1
+        st[0] = body
+        for _ in 0..4096 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            if self.nk(n) == 14 {
+                let pid: u32 = self.target_pid(self.nfc(n))
+                if pid != NONE and pid < 512 {
+                    self.env.kn[pid] = 0
+                    self.env.nz[pid] = 0
+                    self.env.hk[pid] = 0
+                    self.rels_kill(pid)
+                }
+            }
+            var c: u32 = self.nfc(n)
+            for _ in 0..64 {
+                if c == NONE or sp >= 127 {
+                    break
+                }
+                st[sp] = c
+                sp = sp + 1
+                c = self.nns(c)
+            }
+        }
+    }
+}

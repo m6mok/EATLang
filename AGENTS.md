@@ -75,9 +75,10 @@ CLI компилятора: `PYTHONPATH=src uv run python -m eatc
 src/eatc/     Python-бутстрап (эталон): lexer → parser → checks →
               typechecker → interpreter → verifier → codegen; runtime.c —
               шим аксиом ОС (ввод/вывод, exit, trap, argv)
-selfhost/     компилятор на EATLang: Tok, Lexer, Ast, Parser, Check,
-              Verify, Ir, *Main; Rt.eat — рантайм, первый модуль
-              каждой программы
+selfhost/     компилятор на EATLang: Tok, Lexer, Ast, Parser,
+              Check(+Const/Body/Dump), Verify(+Expr/Rel/Flow/Dump),
+              Ir(+Emit/Expr/Stmt), *Main; Rt.eat — рантайм, первый
+              модуль каждой программы
 lib/          библиотека на EATLang (Args, Ascii, Buf, Const, Fmt, Hex, Io, Json, Num, Parse) —
               подключается списком файлов после Rt.eat
               (docs/plans/MODULES_PLAN.md, этап 0 — конкатенация)

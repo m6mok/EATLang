@@ -1,6 +1,5 @@
-# Self-hosted парсер EATLang: автомат с явным стеком кадров (рекурсии
-# в языке нет) + шунтинг-ярд для выражений. Дамп AST построчно совпадает
-# с эталоном `eatc parse` (формат — docs/SELFHOST.md).
+# Self-hosted парсер EATLang: автомат с явным стеком кадров (рекурсии в языке нет)
+# + шунтинг-ярд. Дамп AST построчно совпадает с `eatc parse` (формат — docs/SELFHOST.md).
 #
 # Кадры (fk): 0 program, 1 func, 2 type, 3 block, 4 expr, 5 let, 6 if,
 # 7 for, 8 match, 9 tail (return/assert), 10 discard, 11 exprstmt,

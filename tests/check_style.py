@@ -6,8 +6,8 @@
 
 - длина строки ≤ 100 кодпойнтов Unicode (len(str) в Python; не байт —
   кириллица в UTF-8 двухбайтная);
-- строк на файл selfhost/ ≤ MAX_FILE_LINES — включается на этапе 4
-  (распил Check/Ir/Verify), до него потолок выключен (None).
+- строк на файл selfhost/ ≤ MAX_FILE_LINES — потолок включён этапом 4
+  (распил Check/Ir/Verify через extend).
 
 Гоняется первым шагом `make check` по всем *.eat репозитория, кроме
 сгенерированных (build/) и окружения (.venv/).
@@ -17,7 +17,7 @@ import pathlib
 import sys
 
 MAX_LINE = 100          # кодпойнтов на строку, все *.eat
-MAX_FILE_LINES = None   # строк на файл selfhost/; этап 4 включит (2500)
+MAX_FILE_LINES = 2500   # строк на файл selfhost/; включено этапом 4
 SKIP_PARTS = {"build", ".venv"}
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent

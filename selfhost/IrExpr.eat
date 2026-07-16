@@ -1,0 +1,1985 @@
+# Распил Ir.eat (REFACTOR_SELFHOST_PLAN §6.4): машина выражений, вызовы, встроенные функции,
+# lvalue.
+# Методы extend сливаются в struct Ir, как объявленные в его блоке;
+# порядок склейки файлов — списки SELFHOST_* в Makefile.
+
+extend Ir {
+    # --- машина выражений -----------------------------------------------------
+
+    func xpush2(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        if self.nx3 >= 64 {
+            self.fail("слишком глубокое выражение")
+            return
+        }
+        self.xn3[self.nx3] = n
+        self.xp3[self.nx3] = 0
+        self.xa3[self.nx3] = 0
+        self.xb3[self.nx3] = 0
+        self.xc3[self.nx3] = 0
+        self.xd3[self.nx3] = 0
+        self.xe3[self.nx3] = 0
+        self.xf3[self.nx3] = 0
+        self.xg3[self.nx3] = 0
+        self.nx3 = self.nx3 + 1
+    }
+
+    func expr_run(var self, root: u32)
+        requires root < 131072
+        ensures true
+    {
+        self.nx3 = 0
+        self.xpush2(root)
+        for _ in 0..8192 {
+            if self.nx3 == 0 or self.failed {
+                break
+            }
+            self.xstep()
+        }
+        if self.nx3 > 0 and not self.failed {
+            self.fail("выражение слишком велико для self-host")
+        }
+    }
+
+    func xstep(var self)
+        requires self.nx3 >= 1
+        ensures true
+    {
+        let f: u32 = self.nx3 - 1
+        let n: u32 = self.xn3[f]
+        let k: u32 = self.c.p.nk[n / 65536][n % 65536]
+        if k == 32 or k == 33 or k == 34 or k == 37 or k == 38 {
+            self.xleaf(n, k)
+        } elif k == 35 {
+            self.xstr(f, n)
+        } elif k == 39 {
+            self.xbin(f, n)
+        } elif k == 40 {
+            self.xun(f, n)
+        } elif k == 41 {
+            self.xcall(f, n)
+        } elif k == 42 {
+            self.xmeth(f, n)
+        } elif k == 43 {
+            self.xmem(f, n)
+        } elif k == 44 {
+            self.xidx(f, n)
+        } elif k == 45 {
+            self.xslit(f, n)
+        } elif k == 47 {
+            self.xalit(f, n)
+        } else {
+            self.xafill(f, n)
+        }
+    }
+
+    func xleaf(var self, n: u32, k: u32)
+        requires n < 131072
+        ensures true
+    {
+        if k == 32 {
+            let m: u64 = self.c.p.mag(n)
+            self.ser(self.cw_k(m), self.c.p.ny[n / 65536][n % 65536], self.cw_b(m))
+            self.ert = self.c.nty[n / 65536][n % 65536]
+        } elif k == 33 {
+            self.ser(2, 0, self.c.p.nx[n / 65536][n % 65536])
+            self.ert = 3
+        } elif k == 34 {
+            self.ser(2, 0, u32(self.c.p.lex.sb_at(self.c.p.nss[n / 65536][n % 65536])))
+            self.ert = 4
+        } elif k == 38 {
+            let v: u32 = self.lookup_self2()
+            self.ser(self.vkk[v], self.vka[v], self.vkb[v])
+            self.ert = self.vty[v]
+        } else {
+            self.xname(n)
+        }
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xname(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        let a: u32 = self.c.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.c.p.nsl[n / 65536][n % 65536]
+        if self.res_on == 1 {
+            if self.c.span_is(a, l, "result") {
+                if self.is_agg(self.rett) {
+                    self.ser(self.rsk, self.rsa, self.rsb)
+                    self.ert = self.rett
+                } else {
+                    self.set1(self.rsk, self.rsa, self.rsb)
+                    self.e_load(self.rett)
+                    self.serrr(self.rett)
+                }
+                return
+            }
+        }
+        let v: u32 = self.lookupv(a, l)
+        if v != NONE {
+            let t: u32 = self.vty[v]
+            if self.is_agg(t) {
+                self.ser(self.vkk[v], self.vka[v], self.vkb[v])
+                self.ert = t
+            } else {
+                self.set1(self.vkk[v], self.vka[v], self.vkb[v])
+                self.e_load(t)
+                self.serrr(t)
+            }
+            return
+        }
+        if self.c.span_is(a, l, "None") {
+            # конструктор None: Option с одним лишь тегом 1 (паритет
+            # с gen_name; контекст уже проверен фазой типов)
+            let t: u32 = self.c.nty[n / 65536][n % 65536]
+            self.nm_lit("none.res")
+            self.e_alloca_n(t)
+            let ra: u32 = self.rra
+            let rb: u32 = self.rrb
+            self.set1(1, ra, rb)
+            self.e_gepc(t, 0)
+            self.set2rr()
+            self.set1(2, 0, 1)
+            self.e_store(0)
+            self.ser(1, ra, rb)
+            self.ert = t
+            return
+        }
+        let ci: u32 = self.c.find_const(a, l)
+        if self.c.yk[self.c.cty[ci]] == 7 {
+            # A2: имя массива-константы -> указатель на @"const.ИМЯ"
+            # (kind 6: спан имени в sbuf; k==5 занят широкой константой)
+            self.ser(6, a, l)
+            self.ert = self.c.cty[ci]
+            return
+        }
+        let cm: u64 = self.c.cvm[ci]
+        self.ser(self.cw_k(cm), self.c.cvs[ci], self.cw_b(cm))
+        self.ert = self.c.cty[ci]
+    }
+
+    func xstr(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            # односегментный (или пустой) литерал — прямой ужатый
+            # глобал, без сборки в рантайме (копии str идут по длине)
+            let c1: u32 = self.c.p.nfc[n / 65536][n % 65536]
+            if c1 == NONE {
+                let g0: u32 = self.cstr_seg(0, 0)
+                self.ser(3, g0, 0)
+                self.ert = self.c.nty[n / 65536][n % 65536]
+                self.nx3 = self.nx3 - 1
+                return
+            }
+            if (self.c.p.nns[c1 / 65536][c1 % 65536] == NONE
+                    and self.c.p.nk[c1 / 65536][c1 % 65536] == 36) {
+                let g1: u32 = self.cstr_seg(
+                    self.c.p.nss[c1 / 65536][c1 % 65536], self.c.p.nsl[c1 / 65536][c1 % 65536]
+                )
+                self.ser(3, g1, 0)
+                self.ert = self.c.nty[n / 65536][n % 65536]
+                self.nx3 = self.nx3 - 1
+                return
+            }
+            self.nm_lit("str")
+            self.e_alloca_n(self.c.nty[n / 65536][n % 65536])
+            self.xb3[f] = self.rra
+            self.xc3[f] = self.rrb
+            self.set1rr()
+            self.e_rt_s("init")
+            self.xa3[f] = c1
+            self.xp3[f] = 1
+            return
+        }
+        if ph == 2 {
+            self.xseg(f)
+            self.xp3[f] = 1
+            return
+        }
+        let cur: u32 = self.xa3[f]
+        if cur == NONE {
+            self.ser(1, self.xb3[f], self.xc3[f])
+            self.ert = self.c.nty[n / 65536][n % 65536]
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.xa3[f] = self.c.p.nns[cur / 65536][cur % 65536]
+        if self.c.p.nk[cur / 65536][cur % 65536] == 36 {
+            let g: u32 = self.cstr_seg(
+                self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536]
+            )
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2(3, g, 0)
+            self.e_as()
+        } else {
+            self.xp3[f] = 2
+            self.xpush2(cur)
+        }
+    }
+
+    # Выражение-сегмент готово (er): подобрать eat_str_append_*.
+    func xseg(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        let tk: u32 = self.c.yk[self.ert]
+        if tk == 6 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_as()
+        } elif tk == 4 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("char", "i8")
+        } elif tk == 3 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("bool", "i1")
+        } elif tk == 0 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("i32", "i32")
+        } elif tk == 2 {
+            self.set1er()
+            self.e_cvt(0, 2, 0)
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2rr()
+            self.e_rt_si("u32", "i32")
+        } elif tk == 12 {
+            self.set1er()
+            self.e_cvt(0, self.u16t(), 0)
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2rr()
+            self.e_rt_si("u32", "i32")
+        } elif tk == 13 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("u64", "i64")
+        } elif tk == 14 {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("i64", "i64")
+        } else {
+            self.set1(1, self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_rt_si("u32", "i32")
+        }
+    }
+
+    func xun(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if self.xp3[f] == 0 {
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+            return
+        }
+        if self.c.p.nx[n / 65536][n % 65536] == 3 {
+            self.set1er()
+            self.e_not()
+            self.serrr(3)
+        } elif self.c.p.nx[n / 65536][n % 65536] == 21 {
+            let bt: u32 = self.ert
+            self.set1er()
+            self.e_bnot(bt)
+            self.serrr(bt)
+        } else {
+            # унарный минус: 0 - x с проверкой переполнения i32/i64
+            let mt: u32 = self.ert
+            let mk2: u32 = self.c.yk[mt]
+            var mi: u32 = 2
+            if mk2 == 14 {
+                mi = 17
+            }
+            self.use_intr(mi)
+            self.set1(2, 0, 0)
+            self.set2er()
+            self.e_ov(mi)
+            let pk: u32 = self.rrk
+            let pa: u32 = self.rra
+            let pb: u32 = self.rrb
+            self.set1(pk, pa, pb)
+            self.e_exv(mi, 1)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, mk2, 0
+            )
+            self.set1(pk, pa, pb)
+            self.e_exv(mi, 0)
+            self.serrr(mt)
+        }
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xbin(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let op: u32 = self.c.p.nx[n / 65536][n % 65536]
+        if op <= 2 {
+            self.xsc(f, n, op)
+            return
+        }
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif ph == 1 {
+            self.xa3[f] = self.erk
+            self.xb3[f] = self.era
+            self.xc3[f] = self.erb
+            self.xd3[f] = self.ert
+            self.xp3[f] = 2
+            self.xpush2(
+                self.c.p.nns[self.c.p.nfc[n / 65536][n % 65536] / 65536][
+                    self.c.p.nfc[n / 65536][n % 65536] % 65536
+                ]
+            )
+        } else {
+            self.xbfin(f, n, op)
+        }
+    }
+
+    # Короткое замыкание and/or (op: 1 or, 2 and).
+    func xsc(var self, f: u32, n: u32, op: u32)
+        requires f < 64 and n < 131072 and op <= 2
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+            return
+        }
+        if ph == 1 {
+            self.xa3[f] = self.erk
+            self.xb3[f] = self.era
+            self.xc3[f] = self.erb
+            self.xe3[f] = self.cb
+            var rhs: u32 = 0
+            var mrg: u32 = 0
+            if op == 2 {
+                rhs = self.blk_new("and")
+                mrg = self.blk_new("and.end")
+            } else {
+                rhs = self.blk_new("or")
+                mrg = self.blk_new("or.end")
+            }
+            self.xf3[f] = mrg
+            self.set1er()
+            if op == 2 {
+                self.e_cbr(rhs, mrg)
+            } else {
+                self.e_cbr(mrg, rhs)
+            }
+            self.cb = rhs
+            self.xp3[f] = 2
+            self.xpush2(
+                self.c.p.nns[self.c.p.nfc[n / 65536][n % 65536] / 65536][
+                    self.c.p.nfc[n / 65536][n % 65536] % 65536
+                ]
+            )
+            return
+        }
+        let re: u32 = self.cb
+        let mrg2: u32 = self.xf3[f]
+        self.e_br(mrg2)
+        self.cb = mrg2
+        self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.set2er()
+        self.e_phi(3, self.xe3[f], re)
+        self.serrr(3)
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xbfin(var self, f: u32, n: u32, op: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let lt: u32 = self.xd3[f]
+        let lk: u32 = self.c.yk[lt]
+        if op >= 16 {
+            self.xbit(f, n, op)
+            return
+        }
+        if op >= 10 {
+            self.xarith(f, n, op)
+            return
+        }
+        if lk == 6 {
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_streq()
+            if op != 4 {
+                self.set1rr()
+                self.e_not()
+            }
+            self.serrr(3)
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        var oc: u32 = 0
+        if op == 4 {
+            oc = 1
+        } elif op == 5 {
+            oc = 2
+        } elif op == 6 {
+            oc = 3
+        } elif op == 7 {
+            oc = 4
+        } elif op == 8 {
+            oc = 5
+        } else {
+            oc = 6
+        }
+        if oc >= 3 and lk != 0 and lk != 14 {
+            oc = oc + 4
+        }
+        self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.set2er()
+        self.e_icmp(oc, lt)
+        self.serrr(3)
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Арифметика с проверками; левый операнд в кадре, правый в er.
+    func xarith(var self, f: u32, n: u32, op: u32)
+        requires f < 64 and n < 131072 and op >= 10 and op <= 14
+        ensures true
+    {
+        let lt: u32 = self.xd3[f]
+        let lk: u32 = self.c.yk[lt]
+        if op <= 12 {
+            var iid: u32 = op - 9
+            if lk == 1 {
+                iid = op - 6
+            } elif lk == 2 {
+                iid = op - 3
+            } elif lk == 12 {
+                iid = op
+            } elif lk == 13 {
+                iid = op + 3
+            } elif lk == 14 {
+                iid = op + 6
+            }
+            self.use_intr(iid)
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_ov(iid)
+            let pk: u32 = self.rrk
+            let pa: u32 = self.rra
+            let pb: u32 = self.rrb
+            self.set1(pk, pa, pb)
+            self.e_exv(iid, 1)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, lk, 0
+            )
+            self.set1(pk, pa, pb)
+            self.e_exv(iid, 0)
+            self.serrr(lt)
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.xdiv(f, n, op, lt)
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Битовые операции: & | ^ — одна инструкция; сдвиги — с проверками
+    # (рисунок инструкций и trap'ов — байт-в-байт как у эталона).
+    func xbit(var self, f: u32, n: u32, op: u32)
+        requires f < 64 and n < 131072 and op >= 16 and op <= 20
+        ensures true
+    {
+        let lt: u32 = self.xd3[f]
+        if op <= 18 {
+            var o: u32 = 9 # |
+            if op == 17 {
+                o = 10 # ^
+            } elif op == 18 {
+                o = 8 # &
+            }
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2er()
+            self.e_bin(o, lt)
+            self.serrr(lt)
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.xshift(f, n, op, lt)
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Сдвиг: trap при n ≥ ширины типа; << дополнительно трапит вынос
+    # битов (обратный lshr обязан восстановить операнд).
+    func xshift(var self, f: u32, n: u32, op: u32, lt: u32)
+        requires f < 64 and n < 131072 and lt < 512
+        ensures true
+    {
+        let lk: u32 = self.c.yk[lt]
+        let rk: u32 = self.erk
+        let ra: u32 = self.era
+        let rb: u32 = self.erb
+        var width: u32 = 32
+        if lk == 2 {
+            width = 8
+        } elif lk == 12 {
+            width = 16
+        } elif lk == 13 {
+            width = 64
+        }
+        self.set1(rk, ra, rb)
+        self.set2(2, 0, width)
+        self.e_icmp(10, lt)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 7, lk, 0)
+        if op == 20 { # >>
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            self.set2(rk, ra, rb)
+            self.e_bin(12, lt)
+            self.serrr(lt)
+            return
+        }
+        self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.set2(rk, ra, rb)
+        self.e_bin(11, lt)
+        let sk: u32 = self.rrk
+        let sa: u32 = self.rra
+        let sb: u32 = self.rrb
+        self.set1(sk, sa, sb)
+        self.set2(rk, ra, rb)
+        self.e_bin(12, lt)
+        self.set1rr()
+        self.set2(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.e_icmp(2, lt)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2, lk, 0)
+        self.erk = sk
+        self.era = sa
+        self.erb = sb
+        self.ert = lt
+    }
+
+    func xdiv(var self, f: u32, n: u32, op: u32, lt: u32)
+        requires f < 64 and n < 131072 and lt < 512
+        ensures true
+    {
+        let rk: u32 = self.erk
+        let ra: u32 = self.era
+        let rb: u32 = self.erb
+        self.set1(rk, ra, rb)
+        self.set2(2, 0, 0)
+        self.e_icmp(1, lt)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 3, 0, 0)
+        var o: u32 = 6
+        if op == 14 {
+            o = 7
+        }
+        if self.c.yk[lt] == 0 or self.c.yk[lt] == 14 {
+            self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+            var mn: u64 = 2147483648
+            if self.c.yk[lt] == 14 {
+                mn = 9223372036854775808
+            }
+            self.set2(self.cw_k(mn), 1, self.cw_b(mn))
+            self.e_icmp(1, lt)
+            let c1k: u32 = self.rrk
+            let c1a: u32 = self.rra
+            let c1b: u32 = self.rrb
+            self.set1(rk, ra, rb)
+            self.set2(2, 1, 1)
+            self.e_icmp(1, lt)
+            self.set2rr()
+            self.set1(c1k, c1a, c1b)
+            self.e_bin(8, 3)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 2,
+                self.c.yk[lt], 0
+            )
+            o = 4
+            if op == 14 {
+                o = 5
+            }
+        }
+        self.set1(self.xa3[f], self.xb3[f], self.xc3[f])
+        self.set2(rk, ra, rb)
+        self.e_bin(o, lt)
+        self.serrr(lt)
+    }
+
+    # --- вызовы -----------------------------------------------------------
+
+    func xcall(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if self.xp3[f] == 0 {
+            self.xcall_start(f, n)
+        } else {
+            self.xcall_next(f, n)
+        }
+    }
+
+    func xcall_start(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.c.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.c.p.nsl[n / 65536][n % 65536]
+        self.xp3[f] = 1
+        if self.c.span_is(a, l, "print") {
+            self.xa3[f] = 1
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "write") {
+            self.xa3[f] = 2
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "read_byte") {
+            self.xrbyte(n)
+            self.nx3 = self.nx3 - 1
+        } elif self.c.span_is(a, l, "write_byte") {
+            self.xa3[f] = 5
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "write_err_byte") {
+            self.xa3[f] = 6
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "exit") {
+            self.xa3[f] = 7
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "write_span") {
+            self.xa3[f] = 8
+            self.xf3[f] = 0
+            self.xg3[f] = self.nag
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "arg_count") {
+            self.e_argcount()
+            self.serrr(1)
+            self.nx3 = self.nx3 - 1
+        } elif self.c.span_is(a, l, "arg_len") {
+            self.xa3[f] = 9
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "arg_byte") {
+            self.xa3[f] = 10
+            self.xf3[f] = 0
+            self.xg3[f] = self.nag
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "len") {
+            self.xcall_len(f, n)
+        } elif self.c.span_is(a, l, "i32") {
+            self.xa3[f] = 100
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "u32") {
+            self.xa3[f] = 101
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "u8") {
+            self.xa3[f] = 102
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "u16") {
+            self.xa3[f] = 103
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "u64") {
+            self.xa3[f] = 111
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "i64") {
+            self.xa3[f] = 112
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif self.c.span_is(a, l, "char") {
+            self.xa3[f] = 104
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif (self.c.span_is(a, l, "Ok")
+                or self.c.span_is(a, l, "Err") or self.c.span_is(a, l, "Some")) {
+            self.xtctor(f, n)
+        } else {
+            self.xcall_user(f, n, a, l)
+        }
+    }
+
+    func xcall_len(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let at: u32 = self.c.nty[self.c.p.nfc[n / 65536][n % 65536] / 65536][
+            self.c.p.nfc[n / 65536][n % 65536] % 65536
+        ]
+        if self.c.yk[at] == 7 {
+            # len массива — константа, аргумент не вычисляется
+            self.ser(2, 0, self.c.yb[at])
+            self.ert = 1
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.xa3[f] = 4
+        self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+    }
+
+    func xcall_user(var self, f: u32, n: u32, a: u32, l: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let fi: u32 = self.c.find_func(a, l)
+        self.xa3[f] = 0
+        self.xb3[f] = fi
+        self.xg3[f] = self.nag
+        let rt2: u32 = self.c.fret[fi]
+        if rt2 != NONE {
+            if self.is_agg(rt2) {
+                self.nm_lit("call.ret")
+                self.e_alloca_n(rt2)
+                self.ag_push_rr(rt2)
+            }
+        }
+        if self.c.fpc[fi] == 0 {
+            self.xufin(f)
+        } else {
+            self.xf3[f] = 0
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        }
+    }
+
+    func xcall_next(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let code: u32 = self.xa3[f]
+        if code == 1 or code == 2 {
+            self.set1er()
+            if code == 1 {
+                self.e_rt_s("print")
+            } else {
+                self.e_rt_s("write")
+            }
+            self.ert = 5
+            self.nx3 = self.nx3 - 1
+        } elif code == 5 {
+            self.set1er()
+            self.e_wbyte()
+            self.ert = 5
+            self.nx3 = self.nx3 - 1
+        } elif code == 6 {
+            self.set1er()
+            self.e_webyte()
+            self.ert = 5
+            self.nx3 = self.nx3 - 1
+        } elif code == 7 {
+            self.set1er()
+            self.e_exit()
+            self.ert = 5
+            self.nx3 = self.nx3 - 1
+        } elif code == 8 {
+            self.ag_push(1)
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= 3 {
+                self.xwspan(f, n)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f]))
+            }
+        } elif code == 9 {
+            self.xarglen(n)
+        } elif code == 10 {
+            # arg_byte(i, j): оба аргумента в ag[base..base+2)
+            self.ag_push(1)
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= 2 {
+                self.xargbyte(f, n)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f]))
+            }
+        } elif code == 113 or code == 114 or code == 115 {
+            # payload конструктора Ok/Err/Some готов: копия в слот
+            var pt: u32 = self.c.ya[self.xd3[f]]
+            if code == 114 {
+                pt = self.c.yb[self.xd3[f]]
+            }
+            self.set1(0, self.xe3[f], 0)
+            self.set2er()
+            self.copy_into(pt)
+            self.ser(1, self.xb3[f], self.xc3[f])
+            self.ert = self.xd3[f]
+            self.nx3 = self.nx3 - 1
+        } elif code == 4 {
+            # len строки: load текущей длины
+            self.set1er()
+            self.e_gepc(self.ert, 0)
+            self.set1rr()
+            self.e_load(0)
+            self.serrr(1)
+            self.nx3 = self.nx3 - 1
+        } elif code >= 100 {
+            self.xcast(n, code)
+            self.nx3 = self.nx3 - 1
+        } else {
+            # очередной аргумент пользовательской функции
+            let fi: u32 = self.xb3[f]
+            self.ag_push(self.c.pty[self.c.fps[fi] + self.xf3[f]])
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= self.c.fpc[fi] {
+                self.xufin(f)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f]))
+            }
+        }
+    }
+
+    # write_span: аргументы (массив, off, len) в ag[base..base+3);
+    # границы off > N или len > N - off — trap (как codegen.py).
+    func xwspan(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let base: u32 = self.xg3[f]
+        let arg0: u32 = self.c.p.nfc[n / 65536][n % 65536]
+        let at: u32 = self.c.nty[arg0 / 65536][arg0 % 65536]
+        let sz: u32 = self.c.yb[at]
+        # rem = sub N, off
+        self.set1(2, 0, sz)
+        self.set2(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+        self.e_bin(2, 1)
+        let mk1: u32 = self.rrk
+        let ma1: u32 = self.rra
+        let mb1: u32 = self.rrb
+        # bad1 = icmp ugt off, N
+        self.set1(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+        self.set2(2, 0, sz)
+        self.e_icmp(9, 1)
+        let bk1: u32 = self.rrk
+        let ba1: u32 = self.rra
+        let bb1: u32 = self.rrb
+        # bad2 = icmp ugt len, rem
+        self.set1(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
+        self.set2(mk1, ma1, mb1)
+        self.e_icmp(9, 1)
+        # bad = or bad1, bad2
+        self.set2rr()
+        self.set1(bk1, ba1, bb1)
+        self.e_bin(9, 3)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 8, 0, 0)
+        # ptr = gep [N x i8] arr, 0, off
+        self.set1(self.agk[base], self.aga[base], self.agb[base])
+        self.set2(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+        self.e_gepi(at)
+        self.set1rr()
+        self.set2(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
+        self.e_wspan()
+        self.nag = base
+        self.ert = 5
+        self.nx3 = self.nx3 - 1
+    }
+
+    # arg_len(i): i в er; i >= arg_count() — trap, результат u32.
+    func xarglen(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        self.e_argcount()
+        self.set1er()
+        self.set2rr()
+        self.e_icmp(10, 1)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 9, 0, 0)
+        self.set1er()
+        self.e_arglen()
+        self.serrr(1)
+        self.nx3 = self.nx3 - 1
+    }
+
+    # arg_byte(i, j): i в ag[base], j в ag[base+1]; две границы
+    # (i >= arg_count(), j >= arg_len(i)) — trap, как codegen.py.
+    func xargbyte(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let base: u32 = self.xg3[f]
+        let ik: u32 = self.agk[base]
+        let ia: u32 = self.aga[base]
+        let ib: u32 = self.agb[base]
+        let jk: u32 = self.agk[base + 1]
+        let ja: u32 = self.aga[base + 1]
+        let jb: u32 = self.agb[base + 1]
+        # bad1 = icmp uge i, arg_count()
+        self.e_argcount()
+        self.set1(ik, ia, ib)
+        self.set2rr()
+        self.e_icmp(10, 1)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 10, 0, 0)
+        # bad2 = icmp uge j, arg_len(i)
+        self.set1(ik, ia, ib)
+        self.e_arglen()
+        self.set1(jk, ja, jb)
+        self.set2rr()
+        self.e_icmp(10, 1)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 11, 0, 0)
+        # res = call i8 eat_arg_byte(i, j)
+        self.set1(ik, ia, ib)
+        self.set2(jk, ja, jb)
+        self.e_argbyte()
+        self.serrr(2)
+        self.nag = base
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Завершение вызова функции/метода: аргументы в ag[xg3..nag).
+    func xufin(var self, f: u32)
+        requires f < 64
+        ensures true
+    {
+        let fi: u32 = self.xb3[f]
+        let base: u32 = self.xg3[f]
+        let rt2: u32 = self.c.fret[fi]
+        var ok2: u32 = 0
+        var oa: u32 = 0
+        var ob2: u32 = 0
+        var agg2: bool = false
+        if rt2 != NONE {
+            if self.is_agg(rt2) {
+                agg2 = true
+                ok2 = self.agk[base]
+                oa = self.aga[base]
+                ob2 = self.agb[base]
+            }
+        }
+        self.e_ucall(fi, base)
+        if rt2 == NONE {
+            self.ert = 5
+        } elif agg2 {
+            self.ser(ok2, oa, ob2)
+            self.ert = rt2
+        } else {
+            self.serrr(rt2)
+        }
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Корень lvalue-пути (a, a.f, a[i] → узел name/self); NONE — rvalue.
+    func lv_root(self, n: u32) -> u32
+        requires n < 131072
+        ensures true
+    {
+        var m: u32 = n
+        for _ in 0..32 {
+            let k: u32 = self.c.p.nk[m / 65536][m % 65536]
+            if k != 43 and k != 44 {
+                break
+            }
+            m = self.c.p.nfc[m / 65536][m % 65536]
+        }
+        let k2: u32 = self.c.p.nk[m / 65536][m % 65536]
+        if k2 == 37 or k2 == 38 {
+            return m
+        }
+        return NONE
+    }
+
+    # Перекрытие lvalue-путей: общий корень (a и a.f/a[i]; self и self).
+    func lv_overlap(var self, an: u32, bn: u32) -> bool
+        requires an < 131072 and bn < 131072
+        ensures true
+    {
+        let r1: u32 = self.lv_root(an)
+        let r2: u32 = self.lv_root(bn)
+        if r1 == NONE or r2 == NONE {
+            return false
+        }
+        let k1: u32 = self.c.p.nk[r1 / 65536][r1 % 65536]
+        let k2: u32 = self.c.p.nk[r2 / 65536][r2 % 65536]
+        if k1 == 38 and k2 == 38 {
+            return true
+        }
+        if k1 != 37 or k2 != 37 {
+            return false
+        }
+        return self.c.span_eq(
+            self.c.p.nss[r1 / 65536][r1 % 65536], self.c.p.nsl[r1 / 65536][r1 % 65536],
+            self.c.p.nss[r2 / 65536][r2 % 65536], self.c.p.nsl[r2 / 65536][r2 % 65536]
+        )
+    }
+
+    func xmeth(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        let obj: u32 = self.c.p.nfc[n / 65536][n % 65536]
+        if ph == 0 {
+            if self.c.p.nk[obj / 65536][obj % 65536] == 37 {
+                if self.c.is_enum_name(
+                    self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536]
+                ) {
+                    self.xctor(f, n, obj)
+                    return
+                }
+            }
+            self.xp3[f] = 1
+            self.xpush2(obj)
+        } elif ph == 1 {
+            self.xmeth_obj(f, n)
+        } elif ph == 9 {
+            # аргумент конструктора готов: скопировать в слот
+            self.set1(0, self.xe3[f], 0)
+            self.set2er()
+            self.copy_into(self.xa3[f])
+            self.ser(1, self.xb3[f], self.xc3[f])
+            self.ert = self.xd3[f]
+            self.nx3 = self.nx3 - 1
+        } else {
+            # очередной аргумент метода: агрегат идёт по ссылке; перекрытие
+            # с var self-получателем страхует копия (семантика by-value)
+            let mfi: u32 = self.xb3[f]
+            let pt2: u32 = self.c.pty[self.c.fps[mfi] + self.xf3[f]]
+            if self.c.fvs[mfi] == 1 and self.is_agg(pt2) {
+                if self.lv_overlap(self.c.nth_child(n, self.xf3[f] + 1), obj) {
+                    self.set2er()
+                    self.materialize(pt2)
+                    self.serrr(pt2)
+                }
+            }
+            self.ag_push(pt2)
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= self.c.fpc[mfi] {
+                self.xufin(f)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f] + 1))
+            }
+        }
+    }
+
+    func xmeth_obj(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let st2: u32 = self.ert
+        let si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
+        let mfi: u32 = self.c.fh_find(
+            si, self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]
+        )
+        self.xb3[f] = mfi
+        self.xg3[f] = self.nag
+        let ek: u32 = self.erk
+        let ea: u32 = self.era
+        let eb: u32 = self.erb
+        let rt2: u32 = self.c.fret[mfi]
+        if rt2 != NONE {
+            if self.is_agg(rt2) {
+                self.nm_lit("call.ret")
+                self.e_alloca_n(rt2)
+                self.ag_push_rr(rt2)
+            }
+        }
+        self.ser(ek, ea, eb)
+        self.ag_push(st2)
+        if self.c.fpc[mfi] == 0 {
+            self.xufin(f)
+        } else {
+            self.xf3[f] = 0
+            self.xp3[f] = 2
+            self.xpush2(self.c.nth_child(n, 1))
+        }
+    }
+
+    # Конструктор варианта enum с нагрузкой: E.V(x).
+    func xctor(var self, f: u32, n: u32, obj: u32)
+        requires f < 64 and n < 131072 and obj < 131072
+        ensures true
+    {
+        let ei: u32 = self.c.find_enum(
+            self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536]
+        )
+        let w: u32 = self.c.variant_of(
+            self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536],
+            self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]
+        )
+        let ety: u32 = self.c.nty[n / 65536][n % 65536]
+        let m: u32 = self.nbn
+        self.nb_sb(self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536])
+        self.nb_b(46)
+        self.nb_sb(self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
+        self.dedup(m)
+        self.e_alloca_n(ety)
+        self.xb3[f] = self.rra
+        self.xc3[f] = self.rrb
+        self.xd3[f] = ety
+        self.set1rr()
+        self.e_gepc(ety, 0)
+        self.set2rr()
+        self.set1(2, 0, w - self.c.evs[ei])
+        self.e_store(0)
+        self.set1(1, self.xb3[f], self.xc3[f])
+        self.e_gepc(ety, self.slot_of(ety, w))
+        self.xe3[f] = self.rra
+        self.xa3[f] = self.c.wpl[w]
+        self.xp3[f] = 9
+        self.xpush2(self.c.p.nns[obj / 65536][obj % 65536])
+    }
+
+    # Конструктор Ok/Err/Some (коды 113/114/115): {tag, payload в
+    # своём слоте} — та же последовательность, что у xctor (паритет
+    # с gen_tagged_ctor: alloca, store тега, gep слота, payload).
+    func xtctor(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.c.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.c.p.nsl[n / 65536][n % 65536]
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
+        var code: u32 = 113
+        var tag: u32 = 0
+        var slot: u32 = 1
+        if self.c.span_is(a, l, "Err") {
+            code = 114
+            tag = 1
+            slot = 2
+        } elif self.c.span_is(a, l, "Some") {
+            code = 115
+        }
+        if code == 113 {
+            self.nm_lit("ok.res")
+        } elif code == 114 {
+            self.nm_lit("err.res")
+        } else {
+            self.nm_lit("some.res")
+        }
+        self.e_alloca_n(t)
+        self.xb3[f] = self.rra
+        self.xc3[f] = self.rrb
+        self.xd3[f] = t
+        self.set1rr()
+        self.e_gepc(t, 0)
+        self.set2rr()
+        self.set1(2, 0, tag)
+        self.e_store(0)
+        self.set1(1, self.xb3[f], self.xc3[f])
+        self.e_gepc(t, slot)
+        self.xe3[f] = self.rra
+        self.xa3[f] = code
+        self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+    }
+
+    # Тег встроенного enum-варианта.
+    func builtin_vtag(var self, va: u32, vl: u32) -> u32
+        requires true
+        ensures result <= 2
+    {
+        if self.c.span_is(va, vl, "Eof") or self.c.span_is(va, vl, "Empty") {
+            return 0
+        }
+        if self.c.span_is(va, vl, "Fail") or self.c.span_is(va, vl, "BadChar") {
+            return 1
+        }
+        return 2
+    }
+
+    func xmem(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let obj: u32 = self.c.p.nfc[n / 65536][n % 65536]
+        if self.xp3[f] == 0 {
+            if self.c.p.nk[obj / 65536][obj % 65536] == 37 {
+                if self.c.is_enum_name(
+                    self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536]
+                ) {
+                    self.xmem_enum(n, obj)
+                    self.nx3 = self.nx3 - 1
+                    return
+                }
+            }
+            self.xp3[f] = 1
+            self.xpush2(obj)
+            return
+        }
+        let st2: u32 = self.ert
+        let si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
+        let g: u32 = self.c.field_of(
+            si, self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]
+        )
+        self.set1er()
+        self.e_gepc(st2, g - self.c.sgs[si])
+        let ft: u32 = self.c.gty[g]
+        if self.is_agg(ft) {
+            self.serrr(ft)
+        } else {
+            self.set1rr()
+            self.e_load(ft)
+            self.serrr(ft)
+        }
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Литерал варианта без нагрузки: E.V.
+    func xmem_enum(var self, n: u32, obj: u32)
+        requires n < 131072 and obj < 131072
+        ensures true
+    {
+        let ety: u32 = self.c.nty[n / 65536][n % 65536]
+        let ei: u32 = self.c.find_enum(
+            self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536]
+        )
+        if ei == NONE {
+            self.ser(
+                2, 0,
+                self.builtin_vtag(
+                    self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]
+                )
+            )
+            self.ert = ety
+            return
+        }
+        let w: u32 = self.c.variant_of(
+            self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536],
+            self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]
+        )
+        let tag: u32 = w - self.c.evs[ei]
+        if self.enum_pay(ety) {
+            # вариант без нагрузки внутри enum с нагрузкой — агрегат с тегом
+            let m: u32 = self.nbn
+            self.nb_sb(
+                self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536]
+            )
+            self.nb_b(46)
+            self.nb_sb(self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
+            self.dedup(m)
+            self.e_alloca_n(ety)
+            let os: u32 = self.rra
+            let ol: u32 = self.rrb
+            self.set1rr()
+            self.e_gepc(ety, 0)
+            self.set2rr()
+            self.set1(2, 0, tag)
+            self.e_store(0)
+            self.ser(1, os, ol)
+            self.ert = ety
+        } else {
+            self.ser(2, 0, tag)
+            self.ert = ety
+        }
+    }
+
+    # er — индексное значение: u8/u16 расширяются до i32.
+    # Индекс u8/u16 расширяется до i32; 64-битный индекс помечается
+    # флагом idxw — границы сверяются в i64, ужатие делает idx_gep.
+    func widen(var self)
+        requires true
+        ensures true
+    {
+        self.idxw = 0
+        if self.c.yk[self.ert] == 2 {
+            self.set1er()
+            self.e_cvt(0, 2, 0)
+            self.serrr(0)
+        } elif self.c.yk[self.ert] == 12 {
+            self.set1er()
+            self.e_cvt(0, self.u16t(), 0)
+            self.serrr(0)
+        } elif self.c.yk[self.ert] == 13 or self.c.yk[self.ert] == 14 {
+            self.idxw = 1
+        }
+    }
+
+    # Указатель на элемент с проверкой границ. База — (bk,ba,bb) типа bt,
+    # индекс — er (i32; при idxw == 1 — i64: границы в i64, потом trunc).
+    func idx_gep(var self, n: u32, bk: u32, ba: u32, bb: u32, bt: u32)
+        requires n < 131072 and bt < 512
+        ensures true
+    {
+        let iw: u32 = self.idxw
+        var ik: u32 = self.erk
+        var ia: u32 = self.era
+        var ib: u32 = self.erb
+        var it2: u32 = 0
+        if iw == 1 {
+            it2 = self.u64t()
+        }
+        var zk: u32 = 2
+        var za: u32 = 0
+        var zb: u32 = 0
+        if self.c.yk[bt] == 7 {
+            zb = self.c.yb[bt]
+        } else {
+            self.set1(bk, ba, bb)
+            self.e_gepc(bt, 0)
+            self.set1rr()
+            self.e_load(0)
+            zk = self.rrk
+            za = self.rra
+            zb = self.rrb
+            if iw == 1 {
+                self.set1(zk, za, zb)
+                self.e_cvt(0, 0, it2)
+                zk = self.rrk
+                za = self.rra
+                zb = self.rrb
+            }
+        }
+        self.set1(ik, ia, ib)
+        self.set2(2, 0, 0)
+        self.e_icmp(3, it2)
+        let lk2: u32 = self.rrk
+        let la2: u32 = self.rra
+        let lb2: u32 = self.rrb
+        self.set1(ik, ia, ib)
+        self.set2(zk, za, zb)
+        self.e_icmp(6, it2)
+        self.set2rr()
+        self.set1(lk2, la2, lb2)
+        self.e_bin(9, 3)
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 4, 0, 0)
+        if iw == 1 {
+            self.set1(ik, ia, ib)
+            self.e_cvt(1, it2, 0)
+            ik = self.rrk
+            ia = self.rra
+            ib = self.rrb
+        }
+        self.set1(bk, ba, bb)
+        self.set2(ik, ia, ib)
+        if self.c.yk[bt] == 7 {
+            self.e_gepi(bt)
+        } else {
+            self.e_geps(bt)
+        }
+    }
+
+    func xidx(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        } elif ph == 1 {
+            self.xa3[f] = self.erk
+            self.xb3[f] = self.era
+            self.xc3[f] = self.erb
+            self.xd3[f] = self.ert
+            self.xp3[f] = 2
+            self.xpush2(
+                self.c.p.nns[self.c.p.nfc[n / 65536][n % 65536] / 65536][
+                    self.c.p.nfc[n / 65536][n % 65536] % 65536
+                ]
+            )
+        } else {
+            self.widen()
+            let bt: u32 = self.xd3[f]
+            self.idx_gep(n, self.xa3[f], self.xb3[f], self.xc3[f], bt)
+            var et: u32 = 4
+            if self.c.yk[bt] == 7 {
+                et = self.c.ya[bt]
+            }
+            if not self.is_agg(et) {
+                self.set1rr()
+                self.e_load(et)
+            }
+            self.serrr(et)
+            self.nx3 = self.nx3 - 1
+        }
+    }
+
+    func xslit(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.nm_sb(self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536])
+            self.e_alloca_n(self.c.nty[n / 65536][n % 65536])
+            self.xa3[f] = self.rra
+            self.xb3[f] = self.rrb
+            self.xc3[f] = self.c.p.nfc[n / 65536][n % 65536]
+            self.xp3[f] = 1
+            return
+        }
+        if ph == 2 {
+            self.set1(0, self.xd3[f], 0)
+            self.set2er()
+            self.copy_into(self.xe3[f])
+            self.xp3[f] = 1
+            return
+        }
+        let cur: u32 = self.xc3[f]
+        if cur == NONE {
+            self.ser(1, self.xa3[f], self.xb3[f])
+            self.ert = self.c.nty[n / 65536][n % 65536]
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        let si: u32 = self.c.find_struct(
+            self.c.p.nss[n / 65536][n % 65536], self.c.p.nsl[n / 65536][n % 65536]
+        )
+        let g: u32 = self.c.field_of(
+            si, self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536]
+        )
+        self.set1(1, self.xa3[f], self.xb3[f])
+        self.e_gepc(self.c.nty[n / 65536][n % 65536], g - self.c.sgs[si])
+        self.xd3[f] = self.rra
+        self.xe3[f] = self.c.gty[g]
+        self.xc3[f] = self.c.p.nns[cur / 65536][cur % 65536]
+        self.xp3[f] = 2
+        self.xpush2(self.c.p.nfc[cur / 65536][cur % 65536])
+    }
+
+    func xalit(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let ph: u32 = self.xp3[f]
+        if ph == 0 {
+            self.nm_lit("arr")
+            self.e_alloca_n(self.c.nty[n / 65536][n % 65536])
+            self.xa3[f] = self.rra
+            self.xb3[f] = self.rrb
+            self.xc3[f] = self.c.p.nfc[n / 65536][n % 65536]
+            self.xd3[f] = 0
+            self.xp3[f] = 1
+            return
+        }
+        if ph == 2 {
+            self.set1(0, self.xe3[f], 0)
+            self.set2er()
+            self.copy_into(self.c.ya[self.c.nty[n / 65536][n % 65536]])
+            self.xp3[f] = 1
+            return
+        }
+        let cur: u32 = self.xc3[f]
+        if cur == NONE {
+            self.ser(1, self.xa3[f], self.xb3[f])
+            self.ert = self.c.nty[n / 65536][n % 65536]
+            self.nx3 = self.nx3 - 1
+            return
+        }
+        self.set1(1, self.xa3[f], self.xb3[f])
+        self.e_gepc(self.c.nty[n / 65536][n % 65536], self.xd3[f])
+        self.xe3[f] = self.rra
+        self.xd3[f] = self.xd3[f] + 1
+        self.xc3[f] = self.c.p.nns[cur / 65536][cur % 65536]
+        self.xp3[f] = 2
+        self.xpush2(cur)
+    }
+
+    func xafill(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if self.xp3[f] == 0 {
+            self.nm_lit("arr.fill")
+            self.e_alloca_n(self.c.nty[n / 65536][n % 65536])
+            self.xa3[f] = self.rra
+            self.xb3[f] = self.rrb
+            self.xp3[f] = 1
+            self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+            return
+        }
+        self.xafill_fin(f, n)
+        self.nx3 = self.nx3 - 1
+    }
+
+    func xafill_fin(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
+        let et: u32 = self.c.ya[t]
+        let vk: u32 = self.erk
+        let va: u32 = self.era
+        let vb: u32 = self.erb
+        self.nm_lit("fill.i")
+        self.e_alloca_n(0)
+        let is2: u32 = self.rra
+        let il2: u32 = self.rrb
+        self.set1(2, 0, 0)
+        self.set2rr()
+        self.e_store(0)
+        let condb: u32 = self.blk_new("fill.cond")
+        let bodyb: u32 = self.blk_new("fill.body")
+        let endb: u32 = self.blk_new("fill.end")
+        self.e_br(condb)
+        self.cb = condb
+        self.set1(1, is2, il2)
+        self.e_load(0)
+        let ck: u32 = self.rrk
+        let ca: u32 = self.rra
+        let cb2: u32 = self.rrb
+        self.set1(ck, ca, cb2)
+        self.set2(2, 0, self.c.yb[t])
+        self.e_icmp(3, 0)
+        self.set1rr()
+        self.e_cbr(bodyb, endb)
+        self.cb = bodyb
+        self.set1(1, self.xa3[f], self.xb3[f])
+        self.set2(ck, ca, cb2)
+        self.e_gepi(t)
+        self.set1rr()
+        self.set2(vk, va, vb)
+        self.copy_into(et)
+        self.set1(ck, ca, cb2)
+        self.set2(2, 0, 1)
+        self.e_bin(1, 0)
+        self.set1rr()
+        self.set2(1, is2, il2)
+        self.e_store(0)
+        self.e_br(condb)
+        self.cb = endb
+        self.ser(1, self.xa3[f], self.xb3[f])
+        self.ert = t
+    }
+
+    # --- встроенные функции ---------------------------------------------------
+
+    func xrbyte(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
+        self.e_rbyte()
+        let wk: u32 = self.rrk
+        let wa: u32 = self.rra
+        let wb: u32 = self.rrb
+        self.nm_lit("rb.res")
+        self.e_alloca_n(t)
+        let rs2: u32 = self.rra
+        let rl2: u32 = self.rrb
+        self.set1(wk, wa, wb)
+        self.set2(2, 0, 0)
+        self.e_icmp(6, 0)
+        let ok3: u32 = self.rrk
+        let oa3: u32 = self.rra
+        let ob3: u32 = self.rrb
+        self.set1(ok3, oa3, ob3)
+        self.set2(2, 0, 0)
+        self.set3(2, 0, 1)
+        self.e_sel(0)
+        let tk2: u32 = self.rrk
+        let ta2: u32 = self.rra
+        let tb2: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 0)
+        self.set2rr()
+        self.set1(tk2, ta2, tb2)
+        self.e_store(0)
+        self.set1(wk, wa, wb)
+        self.e_cvt(1, 0, 2)
+        self.set2rr()
+        self.set1(ok3, oa3, ob3)
+        self.set3(2, 0, 0)
+        self.e_sel(2)
+        let bk3: u32 = self.rrk
+        let ba3: u32 = self.rra
+        let bb3: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 1)
+        self.set2rr()
+        self.set1(bk3, ba3, bb3)
+        self.e_store(2)
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 2)
+        self.set2rr()
+        self.set1(2, 0, 0)
+        self.e_store(self.c.yb[t])
+        self.ser(1, rs2, rl2)
+        self.ert = t
+    }
+
+    # er — значение-аргумент каста; code: 100 i32, 101 u32, 102 u8,
+    # 103 u16, 104 char.
+    func xcast(var self, n: u32, code: u32)
+        requires n < 131072 and code >= 100
+        ensures true
+    {
+        let st2: u32 = self.ert
+        let sk2: u32 = self.c.yk[st2]
+        if code == 104 or sk2 == 4 {
+            self.ert = self.c.nty[n / 65536][n % 65536]
+            return
+        }
+        if sk2 == 2 {
+            if code == 102 {
+                self.ert = 2
+                return
+            }
+            if code == 103 {
+                self.set1er()
+                self.e_cvt(0, 2, self.u16t())
+                self.serrr(self.u16t())
+                return
+            }
+            if code == 111 or code == 112 {
+                self.set1er()
+                self.e_cvt(0, 2, self.u64t())
+                self.serrr(self.c.nty[n / 65536][n % 65536])
+                return
+            }
+            self.set1er()
+            self.e_cvt(0, 2, 0)
+            self.serrr(self.c.nty[n / 65536][n % 65536])
+            return
+        }
+        if sk2 == 12 {
+            self.xcast_from_u16(n, st2, code)
+            return
+        }
+        if sk2 == 13 or sk2 == 14 {
+            self.xcast_from64(n, st2, code)
+            return
+        }
+        if code == 111 or code == 112 {
+            self.xcast_to64(n, st2, sk2, code)
+            return
+        }
+        if code == 103 {
+            self.xcast_u16(n, st2, sk2)
+            return
+        }
+        if code == 100 {
+            if sk2 == 1 {
+                self.set1er()
+                self.set2(2, 0, 2147483647)
+                self.e_icmp(9, st2)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 0, 0
+                )
+            }
+            self.ert = 0
+            return
+        }
+        if code == 101 {
+            if sk2 == 0 {
+                self.set1er()
+                self.set2(2, 0, 0)
+                self.e_icmp(3, st2)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 1, 0
+                )
+            }
+            self.ert = 1
+            return
+        }
+        self.xcast_u8(n, st2, sk2)
+    }
+
+    # Источник u16: в u16 — как есть, в u8 — trap >255 и trunc,
+    # в u64/i64 — zext, в i32/u32 — zext (всегда помещается).
+    func xcast_from_u16(var self, n: u32, st2: u32, code: u32)
+        requires n < 131072 and st2 < 512
+        ensures true
+    {
+        if code == 103 {
+            self.ert = st2
+            return
+        }
+        if code == 102 {
+            self.set1er()
+            self.set2(2, 0, 255)
+            self.e_icmp(9, st2)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 2, 0
+            )
+            self.set1er()
+            self.e_cvt(1, st2, 2)
+            self.serrr(2)
+            return
+        }
+        if code == 111 or code == 112 {
+            self.set1er()
+            self.e_cvt(0, st2, self.u64t())
+            self.serrr(self.c.nty[n / 65536][n % 65536])
+            return
+        }
+        self.set1er()
+        self.e_cvt(0, st2, 0)
+        self.serrr(self.c.nty[n / 65536][n % 65536])
+    }
+
+    # Вид цели каста по коду (для текста trap-сообщения).
+    func cast_kind(var self, code: u32) -> u32
+        requires code >= 100
+        ensures result <= 2 or result >= 12
+    {
+        if code == 100 {
+            return 0
+        }
+        if code == 101 {
+            return 1
+        }
+        if code == 103 {
+            return 12
+        }
+        if code == 111 {
+            return 13
+        }
+        if code == 112 {
+            return 14
+        }
+        return 2
+    }
+
+    # Верхняя граница цели каста (для сужения из 64 бит).
+    func cast_hi(var self, code: u32) -> u64
+        requires code >= 100
+        ensures true
+    {
+        if code == 100 {
+            return 2147483647
+        }
+        if code == 101 {
+            return 4294967295
+        }
+        if code == 103 {
+            return 65535
+        }
+        if code == 112 {
+            return 9223372036854775807
+        }
+        return 255
+    }
+
+    # Касты из 64-битного регистра (виды 13/14): сужение — trap по
+    # диапазону цели, u64 ↔ i64 — проверка без смены ширины.
+    func xcast_from64(var self, n: u32, st2: u32, code: u32)
+        requires n < 131072 and st2 < 512 and code >= 100
+        ensures true
+    {
+        let sk2: u32 = self.c.yk[st2]
+        if (code == 111 and sk2 == 13) or (code == 112 and sk2 == 14) {
+            self.ert = st2
+            return
+        }
+        let tk2: u32 = self.cast_kind(code)
+        if sk2 == 13 {
+            # u64: единственная проверка — верхняя граница цели
+            let hi: u64 = self.cast_hi(code)
+            self.set1er()
+            self.set2(self.cw_k(hi), 0, self.cw_b(hi))
+            self.e_icmp(9, st2)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, tk2, 0
+            )
+            if code == 112 {
+                self.ert = self.c.nty[n / 65536][n % 65536]
+                return
+            }
+        } elif code == 111 {
+            # i64 -> u64: trap на отрицательном, ширина та же
+            self.set1er()
+            self.set2(2, 0, 0)
+            self.e_icmp(3, st2)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 13, 0
+            )
+            self.ert = self.c.nty[n / 65536][n % 65536]
+            return
+        } else {
+            # i64 -> 32/16/8: обе границы знаково
+            var los: u32 = 0
+            var lom: u64 = 0
+            if code == 100 {
+                los = 1
+                lom = 2147483648
+            }
+            self.set1er()
+            self.set2(self.cw_k(lom), los, self.cw_b(lom))
+            self.e_icmp(3, st2)
+            let lk2: u32 = self.rrk
+            let la2: u32 = self.rra
+            let lb2: u32 = self.rrb
+            let hi2: u64 = self.cast_hi(code)
+            self.set1er()
+            self.set2(self.cw_k(hi2), 0, self.cw_b(hi2))
+            self.e_icmp(5, st2)
+            self.set2rr()
+            self.set1(lk2, la2, lb2)
+            self.e_bin(9, 3)
+            self.set1rr()
+            self.trap_if(
+                self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, tk2, 0
+            )
+        }
+        var tt: u32 = 0
+        if code == 102 {
+            tt = 2
+        } elif code == 103 {
+            tt = self.u16t()
+        }
+        self.set1er()
+        self.e_cvt(1, st2, tt)
+        self.serrr(self.c.nty[n / 65536][n % 65536])
+    }
+
+    # Цель u64/i64, источник i32/u32: расширение; единственный trap —
+    # отрицательный i32 в u64.
+    func xcast_to64(var self, n: u32, st2: u32, sk2: u32, code: u32)
+        requires n < 131072 and st2 < 512 and code >= 100
+        ensures true
+    {
+        if sk2 == 0 {
+            if code == 111 {
+                self.set1er()
+                self.set2(2, 0, 0)
+                self.e_icmp(3, st2)
+                self.set1rr()
+                self.trap_if(
+                    self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 13, 0
+                )
+            }
+            self.set1er()
+            self.e_cvt(2, st2, self.u64t())
+            self.serrr(self.c.nty[n / 65536][n % 65536])
+            return
+        }
+        self.set1er()
+        self.e_cvt(0, st2, self.u64t())
+        self.serrr(self.c.nty[n / 65536][n % 65536])
+    }
+
+    # Цель u16, источник i32/u32: trap вне [0, 65535] и trunc.
+    func xcast_u16(var self, n: u32, st2: u32, sk2: u32)
+        requires n < 131072 and st2 < 512
+        ensures true
+    {
+        if sk2 == 0 {
+            self.set1er()
+            self.set2(2, 0, 0)
+            self.e_icmp(3, st2)
+            let lk2: u32 = self.rrk
+            let la2: u32 = self.rra
+            let lb2: u32 = self.rrb
+            self.set1er()
+            self.set2(2, 0, 65535)
+            self.e_icmp(5, st2)
+            self.set2rr()
+            self.set1(lk2, la2, lb2)
+            self.e_bin(9, 3)
+        } else {
+            self.set1er()
+            self.set2(2, 0, 65535)
+            self.e_icmp(9, st2)
+        }
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 12, 0)
+        self.set1er()
+        self.e_cvt(1, st2, self.u16t())
+        self.serrr(self.u16t())
+    }
+
+    func xcast_u8(var self, n: u32, st2: u32, sk2: u32)
+        requires n < 131072 and st2 < 512
+        ensures true
+    {
+        if sk2 == 0 {
+            self.set1er()
+            self.set2(2, 0, 0)
+            self.e_icmp(3, st2)
+            let lk2: u32 = self.rrk
+            let la2: u32 = self.rra
+            let lb2: u32 = self.rrb
+            self.set1er()
+            self.set2(2, 0, 255)
+            self.e_icmp(5, st2)
+            self.set2rr()
+            self.set1(lk2, la2, lb2)
+            self.e_bin(9, 3)
+        } else {
+            self.set1er()
+            self.set2(2, 0, 255)
+            self.e_icmp(9, st2)
+        }
+        self.set1rr()
+        self.trap_if(self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 6, 2, 0)
+        self.set1er()
+        self.e_cvt(1, st2, 2)
+        self.serrr(2)
+    }
+
+    # --- lvalue ---------------------------------------------------------------
+
+    # Указатель на цель присваивания; результат — lvk/lva/lvb.
+    func lvalue(var self, tgt: u32)
+        requires tgt < 131072
+        ensures true
+    {
+        var path: [u32; 32] = [0; 32]
+        var np: u32 = 0
+        var cur: u32 = tgt
+        for _ in 0..32 {
+            let k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
+            if k == 43 or k == 44 {
+                path[np] = cur
+                np = np + 1
+                cur = self.c.p.nfc[cur / 65536][cur % 65536]
+            }
+        }
+        var bt: u32 = 0
+        if self.c.p.nk[cur / 65536][cur % 65536] == 38 {
+            let v: u32 = self.lookup_self2()
+            self.lvk = self.vkk[v]
+            self.lva = self.vka[v]
+            self.lvb = self.vkb[v]
+            bt = self.vty[v]
+        } else {
+            let v2: u32 = self.lookupv(
+                self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536]
+            )
+            self.lvk = self.vkk[v2]
+            self.lva = self.vka[v2]
+            self.lvb = self.vkb[v2]
+            bt = self.vty[v2]
+        }
+        for q in 0..32 {
+            if q >= np or self.failed {
+                break
+            }
+            bt = self.lv_step(path[np - 1 - q], bt)
+        }
+    }
+
+    # Один шаг пути lvalue: поле или индекс. Возвращает тип уровня.
+    func lv_step(var self, nd: u32, bt: u32) -> u32
+        requires nd < 131072 and bt < 512
+        ensures result < 512
+    {
+        if self.c.p.nk[nd / 65536][nd % 65536] == 43 {
+            let si: u32 = self.c.find_struct(self.c.ys[bt], self.c.yl[bt])
+            let g: u32 = self.c.field_of(
+                si, self.c.p.nss[nd / 65536][nd % 65536], self.c.p.nsl[nd / 65536][nd % 65536]
+            )
+            self.set1(self.lvk, self.lva, self.lvb)
+            self.e_gepc(bt, g - self.c.sgs[si])
+            self.lvk = self.rrk
+            self.lva = self.rra
+            self.lvb = self.rrb
+            return self.c.gty[g]
+        }
+        let bk: u32 = self.lvk
+        let ba: u32 = self.lva
+        let bb: u32 = self.lvb
+        self.expr_run(
+            self.c.p.nns[self.c.p.nfc[nd / 65536][nd % 65536] / 65536][
+                self.c.p.nfc[nd / 65536][nd % 65536] % 65536
+            ]
+        )
+        self.widen()
+        self.idx_gep(nd, bk, ba, bb, bt)
+        self.lvk = self.rrk
+        self.lva = self.rra
+        self.lvb = self.rrb
+        if self.c.yk[bt] == 7 {
+            return self.c.ya[bt]
+        }
+        return 4
+    }
+}

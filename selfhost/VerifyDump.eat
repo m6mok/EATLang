@@ -1,0 +1,484 @@
+# Распил Verify.eat (REFACTOR_SELFHOST_PLAN §6.4): отметки обязательств, анализ функции, дамп.
+# Методы extend сливаются в struct Verify, как объявленные в его блоке;
+# порядок склейки файлов — списки SELFHOST_* в Makefile.
+
+extend Verify {
+    # --- отметки -------------------------------------------------------
+
+    func mark(var self, kind: u32, node: u32, ok: u32)
+        requires true
+        ensures true
+    {
+        # пробный проход тела цикла не оставляет отметок (эталон _mark:
+        # if self._probe: return) — иначе AND-слияние травит реальный проход
+        if self.probe == 1 {
+            return
+        }
+        var f: u32 = NONE
+        for i in 0..16384 {
+            if i >= self.nck or f != NONE {
+                break
+            }
+            if self.ck_k[i] == kind and self.ck_n[i] == node {
+                f = i
+            }
+        }
+        if f != NONE {
+            self.ck_o[f] = self.ck_o[f] * ok
+            return
+        }
+        if self.nck >= 16384 {
+            self.failed = true
+            eprint("DBGFAIL 1710")
+            return
+        }
+        let j: u32 = self.nck
+        self.ck_k[j] = kind
+        self.ck_n[j] = node
+        self.ck_o[j] = ok
+        self.nck = j + 1
+    }
+
+    # --- анализ функции ------------------------------------------------
+
+    func analyze_func(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        let d: u32 = self.c.fnd[fi]
+        if self.nk(d) == 50 {
+            return
+        }
+        let body: u32 = self.func_body(fi)
+        if body == NONE {
+            return
+        }
+        self.npp = 0
+        self.env = self.fresh_st()
+        self.cur_fn = fi
+        self.cur_own = fi
+        self.cur_mod = self.c.fmod[fi]
+        self.ret_ty = self.c.fret[fi]
+        self.ens_node = self.func_clause(fi, 10)
+        self.ens_saw = 0
+        self.ens_all = 1
+        self.res_on = 0
+        self.res_expr = NONE
+        # аккумулятор возвратов для сводки (эталон returns/ret_syms/ret_holes)
+        self.nret = 0
+        self.racc_bad = 0
+        self.rsym = NONE
+        self.rsym_bad = 0
+        self.ri_kn = 0
+        self.rd_kn = 0
+        self.rs_has = 0
+        self.rs_multi = 0
+        self.seed_params(fi)
+        let req: u32 = self.func_clause(fi, 9)
+        if req != NONE {
+            self.eval_bool(req, 1)
+            self.refine(req, 1)
+            self.flush_requires()
+        }
+        self.run_flow(body)
+        self.finish_ensures(d)
+        self.finalize_summary(fi)
+    }
+
+    # топологический порядок функций (эталон _topo_order): callee раньше
+    # caller. Пост-обход DFS явным стеком, считается один раз (порядок не
+    # меняется между пассами). Функции недостижимые из вершин обходятся
+    # как отдельные корни (внешний цикл по всем fi)
+    func topo_order(var self)
+        requires true
+        ensures true
+    {
+        for i in 0..1024 {
+            if i >= self.c.nfun {
+                break
+            }
+            self.tseen[i] = 0
+        }
+        self.tordn = 0
+        for start in 0..1024 {
+            if start >= self.c.nfun {
+                break
+            }
+            if self.tseen[start] == 0 {
+                self.topo_visit(start)
+            }
+        }
+    }
+
+    func topo_visit(var self, start: u32)
+        requires start < 1024
+        ensures true
+    {
+        var st: [u32; 1024] = [0; 1024]
+        var sp: u32 = 1
+        st[0] = start
+        for _ in 0..1000000 {
+            if sp == 0 {
+                break
+            }
+            let node: u32 = st[sp - 1]
+            if self.tseen[node] == 2 {
+                sp = sp - 1
+            } else {
+                self.tseen[node] = 1
+                let child: u32 = self.next_child(node)
+                if child != NONE and sp < 1024 {
+                    st[sp] = child
+                    sp = sp + 1
+                } else {
+                    self.torder[self.tordn] = node
+                    self.tordn = self.tordn + 1
+                    self.tseen[node] = 2
+                    sp = sp - 1
+                }
+            }
+        }
+    }
+
+    # первый ещё не посещённый callee-функция узла (code < nfun), либо NONE
+    func next_child(var self, node: u32) -> u32
+        requires node < 1024
+        ensures true
+    {
+        var found: u32 = NONE
+        var done: bool = false
+        for k in 0..4096 {
+            if done {
+                break
+            }
+            let c: u32 = self.c.cg_callee(node, k)
+            if c == NONE {
+                done = true
+            } elif c < self.c.nfun and self.tseen[c] == 0 {
+                found = c
+                done = true
+            }
+        }
+        return found
+    }
+
+    # обход test-блоков (эталон _analyze_all: после всех функций). Модуль
+    # теста — по счётчику #module-директив (kind 51) в порядке деклараций;
+    # ti — индекс теста (уникальный own пулов). Тесту не нужны параметры,
+    # requires/ensures, сводка — только поток тела (assert/границы/…).
+    func analyze_tests(var self)
+        requires true
+        ensures true
+    {
+        var d: u32 = self.nfc(0)
+        var mod: u32 = 0
+        var ti: u32 = 0
+        for _ in 0..131072 {
+            if d == NONE {
+                break
+            }
+            let k: u32 = self.nk(d)
+            if k == 51 {
+                mod = mod + 1
+            } elif k == 11 and ti < 64 {
+                self.analyze_test(d, ti, mod)
+                ti = ti + 1
+            }
+            d = self.nns(d)
+        }
+    }
+
+    func analyze_test(var self, d: u32, ti: u32, mod: u32)
+        requires d < 131072 and ti < 64
+        ensures true
+    {
+        self.npp = 0
+        self.env = self.fresh_st()
+        self.cur_fn = 0
+        self.cur_own = 4096 + ti
+        self.cur_mod = mod
+        self.ret_ty = NONE
+        self.ens_node = NONE
+        self.ens_saw = 0
+        self.ens_all = 1
+        self.res_on = 0
+        self.res_expr = NONE
+        self.nret = 0
+        self.racc_bad = 0
+        self.rsym = NONE
+        self.rsym_bad = 0
+        self.ri_kn = 0
+        self.rd_kn = 0
+        self.rs_has = 0
+        self.rs_multi = 0
+        # тело теста — дочерний блок (kind 12), как decl.body у эталона
+        let body: u32 = self.nfc(d)
+        if body != NONE {
+            self.run_flow(body)
+        }
+    }
+
+    # сводка функции fi (эталон _summary): тождество параметру | hive |
+    # интервал. Приоритет: param > hive > iv. Читается apply_summary на
+    # месте вызова в том же модуле (иначе — SPARK-граница contract_iv)
+    func finalize_summary(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        self.sum_tag[fi] = 0
+        let ret: u32 = self.c.fret[fi]
+        if ret == NONE or not self.int_kind(self.c.yk[ret]) or self.nret == 0 {
+            return
+        }
+        if self.rsym != NONE and self.rsym_bad == 0 {
+            self.sum_tag[fi] = 2
+            self.sum_pn[fi] = self.rsym
+            return
+        }
+        if self.racc_bad == 1 {
+            return
+        }
+        # hive: плотное строго ниже единственного сентинела (эталон _hive_summary)
+        if (self.rs_has == 1
+                and self.rs_multi == 0 and self.rd_kn == 1
+                and self.sless(self.rd_hs, self.rd_hm, self.rs_s, self.rs_m)) {
+            self.kind_range(self.c.yk[ret])
+            self.set_inter(self.rd_ls, self.rd_lm, self.rd_hs, self.rd_hm)
+            self.sum_tag[fi] = 3
+            self.sum_ls[fi] = self.rls
+            self.sum_lm[fi] = self.rlm
+            self.sum_hs[fi] = self.rhs
+            self.sum_hm[fi] = self.rhm
+            self.sum_ss[fi] = self.rs_s
+            self.sum_sm[fi] = self.rs_m
+            return
+        }
+        # интервал: hull всех возвратов, обрезанный диапазоном типа
+        if self.ri_kn == 1 {
+            self.kind_range(self.c.yk[ret])
+            self.set_inter(self.ri_ls, self.ri_lm, self.ri_hs, self.ri_hm)
+            self.sum_tag[fi] = 1
+            self.sum_ls[fi] = self.rls
+            self.sum_lm[fi] = self.rlm
+            self.sum_hs[fi] = self.rhs
+            self.sum_hm[fi] = self.rhm
+        }
+    }
+
+    func seed_params(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        let pbase: u32 = self.c.fps[fi]
+        for i in 0..6 {
+            if i >= self.c.fpc[fi] {
+                break
+            }
+            let ty: u32 = self.c.pty[pbase + i]
+            let pid: u32 = self.path_intern(self.c.pn_s[pbase + i], self.c.pn_l[pbase + i])
+            self.set_ty(ty)
+            if self.rk == 1 {
+                self.env.kn[pid] = 1
+                self.env.ls[pid] = self.rls
+                self.env.lm[pid] = self.rlm
+                self.env.hs[pid] = self.rhs
+                self.env.hm[pid] = self.rhm
+            }
+        }
+    }
+
+    func finish_ensures(var self, d: u32)
+        requires d < 131072
+        ensures true
+    {
+        if self.ens_node == NONE {
+            return
+        }
+        if self.ens_saw == 0 {
+            self.eval_bool(self.ens_node, 1)
+            self.ens_saw = 1
+            if self.tb != 1 {
+                self.ens_all = 0
+            }
+        }
+        var prov: u32 = 0
+        if self.ens_saw == 1 and self.ens_all == 1 and not self.has_call(self.ens_node) {
+            prov = 1
+        }
+        self.mark(6, d, prov)
+    }
+
+    func requires_pass(var self)
+        requires true
+        ensures true
+    {
+        for fi in 0..1024 {
+            if fi >= self.c.nfun {
+                break
+            }
+            self.requires_one(fi)
+        }
+    }
+
+    func requires_one(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        let req: u32 = self.func_clause(fi, 9)
+        if req == NONE {
+            return
+        }
+        let no_calls: bool = not self.has_call(req)
+        var saved: St = self.env
+        self.env = self.fresh_st()
+        self.eval_bool(req, 0)
+        let taut: bool = self.tb == 1
+        self.env = saved
+        let proven: u32 = self.rq_p[fi]
+        let total: u32 = self.rq_t[fi]
+        var ok: u32 = 0
+        if no_calls and (taut or (total > 0 and proven == total)) {
+            ok = 1
+        }
+        self.mark(5, self.c.fnd[fi], ok)
+    }
+
+    # итеративные пассы-фикспойнт инвариантов пулов/полей (эталон run):
+    # пасс k использует карты пасса k−1; отметки — последнего пасса
+    # (перед ним карты стабилизировались либо исчерпан лимит в 3 пасса)
+    func verify(var self)
+        requires true
+        ensures true
+    {
+        self.topo_order()
+        var stable: bool = false
+        for pass in 0..3 {
+            if stable {
+                break
+            }
+            self.npass = pass
+            self.begin_pass()
+            for oi in 0..1024 {
+                if oi >= self.tordn {
+                    break
+                }
+                self.analyze_func(self.torder[oi])
+            }
+            self.analyze_tests()
+            self.requires_pass()
+            stable = self.finish_pass()
+        }
+        self.dump()
+    }
+
+    # --- дамп ----------------------------------------------------------
+
+    func ck_less(var self, i: u32, j: u32) -> bool
+        requires i < 16384 and j < 16384
+        ensures true
+    {
+        let a: u32 = self.ck_n[i]
+        let b: u32 = self.ck_n[j]
+        if self.nl(a) != self.nl(b) {
+            return self.nl(a) < self.nl(b)
+        }
+        if self.nc(a) != self.nc(b) {
+            return self.nc(a) < self.nc(b)
+        }
+        return self.ck_k[i] < self.ck_k[j]
+    }
+
+    func kname(var self, k: u32) -> str<16>
+        requires true
+        ensures true
+    {
+        if k == 0 {
+            return "bounds"
+        }
+        if k == 1 {
+            return "overflow"
+        }
+        if k == 2 {
+            return "div"
+        }
+        if k == 3 {
+            return "cast"
+        }
+        if k == 4 {
+            return "shift"
+        }
+        if k == 5 {
+            return "requires"
+        }
+        if k == 6 {
+            return "ensures"
+        }
+        return "assert"
+    }
+
+    func emit_line(var self, kind: u32, ln: u32, cl: u32, ok: u32)
+        requires true
+        ensures true
+    {
+        let nm: str<16> = self.kname(kind)
+        if ok == 1 {
+            write("{nm} {ln}:{cl} proven\n")
+        } else {
+            write("{nm} {ln}:{cl} runtime\n")
+        }
+    }
+
+    func dump(var self)
+        requires true
+        ensures true
+    {
+        for i in 0..16384 {
+            if i >= self.nck {
+                break
+            }
+            self.dused[i] = 0
+        }
+        for out in 0..16384 {
+            if out >= self.nck {
+                break
+            }
+            var best: u32 = NONE
+            for i in 0..16384 {
+                if i >= self.nck {
+                    break
+                }
+                if self.dused[i] == 0 and (best == NONE or self.ck_less(i, best)) {
+                    best = i
+                }
+            }
+            self.dused[best] = 1
+            self.emit_line(
+                self.ck_k[best], self.nl(self.ck_n[best]), self.nc(self.ck_n[best]), self.ck_o[best]
+            )
+        }
+        self.footer()
+    }
+
+    func footer(var self)
+        requires true
+        ensures true
+    {
+        var tp: [u32; 8] = [0; 8]
+        var tt: [u32; 8] = [0; 8]
+        var proven: u32 = 0
+        for i in 0..16384 {
+            if i >= self.nck {
+                break
+            }
+            let k: u32 = self.ck_k[i]
+            tt[k] = tt[k] + 1
+            tp[k] = tp[k] + self.ck_o[i]
+            proven = proven + self.ck_o[i]
+        }
+        let total: u32 = self.nck
+        write("verify proven={proven} total={total}")
+        write(" bounds={tp[0]}/{tt[0]} overflow={tp[1]}/{tt[1]} div={tp[2]}/{tt[2]}")
+        write(" cast={tp[3]}/{tt[3]} shift={tp[4]}/{tt[4]} requires={tp[5]}/{tt[5]}")
+        write(" ensures={tp[6]}/{tt[6]} assert={tp[7]}/{tt[7]}\n")
+    }
+}

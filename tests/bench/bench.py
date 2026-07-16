@@ -534,7 +534,8 @@ def bench_selfhost(quick: bool, inputs):
 # вход всех замеров — конкатенация модулей SelfIr (вход verify_bootstrap)
 SELF_FRONT = ["selfhost/Tok.eat", "selfhost/Lexer.eat"]
 SELF_MID = SELF_FRONT + ["selfhost/Ast.eat", "selfhost/Parser.eat",
-                         "selfhost/Check.eat"]
+                         "selfhost/Check.eat", "selfhost/CheckConst.eat",
+                         "selfhost/CheckBody.eat", "selfhost/CheckDump.eat"]
 SELF_STAGES = [
     ("SelfLex", "lex", LIB_FRONT + SELF_FRONT + ["selfhost/LexMain.eat"]),
     ("SelfParse", "parse",
@@ -543,8 +544,9 @@ SELF_STAGES = [
     ("SelfSig", "sig", LIB_FRONT + SELF_MID + ["selfhost/SigMain.eat"]),
     ("SelfTyped", "typed", LIB_FRONT + SELF_MID + ["selfhost/TypedMain.eat"]),
     ("SelfIr", "ir",
-     LIB_FRONT + ["lib/Fmt.eat"] + SELF_MID + ["selfhost/Ir.eat",
-                                               "selfhost/IrMain.eat"]),
+     LIB_FRONT + ["lib/Fmt.eat"] + SELF_MID +
+     ["selfhost/Ir.eat", "selfhost/IrEmit.eat", "selfhost/IrExpr.eat",
+      "selfhost/IrStmt.eat", "selfhost/IrMain.eat"]),
 ]
 
 
