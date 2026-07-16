@@ -38,12 +38,13 @@ backlog.
 
 | № | План | Статус | Роль · следующий шаг |
 | --- | --- | --- | --- |
-| 1 | [SELFHOST_VERIFIER_PLAN](SELFHOST_VERIFIER_PLAN.md) | 🚧 | Порт единственной незеркалированной фазы (`verifier.py`) в selfhost. Этап 0 (канон дампа `eatc verify`) готов → **этап 1: `selfhost/Verify.eat`** |
-| 2 | [SELFHOST_OPT_PLAN](SELFHOST_OPT_PLAN.md) | 📋 | Оптимизационная ось `eatc ir -O ↔ SelfIrOpt`, ярус B (fold) — первый проход. Ждёт решения D0 → шаг 1: тонкая обёртка `eatc ir -O` |
-| 3 | [ASYNC_PLAN](ASYNC_PLAN.md) | 📋 | Кооперативная асинхронность через циклический исполнитель (superloop в `main`). Черновик → эскиз аксиом §6 (ярус 0) |
-| 4 | [FIXED_POINT_PLAN](FIXED_POINT_PLAN.md) | 📋 | Fixed-point одним `lib/Fixed.eat` без правок компилятора (Q16.16, Deci6). Черновик → этап 0: пин семантики знакового `/` · `%` |
-| 5 | [GENERICS_PLAN](GENERICS_PLAN.md) | 📋 | Анализ параметрического полиморфизма; вывод — **вместо** дженериков дешёвые альтернативы (`?`, числовые intrinsics). Черновик-рекомендация |
-| 6 | [HTTP_PLAN](HTTP_PLAN.md) | 📋 | HTTP/1.1-сервер на едином `loop` в `main`, bounded-пулы; HTTP/2·3 и TLS отвергнуты. Черновик → нужны сокет-аксиомы (решение пользователя) |
+| 1 | [REFACTOR_SELFHOST_PLAN](REFACTOR_SELFHOST_PLAN.md) | 🚧 | Читаемость selfhost: потолок 100 симв./строку в гейте (этап 1 ✅ — `tests/check_style.py` в `make check`, 227 строк переформатированы), конструкторы фаз, `extend` для распила Verify/Check/Ir. → **этап 2: конструкторы фаз** (D1 — синтаксис `extend` — нужен только к этапу 3) |
+| 2 | [SELFHOST_VERIFIER_PLAN](SELFHOST_VERIFIER_PLAN.md) | 🚧 | Порт `verifier.py` в selfhost. Этапы 0–4 и 6 ✅: весь репозиторий + **самоприменение** байт-в-байт (гейты `verify_selfhost_verify`, `verify_selfhost_verify_all`). Остался этап 5 «элизия» → ждёт D0 [SELFHOST_OPT_PLAN](SELFHOST_OPT_PLAN.md) |
+| 3 | [SELFHOST_OPT_PLAN](SELFHOST_OPT_PLAN.md) | 📋 | Оптимизационная ось `eatc ir -O ↔ SelfIrOpt`, ярус B (fold) — первый проход. Ждёт решения D0 → шаг 1: тонкая обёртка `eatc ir -O` |
+| 4 | [ASYNC_PLAN](ASYNC_PLAN.md) | 📋 | Кооперативная асинхронность через циклический исполнитель (superloop в `main`). Черновик → эскиз аксиом §6 (ярус 0) |
+| 5 | [FIXED_POINT_PLAN](FIXED_POINT_PLAN.md) | 📋 | Fixed-point одним `lib/Fixed.eat` без правок компилятора (Q16.16, Deci6). Черновик → этап 0: пин семантики знакового `/` · `%` |
+| 6 | [GENERICS_PLAN](GENERICS_PLAN.md) | 📋 | Анализ параметрического полиморфизма; вывод — **вместо** дженериков дешёвые альтернативы (`?`, числовые intrinsics). Черновик-рекомендация |
+| 7 | [HTTP_PLAN](HTTP_PLAN.md) | 📋 | HTTP/1.1-сервер на едином `loop` в `main`, bounded-пулы; HTTP/2·3 и TLS отвергнуты. Черновик → нужны сокет-аксиомы (решение пользователя) |
 | — | [OPTIMIZATIONS_PLAN](OPTIMIZATIONS_PLAN.md) | 🚧 | Живой реестр оставшихся оптимизаций с вердиктами замеров. Остаток: §1.3 (hive через границу модулей), §2.2 (sret), §3.1 (зеркало read_span), §3.2 (LTO-флаг) |
 | — | [MCU_PLAN](MCU_PLAN.md) | ✅ | Справка: МК уровня реального проекта — язык (hex/`~`/u16/u64/i64/extern), 4 QEMU-платы + 4 прошивочных порта (pico/bluepill/f4discovery/nrf52840dk), шим §6 (`mcu/Mcu.eat`), флагман `blinky_cli`. §7 — исследовательские хвосты (MMIO, ISR на EATLang) |
 | — | [TRACKS](TRACKS.md) | 🚧 | Мета-индекс треков работ (перф · МК · язык · верификатор): что дальше и почему |

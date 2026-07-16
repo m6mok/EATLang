@@ -55,7 +55,23 @@ func punct_code(b: u8) -> u32
     requires true
     ensures result <= 99
 {
-    if b == 40 { return 30 } elif b == 41 { return 31 } elif b == 123 { return 32 } elif b == 125 { return 33 } elif b == 91 { return 34 } elif b == 93 { return 35 } elif b == 44 { return 43 } elif b == 58 { return 44 } elif b == 59 { return 45 } elif b == 43 { return 49 } elif b == 42 { return 51 } elif b == 47 { return 52 } elif b == 37 { return 53 } elif b == 38 { return 56 } elif b == 124 { return 57 } elif b == 94 { return 58 } elif b == 126 { return 61 }
+    if b == 40 { return 30
+    } elif b == 41 { return 31
+    } elif b == 123 { return 32
+    } elif b == 125 { return 33
+    } elif b == 91 { return 34
+    } elif b == 93 { return 35
+    } elif b == 44 { return 43
+    } elif b == 58 { return 44
+    } elif b == 59 { return 45
+    } elif b == 43 { return 49
+    } elif b == 42 { return 51
+    } elif b == 47 { return 52
+    } elif b == 37 { return 53
+    } elif b == 38 { return 56
+    } elif b == 124 { return 57
+    } elif b == 94 { return 58
+    } elif b == 126 { return 61 }
     return 99
 }
 
@@ -64,7 +80,12 @@ func write_esc(b: u8)
     requires true
     ensures true
 {
-    if b == 92 { write("\\\\") } elif b == 10 { write("\\n") } elif b == 9 { write("\\t") } elif b == 13 { write("\\r") } elif b == 0 { write("\\0") } else { write_byte(b) }
+    if b == 92 { write("\\\\")
+    } elif b == 10 { write("\\n")
+    } elif b == 9 { write("\\t")
+    } elif b == 13 { write("\\r")
+    } elif b == 0 { write("\\0")
+    } else { write_byte(b) }
 }
 
 # Ожидаемый байт литерала `module "` (хвост директивы после '#').

@@ -998,7 +998,11 @@ struct Verify {
         requires true
         ensures true
     {
-        return St { kn: [0; 512], ls: [0; 512], lm: [0; 512], hs: [0; 512], hm: [0; 512], nz: [0; 512], rp: [0; 32], rq: [0; 32], rs: [0; 32], rm: [0; 32], nrel: 0, hk: [0; 512], hls: [0; 512], hlm: [0; 512], hhs: [0; 512], hhm: [0; 512], hss: [0; 512], hsm: [0; 512] }
+        return St {
+            kn: [0; 512], ls: [0; 512], lm: [0; 512], hs: [0; 512], hm: [0; 512], nz: [0; 512],
+            rp: [0; 32], rq: [0; 32], rs: [0; 32], rm: [0; 32], nrel: 0, hk: [0; 512],
+            hls: [0; 512], hlm: [0; 512], hhs: [0; 512], hhm: [0; 512], hss: [0; 512], hsm: [0; 512]
+        }
     }
 
     # --- инварианты пулов/полей (этап 3) -------------------------------
@@ -1014,7 +1018,9 @@ struct Verify {
             if i >= self.npki or r != NONE {
                 break
             }
-            if self.pki_loc[i] == loc and self.pki_own[i] == own and self.c.span_eq(self.pki_a[i], self.pki_l[i], a, l) {
+            if (self.pki_loc[i] == loc
+                    and self.pki_own[i] == own
+                    and self.c.span_eq(self.pki_a[i], self.pki_l[i], a, l)) {
                 r = i
             }
         }
@@ -1140,8 +1146,11 @@ struct Verify {
             self.psa_dead[keyid] = 1
             return
         }
-        if sentk == 1 and self.rls == sents and self.rlm == sentm and self.rhs == sents and self.rhm == sentm {
-            if self.psa_sk[keyid] == 1 and not (self.psa_ss[keyid] == sents and self.psa_sm[keyid] == sentm) {
+        if (sentk == 1
+                and self.rls == sents and self.rlm == sentm and self.rhs == sents
+                and self.rhm == sentm) {
+            if (self.psa_sk[keyid] == 1
+                    and not (self.psa_ss[keyid] == sents and self.psa_sm[keyid] == sentm)) {
                 self.psa_smulti[keyid] = 1
             }
             self.psa_sk[keyid] = 1
@@ -1360,7 +1369,9 @@ struct Verify {
         self.khs = self.rhs
         self.khm = self.rhm
         if self.piv_sk[pkey] == 0 {
-            self.set_inter(self.piv_ls[pkey], self.piv_lm[pkey], self.piv_hs[pkey], self.piv_hm[pkey])
+            self.set_inter(
+                self.piv_ls[pkey], self.piv_lm[pkey], self.piv_hs[pkey], self.piv_hm[pkey]
+            )
             return
         }
         # плотная часть (обрезанная типом) — в дырку
@@ -1405,7 +1416,9 @@ struct Verify {
     {
         if tty != NONE and self.c.yk[tty] == 7 {
             if tk == 37 {
-                self.store_array(self.pki_intern(1, self.cur_own, self.nss(tgt), self.nsl(tgt)), value)
+                self.store_array(
+                    self.pki_intern(1, self.cur_own, self.nss(tgt), self.nsl(tgt)), value
+                )
             } else {
                 self.store_array(self.pool_key(tgt), value)
             }
@@ -1601,7 +1614,10 @@ struct Verify {
                     self.psa_sm[dst] = self.psa_sm[src]
                     self.psa_smulti[dst] = self.psa_smulti[src]
                     grew = true
-                } elif not (self.psa_ss[dst] == self.psa_ss[src] and self.psa_sm[dst] == self.psa_sm[src]) and self.psa_smulti[dst] == 0 {
+                } elif not (
+                        self.psa_ss[dst] == self.psa_ss[src]
+                        and self.psa_sm[dst] == self.psa_sm[src]
+                ) and self.psa_smulti[dst] == 0 {
                     self.psa_smulti[dst] = 1
                     grew = true
                 }
@@ -1623,7 +1639,9 @@ struct Verify {
         }
         if fkn != self.fiv_kn[i] {
             unch = false
-        } elif fkn == 1 and not (self.fda_ls[i] == self.fiv_ls[i] and self.fda_lm[i] == self.fiv_lm[i] and self.fda_hs[i] == self.fiv_hs[i] and self.fda_hm[i] == self.fiv_hm[i]) {
+        } elif fkn == 1 and not (
+                self.fda_ls[i] == self.fiv_ls[i] and self.fda_lm[i] == self.fiv_lm[i]
+                and self.fda_hs[i] == self.fiv_hs[i] and self.fda_hm[i] == self.fiv_hm[i]) {
             unch = false
         }
         self.fiv_kn[i] = fkn
@@ -1680,7 +1698,9 @@ struct Verify {
         var unch: bool = true
         if dkn != self.piv_kn[i] or sk != self.piv_sk[i] {
             unch = false
-        } elif dkn == 1 and not (dls == self.piv_ls[i] and dlm == self.piv_lm[i] and dhs == self.piv_hs[i] and dhm == self.piv_hm[i]) {
+        } elif dkn == 1 and not (
+                dls == self.piv_ls[i] and dlm == self.piv_lm[i]
+                and dhs == self.piv_hs[i] and dhm == self.piv_hm[i]) {
             unch = false
         } elif sk == 1 and not (ss == self.piv_ss[i] and sm == self.piv_sm[i]) {
             unch = false
@@ -2760,7 +2780,12 @@ struct Verify {
         requires true
         ensures true
     {
-        return self.c.span_is(a, l, "i32") or self.c.span_is(a, l, "u32") or self.c.span_is(a, l, "u8") or self.c.span_is(a, l, "u16") or self.c.span_is(a, l, "u64") or self.c.span_is(a, l, "i64") or self.c.span_is(a, l, "char")
+        return (
+            self.c.span_is(a, l, "i32") or self.c.span_is(a, l, "u32")
+            or self.c.span_is(a, l, "u8") or self.c.span_is(a, l, "u16")
+            or self.c.span_is(a, l, "u64") or self.c.span_is(a, l, "i64")
+            or self.c.span_is(a, l, "char")
+        )
     }
 
     func cast_kind(var self, a: u32, l: u32) -> u32
@@ -2815,7 +2840,9 @@ struct Verify {
             return
         }
         var ok: u32 = 0
-        if self.rk == 1 and self.sleq(self.kls, self.klm, self.rls, self.rlm) and self.sleq(self.rhs, self.rhm, self.khs, self.khm) {
+        if (self.rk == 1
+                and self.sleq(self.kls, self.klm, self.rls, self.rlm)
+                and self.sleq(self.rhs, self.rhm, self.khs, self.khm)) {
             ok = 1
         }
         if self.ann == 1 {
@@ -3619,7 +3646,9 @@ struct Verify {
         if pt and not self.seq(self.rb_ls, self.rb_lm, self.rb_hs, self.rb_hm) {
             pt = false
         }
-        let disj: bool = self.sless(self.la_hs, self.la_hm, self.rb_ls, self.rb_lm) or self.sless(self.rb_hs, self.rb_hm, self.la_ls, self.la_lm)
+        let disj: bool = self.sless(self.la_hs, self.la_hm, self.rb_ls, self.rb_lm) or self.sless(
+            self.rb_hs, self.rb_hm, self.la_ls, self.la_lm
+        )
         if op == 4 {
             if pt {
                 return 1
@@ -4092,7 +4121,9 @@ struct Verify {
             let q: u32 = self.cl_node_add(self.env.rq[e])
             if p != NONE and q != NONE {
                 let idx: u32 = p * 64 + q
-                if self.cl_k[idx] == 0 or self.sless(self.env.rs[e], self.env.rm[e], self.cl_s[idx], self.cl_m[idx]) {
+                if self.cl_k[idx] == 0 or self.sless(
+                    self.env.rs[e], self.env.rm[e], self.cl_s[idx], self.cl_m[idx]
+                ) {
                     self.cl_k[idx] = 1
                     self.cl_s[idx] = self.env.rs[e]
                     self.cl_m[idx] = self.env.rm[e]
@@ -4134,7 +4165,8 @@ struct Verify {
             if j != i and j != k and self.cl_k[k * 64 + j] == 1 {
                 self.sadd(dik_s, dik_m, self.cl_s[k * 64 + j], self.cl_m[k * 64 + j])
                 let idx: u32 = i * 64 + j
-                if self.cl_k[idx] == 0 or self.sless(self.oas, self.oam, self.cl_s[idx], self.cl_m[idx]) {
+                if (self.cl_k[idx] == 0
+                        or self.sless(self.oas, self.oam, self.cl_s[idx], self.cl_m[idx])) {
                     self.cl_k[idx] = 1
                     self.cl_s[idx] = self.oas
                     self.cl_m[idx] = self.oam
@@ -4262,7 +4294,8 @@ struct Verify {
             }
         } elif op == 6 {
             self.ssub(nds, ndm, 0, 1)
-            if self.cl_k[ipq] == 1 and self.sleq(self.cl_s[ipq], self.cl_m[ipq], self.oas, self.oam) {
+            if (self.cl_k[ipq] == 1
+                    and self.sleq(self.cl_s[ipq], self.cl_m[ipq], self.oas, self.oam)) {
                 return 1
             }
         } elif op == 9 {
@@ -4271,11 +4304,14 @@ struct Verify {
             }
         } elif op == 8 {
             self.ssub(dls, dlm, 0, 1)
-            if self.cl_k[iqp] == 1 and self.sleq(self.cl_s[iqp], self.cl_m[iqp], self.oas, self.oam) {
+            if (self.cl_k[iqp] == 1
+                    and self.sleq(self.cl_s[iqp], self.cl_m[iqp], self.oas, self.oam)) {
                 return 1
             }
         } elif op == 4 {
-            if self.cl_k[ipq] == 1 and self.cl_k[iqp] == 1 and self.sleq(self.cl_s[ipq], self.cl_m[ipq], nds, ndm) and self.sleq(self.cl_s[iqp], self.cl_m[iqp], dls, dlm) {
+            if (self.cl_k[ipq] == 1
+                    and self.cl_k[iqp] == 1 and self.sleq(self.cl_s[ipq], self.cl_m[ipq], nds, ndm)
+                    and self.sleq(self.cl_s[iqp], self.cl_m[iqp], dls, dlm)) {
                 return 1
             }
         }
@@ -4427,10 +4463,12 @@ struct Verify {
     {
         var a: u32 = self.uncast(ain)
         var b: u32 = self.uncast(bin)
-        if self.res_expr != NONE and self.nk(a) == 37 and self.c.span_is(self.nss(a), self.nsl(a), "result") {
+        if (self.res_expr != NONE
+                and self.nk(a) == 37 and self.c.span_is(self.nss(a), self.nsl(a), "result")) {
             a = self.uncast(self.res_expr)
         }
-        if self.res_expr != NONE and self.nk(b) == 37 and self.c.span_is(self.nss(b), self.nsl(b), "result") {
+        if (self.res_expr != NONE
+                and self.nk(b) == 37 and self.c.span_is(self.nss(b), self.nsl(b), "result")) {
             b = self.uncast(self.res_expr)
         }
         let ka: u32 = self.nk(a)
@@ -4765,7 +4803,9 @@ struct Verify {
         let rt: u32 = self.mv_t[ri]
         self.nmv = li
         # путь+смещение ± константа остаётся путём со смещением
-        if lt == 2 and rt == 1 and self.seq(self.mv_ls[ri], self.mv_lm[ri], self.mv_hs[ri], self.mv_hm[ri]) {
+        if (lt == 2
+                and rt == 1
+                and self.seq(self.mv_ls[ri], self.mv_lm[ri], self.mv_hs[ri], self.mv_hm[ri])) {
             if op == 10 {
                 self.sadd(self.mv_cs[li], self.mv_cm[li], self.mv_ls[ri], self.mv_lm[ri])
             } else {
@@ -4778,7 +4818,10 @@ struct Verify {
             self.mvpush()
             return
         }
-        if op == 10 and lt == 1 and self.seq(self.mv_ls[li], self.mv_lm[li], self.mv_hs[li], self.mv_hm[li]) and rt == 2 {
+        if (op == 10
+                and lt == 1
+                and self.seq(self.mv_ls[li], self.mv_lm[li], self.mv_hs[li], self.mv_hm[li])
+                and rt == 2) {
             self.sadd(self.mv_cs[ri], self.mv_cm[ri], self.mv_ls[li], self.mv_lm[li])
             self.ms_t = 2
             self.ms_p = self.mv_p[ri]
@@ -5533,7 +5576,8 @@ struct Verify {
             return NONE
         }
         var v: u32 = value
-        if self.nk(v) == 41 and self.c.nchildren(v) == 1 and self.is_cast_name(self.nss(v), self.nsl(v)) {
+        if (self.nk(v) == 41
+                and self.c.nchildren(v) == 1 and self.is_cast_name(self.nss(v), self.nsl(v))) {
             let arg: u32 = self.nfc(v)
             if self.nk(arg) == 37 {
                 v = arg
@@ -5564,8 +5608,12 @@ struct Verify {
         let rpid: u32 = self.hole_pid_of(value)
         if rpid != NONE and rpid < 512 and self.env.hk[rpid] == 1 {
             self.acc_hive_sent(self.env.hss[rpid], self.env.hsm[rpid])
-            self.acc_hive_dense(self.env.hls[rpid], self.env.hlm[rpid], self.env.hhs[rpid], self.env.hhm[rpid])
-        } elif smk == 1 and self.res_ls == sms and self.res_lm == smm and self.res_hs == sms and self.res_hm == smm {
+            self.acc_hive_dense(
+                self.env.hls[rpid], self.env.hlm[rpid], self.env.hhs[rpid], self.env.hhm[rpid]
+            )
+        } elif (smk == 1
+                and self.res_ls == sms and self.res_lm == smm and self.res_hs == sms
+                and self.res_hm == smm) {
             self.acc_hive_sent(sms, smm)
         } else {
             self.acc_hive_dense(self.res_ls, self.res_lm, self.res_hs, self.res_hm)
@@ -5854,10 +5902,14 @@ struct Verify {
                 break
             }
             if self.fsb[f].kn[pid] == 1 and self.env.kn[pid] == 1 {
-                self.smin(self.fsb[f].ls[pid], self.fsb[f].lm[pid], self.env.ls[pid], self.env.lm[pid])
+                self.smin(
+                    self.fsb[f].ls[pid], self.fsb[f].lm[pid], self.env.ls[pid], self.env.lm[pid]
+                )
                 self.fsb[f].ls[pid] = self.oas
                 self.fsb[f].lm[pid] = self.oam
-                self.smax(self.fsb[f].hs[pid], self.fsb[f].hm[pid], self.env.hs[pid], self.env.hm[pid])
+                self.smax(
+                    self.fsb[f].hs[pid], self.fsb[f].hm[pid], self.env.hs[pid], self.env.hm[pid]
+                )
                 self.fsb[f].hs[pid] = self.oas
                 self.fsb[f].hm[pid] = self.oam
             } else {
@@ -5879,7 +5931,14 @@ struct Verify {
         requires f < 64 and pid < 512
         ensures true
     {
-        return self.fsb[f].hls[pid] == self.env.hls[pid] and self.fsb[f].hlm[pid] == self.env.hlm[pid] and self.fsb[f].hhs[pid] == self.env.hhs[pid] and self.fsb[f].hhm[pid] == self.env.hhm[pid] and self.fsb[f].hss[pid] == self.env.hss[pid] and self.fsb[f].hsm[pid] == self.env.hsm[pid]
+        return (
+            self.fsb[f].hls[pid] == self.env.hls[pid]
+            and self.fsb[f].hlm[pid] == self.env.hlm[pid]
+            and self.fsb[f].hhs[pid] == self.env.hhs[pid]
+            and self.fsb[f].hhm[pid] == self.env.hhm[pid]
+            and self.fsb[f].hss[pid] == self.env.hss[pid]
+            and self.fsb[f].hsm[pid] == self.env.hsm[pid]
+        )
     }
 
     # пересечение разностных ограничений двух ветвей: ребро (p,q) остаётся,
@@ -6546,7 +6605,9 @@ struct Verify {
         if self.ho_on == 1 {
             self.er_add_dense(slot, self.ho_ls, self.ho_lm, self.ho_hs, self.ho_hm)
             self.er_add_sent(slot, self.ho_ss, self.ho_sm)
-        } elif self.er_smaxk[slot] == 1 and self.rls == self.er_sxs[slot] and self.rlm == self.er_sxm[slot] and self.rhs == self.er_sxs[slot] and self.rhm == self.er_sxm[slot] {
+        } elif (self.er_smaxk[slot] == 1
+                and self.rls == self.er_sxs[slot] and self.rlm == self.er_sxm[slot]
+                and self.rhs == self.er_sxs[slot] and self.rhm == self.er_sxm[slot]) {
             self.er_add_sent(slot, self.er_sxs[slot], self.er_sxm[slot])
         } else {
             self.er_add_dense(slot, self.rls, self.rlm, self.rhs, self.rhm)
@@ -6796,7 +6857,8 @@ struct Verify {
                 break
             }
             let pid: u32 = self.ac_p[j]
-            if self.ac_bad[j] == 0 and self.ac_ds[j] == 0 and self.ac_dm[j] == 1 and self.ein.kn[pid] == 1 {
+            if (self.ac_bad[j] == 0
+                    and self.ac_ds[j] == 0 and self.ac_dm[j] == 1 and self.ein.kn[pid] == 1) {
                 self.ssub(self.ein.hs[pid], self.ein.hm[pid], self.fr_ss, self.fr_sm)
                 self.env_relate(pid, 7, tpid, self.oas, self.oam)
                 if self.ac_cond[j] == 0 {
@@ -7141,7 +7203,9 @@ struct Verify {
             if op == 11 {
                 neg = true
             }
-        } elif op == 10 and (self.nk(right) == 37 or self.nk(right) == 43) and self.node_path(right) == pid {
+        } elif op == 10 and (self.nk(right) == 37 or self.nk(right) == 43) and self.node_path(
+            right
+        ) == pid {
             step = left
         } else {
             return false
@@ -7212,10 +7276,14 @@ struct Verify {
         }
         let left: u32 = self.nfc(g)
         let right: u32 = self.nns(left)
-        if self.nk(left) == 37 and self.path_find(self.nss(left), self.nsl(left)) == pid and self.const_of(right) {
+        if (self.nk(left) == 37
+                and self.path_find(self.nss(left), self.nsl(left)) == pid
+                and self.const_of(right)) {
             self.guard_apply(op, idx)
         }
-        if self.nk(right) == 37 and self.path_find(self.nss(right), self.nsl(right)) == pid and self.const_of(left) {
+        if (self.nk(right) == 37
+                and self.path_find(self.nss(right), self.nsl(right)) == pid
+                and self.const_of(left)) {
             self.guard_apply(self.mirror_op(op), idx)
         }
     }
@@ -7501,7 +7569,9 @@ struct Verify {
             return
         }
         # hive: плотное строго ниже единственного сентинела (эталон _hive_summary)
-        if self.rs_has == 1 and self.rs_multi == 0 and self.rd_kn == 1 and self.sless(self.rd_hs, self.rd_hm, self.rs_s, self.rs_m) {
+        if (self.rs_has == 1
+                and self.rs_multi == 0 and self.rd_kn == 1
+                and self.sless(self.rd_hs, self.rd_hm, self.rs_s, self.rs_m)) {
             self.kind_range(self.c.yk[ret])
             self.set_inter(self.rd_ls, self.rd_lm, self.rd_hs, self.rd_hm)
             self.sum_tag[fi] = 3
@@ -7712,7 +7782,9 @@ struct Verify {
                 }
             }
             self.dused[best] = 1
-            self.emit_line(self.ck_k[best], self.nl(self.ck_n[best]), self.nc(self.ck_n[best]), self.ck_o[best])
+            self.emit_line(
+                self.ck_k[best], self.nl(self.ck_n[best]), self.nc(self.ck_n[best]), self.ck_o[best]
+            )
         }
         self.footer()
     }
@@ -7736,7 +7808,8 @@ struct Verify {
         let total: u32 = self.nck
         write("verify proven={proven} total={total}")
         write(" bounds={tp[0]}/{tt[0]} overflow={tp[1]}/{tt[1]} div={tp[2]}/{tt[2]}")
-        write(" cast={tp[3]}/{tt[3]} shift={tp[4]}/{tt[4]} requires={tp[5]}/{tt[5]} ensures={tp[6]}/{tt[6]} assert={tp[7]}/{tt[7]}\n")
+        write(" cast={tp[3]}/{tt[3]} shift={tp[4]}/{tt[4]} requires={tp[5]}/{tt[5]}")
+        write(" ensures={tp[6]}/{tt[6]} assert={tp[7]}/{tt[7]}\n")
     }
 }
 

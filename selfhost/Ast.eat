@@ -31,21 +31,73 @@ func write_nkind_c(k: u32)
     requires k >= 51 and k <= 54
     ensures true
 {
-    if k == 51 { write("module") } elif k == 52 { write("import") } elif k == 53 { write("export") } else { write("bind") }
+    if k == 51 { write("module")
+    } elif k == 52 { write("import")
+    } elif k == 53 { write("export")
+    } else { write("bind") }
 }
 
 func write_nkind_a(k: u32)
     requires k < 25
     ensures true
 {
-    if k == 0 { write("program") } elif k == 1 { write("const") } elif k == 2 { write("enum") } elif k == 3 { write("variant") } elif k == 4 { write("struct") } elif k == 5 { write("field") } elif k == 6 { write("func") } elif k == 7 { write("param") } elif k == 8 { write("ret") } elif k == 9 { write("requires") } elif k == 10 { write("ensures") } elif k == 11 { write("test") } elif k == 12 { write("block") } elif k == 13 { write("let") } elif k == 14 { write("assign") } elif k == 15 { write("if") } elif k == 16 { write("elif") } elif k == 17 { write("else") } elif k == 18 { write("for") } elif k == 19 { write("loop") } elif k == 20 { write("match") } elif k == 21 { write("arm") } elif k == 22 { write("return") } elif k == 23 { write("break") } else { write("assert") }
+    if k == 0 { write("program")
+    } elif k == 1 { write("const")
+    } elif k == 2 { write("enum")
+    } elif k == 3 { write("variant")
+    } elif k == 4 { write("struct")
+    } elif k == 5 { write("field")
+    } elif k == 6 { write("func")
+    } elif k == 7 { write("param")
+    } elif k == 8 { write("ret")
+    } elif k == 9 { write("requires")
+    } elif k == 10 { write("ensures")
+    } elif k == 11 { write("test")
+    } elif k == 12 { write("block")
+    } elif k == 13 { write("let")
+    } elif k == 14 { write("assign")
+    } elif k == 15 { write("if")
+    } elif k == 16 { write("elif")
+    } elif k == 17 { write("else")
+    } elif k == 18 { write("for")
+    } elif k == 19 { write("loop")
+    } elif k == 20 { write("match")
+    } elif k == 21 { write("arm")
+    } elif k == 22 { write("return")
+    } elif k == 23 { write("break")
+    } else { write("assert") }
 }
 
 func write_nkind_b(k: u32)
     requires k >= 25 and k <= 50
     ensures true
 {
-    if k == 25 { write("exprstmt") } elif k == 26 { write("discard") } elif k == 27 { write("typename") } elif k == 28 { write("arraytype") } elif k == 29 { write("strtype") } elif k == 30 { write("resulttype") } elif k == 31 { write("optiontype") } elif k == 32 { write("int") } elif k == 33 { write("bool") } elif k == 34 { write("char") } elif k == 35 { write("str") } elif k == 36 { write("seg") } elif k == 37 { write("name") } elif k == 38 { write("self") } elif k == 39 { write("binop") } elif k == 40 { write("unary") } elif k == 41 { write("call") } elif k == 42 { write("method") } elif k == 43 { write("member") } elif k == 44 { write("index") } elif k == 45 { write("structlit") } elif k == 46 { write("fld") } elif k == 47 { write("arraylit") } elif k == 48 { write("arrayfill") } elif k == 49 { write("range") } else { write("extern") }
+    if k == 25 { write("exprstmt")
+    } elif k == 26 { write("discard")
+    } elif k == 27 { write("typename")
+    } elif k == 28 { write("arraytype")
+    } elif k == 29 { write("strtype")
+    } elif k == 30 { write("resulttype")
+    } elif k == 31 { write("optiontype")
+    } elif k == 32 { write("int")
+    } elif k == 33 { write("bool")
+    } elif k == 34 { write("char")
+    } elif k == 35 { write("str")
+    } elif k == 36 { write("seg")
+    } elif k == 37 { write("name")
+    } elif k == 38 { write("self")
+    } elif k == 39 { write("binop")
+    } elif k == 40 { write("unary")
+    } elif k == 41 { write("call")
+    } elif k == 42 { write("method")
+    } elif k == 43 { write("member")
+    } elif k == 44 { write("index")
+    } elif k == 45 { write("structlit")
+    } elif k == 46 { write("fld")
+    } elif k == 47 { write("arraylit")
+    } elif k == 48 { write("arrayfill")
+    } elif k == 49 { write("range")
+    } else { write("extern") }
 }
 
 # Узлы без собственной позиции (кортежи в эталоне и обёртки).
@@ -88,7 +140,27 @@ func write_opname(c: u32)
     requires c >= 1 and c <= 21
     ensures true
 {
-    if c == 1 { write("or") } elif c == 2 { write("and") } elif c == 3 { write("not") } elif c == 4 { write("==") } elif c == 5 { write("!=") } elif c == 6 { write("<") } elif c == 7 { write("<=") } elif c == 8 { write(">") } elif c == 9 { write(">=") } elif c == 10 { write("+") } elif c == 11 { write("-") } elif c == 12 { write("*") } elif c == 13 { write("/") } elif c == 14 { write("%") } elif c == 15 { write("-") } elif c == 16 { write("|") } elif c == 17 { write("^") } elif c == 18 { write("&") } elif c == 19 { write("<<") } elif c == 20 { write(">>") } else { write("~") }
+    if c == 1 { write("or")
+    } elif c == 2 { write("and")
+    } elif c == 3 { write("not")
+    } elif c == 4 { write("==")
+    } elif c == 5 { write("!=")
+    } elif c == 6 { write("<")
+    } elif c == 7 { write("<=")
+    } elif c == 8 { write(">")
+    } elif c == 9 { write(">=")
+    } elif c == 10 { write("+")
+    } elif c == 11 { write("-")
+    } elif c == 12 { write("*")
+    } elif c == 13 { write("/")
+    } elif c == 14 { write("%")
+    } elif c == 15 { write("-")
+    } elif c == 16 { write("|")
+    } elif c == 17 { write("^")
+    } elif c == 18 { write("&")
+    } elif c == 19 { write("<<")
+    } elif c == 20 { write(">>")
+    } else { write("~") }
 }
 
 # Приоритеты (больше — сильнее): or 1, and 2, not 3, сравнения 4,
@@ -127,6 +199,23 @@ func tok2op(k: u32) -> u32
     requires true
     ensures result <= 20
 {
-    if k == 28 { return 1 } elif k == 27 { return 2 } elif k == 40 { return 4 } elif k == 41 { return 5 } elif k == 36 { return 6 } elif k == 38 { return 7 } elif k == 37 { return 8 } elif k == 39 { return 9 } elif k == 49 { return 10 } elif k == 50 { return 11 } elif k == 51 { return 12 } elif k == 52 { return 13 } elif k == 53 { return 14 } elif k == 57 { return 16 } elif k == 58 { return 17 } elif k == 56 { return 18 } elif k == 59 { return 19 } elif k == 60 { return 20 }
+    if k == 28 { return 1
+    } elif k == 27 { return 2
+    } elif k == 40 { return 4
+    } elif k == 41 { return 5
+    } elif k == 36 { return 6
+    } elif k == 38 { return 7
+    } elif k == 37 { return 8
+    } elif k == 39 { return 9
+    } elif k == 49 { return 10
+    } elif k == 50 { return 11
+    } elif k == 51 { return 12
+    } elif k == 52 { return 13
+    } elif k == 53 { return 14
+    } elif k == 57 { return 16
+    } elif k == 58 { return 17
+    } elif k == 56 { return 18
+    } elif k == 59 { return 19
+    } elif k == 60 { return 20 }
     return 0
 }

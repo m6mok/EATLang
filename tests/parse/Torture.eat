@@ -90,7 +90,7 @@ func literals() {
         opt: None,
     }
     discard d.get(0, len(s1) % 4)
-    print("{arr1[0]} {arr2[4]} {arr3[1]} {nested[1][0]} {trail[1]} {ch1}{ch2} {s2}{s3} {multi.label}")
+    print("{arr1[0]} {arr2[4]} {arr3[1]} {nested[1][0]} {trail[1]} {ch1}{ch2}{s2}{s3}{multi.label}")
 }
 
 func postfix_chains(d: Deep) -> u32

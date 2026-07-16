@@ -226,7 +226,9 @@ struct Parser {
         if self.nfc[p / 65536][p % 65536] == NONE {
             self.nfc[p / 65536][p % 65536] = c
         } else {
-            self.nns[self.nlc[p / 65536][p % 65536] / 65536][self.nlc[p / 65536][p % 65536] % 65536] = c
+            self.nns[self.nlc[p / 65536][p % 65536] / 65536][
+                self.nlc[p / 65536][p % 65536] % 65536
+            ] = c
         }
         self.nlc[p / 65536][p % 65536] = c
     }
@@ -771,7 +773,8 @@ struct Parser {
         if self.fx[f] % 2 == 1 {
             let fc: u32 = self.nfc[node / 65536][node % 65536]
             if fc != NONE {
-                if self.nk[fc / 65536][fc % 65536] == 7 and self.nss[fc / 65536][fc % 65536] == NONE {
+                if (self.nk[fc / 65536][fc % 65536] == 7
+                        and self.nss[fc / 65536][fc % 65536] == NONE) {
                     self.nx[node / 65536][node % 65536] = 1
                 }
             }
@@ -1116,7 +1119,10 @@ struct Parser {
         if ph == 0 {
             if self.tk_at() == 47 {
                 self.advance()
-                let r: u32 = self.alloc(49, self.nl[self.ret / 65536][self.ret % 65536], self.nc[self.ret / 65536][self.ret % 65536])
+                let r: u32 = self.alloc(
+                    49, self.nl[self.ret / 65536][self.ret % 65536],
+                    self.nc[self.ret / 65536][self.ret % 65536]
+                )
                 self.append_child(r, self.ret)
                 self.fx[f] = r
                 self.fp[f] = 1

@@ -105,7 +105,10 @@ struct Cpu {
         requires brk <= 1
         ensures result <= 255
     {
-        return (self.n << 7) | (self.v << 6) | 32 | (brk << 4) | (self.d << 3) | (self.i << 2) | (self.z << 1) | self.c
+        return (
+            (self.n << 7) | (self.v << 6) | 32 | (brk << 4)
+            | (self.d << 3) | (self.i << 2) | (self.z << 1) | self.c
+        )
     }
 
     func set_flags(var self, p: u32)

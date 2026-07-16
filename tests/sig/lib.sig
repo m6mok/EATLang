@@ -160,29 +160,29 @@ struct JDoc 71:1
   method lex_num 360:5 () var_self -> u32
   method aput 413:5 (b: u8) var_self
   method alloc 429:5 (k: u32) var_self -> u32
-  method value 452:5 (k: u32) var_self -> u32
-  method attach 493:5 (id: u32) var_self
-  method push 522:5 (id: u32, obj: bool) var_self
-  method on_value 542:5 (k: u32) var_self
-  method step 561:5 (k: u32) var_self
-  method rewind 621:5 () var_self
-  method run 637:5 () var_self
-  method jerr 668:5 () -> JErr
-  method validate 695:5 () var_self -> Result<u32, JErr>
-  method parse 711:5 () var_self -> Result<u32, JErr>
-  method kind_of 725:5 (id: u32) -> u32
-  method is_null 732:5 (id: u32) -> bool
-  method as_int 739:5 (id: u32) -> Option<i32>
-  method as_bool 749:5 (id: u32) -> Option<bool>
-  method count 760:5 (id: u32) -> u32
-  method at 777:5 (id: u32, i: u32) -> Option<u32>
-  method get 801:5 (id: u32, key: str<256>) -> Option<u32>
-  method span_is 827:5 (off: u32, ln: u32, s: str<256>) -> bool
-  method key_is 848:5 (id: u32, key: str<256>) -> bool
-  method str_is 855:5 (id: u32, s: str<256>) -> bool
-  method str_len 865:5 (id: u32) -> u32
-  method as_str 875:5 (id: u32) -> Option<str<256>>
-struct JOut 905:1
+  method value 455:5 (k: u32) var_self -> u32
+  method attach 496:5 (id: u32) var_self
+  method push 525:5 (id: u32, obj: bool) var_self
+  method on_value 545:5 (k: u32) var_self
+  method step 564:5 (k: u32) var_self
+  method rewind 624:5 () var_self
+  method run 640:5 () var_self
+  method jerr 671:5 () -> JErr
+  method validate 698:5 () var_self -> Result<u32, JErr>
+  method parse 714:5 () var_self -> Result<u32, JErr>
+  method kind_of 728:5 (id: u32) -> u32
+  method is_null 735:5 (id: u32) -> bool
+  method as_int 742:5 (id: u32) -> Option<i32>
+  method as_bool 752:5 (id: u32) -> Option<bool>
+  method count 763:5 (id: u32) -> u32
+  method at 780:5 (id: u32, i: u32) -> Option<u32>
+  method get 804:5 (id: u32, key: str<256>) -> Option<u32>
+  method span_is 830:5 (off: u32, ln: u32, s: str<256>) -> bool
+  method key_is 851:5 (id: u32, key: str<256>) -> bool
+  method str_is 858:5 (id: u32, s: str<256>) -> bool
+  method str_len 868:5 (id: u32) -> u32
+  method as_str 878:5 (id: u32) -> Option<str<256>>
+struct JOut 908:1
   field n :: u32
   field over :: bool
   field deep :: bool
@@ -190,29 +190,29 @@ struct JOut 905:1
   field scur :: [u32; 64]
   field sd :: u32
   field buf :: [u8; 65536]
-  method byte 914:5 (b: u8) var_self
-  method word 925:5 (w: str<8>) var_self
-  method dec 937:5 (v: i32) var_self
-  method uesc 966:5 (b: u8) var_self
-  method eb 988:5 (b: u8) var_self
-  method qstr 1029:5 (d: JDoc, off: u32, ln: u32) var_self
-  method open 1045:5 (id: u32, kid: u32) var_self
-  method val 1058:5 (d: JDoc, id: u32) var_self
-  method walk 1091:5 (d: JDoc) var_self
-  method ser 1123:5 (d: JDoc, root: u32) var_self -> Result<u32, JErr>
-  method out_is 1148:5 (s: str<256>) -> bool
-func json_doc 1169:1 () -> JDoc
-func json_out 1177:1 () -> JOut
-test json_scalars 1184:1
-test json_object 1233:1
-test json_escapes 1278:1
-test json_errors 1302:1
-test json_depth 1362:1
-test json_capacity 1387:1
-test json_input_overflow 1409:1
-test json_validate 1429:1
-test json_ser 1448:1
-module lib/Num.eat 1474:1
+  method byte 917:5 (b: u8) var_self
+  method word 928:5 (w: str<8>) var_self
+  method dec 940:5 (v: i32) var_self
+  method uesc 969:5 (b: u8) var_self
+  method eb 991:5 (b: u8) var_self
+  method qstr 1032:5 (d: JDoc, off: u32, ln: u32) var_self
+  method open 1048:5 (id: u32, kid: u32) var_self
+  method val 1061:5 (d: JDoc, id: u32) var_self
+  method walk 1094:5 (d: JDoc) var_self
+  method ser 1126:5 (d: JDoc, root: u32) var_self -> Result<u32, JErr>
+  method out_is 1151:5 (s: str<256>) -> bool
+func json_doc 1172:1 () -> JDoc
+func json_out 1189:1 () -> JOut
+test json_scalars 1199:1
+test json_object 1248:1
+test json_escapes 1293:1
+test json_errors 1317:1
+test json_depth 1377:1
+test json_capacity 1402:1
+test json_input_overflow 1424:1
+test json_validate 1444:1
+test json_ser 1463:1
+module lib/Num.eat 1489:1
 export min 7:5 :: min
 export max 8:5 :: max
 export clamp 9:5 :: clamp

@@ -28,6 +28,7 @@ JSON_MAIN = examples/json/Main.eat
 # Компиляция всех примеров: парсинг, проверки Power of 10, типы,
 # исполнение test-блоков
 check:
+	uv run python tests/check_style.py
 	$(EATC) check $(EXAMPLES)
 	$(EATC) check --lib . $(ELIF_MAIN)
 	$(EATC) check --lib . $(JSON_MAIN)

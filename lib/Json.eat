@@ -438,7 +438,10 @@ struct JDoc {
             return JSENT
         }
         let id: u32 = self.n
-        self.nodes[id] = JNode { kind: k, ival: 0, bval: false, s_off: 0, s_len: 0, kid: JSENT, sib: JSENT, k_off: 0, k_len: 0 }
+        self.nodes[id] = JNode {
+            kind: k, ival: 0, bval: false, s_off: 0, s_len: 0,
+            kid: JSENT, sib: JSENT, k_off: 0, k_len: 0
+        }
         self.n = id + 1
         return id
     }
@@ -1170,7 +1173,16 @@ func json_doc() -> JDoc
     requires true
     ensures true
 {
-    return JDoc { nodes: [JNode { kind: 0, ival: 0, bval: false, s_off: 0, s_len: 0, kid: JSENT, sib: JSENT, k_off: 0, k_len: 0 }; 4096], n: 0, arena: [0; 65536], a: 0, src: [0; 65536], sn: 0, src_over: false, pos: 0, tival: 0, toff: 0, tlen: 0, fc: [0; 64], fl: [0; 64], fst: [0; 64], fko: [0; 64], fkl: [0; 64], d: 0, root: JSENT, err: 0, done: 0, dry: 0, tcount: 0 }
+    return JDoc {
+        nodes: [JNode {
+            kind: 0, ival: 0, bval: false, s_off: 0, s_len: 0,
+            kid: JSENT, sib: JSENT, k_off: 0, k_len: 0
+        }; 4096],
+        n: 0, arena: [0; 65536], a: 0, src: [0; 65536], sn: 0,
+        src_over: false, pos: 0, tival: 0, toff: 0, tlen: 0,
+        fc: [0; 64], fl: [0; 64], fst: [0; 64], fko: [0; 64], fkl: [0; 64],
+        d: 0, root: JSENT, err: 0, done: 0, dry: 0, tcount: 0
+    }
 }
 
 # свежий буфер вывода
@@ -1178,7 +1190,10 @@ func json_out() -> JOut
     requires true
     ensures true
 {
-    return JOut { n: 0, over: false, deep: false, sc: [0; 64], scur: [0; 64], sd: 0, buf: [0; 65536] }
+    return JOut {
+        n: 0, over: false, deep: false,
+        sc: [0; 64], scur: [0; 64], sd: 0, buf: [0; 65536]
+    }
 }
 
 test json_scalars {
