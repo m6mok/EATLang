@@ -436,6 +436,7 @@ class Interpreter:
         args: list,
         self_value,
         site: ast.Node,
+        copy_args: bool = True,
     ):
         if func.is_extern:
             raise self.trap(
@@ -456,7 +457,7 @@ class Interpreter:
             for param in func.params:
                 if param.name == "self":
                     continue
-                value = _copy_value(args[arg_i])
+                value = _copy_value(args[arg_i]) if copy_args else args[arg_i]
                 arg_i += 1
                 kind, cap = self._meta(param.type)
                 if kind is not None:
@@ -679,11 +680,13 @@ class Interpreter:
         assert isinstance(obj, StructValue)
         method = self.structs[obj.name].methods[node.name]
         args = [self.eval(a) for a in node.args]
-        # var self: метод мутирует получателя — передаём сам объект
+        # получатель без копии: без var self тайпчекер запрещает мутацию
+        # self и параметров — на время вызова вся достижимая память
+        # вызывающего заморожена, копия ненаблюдаема. При var self
+        # аргументы копируются: аргумент может алиасить внутренности
+        # мутируемого self (s.m(s.arr))
         var_self = bool(method.params) and method.params[0].mutable
-        return self.call_func(
-            method, args, obj if var_self else _copy_value(obj), node
-        )
+        return self.call_func(method, args, obj, node, copy_args=var_self)
 
     def _eval_fieldaccess(self, node: ast.FieldAccess):
         if isinstance(node.obj, ast.Name) and node.obj.ident in self.enums:
@@ -893,7 +896,8 @@ class Interpreter:
                 return args[0]
             self._fit(node, name, args[0])
             return args[0]
-        return self.call_func(self.funcs[name], args, None, node)
+        # у обычных функций все параметры немутабельны — аргументы без копий
+        return self.call_func(self.funcs[name], args, None, node, copy_args=False)
 
     # --- диспетчеры (type(node) -> метод, вместо цепочек isinstance) --------
 

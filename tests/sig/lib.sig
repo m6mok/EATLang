@@ -149,40 +149,40 @@ struct JDoc 71:1
   method put 108:5 (b: u8) var_self
   method load 120:5 (s: str<256>) var_self
   method clear 132:5 () var_self
-  method cb 146:5 () var_self -> u8
-  method skip_ws 156:5 () var_self
-  method next 171:5 () var_self -> u32
-  method lex_str 218:5 () var_self -> u32
-  method esc 253:5 () var_self
-  method esc_u 282:5 () var_self
-  method lex_word 322:5 () var_self -> u32
-  method word_is 343:5 (w: str<8>) var_self -> bool
-  method lex_num 364:5 () var_self -> u32
-  method aput 417:5 (b: u8) var_self
-  method alloc 433:5 (k: u32) var_self -> u32
-  method value 456:5 (k: u32) var_self -> u32
-  method attach 497:5 (id: u32) var_self
-  method push 526:5 (id: u32, obj: bool) var_self
-  method on_value 546:5 (k: u32) var_self
-  method step 565:5 (k: u32) var_self
-  method rewind 625:5 () var_self
-  method run 641:5 () var_self
-  method jerr 672:5 () -> JErr
-  method validate 699:5 () var_self -> Result<u32, JErr>
-  method parse 715:5 () var_self -> Result<u32, JErr>
-  method kind_of 729:5 (id: u32) -> u32
-  method is_null 736:5 (id: u32) -> bool
-  method as_int 743:5 (id: u32) -> Option<i32>
-  method as_bool 753:5 (id: u32) -> Option<bool>
-  method count 764:5 (id: u32) -> u32
-  method at 781:5 (id: u32, i: u32) -> Option<u32>
-  method get 805:5 (id: u32, key: str<256>) -> Option<u32>
-  method span_is 831:5 (off: u32, ln: u32, s: str<256>) -> bool
-  method key_is 852:5 (id: u32, key: str<256>) -> bool
-  method str_is 859:5 (id: u32, s: str<256>) -> bool
-  method str_len 869:5 (id: u32) -> u32
-  method as_str 879:5 (id: u32) -> Option<str<256>>
-struct JOut 909:1
+  method cb 143:5 () -> u8
+  method skip_ws 153:5 () var_self
+  method next 168:5 () var_self -> u32
+  method lex_str 215:5 () var_self -> u32
+  method esc 250:5 () var_self
+  method esc_u 279:5 () var_self
+  method lex_word 319:5 () var_self -> u32
+  method word_is 339:5 (w: str<8>) -> bool
+  method lex_num 360:5 () var_self -> u32
+  method aput 413:5 (b: u8) var_self
+  method alloc 429:5 (k: u32) var_self -> u32
+  method value 452:5 (k: u32) var_self -> u32
+  method attach 493:5 (id: u32) var_self
+  method push 522:5 (id: u32, obj: bool) var_self
+  method on_value 542:5 (k: u32) var_self
+  method step 561:5 (k: u32) var_self
+  method rewind 621:5 () var_self
+  method run 637:5 () var_self
+  method jerr 668:5 () -> JErr
+  method validate 695:5 () var_self -> Result<u32, JErr>
+  method parse 711:5 () var_self -> Result<u32, JErr>
+  method kind_of 725:5 (id: u32) -> u32
+  method is_null 732:5 (id: u32) -> bool
+  method as_int 739:5 (id: u32) -> Option<i32>
+  method as_bool 749:5 (id: u32) -> Option<bool>
+  method count 760:5 (id: u32) -> u32
+  method at 777:5 (id: u32, i: u32) -> Option<u32>
+  method get 801:5 (id: u32, key: str<256>) -> Option<u32>
+  method span_is 827:5 (off: u32, ln: u32, s: str<256>) -> bool
+  method key_is 848:5 (id: u32, key: str<256>) -> bool
+  method str_is 855:5 (id: u32, s: str<256>) -> bool
+  method str_len 865:5 (id: u32) -> u32
+  method as_str 875:5 (id: u32) -> Option<str<256>>
+struct JOut 905:1
   field n :: u32
   field over :: bool
   field deep :: bool
@@ -190,29 +190,29 @@ struct JOut 909:1
   field scur :: [u32; 64]
   field sd :: u32
   field buf :: [u8; 65536]
-  method byte 918:5 (b: u8) var_self
-  method word 929:5 (w: str<8>) var_self
-  method dec 941:5 (v: i32) var_self
-  method uesc 970:5 (b: u8) var_self
-  method eb 992:5 (b: u8) var_self
-  method qstr 1033:5 (d: JDoc, off: u32, ln: u32) var_self
-  method open 1049:5 (id: u32, kid: u32) var_self
-  method val 1062:5 (d: JDoc, id: u32) var_self
-  method walk 1095:5 (d: JDoc) var_self
-  method ser 1127:5 (d: JDoc, root: u32) var_self -> Result<u32, JErr>
-  method out_is 1152:5 (s: str<256>) -> bool
-func json_doc 1173:1 () -> JDoc
-func json_out 1181:1 () -> JOut
-test json_scalars 1188:1
-test json_object 1237:1
-test json_escapes 1282:1
-test json_errors 1306:1
-test json_depth 1366:1
-test json_capacity 1391:1
-test json_input_overflow 1413:1
-test json_validate 1433:1
-test json_ser 1452:1
-module lib/Num.eat 1478:1
+  method byte 914:5 (b: u8) var_self
+  method word 925:5 (w: str<8>) var_self
+  method dec 937:5 (v: i32) var_self
+  method uesc 966:5 (b: u8) var_self
+  method eb 988:5 (b: u8) var_self
+  method qstr 1029:5 (d: JDoc, off: u32, ln: u32) var_self
+  method open 1045:5 (id: u32, kid: u32) var_self
+  method val 1058:5 (d: JDoc, id: u32) var_self
+  method walk 1091:5 (d: JDoc) var_self
+  method ser 1123:5 (d: JDoc, root: u32) var_self -> Result<u32, JErr>
+  method out_is 1148:5 (s: str<256>) -> bool
+func json_doc 1169:1 () -> JDoc
+func json_out 1177:1 () -> JOut
+test json_scalars 1184:1
+test json_object 1233:1
+test json_escapes 1278:1
+test json_errors 1302:1
+test json_depth 1362:1
+test json_capacity 1387:1
+test json_input_overflow 1409:1
+test json_validate 1429:1
+test json_ser 1448:1
+module lib/Num.eat 1474:1
 export min 7:5 :: min
 export max 8:5 :: max
 export clamp 9:5 :: clamp

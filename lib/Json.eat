@@ -139,11 +139,8 @@ struct JDoc {
 
     # --- лексер -----------------------------------------------------
 
-    # байт под курсором; 0 за концом (вне алфавита JSON).
-    # var self без мутации: горячий путь лексера — защитная копия
-    # немутирующего self стоила бы копии всего документа на каждый байт
-    # (эталон-интерпретатор копирует, бинарник элидирует)
-    func cb(var self) -> u8
+    # байт под курсором; 0 за концом (вне алфавита JSON)
+    func cb(self) -> u8
         requires true
         ensures true
     {
@@ -339,8 +336,7 @@ struct JDoc {
         return 12
     }
 
-    # var self без мутации — по той же причине, что cb
-    func word_is(var self, w: str<8>) -> bool
+    func word_is(self, w: str<8>) -> bool
         requires true
         ensures true
     {
