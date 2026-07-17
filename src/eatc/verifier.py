@@ -2263,8 +2263,12 @@ def verify_dump(program: ast.Program, checker) -> list[str]:
 
     Карта `Verifier.checks` ((вид, id(узла)) → [доказано, узел])
     невоспроизводима по порядку; дамп сортирует обязательства по
-    позиции узла (строка → колонка → вид), давая построчный срез для
-    diff'а с self-hosted верификатором — как `lex/parse/sig/typed/ir`.
+    позиции узла (строка → колонка → вид → вердикт), давая построчный
+    срез для diff'а с self-hosted верификатором — как
+    `lex/parse/sig/typed/ir`. Вердикт в ключе — стабильность при
+    коллизиях модульно-локальных позиций (#module сбрасывает счёт
+    строк): два узла из разных модулей могут делить (строка, колонка,
+    вид), а порядок вставки отметок не зеркалируется.
     """
     verifier = Verifier(program, checker)
     stats = verifier.run()
@@ -2274,7 +2278,7 @@ def verify_dump(program: ast.Program, checker) -> list[str]:
             (node.line, node.col, kind_key[kind], kind, ok)
             for (kind, _), (ok, node) in verifier.checks.items()
         ),
-        key=lambda m: m[:3],
+        key=lambda m: (m[0], m[1], m[2], m[4]),
     )
     lines = [
         f"{kind} {line}:{col} {'proven' if ok else 'runtime'}"

@@ -77,8 +77,11 @@ extend Verify {
         let req: u32 = self.func_clause(fi, 9)
         if req != NONE {
             self.eval_bool(req, 1)
-            self.refine(req, 1)
+            # flush ДО refine: сайты из оценки requires — в env до сужения
+            # (эталон: _eval_bool считает, затем _refine); refine считает
+            # свои сайты сам (flush внутри refine_cmp/refine_neq)
             self.flush_requires()
+            self.refine(req, 1)
         }
         self.run_flow(body)
         self.finish_ensures(d)
@@ -300,6 +303,8 @@ extend Verify {
             if self.tb != 1 {
                 self.ens_all = 0
             }
+            # сайты requires вызовов в ensures — синхронно (см. flow_return)
+            self.flush_requires()
         }
         var prov: u32 = 0
         if self.ens_saw == 1 and self.ens_all == 1 and not self.has_call(self.ens_node) {
@@ -414,7 +419,12 @@ extend Verify {
         if self.nc(a) != self.nc(b) {
             return self.nc(a) < self.nc(b)
         }
-        return self.ck_k[i] < self.ck_k[j]
+        if self.ck_k[i] != self.ck_k[j] {
+            return self.ck_k[i] < self.ck_k[j]
+        }
+        # вердикт (runtime < proven) — стабильность при коллизиях
+        # модульно-локальных позиций (эталон verify_dump: ключ + ok)
+        return self.ck_o[i] < self.ck_o[j]
     }
 
     func kname(var self, k: u32) -> str<16>

@@ -280,6 +280,11 @@ extend Verify {
         let vhm_: u64 = self.rhm
         self.capture_hole(value)
         self.flush_requires()
+        # struct-литерал справа — записи полей в инварианты (эталон _iv
+        # StructLit при _iv(stmt.value); в let/return уже отмечается)
+        if self.nk(value) == 45 {
+            self.note_structlit(value)
+        }
         if self.nk(tgt) == 44 {
             self.iv_eval(tgt, 1)
             self.flush_requires()
@@ -428,6 +433,9 @@ extend Verify {
         if self.tb != 1 {
             self.ens_all = 0
         }
+        # сайты requires вызовов в ensures — в env оценки ensures,
+        # до отката состояния (эталон: _check_requires внутри _eval_bool)
+        self.flush_requires()
         self.res_on = 0
         self.res_expr = NONE
         self.env = saved

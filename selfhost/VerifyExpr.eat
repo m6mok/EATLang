@@ -2108,13 +2108,20 @@ extend Verify {
             return
         }
         self.iv_eval(other, 0)
-        if self.rk == 0 {
-            return
-        }
+        # захват до flush_requires (см. flow_let); flush здесь же —
+        # сайт requires вызова в other считается синхронно с эталоном
+        # (_refine_cmp -> _iv -> _check_requires) и текущим env ДО
+        # сужения, иначе отложенный вызов утекает в следующий стейтмент
+        # или декларацию и оценивается чужим env (дрейф hex_digit)
+        let vk_: u32 = self.rk
         self.rc_ols = self.rls
         self.rc_olm = self.rlm
         self.rc_ohs = self.rhs
         self.rc_ohm = self.rhm
+        self.flush_requires()
+        if vk_ == 0 {
+            return
+        }
         if self.env.kn[pid] == 1 {
             self.rc_cls = self.env.ls[pid]
             self.rc_clm = self.env.lm[pid]
@@ -2185,11 +2192,16 @@ extend Verify {
             return
         }
         self.iv_eval(other, 0)
-        if self.rk == 0 or not self.seq(self.rls, self.rlm, self.rhs, self.rhm) {
-            return
-        }
+        # захват до flush_requires + синхронный счёт сайтов (см. refine_cmp)
+        let vk_: u32 = self.rk
         let cs: u32 = self.rls
         let cm: u64 = self.rlm
+        let vhs_: u32 = self.rhs
+        let vhm_: u64 = self.rhm
+        self.flush_requires()
+        if vk_ == 0 or not self.seq(cs, cm, vhs_, vhm_) {
+            return
+        }
         # значение было «плотное ∪ {сент}», сент == c исключён guard'ом →
         # схлопнуть к плотной части (эталон _refine_neq по env.holes)
         if self.env.hk[pid] == 1 and self.env.hss[pid] == cs and self.env.hsm[pid] == cm {

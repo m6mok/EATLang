@@ -255,6 +255,20 @@ VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \
 	47_neg_comptime_budget 48_neg_comptime_cycle 49_comptime_array \
 	50_neg_comptime_array_trap 54_fold_call_point
 
+# Полносоставные программы примеров (Rt + lib + модули) для гейта
+# конкатенаций (FAULTS 2026-07-17: дрейф решений верификатора виден
+# только в контексте вызовов — hex_digit; пофайловый вакуумный паритет
+# файлов lib/ без main его не видит). Драйверные main'ы разворачивает
+# `eatc stream --lib .`; mos6502 — явный список через запятую
+# (конкатенация этапа 0). Воркер — tests/gate/verify_prog.sh.
+VERIFY_PROGS = examples/if_statement/Elif.eat examples/json/Main.eat \
+	examples/fixed/Main.eat examples/modules/Main.eat \
+	examples/async/Async.eat examples/async/Pipe.eat \
+	examples/async/Debounce.eat examples/http/Echo.eat \
+	examples/http/Hello.eat examples/http/Pool.eat \
+	examples/http/Router.eat examples/blinky_cli/BlinkyCli.eat \
+	$(RT),lib/Hex.eat,examples/mos6502/Cpu6502.eat,examples/mos6502/Tests.eat,examples/mos6502/Main.eat
+
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
 # (пулы компилятора живут в кадре main — как в src/eatc/codegen.py;
 # кадр main самого self-hosted компилятора — ~85 МБ, фаза 5)
@@ -340,6 +354,8 @@ verify_selfhost_opt:
 	@diff /tmp/eat_iro_ref.ll /tmp/eat_iro_self.ll > /dev/null \
 		&& echo "IR-O OK (самоприменение: -O на всём фронтенде байт-в-байт)" \
 		|| { echo "IR-O DIFF (самоприменение)"; exit 1; }
+	@printf '%s\n' $(VERIFY_PROGS) | \
+		EATC='$(EATC)' MODE=iropt xargs -P $(JOBS) -n 1 sh tests/gate/verify_prog.sh
 
 # Фаза 7 — self-hosted верификатор (docs/SELFHOST_VERIFIER_PLAN.md,
 # этап 1): SelfVerify == эталон `eatc verify` байт-в-байт на курируемом
@@ -372,6 +388,8 @@ verify_selfhost_verify_all:
 	@diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
 		&& echo "VERIFY-O OK (самоприменение под конвейером оси -O)" \
 		|| { echo "VERIFY-O DIFF (самоприменение)"; exit 1; }
+	@printf '%s\n' $(VERIFY_PROGS) | \
+		EATC='$(EATC)' xargs -P $(JOBS) -n 1 sh tests/gate/verify_prog.sh
 
 # ==== Трек 2 (МК): кросс-компиляция ARM Cortex-M ========================
 # Структура портов (docs/MCU_PLAN.md §4): mcu/common/ — стартап,

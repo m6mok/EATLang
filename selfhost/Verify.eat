@@ -255,6 +255,10 @@ struct Verify {
     dfs_n: [u32; 256]
     ndfs: u32
 
+    # --- стек обхода вложенных литералов (note_structlit) --------------
+    nsl_n: [u32; 256]
+    nsl_sp: u32
+
     # --- буфер сортировки дампа ----------------------------------------
     dord: [u32; 16384]
     dused: [u32; 16384]
@@ -1286,6 +1290,9 @@ struct Verify {
             }
             self.elem_iv(expr)
             self.note_pool(keyid, sk, 0, sm)
+            # сайты requires вызовов в элементах — синхронно с эталоном
+            # (_iv элементов внутри стейтмента), не в следующий стейтмент
+            self.flush_requires()
             return
         }
         # копия другого пула — ребро зависимости (эталон _ps_deps);
@@ -1307,13 +1314,64 @@ struct Verify {
         self.psa_dead[keyid] = 1
     }
 
-    # записи полей struct-литерала (эталон _iv StructLit): массивы -> пул,
-    # скаляры -> поле. Собственный обход (iv_eval полей с ann=0)
+    # записи полей struct-литералов (эталон _iv StructLit: _note_field на
+    # КАЖДОМ вычислении, вложенность включительно): обход в глубину явным
+    # стеком — литерал в поле-массиве тоже несёт записи полей своей
+    # структуры (JDoc { nodes: [JNode {...}; N] } даёт вклад в kind и др.;
+    # рекурсией нельзя — замкнёт note_structlit -> store_array, правило 1)
     func note_structlit(var self, n: u32)
         requires n < 131072
         ensures true
     {
-        let ty: u32 = self.nty(n)
+        self.nsl_n[0] = n
+        self.nsl_sp = 1
+        for _ in 0..4096 {
+            if self.nsl_sp == 0 {
+                break
+            }
+            self.nsl_sp = self.nsl_sp - 1
+            var e: u32 = self.nsl_n[self.nsl_sp]
+            # снять слои ArrayFill (как elem_iv)
+            var done: bool = false
+            for _ in 0..8 {
+                if done {
+                    break
+                }
+                if self.nk(e) == 48 {
+                    e = self.nfc(e)
+                } else {
+                    done = true
+                }
+            }
+            if self.nk(e) == 47 {
+                # элементы массива-литерала — в обход (вложенные литералы)
+                var ec: u32 = self.nfc(e)
+                for _ in 0..4096 {
+                    if ec == NONE {
+                        break
+                    }
+                    if self.nsl_sp < 256 {
+                        self.nsl_n[self.nsl_sp] = ec
+                        self.nsl_sp = self.nsl_sp + 1
+                    }
+                    ec = self.nns(ec)
+                }
+            } elif self.nk(e) == 45 {
+                self.note_structlit_one(e)
+            }
+        }
+        # сайты requires вызовов в полях литералов — синхронно (см. store_array)
+        self.flush_requires()
+    }
+
+    # поля одного struct-литерала: отметки массивы/скаляры (эталон
+    # note_structlit_field) + выражения полей в стек обхода nsl_n
+    # (вложенные литералы — записи их структур)
+    func note_structlit_one(var self, e: u32)
+        requires e < 131072
+        ensures true
+    {
+        let ty: u32 = self.nty(e)
         var si: u32 = NONE
         if ty != NONE and self.c.yk[ty] == 8 {
             si = self.c.find_struct(self.c.ys[ty], self.c.yl[ty])
@@ -1321,13 +1379,18 @@ struct Verify {
         if si == NONE {
             return
         }
-        var c: u32 = self.nfc(n)
+        var c: u32 = self.nfc(e)
         for _ in 0..1024 {
             if c == NONE {
                 break
             }
             if self.nk(c) == 46 {
                 self.note_structlit_field(si, c)
+                let fexpr: u32 = self.nfc(c)
+                if fexpr != NONE and self.nsl_sp < 256 {
+                    self.nsl_n[self.nsl_sp] = fexpr
+                    self.nsl_sp = self.nsl_sp + 1
+                }
             }
             c = self.nns(c)
         }
@@ -1779,7 +1842,8 @@ func verify_new(c: Check) -> Verify
         ac_cond: [0; 32], ac_kind: [0; 32], ac_glk: [0; 32], ac_gls: [0; 32],
         ac_glm: [0; 32], ac_ghk: [0; 32], ac_ghs: [0; 32], ac_ghm: [0; 32], ac_bad: [0; 32],
         nac: 0, cs_n: [0; 64], cs_c: [0; 64], cs_g: [0; 64], ncs: 0, dfs_n: [0; 256],
-        ndfs: 0, dord: [0; 16384], dused: [0; 16384], dsig: 0, dmag: 0, csig: 0, cmag: 0,
+        ndfs: 0, nsl_n: [0; 256], nsl_sp: 0, dord: [0; 16384], dused: [0; 16384],
+        dsig: 0, dmag: 0, csig: 0, cmag: 0,
         ac_seen: [0; 32], om_ls: 0, om_lm: 0, om_hs: 0, om_hm: 0, dq_los: 0, dq_lom: 0,
         dq_his: 0, dq_him: 0, rc_cls: 0, rc_clm: 0, rc_chs: 0, rc_chm: 0, rc_ols: 0,
         rc_olm: 0, rc_ohs: 0, rc_ohm: 0, cl_k: [0; 4096], cl_s: [0; 4096], cl_m: [0; 4096],
