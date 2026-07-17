@@ -3,6 +3,11 @@
 
 EATC = PYTHONPATH=src uv run python -m eatc
 
+# Параллелизм пофайловых циклов гейта (OPTIMIZATIONS_PLAN §3.5):
+# воркеры tests/gate/*.sh через xargs -P, временные файлы уникальны
+# (mktemp) — гейты в разных worktree больше не делят /tmp
+JOBS ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+
 # Рантайм-модуль (фаза 6): логика строк/вывода/разбора — на EATLang,
 # первый модуль каждой программы; в C остался шим аксиом ОС (runtime.c)
 RT = selfhost/Rt.eat
@@ -216,106 +221,19 @@ run_selfhost_ir:
 	cat $(RT) examples/hello_world/HelloWorld.eat | $(EATC) run $(SELFHOST_IR)
 
 verify_selfhost:
-	@$(EATC) build $(SELFHOST_LEXER) -o build/SelfLex > /dev/null
-	@$(EATC) build $(SELFHOST_PARSER) -o build/SelfParse > /dev/null
-	@$(EATC) build $(SELFHOST_SIG) -o build/SelfSig > /dev/null
-	@$(EATC) build $(SELFHOST_TYPED) -o build/SelfTyped > /dev/null
-	@$(EATC) build $(SELFHOST_IR) -o build/SelfIr > /dev/null
-	@for f in $$(find examples lib selfhost tests -name '*.eat' | sort); do \
-		$(EATC) lex $$f > /tmp/eat_lex_ref.txt; \
-		./build/SelfLex < $$f > /tmp/eat_lex_self.txt; \
-		diff /tmp/eat_lex_ref.txt /tmp/eat_lex_self.txt > /dev/null \
-			&& echo "LEX OK $$f" \
-			|| { echo "LEX DIFF $$f"; exit 1; }; \
-		if $(EATC) parse $$f > /tmp/eat_parse_ref.txt 2>/dev/null; then \
-			./build/SelfParse < $$f > /tmp/eat_parse_self.txt; \
-			diff /tmp/eat_parse_ref.txt /tmp/eat_parse_self.txt > /dev/null \
-				&& echo "PARSE OK $$f" \
-				|| { echo "PARSE DIFF $$f"; exit 1; }; \
-		fi; \
-		if $(EATC) sig $$f > /tmp/eat_sig_ref.txt 2>/dev/null; then \
-			./build/SelfSig < $$f > /tmp/eat_sig_self.txt; \
-			diff /tmp/eat_sig_ref.txt /tmp/eat_sig_self.txt > /dev/null \
-				&& echo "SIG OK $$f" \
-				|| { echo "SIG DIFF $$f"; exit 1; }; \
-		fi; \
-		if $(EATC) typed $$f > /tmp/eat_typed_ref.txt 2>/dev/null; then \
-			./build/SelfTyped < $$f > /tmp/eat_typed_self.txt; \
-			diff /tmp/eat_typed_ref.txt /tmp/eat_typed_self.txt > /dev/null \
-				&& echo "TYPED OK $$f" \
-				|| { echo "TYPED DIFF $$f"; exit 1; }; \
-		fi; \
-		cat $(RT) $$f > /tmp/eat_ir_in.eat; \
-		if $(EATC) ir /tmp/eat_ir_in.eat > /tmp/eat_ir_ref.ll 2>/dev/null; then \
-			./build/SelfIr < /tmp/eat_ir_in.eat > /tmp/eat_ir_self.ll; \
-			diff /tmp/eat_ir_ref.ll /tmp/eat_ir_self.ll > /dev/null \
-				&& echo "IR OK $$f" \
-				|| { echo "IR DIFF $$f"; exit 1; }; \
-		fi; \
-	done
-	@$(EATC) stream --lib . $(MODULES_MAIN) > /tmp/eat_mod_stream.eat
-	@$(EATC) lex /tmp/eat_mod_stream.eat > /tmp/eat_lex_ref.txt
-	@./build/SelfLex < /tmp/eat_mod_stream.eat > /tmp/eat_lex_self.txt
-	@diff /tmp/eat_lex_ref.txt /tmp/eat_lex_self.txt > /dev/null \
-		&& echo "LEX OK (поток драйвера: Rt + lib + Main c #module)" || exit 1
-	@$(EATC) parse /tmp/eat_mod_stream.eat > /tmp/eat_parse_ref.txt
-	@./build/SelfParse < /tmp/eat_mod_stream.eat > /tmp/eat_parse_self.txt
-	@diff /tmp/eat_parse_ref.txt /tmp/eat_parse_self.txt > /dev/null \
-		&& echo "PARSE OK (поток драйвера)" || exit 1
-	@$(EATC) sig /tmp/eat_mod_stream.eat > /tmp/eat_sig_ref.txt
-	@./build/SelfSig < /tmp/eat_mod_stream.eat > /tmp/eat_sig_self.txt
-	@diff /tmp/eat_sig_ref.txt /tmp/eat_sig_self.txt > /dev/null \
-		&& echo "SIG OK (поток драйвера)" || exit 1
-	@$(EATC) typed /tmp/eat_mod_stream.eat > /tmp/eat_typed_ref.txt
-	@./build/SelfTyped < /tmp/eat_mod_stream.eat > /tmp/eat_typed_self.txt
-	@diff /tmp/eat_typed_ref.txt /tmp/eat_typed_self.txt > /dev/null \
-		&& echo "TYPED OK (поток драйвера)" || exit 1
-	@$(EATC) ir /tmp/eat_mod_stream.eat > /tmp/eat_ir_ref.ll
-	@./build/SelfIr < /tmp/eat_mod_stream.eat > /tmp/eat_ir_self.ll
-	@diff /tmp/eat_ir_ref.ll /tmp/eat_ir_self.ll > /dev/null \
-		&& echo "IR OK (поток драйвера: trap-атрибуция пофайловая)" || exit 1
-	@cat $(SELFHOST_SIG) > /tmp/eat_sig_all.eat
-	@$(EATC) sig /tmp/eat_sig_all.eat > /tmp/eat_sig_ref.txt
-	@./build/SelfSig < /tmp/eat_sig_all.eat > /tmp/eat_sig_self.txt
-	@diff /tmp/eat_sig_ref.txt /tmp/eat_sig_self.txt > /dev/null \
-		&& echo "SIG OK (конкатенация собственных исходников)" || exit 1
-	@cat $(SELFHOST_TYPED) > /tmp/eat_typed_all.eat
-	@$(EATC) typed /tmp/eat_typed_all.eat > /tmp/eat_typed_ref.txt
-	@./build/SelfTyped < /tmp/eat_typed_all.eat > /tmp/eat_typed_self.txt
-	@diff /tmp/eat_typed_ref.txt /tmp/eat_typed_self.txt > /dev/null \
-		&& echo "TYPED OK (тайпчекер типизирует сам себя)" || exit 1
-	@cat $(SELFHOST_LEXER) | $(EATC) run $(SELFHOST_LEXER) > /tmp/eat_lex_interp.txt
-	@cat $(SELFHOST_LEXER) | ./build/SelfLex > /tmp/eat_lex_native.txt
-	@diff /tmp/eat_lex_interp.txt /tmp/eat_lex_native.txt \
-		&& echo "VERIFIED SelfLex (interp == native == эталон)" || exit 1
-	@cat $(SELFHOST_PARSER) | $(EATC) run $(SELFHOST_PARSER) > /tmp/eat_parse_interp.txt
-	@cat $(SELFHOST_PARSER) | ./build/SelfParse > /tmp/eat_parse_native.txt
-	@diff /tmp/eat_parse_interp.txt /tmp/eat_parse_native.txt \
-		&& echo "VERIFIED SelfParse (interp == native == эталон)" || exit 1
-	@cat $(SELFHOST_SIG) | $(EATC) run $(SELFHOST_SIG) > /tmp/eat_sig_interp.txt
-	@cat $(SELFHOST_SIG) | ./build/SelfSig > /tmp/eat_sig_native.txt
-	@diff /tmp/eat_sig_interp.txt /tmp/eat_sig_native.txt \
-		&& echo "VERIFIED SelfSig (interp == native == эталон)" || exit 1
-	@cat lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat > /tmp/eat_typed_probe.eat
-	@cat /tmp/eat_typed_probe.eat | $(EATC) run $(SELFHOST_TYPED) > /tmp/eat_typed_interp.txt
-	@cat /tmp/eat_typed_probe.eat | ./build/SelfTyped > /tmp/eat_typed_native.txt
-	@diff /tmp/eat_typed_interp.txt /tmp/eat_typed_native.txt \
-		&& echo "VERIFIED SelfTyped (interp == native, проба лексера)" || exit 1
-	@$(EATC) ir /tmp/eat_typed_all.eat > /tmp/eat_ir_ref.ll
-	@./build/SelfIr < /tmp/eat_typed_all.eat > /tmp/eat_ir_self.ll
-	@diff /tmp/eat_ir_ref.ll /tmp/eat_ir_self.ll > /dev/null \
-		&& echo "IR OK (самоприменение: IR всего фронтенда байт-в-байт)" || exit 1
-	@clang /tmp/eat_ir_self.ll src/eatc/runtime.c -o /tmp/eat_ir_typed_bin \
-		$(STACK_FLAGS) 2>/dev/null
-	@/tmp/eat_ir_typed_bin < /tmp/eat_typed_probe.eat > /tmp/eat_ir_e2e.txt
-	@$(EATC) typed /tmp/eat_typed_probe.eat > /tmp/eat_typed_ref.txt
-	@diff /tmp/eat_typed_ref.txt /tmp/eat_ir_e2e.txt \
-		&& echo "VERIFIED SelfIr (тайпчекер, собранный clang из self-IR, == эталон)" \
-		|| exit 1
-	@cat $(RT) examples/hello_world/HelloWorld.eat | $(EATC) run $(SELFHOST_IR) > /tmp/eat_ir_interp.txt
-	@cat $(RT) examples/hello_world/HelloWorld.eat | ./build/SelfIr > /tmp/eat_ir_native.txt
-	@diff /tmp/eat_ir_interp.txt /tmp/eat_ir_native.txt \
-		&& echo "VERIFIED SelfIr (interp == native)" || exit 1
+	@$(EATC) build $(SELFHOST_LEXER) -o build/SelfLex > /dev/null & p1=$$!; \
+	$(EATC) build $(SELFHOST_PARSER) -o build/SelfParse > /dev/null & p2=$$!; \
+	$(EATC) build $(SELFHOST_SIG) -o build/SelfSig > /dev/null & p3=$$!; \
+	$(EATC) build $(SELFHOST_TYPED) -o build/SelfTyped > /dev/null & p4=$$!; \
+	$(EATC) build $(SELFHOST_IR) -o build/SelfIr > /dev/null & p5=$$!; \
+	wait $$p1 && wait $$p2 && wait $$p3 && wait $$p4 && wait $$p5
+	@find examples lib selfhost tests -name '*.eat' | sort | \
+		EATC='$(EATC)' RT='$(RT)' xargs -P $(JOBS) -n 1 sh tests/gate/selfhost_file.sh
+	@EATC='$(EATC)' RT='$(RT)' STACK_FLAGS='$(STACK_FLAGS)' \
+		SELFHOST_LEXER='$(SELFHOST_LEXER)' SELFHOST_PARSER='$(SELFHOST_PARSER)' \
+		SELFHOST_SIG='$(SELFHOST_SIG)' SELFHOST_TYPED='$(SELFHOST_TYPED)' \
+		SELFHOST_IR='$(SELFHOST_IR)' MODULES_MAIN='$(MODULES_MAIN)' \
+		sh tests/gate/selfhost_tail.sh
 
 # Фаза 5: bootstrap — self-hosted компилятор собирает сам себя.
 # stage1 — build/SelfIr (собран Python-бутстрапом) эмитит IR собственных
@@ -356,15 +274,8 @@ verify_trapcodes:
 # и элизия гоняются по всем вызовам фронтенда, §9).
 verify_selfhost_opt:
 	@$(EATC) build $(SELFHOST_IR_OPT) -o build/SelfIrOpt > /dev/null
-	@for f in tests/fold/Fold.eat $$(find examples tests/verify -name '*.eat' | sort); do \
-		cat $(RT) $$f > /tmp/eat_iro_in.eat; \
-		if $(EATC) ir -O /tmp/eat_iro_in.eat > /tmp/eat_iro_ref.ll 2>/dev/null; then \
-			./build/SelfIrOpt < /tmp/eat_iro_in.eat > /tmp/eat_iro_self.ll; \
-			diff /tmp/eat_iro_ref.ll /tmp/eat_iro_self.ll > /dev/null \
-				&& echo "IR-O OK $$f" \
-				|| { echo "IR-O DIFF $$f"; exit 1; }; \
-		fi; \
-	done
+	@{ echo tests/fold/Fold.eat; find examples tests/verify -name '*.eat' | sort; } | \
+		EATC='$(EATC)' RT='$(RT)' xargs -P $(JOBS) -n 1 sh tests/gate/opt_file.sh
 	@cat $(SELFHOST_TYPED) > /tmp/eat_iro_all.eat
 	@$(EATC) ir -O /tmp/eat_iro_all.eat > /tmp/eat_iro_ref.ll
 	@./build/SelfIrOpt < /tmp/eat_iro_all.eat > /tmp/eat_iro_self.ll
@@ -377,15 +288,8 @@ verify_selfhost_opt:
 # списке кейсов (дамп обязательств в стабильном порядке + футер).
 verify_selfhost_verify:
 	@$(EATC) build $(SELFHOST_VERIFY) -o build/SelfVerify > /dev/null
-	@for c in $(VERIFY_GATE); do \
-		test -f tests/verify/$$c.eat \
-			|| { echo "VERIFY NO CASE $$c (пустые дампы дали бы ложный OK)"; exit 1; }; \
-		$(EATC) verify tests/verify/$$c.eat > /tmp/eat_vfy_ref.txt; \
-		./build/SelfVerify < tests/verify/$$c.eat > /tmp/eat_vfy_self.txt; \
-		diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
-			&& echo "VERIFY OK $$c" \
-			|| { echo "VERIFY DIFF $$c"; exit 1; }; \
-	done
+	@printf '%s\n' $(VERIFY_GATE) | \
+		EATC='$(EATC)' xargs -P $(JOBS) -n 1 sh tests/gate/verify_case.sh
 
 # Этап 4: полнорепный паритет дампа + самоприменение. Каждый .eat
 # репозитория (вход `cat Rt.eat ФАЙЛ`, как IR-гейт; файлы без main —
@@ -397,20 +301,8 @@ verify_selfhost_verify:
 # эмиссии (урок SELFHOST_OPT_PLAN §9).
 verify_selfhost_verify_all:
 	@$(EATC) build $(SELFHOST_VERIFY) -o build/SelfVerify > /dev/null
-	@for f in $$(find examples lib selfhost tests -name '*.eat' | sort); do \
-		case $$f in selfhost/Verify.eat|selfhost/VerifyMain.eat) continue;; esac; \
-		cat $(RT) $$f > /tmp/eat_vfy_in.eat; \
-		$(EATC) verify /tmp/eat_vfy_in.eat > /tmp/eat_vfy_ref.txt 2>/dev/null; \
-		./build/SelfVerify < /tmp/eat_vfy_in.eat > /tmp/eat_vfy_self.txt 2>/dev/null; \
-		diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
-			&& echo "VERIFY OK $$f" \
-			|| { echo "VERIFY DIFF $$f"; exit 1; }; \
-		$(EATC) verify /tmp/eat_vfy_in.eat -O > /tmp/eat_vfy_ref.txt 2>/dev/null; \
-		./build/SelfVerify -O < /tmp/eat_vfy_in.eat > /tmp/eat_vfy_self.txt 2>/dev/null; \
-		diff /tmp/eat_vfy_ref.txt /tmp/eat_vfy_self.txt > /dev/null \
-			&& echo "VERIFY-O OK $$f" \
-			|| { echo "VERIFY-O DIFF $$f"; exit 1; }; \
-	done
+	@find examples lib selfhost tests -name '*.eat' | sort | \
+		EATC='$(EATC)' RT='$(RT)' xargs -P $(JOBS) -n 1 sh tests/gate/verify_all_file.sh
 	@cat $(SELFHOST_VERIFY) > /tmp/eat_vfy_selfapp.eat
 	@$(EATC) verify /tmp/eat_vfy_selfapp.eat > /tmp/eat_vfy_ref.txt
 	@./build/SelfVerify < /tmp/eat_vfy_selfapp.eat > /tmp/eat_vfy_self.txt
@@ -655,17 +547,13 @@ run_all:
 
 # Нативные бинарники (LLVM → build/<Имя>)
 build_all_examples:
-	@for f in $(EXAMPLES); do $(EATC) build $(RT) $$f || exit 1; done
+	@printf '%s\n' $(EXAMPLES) | \
+		EATC='$(EATC)' RT='$(RT)' xargs -P $(JOBS) -n 1 sh tests/gate/example_build.sh
 
 # Сверка: вывод бинарника == вывод интерпретатора на каждом примере
 verify: build_all_examples
-	@for f in $(EXAMPLES); do \
-		name=$$(basename $$f .eat); \
-		echo "" | $(EATC) run $(RT) $$f > /tmp/eat_interp.txt; \
-		echo "" | ./build/$$name > /tmp/eat_native.txt; \
-		diff /tmp/eat_interp.txt /tmp/eat_native.txt \
-			&& echo "VERIFIED $$name" || exit 1; \
-	done
+	@printf '%s\n' $(EXAMPLES) | \
+		EATC='$(EATC)' RT='$(RT)' xargs -P $(JOBS) -n 1 sh tests/gate/example_verify.sh
 	@$(EATC) build --lib . $(ELIF_MAIN) -o build/Elif > /dev/null
 	@echo "42" | $(EATC) run --lib . $(ELIF_MAIN) > /tmp/eat_interp.txt
 	@echo "42" | ./build/Elif > /tmp/eat_native.txt
