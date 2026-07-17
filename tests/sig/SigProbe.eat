@@ -58,6 +58,10 @@ import {
     parse_i32,
 } from "lib/Parse.eat"
 
+import {
+    mul_64,
+} from "lib/U128.eat"
+
 func main() {
     let d: Dec = fmt_u32(min(42, 99))
     let w: [u8; 16] = [0; 16]
@@ -74,6 +78,7 @@ func main() {
         Err(_) { a = false }
     }
     let fv: i32 = q16(1).v
+    let uv: u64 = mul_64(6, 7).lo64()
     let p: bool = ready(Poll.Pending)
     var tm: Timer = Timer { next: 0 }
     var fired: bool = false
@@ -84,7 +89,8 @@ func main() {
     var db: Debounce = Debounce { stable: 0, cand: 0, held: 0 }
     let edge: bool = db.sample(1, 1)
     print("digit={g} hex={h} ln={d.ln} same={s} x={x} j={jn} a={a}")
-    print("p={p} fired={fired} edge={edge} fv={fv}")
+    print("p={p} fired={fired} edge={edge} fv={fv} uv={uv}")
+    print("hst={hst}")
     match read_line() {
         Ok(line) {
             match parse_i32(line) {

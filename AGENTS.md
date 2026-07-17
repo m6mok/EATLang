@@ -80,7 +80,7 @@ selfhost/     компилятор на EATLang: Tok, Lexer, Ast, Parser(+Expr),
               Check(+Const/Body/Dump/Fold), Verify(+Expr/Rel/Flow/Dump),
               Ir(+Emit/Expr/Stmt), *Main; Rt.eat — рантайм, первый
               модуль каждой программы
-lib/          библиотека на EATLang (Args, Ascii, Async, Buf, Const, Fixed, Fmt, Hex, Io, Json, Num, Parse) —
+lib/          библиотека на EATLang (Args, Ascii, Async, Buf, Const, Fixed, Fmt, Hex, Io, Json, Num, Parse, U128) —
               подключается списком файлов после Rt.eat
               (docs/plans/MODULES_PLAN.md, этап 0 — конкатенация)
 examples/     эталонные примеры (all — витрина конструкций; mos6502 —

@@ -1,0 +1,920 @@
+# lib/U128.eat — 128-битная арифметика на 32-битных лимбах в u64
+# (docs/plans/U128_PLAN.md, вариант A: правок компилятора ноль).
+# Число — четыре лимба w0..w3 (w0 — младший), каждый держит 32 бита
+# в u64-слоте: headroom для переносов и произведений, wrap-around
+# записан явно маской (& 4294967295, >> 32) — идиома mos6502
+# «маска — это доказательство». Инвариант нормализованности
+# (w_i <= 4294967295) несут requires/ensures каждой операции —
+# верификатору есть чем снимать проверки масок.
+#
+# Лемма MAC (несущая; тест на краях — u128_mul64_edges): шаг умножения
+# a*b + acc + carry при a, b, acc, carry <= 2^32-1 даёт максимум
+# (2^32-1)^2 + 2*(2^32-1) = 2^64-1 — в u64 влезает впритык, trap
+# невозможен.
+#
+# Семантика (решения §9 плана, 2026-07-17): add/sub/mul/shl трапят
+# при выходе за 128 бит (по духу языка), заворот mod 2^128 — явными
+# именами add_wrap/sub_wrap/mul_wrap/shl_wrap (крипто/PRNG); shr биты
+# отбрасывает (деление на степень двойки, потерь смысла нет). Деление
+# полное 128/128 — сдвиговое, ровно 128 итераций; divrem_32 — быстрый
+# частный случай на делитель <= 2^32-1 (печать, Deci6). I128 — знак +
+# магнитуда поверх U128: ноль всегда sgn == false (конструктор
+# i128_make нормализует), деление усекает к нулю, знак остатка — по
+# делимому (пин языкового `/` и `%`, FIXED_POINT_PLAN §7.3).
+
+export {
+    U128,
+    U128DivRem,
+    I128,
+    I128DivRem,
+    u128,
+    u128_hi_lo,
+    mul_64,
+    i128,
+    i128_make,
+}
+
+import {
+    hex_digit,
+} from "lib/Hex.eat"
+
+struct U128 {
+    w0: u64
+    w1: u64
+    w2: u64
+    w3: u64
+
+    # Младшие 64 бита одним словом.
+    func lo64(self) -> u64
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures true
+    {
+        return (self.w1 << 32) | self.w0
+    }
+
+    # Старшие 64 бита одним словом.
+    func hi64(self) -> u64
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures true
+    {
+        return (self.w3 << 32) | self.w2
+    }
+
+    func is_zero(self) -> bool
+        requires true
+        ensures true
+    {
+        return self.w0 == 0 and self.w1 == 0 and self.w2 == 0 and self.w3 == 0
+    }
+
+    func eq(self, o: U128) -> bool
+        requires true
+        ensures true
+    {
+        return self.w0 == o.w0 and self.w1 == o.w1 and self.w2 == o.w2 and self.w3 == o.w3
+    }
+
+    func lt(self, o: U128) -> bool
+        requires true
+        ensures true
+    {
+        if self.w3 != o.w3 {
+            return self.w3 < o.w3
+        }
+        if self.w2 != o.w2 {
+            return self.w2 < o.w2
+        }
+        if self.w1 != o.w1 {
+            return self.w1 < o.w1
+        }
+        return self.w0 < o.w0
+    }
+
+    func le(self, o: U128) -> bool
+        requires true
+        ensures true
+    {
+        return not o.lt(self)
+    }
+
+    # Сумма; выход за 128 бит — trap (assert на итоговом переносе).
+    func add(self, o: U128) -> U128
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        let s0: u64 = self.w0 + o.w0
+        let s1: u64 = self.w1 + o.w1 + (s0 >> 32)
+        let s2: u64 = self.w2 + o.w2 + (s1 >> 32)
+        let s3: u64 = self.w3 + o.w3 + (s2 >> 32)
+        assert s3 <= 4294967295
+        let r0: u64 = s0 & 4294967295
+        let r1: u64 = s1 & 4294967295
+        let r2: u64 = s2 & 4294967295
+        return U128 { w0: r0, w1: r1, w2: r2, w3: s3 }
+    }
+
+    # Сумма mod 2^128 (итоговый перенос отбрасывается).
+    func add_wrap(self, o: U128) -> U128
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        let s0: u64 = self.w0 + o.w0
+        let s1: u64 = self.w1 + o.w1 + (s0 >> 32)
+        let s2: u64 = self.w2 + o.w2 + (s1 >> 32)
+        let s3: u64 = self.w3 + o.w3 + (s2 >> 32)
+        let r0: u64 = s0 & 4294967295
+        let r1: u64 = s1 & 4294967295
+        let r2: u64 = s2 & 4294967295
+        let r3: u64 = s3 & 4294967295
+        return U128 { w0: r0, w1: r1, w2: r2, w3: r3 }
+    }
+
+    # Разность; self < o — trap (assert на итоговом заёме). Лимб с
+    # добавкой 2^32 не уходит в минус: минимум 0 + 2^32 - (2^32-1) - 1.
+    func sub(self, o: U128) -> U128
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        let d0: u64 = self.w0 + 4294967296 - o.w0
+        let b0: u64 = 1 - (d0 >> 32)
+        let d1: u64 = self.w1 + 4294967296 - o.w1 - b0
+        let b1: u64 = 1 - (d1 >> 32)
+        let d2: u64 = self.w2 + 4294967296 - o.w2 - b1
+        let b2: u64 = 1 - (d2 >> 32)
+        let d3: u64 = self.w3 + 4294967296 - o.w3 - b2
+        assert (d3 >> 32) == 1
+        let r0: u64 = d0 & 4294967295
+        let r1: u64 = d1 & 4294967295
+        let r2: u64 = d2 & 4294967295
+        let r3: u64 = d3 & 4294967295
+        return U128 { w0: r0, w1: r1, w2: r2, w3: r3 }
+    }
+
+    # Разность mod 2^128 (заём из-за границы отбрасывается).
+    func sub_wrap(self, o: U128) -> U128
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        let d0: u64 = self.w0 + 4294967296 - o.w0
+        let b0: u64 = 1 - (d0 >> 32)
+        let d1: u64 = self.w1 + 4294967296 - o.w1 - b0
+        let b1: u64 = 1 - (d1 >> 32)
+        let d2: u64 = self.w2 + 4294967296 - o.w2 - b1
+        let b2: u64 = 1 - (d2 >> 32)
+        let d3: u64 = self.w3 + 4294967296 - o.w3 - b2
+        let r0: u64 = d0 & 4294967295
+        let r1: u64 = d1 & 4294967295
+        let r2: u64 = d2 & 4294967295
+        let r3: u64 = d3 & 4294967295
+        return U128 { w0: r0, w1: r1, w2: r2, w3: r3 }
+    }
+
+    # Сдвиг влево; потеря значащих бит — trap (как у языкового <<).
+    func shl(self, k: u32) -> U128
+        requires (k <= 127
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        var t: U128 = self
+        let q: u32 = k / 32
+        let r: u64 = u64(k % 32)
+        for i in 0..3 {
+            if i < q {
+                assert t.w3 == 0
+                t = U128 { w0: 0, w1: t.w0, w2: t.w1, w3: t.w2 }
+            }
+        }
+        if r > 0 {
+            let ry: u64 = 32 - r
+            assert (t.w3 >> ry) == 0
+            let n3: u64 = ((t.w3 << r) & 4294967295) | (t.w2 >> ry)
+            let n2: u64 = ((t.w2 << r) & 4294967295) | (t.w1 >> ry)
+            let n1: u64 = ((t.w1 << r) & 4294967295) | (t.w0 >> ry)
+            let n0: u64 = (t.w0 << r) & 4294967295
+            return U128 { w0: n0, w1: n1, w2: n2, w3: n3 }
+        }
+        return t
+    }
+
+    # Сдвиг влево mod 2^128 (вышедшие биты отбрасываются).
+    func shl_wrap(self, k: u32) -> U128
+        requires (k <= 127
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        var t: U128 = self
+        let q: u32 = k / 32
+        let r: u64 = u64(k % 32)
+        for i in 0..3 {
+            if i < q {
+                t = U128 { w0: 0, w1: t.w0, w2: t.w1, w3: t.w2 }
+            }
+        }
+        if r > 0 {
+            let ry: u64 = 32 - r
+            let n3: u64 = ((t.w3 << r) & 4294967295) | (t.w2 >> ry)
+            let n2: u64 = ((t.w2 << r) & 4294967295) | (t.w1 >> ry)
+            let n1: u64 = ((t.w1 << r) & 4294967295) | (t.w0 >> ry)
+            let n0: u64 = (t.w0 << r) & 4294967295
+            return U128 { w0: n0, w1: n1, w2: n2, w3: n3 }
+        }
+        return t
+    }
+
+    # Сдвиг вправо: floor-деление на 2^k, младшие биты отбрасываются.
+    func shr(self, k: u32) -> U128
+        requires (k <= 127
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        var t: U128 = self
+        let q: u32 = k / 32
+        let r: u64 = u64(k % 32)
+        for i in 0..3 {
+            if i < q {
+                t = U128 { w0: t.w1, w1: t.w2, w2: t.w3, w3: 0 }
+            }
+        }
+        if r > 0 {
+            let ry: u64 = 32 - r
+            let n0: u64 = ((t.w0 >> r) | (t.w1 << ry)) & 4294967295
+            let n1: u64 = ((t.w1 >> r) | (t.w2 << ry)) & 4294967295
+            let n2: u64 = ((t.w2 >> r) | (t.w3 << ry)) & 4294967295
+            let n3: u64 = t.w3 >> r
+            return U128 { w0: n0, w1: n1, w2: n2, w3: n3 }
+        }
+        return t
+    }
+}
+
+# Из младших 64 бит: u128(lo) — число 0..2^64-1 в лимбах.
+func u128(lo: u64) -> U128
+    requires true
+    ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+        and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+{
+    return U128 { w0: lo & 4294967295, w1: lo >> 32, w2: 0, w3: 0 }
+}
+
+# Из двух 64-битных половин: значение hi * 2^64 + lo.
+func u128_hi_lo(hi: u64, lo: u64) -> U128
+    requires true
+    ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+        and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+{
+    let h: U128 = u128(hi)
+    let l: U128 = u128(lo)
+    return U128 { w0: l.w0, w1: l.w1, w2: h.w0, w3: h.w1 }
+}
+
+# Точное произведение u64 x u64 -> 128 бит — главный кирпич (лемма
+# MAC в шапке: суммы столбцов не переполняют u64, trap невозможен).
+func mul_64(a: u64, b: u64) -> U128
+    requires true
+    ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+        and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+{
+    let a0: u64 = a & 4294967295
+    let a1: u64 = a >> 32
+    let b0: u64 = b & 4294967295
+    let b1: u64 = b >> 32
+    let p00: u64 = a0 * b0
+    let p01: u64 = a0 * b1
+    let p10: u64 = a1 * b0
+    let p11: u64 = a1 * b1
+    let m1: u64 = (p00 >> 32) + (p01 & 4294967295) + (p10 & 4294967295)
+    let m2: u64 = (m1 >> 32) + (p01 >> 32) + (p10 >> 32) + (p11 & 4294967295)
+    let m3: u64 = (m2 >> 32) + (p11 >> 32)
+    let r0: u64 = p00 & 4294967295
+    let r1: u64 = m1 & 4294967295
+    let r2: u64 = m2 & 4294967295
+    return U128 { w0: r0, w1: r1, w2: r2, w3: m3 & 4294967295 }
+}
+
+# Частное и остаток одним прогоном (деление считает оба).
+struct U128DivRem {
+    q: U128
+    r: U128
+}
+
+extend U128 {
+    # Произведение; выход за 128 бит — trap. Разложение по половинам:
+    # a*b = ll + (lh + hl)*2^64 + hh*2^128; ненулевой hh или старшая
+    # половина lh/hl — переполнение, остальное ловят add.
+    func mul(self, o: U128) -> U128
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        let al: u64 = self.lo64()
+        let ah: u64 = self.hi64()
+        let bl: u64 = o.lo64()
+        let bh: u64 = o.hi64()
+        assert ah == 0 or bh == 0
+        let pll: U128 = mul_64(al, bl)
+        let plh: U128 = mul_64(al, bh)
+        let phl: U128 = mul_64(ah, bl)
+        assert plh.w2 == 0 and plh.w3 == 0
+        assert phl.w2 == 0 and phl.w3 == 0
+        let t1: U128 = U128 { w0: 0, w1: 0, w2: plh.w0, w3: plh.w1 }
+        let t2: U128 = U128 { w0: 0, w1: 0, w2: phl.w0, w3: phl.w1 }
+        return pll.add(t1).add(t2)
+    }
+
+    # Произведение mod 2^128: hh*2^128 и старшие половины lh/hl
+    # пропадают по модулю, суммы заворачивают add_wrap.
+    func mul_wrap(self, o: U128) -> U128
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        let al: u64 = self.lo64()
+        let ah: u64 = self.hi64()
+        let bl: u64 = o.lo64()
+        let bh: u64 = o.hi64()
+        let pll: U128 = mul_64(al, bl)
+        let plh: U128 = mul_64(al, bh)
+        let phl: U128 = mul_64(ah, bl)
+        let t1: U128 = U128 { w0: 0, w1: 0, w2: plh.w0, w3: plh.w1 }
+        let t2: U128 = U128 { w0: 0, w1: 0, w2: phl.w0, w3: phl.w1 }
+        return pll.add_wrap(t1).add_wrap(t2)
+    }
+
+    # Полное деление 128/128: сдвиговое (restoring), ровно 128
+    # итераций с константной границей. c — бит остатка, вышедший в
+    # 2^128 при сдвиге: тогда остаток заведомо >= делителя, а
+    # sub_wrap возвращает его в 128 бит корректно (v - o < 2^128,
+    # т.к. v < 2*o).
+    func divrem(self, o: U128) -> U128DivRem
+        requires ((o.w0 > 0 or o.w1 > 0 or o.w2 > 0 or o.w3 > 0)
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.q.w0 <= 4294967295 and result.q.w1 <= 4294967295
+            and result.q.w2 <= 4294967295 and result.q.w3 <= 4294967295
+            and result.r.w0 <= 4294967295 and result.r.w1 <= 4294967295
+            and result.r.w2 <= 4294967295 and result.r.w3 <= 4294967295)
+    {
+        var a: U128 = self
+        var q: U128 = u128(0)
+        var r: U128 = u128(0)
+        for _ in 0..128 {
+            let c: u64 = r.w3 >> 31
+            let nb: u64 = a.w3 >> 31
+            let r3: u64 = ((r.w3 << 1) & 4294967295) | (r.w2 >> 31)
+            let r2: u64 = ((r.w2 << 1) & 4294967295) | (r.w1 >> 31)
+            let r1: u64 = ((r.w1 << 1) & 4294967295) | (r.w0 >> 31)
+            let r0: u64 = ((r.w0 << 1) & 4294967295) | nb
+            r = U128 { w0: r0, w1: r1, w2: r2, w3: r3 }
+            let a3: u64 = ((a.w3 << 1) & 4294967295) | (a.w2 >> 31)
+            let a2: u64 = ((a.w2 << 1) & 4294967295) | (a.w1 >> 31)
+            let a1: u64 = ((a.w1 << 1) & 4294967295) | (a.w0 >> 31)
+            let a0: u64 = (a.w0 << 1) & 4294967295
+            a = U128 { w0: a0, w1: a1, w2: a2, w3: a3 }
+            let q3: u64 = ((q.w3 << 1) & 4294967295) | (q.w2 >> 31)
+            let q2: u64 = ((q.w2 << 1) & 4294967295) | (q.w1 >> 31)
+            let q1: u64 = ((q.w1 << 1) & 4294967295) | (q.w0 >> 31)
+            let q0: u64 = (q.w0 << 1) & 4294967295
+            if c == 1 or o.le(r) {
+                r = r.sub_wrap(o)
+                q = U128 { w0: q0 | 1, w1: q1, w2: q2, w3: q3 }
+            } else {
+                q = U128 { w0: q0, w1: q1, w2: q2, w3: q3 }
+            }
+        }
+        return U128DivRem { q: q, r: r }
+    }
+
+    # Быстрое деление на малый делитель (d <= 2^32-1): школьное по
+    # лимбам, 4 шага — двухлимбовое делимое всегда влезает в u64.
+    func divrem_32(self, d: u64) -> U128DivRem
+        requires (d > 0 and d <= 4294967295
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures (result.q.w0 <= 4294967295 and result.q.w1 <= 4294967295
+            and result.q.w2 <= 4294967295 and result.q.w3 <= 4294967295
+            and result.r.w0 <= 4294967295 and result.r.w1 <= 4294967295
+            and result.r.w2 <= 4294967295 and result.r.w3 <= 4294967295)
+    {
+        let c3: u64 = self.w3
+        let q3: u64 = c3 / d
+        let c2: u64 = ((c3 % d) << 32) | self.w2
+        let q2: u64 = c2 / d
+        let c1: u64 = ((c2 % d) << 32) | self.w1
+        let q1: u64 = c1 / d
+        let c0: u64 = ((c1 % d) << 32) | self.w0
+        let q0: u64 = c0 / d
+        let qq: U128 = U128 {
+            w0: q0 & 4294967295,
+            w1: q1 & 4294967295,
+            w2: q2 & 4294967295,
+            w3: q3 & 4294967295
+        }
+        return U128DivRem { q: qq, r: u128(c0 % d) }
+    }
+
+    func div(self, o: U128) -> U128
+        requires ((o.w0 > 0 or o.w1 > 0 or o.w2 > 0 or o.w3 > 0)
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        return self.divrem(o).q
+    }
+
+    func rem(self, o: U128) -> U128
+        requires ((o.w0 > 0 or o.w1 > 0 or o.w2 > 0 or o.w3 > 0)
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
+            and result.w2 <= 4294967295 and result.w3 <= 4294967295)
+    {
+        return self.divrem(o).r
+    }
+
+    # Шестнадцатеричная запись без ведущих нулей ("0" для нуля),
+    # строчные цифры; максимум 32 знака. Сборка интерполяцией за
+    # O(n^2) при n <= 32 — та же оговорка, что у lib/Fixed.repr.
+    func repr_hex(self) -> str<32>
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures true
+    {
+        var out: str<32> = ""
+        var started: bool = false
+        for i in 0..32 {
+            let idx: u32 = 31 - i
+            var w: u64 = self.w0
+            if idx >= 24 {
+                w = self.w3
+            } elif idx >= 16 {
+                w = self.w2
+            } elif idx >= 8 {
+                w = self.w1
+            }
+            let sh: u64 = u64((idx % 8) * 4)
+            let nib: u64 = (w >> sh) & 15
+            if nib > 0 or started or idx == 0 {
+                started = true
+                out = "{out}{hex_digit(u32(nib))}"
+            }
+        }
+        return out
+    }
+
+    # Десятичная запись: до 39 цифр (2^128-1 ~ 3.4e38), деление на 10
+    # быстрым divrem_32, цифры копятся с младшей и разворачиваются.
+    func repr_dec(self) -> str<40>
+        requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures true
+    {
+        var buf: [u8; 40] = [0; 40]
+        var n: u32 = 0
+        var t: U128 = self
+        for _ in 0..39 {
+            let dr: U128DivRem = t.divrem_32(10)
+            buf[n] = u8(dr.r.w0 + 48)
+            n = n + 1
+            t = dr.q
+            if t.is_zero() {
+                break
+            }
+        }
+        var out: str<40> = ""
+        for i in 0..40 {
+            if i >= n {
+                break
+            }
+            out = "{out}{char(buf[n - 1 - i])}"
+        }
+        return out
+    }
+}
+
+# Знаковый 128-бит: знак + магнитуда поверх U128 (нужен Q32.32).
+# Инвариант: ноль всегда sgn == false — все конструкторы и операции
+# идут через i128_make, поэтому eq — простое сравнение полей.
+struct I128 {
+    sgn: bool
+    mag: U128
+}
+
+# Нормализующий конструктор: у нуля знак стирается.
+func i128_make(sgn: bool, mag: U128) -> I128
+    requires (mag.w0 <= 4294967295 and mag.w1 <= 4294967295
+        and mag.w2 <= 4294967295 and mag.w3 <= 4294967295)
+    ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+        and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+{
+    if mag.is_zero() {
+        return I128 { sgn: false, mag: mag }
+    }
+    return I128 { sgn: sgn, mag: mag }
+}
+
+# Из i64; края диапазона (включая i64-минимум) без переполнения:
+# магнитуда отрицательного собирается как |v+1| + 1.
+func i128(v: i64) -> I128
+    requires true
+    ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+        and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+{
+    if v < 0 {
+        let m: u64 = u64(i64(0) - (v + 1)) + 1
+        return i128_make(true, u128(m))
+    }
+    return i128_make(false, u128(u64(v)))
+}
+
+extend I128 {
+    func is_zero(self) -> bool
+        requires true
+        ensures true
+    {
+        return self.mag.is_zero()
+    }
+
+    func eq(self, o: I128) -> bool
+        requires true
+        ensures true
+    {
+        return self.sgn == o.sgn and self.mag.eq(o.mag)
+    }
+
+    func lt(self, o: I128) -> bool
+        requires true
+        ensures true
+    {
+        if self.sgn and not o.sgn {
+            return true
+        }
+        if o.sgn and not self.sgn {
+            return false
+        }
+        if self.sgn {
+            return o.mag.lt(self.mag)
+        }
+        return self.mag.lt(o.mag)
+    }
+
+    func le(self, o: I128) -> bool
+        requires true
+        ensures true
+    {
+        return not o.lt(self)
+    }
+
+    func neg(self) -> I128
+        requires (self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295)
+        ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+            and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+    {
+        return i128_make(not self.sgn, self.mag)
+    }
+
+    func abs(self) -> I128
+        requires (self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295)
+        ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+            and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+    {
+        return I128 { sgn: false, mag: self.mag }
+    }
+
+    # Сумма; переполнение магнитуды за 128 бит — trap (внутри U128.add).
+    func add(self, o: I128) -> I128
+        requires (self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295
+            and o.mag.w0 <= 4294967295 and o.mag.w1 <= 4294967295
+            and o.mag.w2 <= 4294967295 and o.mag.w3 <= 4294967295)
+        ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+            and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+    {
+        if self.sgn == o.sgn {
+            return i128_make(self.sgn, self.mag.add(o.mag))
+        }
+        if o.mag.le(self.mag) {
+            return i128_make(self.sgn, self.mag.sub(o.mag))
+        }
+        return i128_make(o.sgn, o.mag.sub(self.mag))
+    }
+
+    func sub(self, o: I128) -> I128
+        requires (self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295
+            and o.mag.w0 <= 4294967295 and o.mag.w1 <= 4294967295
+            and o.mag.w2 <= 4294967295 and o.mag.w3 <= 4294967295)
+        ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+            and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+    {
+        return self.add(o.neg())
+    }
+
+    # Произведение; магнитуда за 128 бит — trap (внутри U128.mul).
+    func mul(self, o: I128) -> I128
+        requires (self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295
+            and o.mag.w0 <= 4294967295 and o.mag.w1 <= 4294967295
+            and o.mag.w2 <= 4294967295 and o.mag.w3 <= 4294967295)
+        ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+            and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+    {
+        return i128_make(self.sgn != o.sgn, self.mag.mul(o.mag))
+    }
+
+    # Обратно в i64; выход за диапазон i64 — trap (каст).
+    func to_i64(self) -> i64
+        requires (self.mag.w2 == 0 and self.mag.w3 == 0
+            and self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295)
+        ensures true
+    {
+        let lo: u64 = self.mag.lo64()
+        if self.sgn {
+            return 0 - i64(lo - 1) - 1
+        }
+        return i64(lo)
+    }
+
+    # "-123...": знак и десятичная магнитуда (до 1+39 знаков).
+    func repr_dec(self) -> str<40>
+        requires (self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295)
+        ensures true
+    {
+        if self.sgn {
+            return "-{self.mag.repr_dec()}"
+        }
+        return self.mag.repr_dec()
+    }
+}
+
+# Частное и остаток знакового деления одним прогоном.
+struct I128DivRem {
+    q: I128
+    r: I128
+}
+
+extend I128 {
+    # Знаковое деление в семантике языкового `/` и `%` (пин §7.3
+    # FIXED_POINT): частное усекается к нулю, знак остатка — по
+    # делимому. Магнитуды делит U128.divrem.
+    func divrem(self, o: I128) -> I128DivRem
+        requires ((o.mag.w0 > 0 or o.mag.w1 > 0 or o.mag.w2 > 0 or o.mag.w3 > 0)
+            and self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295
+            and o.mag.w0 <= 4294967295 and o.mag.w1 <= 4294967295
+            and o.mag.w2 <= 4294967295 and o.mag.w3 <= 4294967295)
+        ensures (result.q.mag.w0 <= 4294967295 and result.q.mag.w1 <= 4294967295
+            and result.q.mag.w2 <= 4294967295 and result.q.mag.w3 <= 4294967295
+            and result.r.mag.w0 <= 4294967295 and result.r.mag.w1 <= 4294967295
+            and result.r.mag.w2 <= 4294967295 and result.r.mag.w3 <= 4294967295)
+    {
+        let dr: U128DivRem = self.mag.divrem(o.mag)
+        let q: I128 = i128_make(self.sgn != o.sgn, dr.q)
+        let r: I128 = i128_make(self.sgn, dr.r)
+        return I128DivRem { q: q, r: r }
+    }
+
+    func div(self, o: I128) -> I128
+        requires ((o.mag.w0 > 0 or o.mag.w1 > 0 or o.mag.w2 > 0 or o.mag.w3 > 0)
+            and self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295
+            and o.mag.w0 <= 4294967295 and o.mag.w1 <= 4294967295
+            and o.mag.w2 <= 4294967295 and o.mag.w3 <= 4294967295)
+        ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+            and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+    {
+        return self.divrem(o).q
+    }
+
+    func rem(self, o: I128) -> I128
+        requires ((o.mag.w0 > 0 or o.mag.w1 > 0 or o.mag.w2 > 0 or o.mag.w3 > 0)
+            and self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
+            and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295
+            and o.mag.w0 <= 4294967295 and o.mag.w1 <= 4294967295
+            and o.mag.w2 <= 4294967295 and o.mag.w3 <= 4294967295)
+        ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
+            and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
+    {
+        return self.divrem(o).r
+    }
+}
+
+test u128_ctor_edges {
+    assert u128(0).is_zero()
+    assert not u128(1).is_zero()
+    let a: U128 = u128(18446744073709551615)
+    assert a.w0 == 4294967295 and a.w1 == 4294967295
+    assert a.w2 == 0 and a.w3 == 0
+    assert a.lo64() == 18446744073709551615
+    let b: U128 = u128_hi_lo(18446744073709551615, 0)
+    assert b.w2 == 4294967295 and b.w3 == 4294967295
+    assert b.w0 == 0 and b.w1 == 0
+    assert b.hi64() == 18446744073709551615
+    assert u128_hi_lo(1, 2).lo64() == 2
+    assert u128_hi_lo(1, 2).hi64() == 1
+}
+
+test u128_add_sub_edges {
+    let one: U128 = u128(1)
+    let m64: U128 = u128(18446744073709551615)
+    let s: U128 = m64.add(one)
+    assert s.w2 == 1 and s.w0 == 0 and s.w1 == 0 and s.w3 == 0
+    assert s.sub(one).eq(m64)
+    let mx: U128 = u128_hi_lo(18446744073709551615, 18446744073709551615)
+    assert mx.add_wrap(one).is_zero()
+    assert u128(0).sub_wrap(one).eq(mx)
+    assert mx.sub(mx).is_zero()
+    assert mx.sub(one).add(one).eq(mx)
+    assert u128(2).add(u128(3)).eq(u128(5))
+    assert u128(5).sub(u128(3)).eq(u128(2))
+}
+
+test u128_cmp {
+    assert u128(1).lt(u128(2))
+    assert not u128(2).lt(u128(1))
+    assert u128_hi_lo(1, 0).lt(u128_hi_lo(2, 0))
+    assert u128(5).lt(u128_hi_lo(1, 0))
+    assert not u128_hi_lo(1, 0).lt(u128(5))
+    assert u128(7).le(u128(7))
+    assert u128(7).le(u128(8))
+    assert not u128(8).le(u128(7))
+    assert u128(7).eq(u128(7))
+    assert not u128(7).eq(u128(8))
+    assert u128(0).le(u128(0))
+}
+
+# Лемма MAC на краях: (2^64-1)^2 = 2^128 - 2^65 + 1 считается без trap.
+test u128_mul64_edges {
+    let m: u64 = 18446744073709551615
+    assert mul_64(m, m).eq(u128_hi_lo(18446744073709551614, 1))
+    assert mul_64(m, 0).is_zero()
+    assert mul_64(0, m).is_zero()
+    assert mul_64(m, 1).eq(u128(m))
+    assert mul_64(4294967295, 4294967295).eq(u128(18446744065119617025))
+    assert mul_64(6, 7).eq(u128(42))
+}
+
+test u128_mul_edges {
+    let two64: U128 = u128_hi_lo(1, 0)
+    assert two64.mul(u128(3)).eq(u128_hi_lo(3, 0))
+    assert u128(3).mul(two64).eq(u128_hi_lo(3, 0))
+    let m64: u64 = 18446744073709551615
+    let mx: U128 = u128_hi_lo(m64, m64)
+    assert u128(m64).mul(u128_hi_lo(1, 1)).eq(mx)
+    assert mx.mul(u128(1)).eq(mx)
+    assert mx.mul_wrap(mx).eq(u128(1))
+    assert u128(0).mul(mx).is_zero()
+}
+
+test u128_shifts {
+    assert u128(1).shl(127).eq(u128_hi_lo(9223372036854775808, 0))
+    assert u128_hi_lo(9223372036854775808, 0).shr(127).eq(u128(1))
+    assert u128(1).shl(32).w1 == 1
+    assert u128(1).shl(64).w2 == 1
+    assert u128(1).shl(96).w3 == 1
+    assert u128(255).shl(4).eq(u128(4080))
+    assert u128(255).shl(0).eq(u128(255))
+    assert u128(255).shr(0).eq(u128(255))
+    assert u128(255).shr(4).eq(u128(15))
+    assert u128_hi_lo(1, 0).shr(64).eq(u128(1))
+    let mx: U128 = u128_hi_lo(18446744073709551615, 18446744073709551615)
+    assert mx.shl_wrap(1).eq(mx.sub(u128(1)))
+    assert mx.shr(127).eq(u128(1))
+}
+
+test u128_divrem {
+    let mx: U128 = u128_hi_lo(18446744073709551615, 18446744073709551615)
+    let d1: U128DivRem = mx.divrem(u128(1))
+    assert d1.q.eq(mx) and d1.r.is_zero()
+    let d2: U128DivRem = mx.divrem(mx)
+    assert d2.q.eq(u128(1)) and d2.r.is_zero()
+    let d3: U128DivRem = u128(100).divrem(u128(7))
+    assert d3.q.eq(u128(14)) and d3.r.eq(u128(2))
+    let d4: U128DivRem = u128(5).divrem(mx)
+    assert d4.q.is_zero() and d4.r.eq(u128(5))
+    let x: U128 = u128_hi_lo(81985529216486895, 1147797409030816545)
+    let d: U128 = u128(4294967291)
+    let dr: U128DivRem = x.divrem(d)
+    assert dr.q.mul(d).add(dr.r).eq(x)
+    assert dr.r.lt(d)
+    let dr32: U128DivRem = x.divrem_32(4294967291)
+    assert dr32.q.eq(dr.q) and dr32.r.eq(dr.r)
+    assert x.div(d).eq(dr.q) and x.rem(d).eq(dr.r)
+}
+
+test u128_repr {
+    assert u128(0).repr_dec() == "0"
+    assert u128(0).repr_hex() == "0"
+    assert u128(255).repr_hex() == "ff"
+    assert u128(4095).repr_hex() == "fff"
+    assert u128(1000000).repr_dec() == "1000000"
+    assert u128_hi_lo(1, 0).repr_dec() == "18446744073709551616"
+    let mx: U128 = u128_hi_lo(18446744073709551615, 18446744073709551615)
+    assert mx.repr_dec() == "340282366920938463463374607431768211455"
+    assert mx.repr_hex() == "ffffffffffffffffffffffffffffffff"
+    let x: U128 = u128_hi_lo(0x0123456789ABCDEF, 0xFEDCBA9876543210)
+    assert x.repr_hex() == "123456789abcdeffedcba9876543210"
+}
+
+test i128_basics {
+    assert i128(0).is_zero()
+    assert not i128(0).sgn
+    assert i128(-1).sgn
+    assert i128(-1).mag.eq(u128(1))
+    assert i128(42).to_i64() == 42
+    assert i128(-42).to_i64() == -42
+    assert i128(9223372036854775807).to_i64() == 9223372036854775807
+    let mn: i64 = -9223372036854775807 - i64(1)
+    assert i128(mn).mag.eq(u128(9223372036854775808))
+    assert i128(mn).to_i64() == mn
+    assert i128(0).neg().is_zero()
+    assert not i128(0).neg().sgn
+    assert i128(-5).abs().to_i64() == 5
+    assert i128(5).neg().to_i64() == -5
+}
+
+test i128_arith {
+    assert i128(-3).add(i128(5)).to_i64() == 2
+    assert i128(3).add(i128(-5)).to_i64() == -2
+    assert i128(-3).add(i128(-5)).to_i64() == -8
+    assert i128(3).add(i128(5)).to_i64() == 8
+    assert i128(5).add(i128(-5)).is_zero()
+    assert not i128(5).add(i128(-5)).sgn
+    assert i128(3).sub(i128(5)).to_i64() == -2
+    assert i128(-3).sub(i128(-5)).to_i64() == 2
+    assert i128(-3).mul(i128(5)).to_i64() == -15
+    assert i128(-3).mul(i128(-5)).to_i64() == 15
+    assert i128(3).mul(i128(5)).to_i64() == 15
+    assert i128(0).mul(i128(-5)).is_zero()
+}
+
+test i128_cmp {
+    assert i128(-2).lt(i128(1))
+    assert i128(-2).lt(i128(-1))
+    assert not i128(-1).lt(i128(-2))
+    assert not i128(1).lt(i128(-2))
+    assert i128(1).lt(i128(2))
+    assert i128(-2).le(i128(-2))
+    assert i128(7).eq(i128(7))
+    assert not i128(7).eq(i128(-7))
+}
+
+# Пин §7.3: частное усекается к нулю, знак остатка — по делимому.
+test i128_divrem {
+    assert i128(7).div(i128(2)).to_i64() == 3
+    assert i128(7).rem(i128(2)).to_i64() == 1
+    assert i128(-7).div(i128(2)).to_i64() == -3
+    assert i128(-7).rem(i128(2)).to_i64() == -1
+    assert i128(7).div(i128(-2)).to_i64() == -3
+    assert i128(7).rem(i128(-2)).to_i64() == 1
+    assert i128(-7).div(i128(-2)).to_i64() == 3
+    assert i128(-7).rem(i128(-2)).to_i64() == -1
+    assert i128(0).div(i128(-2)).is_zero()
+}
+
+test i128_repr {
+    assert i128(0).repr_dec() == "0"
+    assert i128(-42).repr_dec() == "-42"
+    assert i128(42).repr_dec() == "42"
+    let mn: i64 = -9223372036854775807 - i64(1)
+    assert i128(mn).repr_dec() == "-9223372036854775808"
+}
