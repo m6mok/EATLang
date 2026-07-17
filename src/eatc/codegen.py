@@ -1607,6 +1607,59 @@ def emit_ir(program: ast.Program, checker, trap_codes: bool = False) -> str:
     return str(module) + _trap_map_text(cg)
 
 
+# Инлайн-хинты build-конвейера (OPTIMIZATIONS_PLAN §7.6, кандидат 2,
+# этап 1 — Python-only, канон .ll не меняется): константы разведки,
+# 41-я итерация tests/bench/FINDINGS.md. Порог «малости» тела и
+# бюджет роста кода: размер × (call-site'ов − 1) — без бюджета
+# многосайтовые хелперы селфхост-модулей взрывают инлайн
+# (SelfIr ×6,4 по бинарнику уже при пороге 160).
+INLINE_LIMIT = 384
+INLINE_BUDGET = 768
+
+
+def inline_hints(ref, limit: int = INLINE_LIMIT,
+                 budget: int = INLINE_BUDGET) -> list:
+    """`alwaysinline` малым листовым функциям распарсенного модуля:
+    тело ≤ limit инструкций, рост ≤ budget, и каждый вызов ведёт либо
+    в декларацию (аксиома ОС, интринсик, trap), либо в уже помеченную
+    функцию — та стянется инлайном, и функция станет листом
+    (замыкание снизу вверх; граф вызовов — DAG, рекурсии в языке
+    нет). `main` (си-обёртка входа) не помечается. Возвращает имена
+    помеченных (для тестов/разведки)."""
+    size, callees, sites = {}, {}, {}
+    for f in ref.functions:
+        if f.is_declaration:
+            continue
+        n, cd = 0, set()
+        for b in f.blocks:
+            for i in b.instructions:
+                n += 1
+                if i.opcode == "call":
+                    ops = list(i.operands)   # вызываемое — последним
+                    if ops and ops[-1].name:
+                        cd.add(ops[-1].name)
+                        sites[ops[-1].name] = \
+                            sites.get(ops[-1].name, 0) + 1
+        size[f.name], callees[f.name] = n, cd
+    defined, tagged = set(size), set()
+    changed = True
+    while changed:
+        changed = False
+        for name in defined:
+            if (name in tagged or name == "main"
+                    or size[name] > limit
+                    or size[name] * max(0, sites.get(name, 0) - 1)
+                    > budget):
+                continue
+            if all(c not in defined or c in tagged
+                   for c in callees[name]):
+                tagged.add(name)
+                changed = True
+    for name in sorted(tagged):
+        ref.get_function(name).add_function_attribute("alwaysinline")
+    return sorted(tagged)
+
+
 def compile_binary(
     program: ast.Program, checker, filename: str, out_path: str,
     trap_codes: bool = False, link: bool = True, release: bool = False,
@@ -1664,7 +1717,9 @@ def compile_binary(
     # Оптимизация — только на пути IR → объектный код: .ll выше уже
     # записан неоптимизированным (канон дифф-сверки и отладки), а
     # текстовую эмиссию `eatc ir` фикспойнт бутстрапа требует
-    # байт-в-байт — её не трогаем.
+    # байт-в-байт — её не трогаем. Инлайн-хинты — post-parse по той
+    # же причине: атрибут живёт только в распарсенном модуле.
+    inline_hints(ref)
     pto = llvm.create_pipeline_tuning_options(speed_level=2)
     pb = llvm.create_pass_builder(machine, pto)
     mpm = pb.getModulePassManager()
