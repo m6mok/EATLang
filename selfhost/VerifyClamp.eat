@@ -1,0 +1,256 @@
+# Проход clamp_carry (OPTIMIZATIONS §9 шаг 2): индуктивная проверка
+# кандидат-интервала loop-carried накопителя без монотонного фикспойнта.
+# Зеркало _clamp_carry/_clamp_probe/_collect_clamp_defs verifier.py.
+# Выделен из VerifyFlow.eat (упор в потолок 2500 строк, REFACTOR §6.4);
+# методы extend сливаются в struct Verify независимо от файла.
+extend Verify {
+    # Проба RHS в чистом предцикловом окружении (ein) с обнулёнными
+    # tracked-путями и закреплённым p (эталон _clamp_probe). Базой берём
+    # ein, а не self.env: на этой точке self.env уже несёт посевы accel/
+    # переменной цикла, а эталонная проба стартует от предциклового env и
+    # kill'ит tracked. rec_off=1 глушит отложенные requires (pend), ann=0 —
+    # отметки проверок: проба гипотетична, карту не трогает. Результат — в
+    # rk/rls/rlm/rhs/rhm (как у iv_eval). hasp=0 ⇒ p при ⊤ (kill_assigned
+    # обнуляет и его); hasp=1 ⇒ p закреплён на [pls..phm].
+    func clamp_probe(var self, rhsn: u32, body: u32, pid: u32, hasp: u32)
+        requires rhsn < 131072 and body < 131072 and pid < 512
+        ensures true
+    {
+        var saved: St = self.env
+        let srec: u32 = self.rec_off
+        let sfail: bool = self.failed
+        self.env = self.ein
+        self.rec_off = 1
+        self.kill_assigned(body)
+        if hasp == 1 {
+            self.env.kn[pid] = 1
+            self.env.nz[pid] = 0
+            self.env.ls[pid] = self.cp_ls
+            self.env.lm[pid] = self.cp_lm
+            self.env.hs[pid] = self.cp_hs
+            self.env.hm[pid] = self.cp_hm
+            self.env.hk[pid] = 0
+        }
+        self.iv_eval(rhsn, 0)
+        self.env = saved
+        self.rec_off = srec
+        self.failed = sfail
+    }
+
+    # Индуктивная проверка кандидат-интервала без монотонного фикспойнта
+    # (эталон _clamp_carry, OPTIMIZATIONS §9 шаг 2). Путь-простое-имя p,
+    # все определения которого в теле — присваивания простому имени, несёт
+    # кандидат C на входе витка, если держатся обе ноги индукции:
+    #   (1) вход: предцикл (ein) ⊆ C;
+    #   (2) обратная дуга: тело при p=C даёт ⊆ C — каждое `p = RHS` при
+    #       p∈C (прочие loop-carried пути ⊤) даёт результат ⊆ C.
+    # C = объединение вычислений RHS при p=⊤ (общий iv_eval): для клэмпов
+    # (`_ % K`, `_ & M`, min/насыщение через ensures) выход ограничен
+    # независимо от входа ⇒ C ⊊ диапазона типа; не-клэмп даёт ⊤ и
+    # отбраковывается. Обобщает минимальную %K-форму шага 1; изменяемый по
+    # витку клэмп-предел ∈ tracked ⇒ ⊤ в пробе ⇒ не несётся (парный негатив
+    # tests/verify/59). Несём лишь пути, записи которых скрыты во вложенных
+    # циклах (nst): наблюдаемые линейные индукции точнее ведёт accel —
+    # перекрыть их клэмпом-надмножеством было бы регрессией.
+    func clamp_carry(var self, node: u32)
+        requires node < 131072
+        ensures true
+    {
+        let body: u32 = self.nns(self.nfc(node))
+        self.clamp_collect(body)
+        let lvpid: u32 = self.path_intern(self.nss(node), self.nsl(node))
+        for i in 0..512 {
+            if i >= self.cc_nd {
+                break
+            }
+            let pid: u32 = self.cc_dp[i]
+            var proc: u32 = 1
+            if pid == lvpid {
+                proc = 0
+            }
+            for a in 0..512 {
+                if a >= i or proc == 0 {
+                    break
+                }
+                if self.cc_dp[a] == pid {
+                    proc = 0
+                }
+            }
+            var innst: u32 = 0
+            for a in 0..256 {
+                if a >= self.cc_nn or innst == 1 {
+                    break
+                }
+                if self.cc_nst[a] == pid {
+                    innst = 1
+                }
+            }
+            if innst == 0 {
+                proc = 0
+            }
+            if proc == 1 {
+                self.clamp_one(pid, body)
+            }
+        }
+    }
+
+    # Одним DFS по телу цикла заполнить cc_dp/cc_dr (pid+RHS всех
+    # определений простого имени, любая глубина — эталон _collect_clamp_defs)
+    # и cc_nst (pid всех assign-целей на глубине ≥ 1, т.е. внутри вложенного
+    # цикла — эталон _nested_loop_paths). sd[] — флаг «внутри цикла» на
+    # стеке: дети loop-узла и всё под ними несут d=1. Порядок cc_dp совпадает
+    # с раздельным сбором (тот же обход), cc_nst используется по членству.
+    func clamp_collect(var self, body: u32)
+        requires body < 131072
+        ensures true
+    {
+        self.cc_nd = 0
+        self.cc_nn = 0
+        var st: [u32; 128] = [0; 128]
+        var sd: [u32; 128] = [0; 128]
+        var sp: u32 = 1
+        st[0] = body
+        sd[0] = 0
+        for _ in 0..4096 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            let d: u32 = sd[sp]
+            let k: u32 = self.nk(n)
+            if k == 14 {
+                let tgt: u32 = self.nfc(n)
+                if d == 1 {
+                    let tp: u32 = self.target_pid(tgt)
+                    if tp != NONE and tp < 512 {
+                        var have: u32 = 0
+                        for a in 0..256 {
+                            if a >= self.cc_nn or have == 1 {
+                                break
+                            }
+                            if self.cc_nst[a] == tp {
+                                have = 1
+                            }
+                        }
+                        if have == 0 and self.cc_nn < 256 {
+                            self.cc_nst[self.cc_nn] = tp
+                            self.cc_nn = self.cc_nn + 1
+                        }
+                    }
+                }
+                if self.nk(tgt) == 37 {
+                    let pid: u32 = self.target_pid(tgt)
+                    if pid != NONE and pid < 512 and self.cc_nd < 512 {
+                        self.cc_dp[self.cc_nd] = pid
+                        self.cc_dr[self.cc_nd] = self.nns(tgt)
+                        self.cc_nd = self.cc_nd + 1
+                    }
+                }
+            }
+            var cd: u32 = d
+            if k == 18 or k == 19 {
+                cd = 1
+            }
+            var c: u32 = self.nfc(n)
+            for _ in 0..64 {
+                if c == NONE or sp >= 127 {
+                    break
+                }
+                st[sp] = c
+                sd[sp] = cd
+                sp = sp + 1
+                c = self.nns(c)
+            }
+        }
+    }
+
+    # обработать один путь-кандидат pid (эталон _clamp_carry, тело цикла по
+    # p): кандидат C = объединение ⊤-проб, две ноги, применение. Определения
+    # читаются из cc_dp/cc_dr (буферы за полями).
+    func clamp_one(var self, pid: u32, body: u32)
+        requires pid < 512 and body < 131072
+        ensures true
+    {
+        var disq: u32 = 0
+        var hinit: u32 = 0
+        var frn: u32 = 0
+        var hls: u32 = 0
+        var hlm: u64 = 0
+        var hhs: u32 = 0
+        var hhm: u64 = 0
+        for j in 0..512 {
+            if j >= self.cc_nd or disq == 1 {
+                break
+            }
+            if self.cc_dp[j] == pid {
+                self.clamp_probe(self.cc_dr[j], body, pid, 0)
+                if self.rk == 0 {
+                    disq = 1
+                } elif hinit == 0 {
+                    frn = self.cc_dr[j]
+                    hls = self.rls
+                    hlm = self.rlm
+                    hhs = self.rhs
+                    hhm = self.rhm
+                    hinit = 1
+                } else {
+                    self.smin(hls, hlm, self.rls, self.rlm)
+                    hls = self.oas
+                    hlm = self.oam
+                    self.smax(hhs, hhm, self.rhs, self.rhm)
+                    hhs = self.oas
+                    hhm = self.oam
+                }
+            }
+        }
+        if disq == 1 or hinit == 0 {
+            return
+        }
+        # ptr — диапазон типа p (из типа любого RHS: p = RHS); бесполезный
+        # кандидат (C ⊇ диапазона типа) — нести нечего
+        self.set_ty(self.nty(frn))
+        if self.rk == 0 {
+            return
+        }
+        if (self.sleq(hls, hlm, self.rls, self.rlm)
+                and self.sleq(self.rhs, self.rhm, hhs, hhm)) {
+            return
+        }
+        # нога 1: вход (ein известен и ⊆ C)
+        if self.ein.kn[pid] != 1 {
+            return
+        }
+        if (self.sless(self.ein.ls[pid], self.ein.lm[pid], hls, hlm)
+                or self.sless(hhs, hhm, self.ein.hs[pid], self.ein.hm[pid])) {
+            return
+        }
+        # нога 2: обратная дуга — тело при p=C даёт ⊆ C
+        self.cp_ls = hls
+        self.cp_lm = hlm
+        self.cp_hs = hhs
+        self.cp_hm = hhm
+        var bad: u32 = 0
+        for j in 0..512 {
+            if j >= self.cc_nd or bad == 1 {
+                break
+            }
+            if self.cc_dp[j] == pid {
+                self.clamp_probe(self.cc_dr[j], body, pid, 1)
+                if (self.rk == 0 or self.sless(self.rls, self.rlm, hls, hlm)
+                        or self.sless(hhs, hhm, self.rhs, self.rhm)) {
+                    bad = 1
+                }
+            }
+        }
+        if bad == 0 {
+            self.env.kn[pid] = 1
+            self.env.nz[pid] = 0
+            self.env.ls[pid] = hls
+            self.env.lm[pid] = hlm
+            self.env.hs[pid] = hhs
+            self.env.hm[pid] = hhm
+            self.env.hk[pid] = 0
+        }
+    }
+}

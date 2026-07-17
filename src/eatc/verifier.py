@@ -1024,63 +1024,101 @@ class Verifier:
                 body_env.ivs[stmt.target] = (
                     (_inter(inv, eiv) or eiv) if inv is not None else eiv
                 )
-        # модульный инвариант накопителя: путь, все определения которого в
-        # теле — `p = _ % K`, несёт [0,K-1] на входе витка (см. _mod_carry)
-        for p, iv in self._mod_carry(stmt, env).items():
+        # клэмп-инвариант накопителя: путь-простое-имя, тело которого при
+        # p=C даёт ⊆ C, а предцикл ⊆ C, несёт кандидат C на входе витка
+        # (индуктивная проверка без фикспойнта, см. _clamp_carry, §9 шаг 2)
+        for p, iv in self._clamp_carry(stmt, env).items():
             body_env.ivs[p] = iv
         return body_env, after
 
-    def _mod_const(self, value) -> int | None:
-        """K, если value — `<выр> % K` с целым литералом K ≥ 1 справа:
-        интервал `_ % K` = [0,K-1] не зависит от входного значения. Именно
-        литерал, не произвольная константа-путь: изменяемый по витку
-        делитель дал бы незвуковой [0,K-1] (мог бы вырасти)."""
-        if (
-            isinstance(value, ast.BinOp)
-            and value.op == "%"
-            and isinstance(value.right, ast.IntLit)
-            and value.right.value >= 1
-        ):
-            return value.right.value
-        return None
+    def _clamp_probe(self, rhs, env: State, tracked, p, p_iv) -> Iv | None:
+        """Интервал RHS в пробном окружении: все loop-carried пути (tracked)
+        обнулены до диапазона типа — звуковое над-приближение их значений на
+        любом витке; путь p закреплён на p_iv (None ⇒ ⊤, полный диапазон
+        типа). Отметки заглушены (annotate=False + _probe) — это проба, а не
+        реальный проход: карту проверок она не трогает."""
+        probe = env.copy()
+        for t in tracked:
+            probe.kill(t)
+        if p_iv is not None:
+            probe.ivs[p] = p_iv
+        saved = self._probe
+        self._probe = True
+        iv = self._iv(rhs, probe, annotate=False)
+        self._probe = saved
+        return iv
 
-    def _collect_mod_defs(self, block, defs: dict) -> None:
-        """defs[p]: макс. модуль K, если ВСЕ определения простого имени p
-        в блоке (рекурсивно, включая вложенные циклы) — вида `p = _ % K`;
-        None — дисквалифицировано (нашлось определение иного вида)."""
+    def _collect_clamp_defs(self, block, defs: dict) -> None:
+        """defs[p]: список RHS-узлов ВСЕХ определений простого имени p в
+        блоке (рекурсивно, включая вложенные циклы). Простое имя мутируется
+        лишь присваиванием `p = ...`, поэтому скан видит все его записи."""
         for stmt in block.stmts:
             if isinstance(stmt, ast.AssignStmt) and isinstance(
                 stmt.target, ast.Name
             ):
-                p = stmt.target.ident
-                k = self._mod_const(stmt.value)
-                if p not in defs:
-                    defs[p] = k
-                elif defs[p] is None or k is None:
-                    defs[p] = None
-                else:
-                    defs[p] = max(defs[p], k)
+                defs.setdefault(stmt.target.ident, []).append(stmt.value)
             for blk in _sub_blocks(stmt):
-                self._collect_mod_defs(blk, defs)
+                self._collect_clamp_defs(blk, defs)
 
-    def _mod_carry(self, stmt, env: State) -> dict:
-        """Модульный инвариант накопителя (минимальная звуковая форма).
-        Путь p, у которого ВСЕ определения в теле цикла — `p = _ % K`
-        (K — литерал ≥ 1, интервал [0,K-1] не зависит от входного p), а
-        предцикловое значение ⊆ [0,K-1], несёт [0,K-1] на входе витка.
-        Звучно по индукции без фикспойнта: клэмп % безусловен, значит в
-        любой точке тела p ∈ [0,K-1] (предцикл ⊆ [0,K-1], каждая запись
-        ⊆ [0,K-1]). Обе ноги обязательны — пропуск любой снял бы
-        настоящую проверку переполнения (см. парный негативный кейс)."""
-        defs: dict[str, int | None] = {}
-        self._collect_mod_defs(stmt.body, defs)
+    def _clamp_carry(self, stmt, env: State) -> dict:
+        """Индуктивная проверка кандидат-интервала без монотонного
+        фикспойнта (OPTIMIZATIONS §9, шаг 2). Путь p, все определения
+        которого в теле — присваивания простому имени, несёт кандидат-
+        интервал C на входе витка, если обе ноги индукции держатся:
+          (1) вход: предцикловое значение ⊆ C;
+          (2) обратная дуга: тело при p=C даёт ⊆ C — каждое определение
+              `p = RHS`, вычисленное с p∈C (прочие loop-carried пути ⊤),
+              даёт результат ⊆ C.
+        Кандидат C = объединение вычислений RHS при p=⊤ (полный диапазон
+        типа): для клэмпов (`_ % K`, `_ & M`, min/насыщение через ensures)
+        выход ограничен независимо от входа, поэтому C ⊊ диапазона типа;
+        не-клэмп даёт ⊤ и отбраковывается. Звучно по индукции: обе ноги ⇒
+        p∈C в любой точке тела (каждое переопределение сохраняет C). БЕЗ
+        расширения фикспойнтом — кандидат зафиксирован при p=⊤, не
+        итерируется (иначе ложные доказательства). Обобщает минимальную
+        %K-форму шага 1; изменяемый по витку клэмп-предел ∈ tracked ⇒ ⊤ в
+        пробе ⇒ не несётся (парный негатив), поэтому нелитеральный предел
+        допустим лишь loop-инвариантный. Несём только пути, ЗАПИСИ которых
+        скрыты во вложенных циклах (`_nested_loop_paths`): наблюдаемые
+        линейные индукции точнее ведёт accel/`_loop_exit` — перекрыть их
+        клэмпом-надмножеством было бы регрессией. Вложенный накопитель
+        существующая машинерия расширяла до полного диапазона на входе
+        внешнего витка — здесь как раз пробел, ради которого проход и
+        нужен (§9: запись во вложенном цикле исключена из observed)."""
+        defs: dict[str, list] = {}
+        self._collect_clamp_defs(stmt.body, defs)
+        tracked = _assigned_paths(stmt.body)
+        nested = _nested_loop_paths(stmt.body)
         out: dict[str, Iv] = {}
-        for p, k in defs.items():
-            if k is None or p == stmt.target:
+        for p, rhss in defs.items():
+            if p == stmt.target or p not in nested:
                 continue
             v0 = env.ivs.get(p)
-            if v0 is not None and v0[0] >= 0 and v0[1] <= k - 1:
-                out[p] = (0, k - 1)
+            ptr = _ty_iv(getattr(rhss[0], "ty", None))
+            if v0 is None or ptr is None:
+                continue
+            # кандидат C = объединение выходов RHS при p=⊤
+            cand: Iv | None = None
+            for rhs in rhss:
+                iv = self._clamp_probe(rhs, env, tracked, p, None)
+                if iv is None:
+                    cand = None
+                    break
+                cand = iv if cand is None else _hull(cand, iv)
+            if cand is None or (cand[0] <= ptr[0] and cand[1] >= ptr[1]):
+                continue  # не клэмп (⊤) — нести нечего
+            # нога 1: вход (предцикл ⊆ C)
+            if v0[0] < cand[0] or v0[1] > cand[1]:
+                continue
+            # нога 2: обратная дуга — тело при p=C даёт ⊆ C
+            ok = True
+            for rhs in rhss:
+                iv = self._clamp_probe(rhs, env, tracked, p, cand)
+                if iv is None or iv[0] < cand[0] or iv[1] > cand[1]:
+                    ok = False
+                    break
+            if ok:
+                out[p] = cand
         return out
 
     def _flow_for(self, stmt: ast.ForStmt, env: State) -> State:

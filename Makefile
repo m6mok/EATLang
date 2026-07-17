@@ -243,7 +243,7 @@ SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/CheckFold.eat \
 	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \
-	selfhost/VerifyFlow.eat selfhost/VerifyDump.eat \
+	selfhost/VerifyFlow.eat selfhost/VerifyClamp.eat selfhost/VerifyDump.eat \
 	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
 	selfhost/IrOptMain.eat
 # Фаза 7 — статический верификатор (docs/SELFHOST_VERIFIER_PLAN.md).
@@ -255,7 +255,7 @@ SELFHOST_VERIFY = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/CheckFold.eat \
 	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \
-	selfhost/VerifyFlow.eat selfhost/VerifyDump.eat selfhost/VerifyMain.eat
+	selfhost/VerifyFlow.eat selfhost/VerifyClamp.eat selfhost/VerifyDump.eat selfhost/VerifyMain.eat
 # Курируемый список кейсов (растёт по мере покрытия, как verify_suite):
 # этап 1 — bounds/overflow/div/cast/requires/ensures/assert.
 VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \

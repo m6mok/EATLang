@@ -154,6 +154,23 @@ struct Verify {
     oam: u64
     oov: u32
 
+    # --- закреплённый интервал p для clamp_probe (обход предела 6
+    # параметров): нижняя/верхняя границы кандидата при hasp==1 ---------
+    cp_ls: u32
+    cp_lm: u64
+    cp_hs: u32
+    cp_hm: u64
+
+    # --- рабочие буферы clamp_carry (§9 шаг 2): cc_dp/cc_dr — pid и RHS
+    # всех определений простого имени в теле цикла; cc_nst — pid, записи
+    # которых скрыты во вложенных циклах (за полями, чтобы дробить функции
+    # под правило 4 и не плодить массивы-параметры) ---------------------
+    cc_dp: [u32; 512]
+    cc_dr: [u32; 512]
+    cc_nd: u32
+    cc_nst: [u32; 256]
+    cc_nn: u32
+
     # --- захваченное значение присваивания (flow_assign → assign_env) --
     av_k: u32
     av_ls: u32
@@ -1831,7 +1848,10 @@ func verify_new(c: Check) -> Verify
         ann: 0, rk: 0, rls: 0, rlm: 0, rhs: 0, rhm: 0, a_k: 0, a_ls: 0, a_lm: 0, a_hs: 0,
         a_hm: 0, b_k: 0, b_ls: 0, b_lm: 0, b_hs: 0, b_hm: 0, opkind: 0, la_k: 0, la_ls: 0,
         la_lm: 0, la_hs: 0, la_hm: 0, rb_k: 0, rb_ls: 0, rb_lm: 0, rb_hs: 0, rb_hm: 0,
-        kls: 0, klm: 0, khs: 0, khm: 0, oas: 0, oam: 0, oov: 0, av_k: 0, av_ls: 0, av_lm: 0,
+        kls: 0, klm: 0, khs: 0, khm: 0, oas: 0, oam: 0, oov: 0,
+        cp_ls: 0, cp_lm: 0, cp_hs: 0, cp_hm: 0,
+        cc_dp: [0; 512], cc_dr: [0; 512], cc_nd: 0, cc_nst: [0; 256], cc_nn: 0,
+        av_k: 0, av_ls: 0, av_lm: 0,
         av_hs: 0, av_hm: 0, res_on: 0, res_kn: 0, res_ls: 0, res_lm: 0, res_hs: 0,
         res_hm: 0, ebn: [0; 64], ebp: [0; 64], ebval: [0; 64], neb: 0, nebv: 0, tb: 0,
         rf_n: [0; 128], rf_a: [0; 128], nrf: 0, ck_k: [0; 16384], ck_n: [0; 16384],
