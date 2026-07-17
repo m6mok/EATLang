@@ -107,27 +107,31 @@ export Req 21:5 :: Req
 export req_new 22:5 :: req_new
 export Resp 23:5 :: Resp
 export resp_new 24:5 :: resp_new
-export PARSE_MORE 25:5 :: PARSE_MORE
-export PARSE_DONE 26:5 :: PARSE_DONE
-export HTTP_REQ_CAP 27:5 :: HTTP_REQ_CAP
-export HTTP_RESP_CAP 28:5 :: HTTP_RESP_CAP
-export HTTP_MAX_HEADERS 29:5 :: HTTP_MAX_HEADERS
-export HTTP_NONE 30:5 :: HTTP_NONE
-import Dec 34:5 :: lib/Fmt.eat Dec
-import fmt_u32 35:5 :: lib/Fmt.eat fmt_u32
-const HTTP_REQ_CAP 40:1 :: u32 = 8192
-const HTTP_RESP_CAP 41:1 :: u32 = 16384
-const HTTP_MAX_HEADERS 42:1 :: u32 = 64
-const PARSE_MORE 44:1 :: u32 = 0
-const PARSE_DONE 45:1 :: u32 = 1
-const HTTP_NONE 47:1 :: u32 = 4294967295
-func lower 52:1 (b: u8) -> u8
-struct Header 63:1
+export Body 25:5 :: Body
+export body_new 26:5 :: body_new
+export PARSE_MORE 27:5 :: PARSE_MORE
+export PARSE_DONE 28:5 :: PARSE_DONE
+export HTTP_REQ_CAP 29:5 :: HTTP_REQ_CAP
+export HTTP_RESP_CAP 30:5 :: HTTP_RESP_CAP
+export HTTP_MAX_HEADERS 31:5 :: HTTP_MAX_HEADERS
+export HTTP_MAX_BODY 32:5 :: HTTP_MAX_BODY
+export HTTP_NONE 33:5 :: HTTP_NONE
+import Dec 37:5 :: lib/Fmt.eat Dec
+import fmt_u32 38:5 :: lib/Fmt.eat fmt_u32
+const HTTP_REQ_CAP 43:1 :: u32 = 8192
+const HTTP_RESP_CAP 44:1 :: u32 = 16384
+const HTTP_MAX_HEADERS 45:1 :: u32 = 64
+const HTTP_MAX_BODY 47:1 :: u32 = 65536
+const PARSE_MORE 49:1 :: u32 = 0
+const PARSE_DONE 50:1 :: u32 = 1
+const HTTP_NONE 52:1 :: u32 = 4294967295
+func lower 57:1 (b: u8) -> u8
+struct Header 68:1
   field ns :: u32
   field nl :: u32
   field vs :: u32
   field vl :: u32
-struct Req 72:1
+struct Req 77:1
   field raw :: [u8; 8192]
   field n :: u32
   field state :: u32
@@ -141,82 +145,117 @@ struct Req 72:1
   field hdr :: [Header; 64]
   field nh :: u32
   field err :: u32
-  method push_byte 88:5 (b: u8) var_self -> u32
-  method line_end 116:5 (lb: u32, e0: u32) var_self -> u32
-  method find_sp 137:5 (b0: u32, e0: u32) var_self -> u32
-  method parse_reqline 156:5 (ls2: u32, le: u32) var_self -> u32
-  method parse_header 189:5 (ls2: u32, le: u32) var_self -> u32
-  method span_is 242:5 (s: u32, l: u32, kw: str<64>) -> bool
-  method span_is_ci 262:5 (s: u32, l: u32, kw: str<64>) -> bool
-  method method_is 281:5 (m: str<64>) -> bool
-  method path_is 288:5 (p: str<64>) -> bool
-  method version_is 295:5 (v: str<64>) -> bool
-  method find_header 303:5 (name: str<64>) -> u32
-  method header_val_is 321:5 (i: u32, v: str<64>) -> bool
-  method path_starts 329:5 (pre: str<64>) -> bool
-  method path_param 341:5 (skip: u32) -> Option<str<64>>
-  method wants_close 361:5 () -> bool
-  method reset 383:5 () var_self
-  method span_copy 405:5 (s: str<256>, ln: u32) var_self -> bool
-  method feed_line 429:5 (s: str<256>) var_self -> u32
-  method feed_str 474:5 (s: str<256>) var_self -> u32
-func req_new 504:1 () -> Req
-struct Resp 519:1
+  method push_byte 93:5 (b: u8) var_self -> u32
+  method line_end 121:5 (lb: u32, e0: u32) var_self -> u32
+  method find_sp 142:5 (b0: u32, e0: u32) var_self -> u32
+  method parse_reqline 161:5 (ls2: u32, le: u32) var_self -> u32
+  method parse_header 194:5 (ls2: u32, le: u32) var_self -> u32
+  method span_is 247:5 (s: u32, l: u32, kw: str<64>) -> bool
+  method span_is_ci 267:5 (s: u32, l: u32, kw: str<64>) -> bool
+  method method_is 286:5 (m: str<64>) -> bool
+  method path_is 293:5 (p: str<64>) -> bool
+  method version_is 300:5 (v: str<64>) -> bool
+  method find_header 308:5 (name: str<64>) -> u32
+  method header_val_is 326:5 (i: u32, v: str<64>) -> bool
+  method path_starts 334:5 (pre: str<64>) -> bool
+  method path_param 346:5 (skip: u32) -> Option<str<64>>
+  method wants_close 366:5 () -> bool
+  method span_u32 385:5 (s: u32, l: u32) -> Option<u32>
+  method content_length 414:5 () -> Option<u32>
+  method is_chunked 427:5 () -> bool
+  method reset 444:5 () var_self
+  method span_copy 466:5 (s: str<256>, ln: u32) var_self -> bool
+  method feed_line 490:5 (s: str<256>) var_self -> u32
+  method feed_str 535:5 (s: str<256>) var_self -> u32
+func req_new 565:1 () -> Req
+struct Body 583:1
+  field buf :: [u8; 65536]
+  field bn :: u32
+  field mode :: u32
+  field need :: u32
+  field cs :: u32
+  field csz :: u32
+  field seen :: bool
+  field skip :: bool
+  field state :: u32
+  field err :: u32
+  method begin_cl 597:5 (n: u32) var_self
+  method begin_chunked 612:5 () var_self
+  method store 621:5 (b: u8) var_self -> bool
+  method hexv 634:5 (b: u8) -> u32
+  method size_end 652:5 () var_self -> u32
+  method chunk_size 672:5 (b: u8) var_self -> u32
+  method chunk_delim 708:5 (b: u8) var_self -> u32
+  method chunk 745:5 (b: u8) var_self -> u32
+  method push 769:5 (b: u8) var_self -> u32
+  method is_done 796:5 () -> bool
+  method at 804:5 (i: u32) -> u8
+  method buf_is 812:5 (s: str<64>) -> bool
+func body_new 832:1 () -> Body
+struct Resp 845:1
   field buf :: [u8; 16384]
   field n :: u32
   field of :: bool
-  method put_byte 524:5 (b: u8) var_self
-  method put_str 536:5 (s: str<256>) var_self
-  method put_dec 548:5 (v: u32) var_self
-  method crlf 562:5 () var_self
-  method status_line 571:5 (code: u32, text: str<64>) var_self
-  method header_line 588:5 (name: str<64>, val: str<128>) var_self
-  method body 610:5 (s: str<256>) var_self
-func resp_new 622:1 () -> Resp
-test http_reqline_ok 629:1
-test http_header_ows_ci 646:1
-test http_feed_str_batch 662:1
-test http_bad_reqline_400 673:1
-test http_bad_header_400 683:1
-test http_too_many_headers_431 692:1
-test http_path_param 702:1
-test http_wants_close 728:1
-test http_reset_reuse 749:1
-test http_resp_build 773:1
-module lib/Io.eat 784:1
+  method put_byte 850:5 (b: u8) var_self
+  method put_str 862:5 (s: str<256>) var_self
+  method put_dec 874:5 (v: u32) var_self
+  method crlf 888:5 () var_self
+  method status_line 897:5 (code: u32, text: str<64>) var_self
+  method header_line 914:5 (name: str<64>, val: str<128>) var_self
+  method body 936:5 (s: str<256>) var_self
+  method content_length 949:5 (n: u32) var_self
+  method end_headers 959:5 () var_self
+func resp_new 967:1 () -> Resp
+test http_reqline_ok 974:1
+test http_header_ows_ci 991:1
+test http_feed_str_batch 1007:1
+test http_bad_reqline_400 1018:1
+test http_bad_header_400 1028:1
+test http_too_many_headers_431 1037:1
+test http_path_param 1047:1
+test http_wants_close 1073:1
+test http_reset_reuse 1094:1
+test http_resp_build 1118:1
+test http_content_length 1131:1
+test http_body_cl 1160:1
+test http_body_cl_413 1184:1
+test http_body_chunked 1193:1
+test http_body_chunked_400 1233:1
+module lib/Io.eat 1240:1
 export read_line 8:5 :: read_line
 func read_line 11:1 () -> Result<str<256>, IoError>
 module lib/Json.eat 29:1
-export JErr 16:5 :: JErr
-export JNode 17:5 :: JNode
-export JDoc 18:5 :: JDoc
-export JOut 19:5 :: JOut
-export json_doc 20:5 :: json_doc
-export json_out 21:5 :: json_out
-export J_NULL 22:5 :: J_NULL
-export J_BOOL 23:5 :: J_BOOL
-export J_NUM 24:5 :: J_NUM
-export J_STR 25:5 :: J_STR
-export J_ARR 26:5 :: J_ARR
-export J_OBJ 27:5 :: J_OBJ
-import hex_val 31:5 :: lib/Hex.eat hex_val
-const JSENT 36:1 :: u32 = 4294967295
-const J_NULL 39:1 :: u32 = 0
-const J_BOOL 40:1 :: u32 = 1
-const J_NUM 41:1 :: u32 = 2
-const J_STR 42:1 :: u32 = 3
-const J_ARR 43:1 :: u32 = 4
-const J_OBJ 44:1 :: u32 = 5
-enum JErr 47:1
+export JErr 21:5 :: JErr
+export JNode 22:5 :: JNode
+export JDoc 23:5 :: JDoc
+export JOut 24:5 :: JOut
+export json_doc 25:5 :: json_doc
+export json_out 26:5 :: json_out
+export J_NULL 27:5 :: J_NULL
+export J_BOOL 28:5 :: J_BOOL
+export J_NUM 29:5 :: J_NUM
+export J_STR 30:5 :: J_STR
+export J_ARR 31:5 :: J_ARR
+export J_OBJ 32:5 :: J_OBJ
+import hex_val 36:5 :: lib/Hex.eat hex_val
+const JSENT 41:1 :: u32 = 4294967295
+const J_NULL 44:1 :: u32 = 0
+const J_BOOL 45:1 :: u32 = 1
+const J_NUM 46:1 :: u32 = 2
+const J_STR 47:1 :: u32 = 3
+const J_ARR 48:1 :: u32 = 4
+const J_OBJ 49:1 :: u32 = 5
+enum JErr 52:1
   variant Capacity
   variant Depth
   variant Input
   variant Syntax
   variant Num
   variant Str
-struct JNode 58:1
+struct JNode 63:1
   field kind :: u32
-  field ival :: i32
+  field nval :: i64
+  field nexp :: i32
   field bval :: bool
   field s_off :: u32
   field s_len :: u32
@@ -224,7 +263,7 @@ struct JNode 58:1
   field sib :: u32
   field k_off :: u32
   field k_len :: u32
-struct JDoc 71:1
+struct JDoc 77:1
   field nodes :: [JNode; 4096]
   field n :: u32
   field arena :: [u8; 65536]
@@ -233,7 +272,8 @@ struct JDoc 71:1
   field sn :: u32
   field src_over :: bool
   field pos :: u32
-  field tival :: i32
+  field tnval :: i64
+  field tnexp :: i32
   field toff :: u32
   field tlen :: u32
   field fc :: [u32; 64]
@@ -247,43 +287,46 @@ struct JDoc 71:1
   field done :: u32
   field dry :: u32
   field tcount :: u32
-  method put 108:5 (b: u8) var_self
-  method load 120:5 (s: str<256>) var_self
-  method clear 132:5 () var_self
-  method cb 143:5 () -> u8
-  method skip_ws 153:5 () var_self
-  method next 168:5 () var_self -> u32
-  method lex_str 215:5 () var_self -> u32
-  method esc 250:5 () var_self
-  method esc_u 279:5 () var_self
-  method lex_word 319:5 () var_self -> u32
-  method word_is 339:5 (w: str<8>) -> bool
-  method lex_num 360:5 () var_self -> u32
-  method aput 413:5 (b: u8) var_self
-  method alloc 429:5 (k: u32) var_self -> u32
-  method value 455:5 (k: u32) var_self -> u32
-  method attach 496:5 (id: u32) var_self
-  method push 525:5 (id: u32, obj: bool) var_self
-  method on_value 545:5 (k: u32) var_self
-  method step 564:5 (k: u32) var_self
-  method rewind 624:5 () var_self
-  method run 640:5 () var_self
-  method jerr 671:5 () -> JErr
-  method validate 698:5 () var_self -> Result<u32, JErr>
-  method parse 714:5 () var_self -> Result<u32, JErr>
-  method kind_of 728:5 (id: u32) -> u32
-  method is_null 735:5 (id: u32) -> bool
-  method as_int 742:5 (id: u32) -> Option<i32>
-  method as_bool 752:5 (id: u32) -> Option<bool>
-  method count 763:5 (id: u32) -> u32
-  method at 780:5 (id: u32, i: u32) -> Option<u32>
-  method get 804:5 (id: u32, key: str<256>) -> Option<u32>
-  method span_is 830:5 (off: u32, ln: u32, s: str<256>) -> bool
-  method key_is 851:5 (id: u32, key: str<256>) -> bool
-  method str_is 858:5 (id: u32, s: str<256>) -> bool
-  method str_len 868:5 (id: u32) -> u32
-  method as_str 878:5 (id: u32) -> Option<str<256>>
-struct JOut 908:1
+  method put 115:5 (b: u8) var_self
+  method load 127:5 (s: str<256>) var_self
+  method clear 139:5 () var_self
+  method cb 150:5 () -> u8
+  method skip_ws 160:5 () var_self
+  method next 175:5 () var_self -> u32
+  method lex_str 222:5 () var_self -> u32
+  method esc 257:5 () var_self
+  method esc_u 286:5 () var_self
+  method lex_word 326:5 () var_self -> u32
+  method word_is 346:5 (w: str<8>) -> bool
+  method lex_num 369:5 () var_self -> u32
+  method aput 448:5 (b: u8) var_self
+  method alloc 464:5 (k: u32) var_self -> u32
+  method value 490:5 (k: u32) var_self -> u32
+  method attach 532:5 (id: u32) var_self
+  method push 561:5 (id: u32, obj: bool) var_self
+  method on_value 581:5 (k: u32) var_self
+  method step 600:5 (k: u32) var_self
+  method rewind 660:5 () var_self
+  method run 676:5 () var_self
+  method jerr 707:5 () -> JErr
+  method validate 734:5 () var_self -> Result<u32, JErr>
+  method parse 750:5 () var_self -> Result<u32, JErr>
+  method kind_of 764:5 (id: u32) -> u32
+  method is_null 771:5 (id: u32) -> bool
+  method as_int 780:5 (id: u32) -> Option<i32>
+  method as_i64 797:5 (id: u32) -> Option<i64>
+  method num_mant 808:5 (id: u32) -> Option<i64>
+  method num_exp 819:5 (id: u32) -> Option<i32>
+  method as_bool 829:5 (id: u32) -> Option<bool>
+  method count 840:5 (id: u32) -> u32
+  method at 857:5 (id: u32, i: u32) -> Option<u32>
+  method get 881:5 (id: u32, key: str<256>) -> Option<u32>
+  method span_is 907:5 (off: u32, ln: u32, s: str<256>) -> bool
+  method key_is 928:5 (id: u32, key: str<256>) -> bool
+  method str_is 935:5 (id: u32, s: str<256>) -> bool
+  method str_len 945:5 (id: u32) -> u32
+  method as_str 955:5 (id: u32) -> Option<str<256>>
+struct JOut 985:1
   field n :: u32
   field over :: bool
   field deep :: bool
@@ -291,29 +334,31 @@ struct JOut 908:1
   field scur :: [u32; 64]
   field sd :: u32
   field buf :: [u8; 65536]
-  method byte 917:5 (b: u8) var_self
-  method word 928:5 (w: str<8>) var_self
-  method dec 940:5 (v: i32) var_self
-  method uesc 969:5 (b: u8) var_self
-  method eb 991:5 (b: u8) var_self
-  method qstr 1032:5 (d: JDoc, off: u32, ln: u32) var_self
-  method open 1048:5 (id: u32, kid: u32) var_self
-  method val 1061:5 (d: JDoc, id: u32) var_self
-  method walk 1094:5 (d: JDoc) var_self
-  method ser 1126:5 (d: JDoc, root: u32) var_self -> Result<u32, JErr>
-  method out_is 1151:5 (s: str<256>) -> bool
-func json_doc 1172:1 () -> JDoc
-func json_out 1189:1 () -> JOut
-test json_scalars 1199:1
-test json_object 1248:1
-test json_escapes 1293:1
-test json_errors 1317:1
-test json_depth 1377:1
-test json_capacity 1402:1
-test json_input_overflow 1424:1
-test json_validate 1444:1
-test json_ser 1463:1
-module lib/Num.eat 1489:1
+  method byte 994:5 (b: u8) var_self
+  method word 1005:5 (w: str<8>) var_self
+  method num 1019:5 (mant: i64, exp: i32) var_self
+  method uesc 1066:5 (b: u8) var_self
+  method eb 1088:5 (b: u8) var_self
+  method qstr 1129:5 (d: JDoc, off: u32, ln: u32) var_self
+  method open 1145:5 (id: u32, kid: u32) var_self
+  method val 1158:5 (d: JDoc, id: u32) var_self
+  method walk 1191:5 (d: JDoc) var_self
+  method ser 1223:5 (d: JDoc, root: u32) var_self -> Result<u32, JErr>
+  method out_is 1248:5 (s: str<256>) -> bool
+func json_doc 1269:1 () -> JDoc
+func json_out 1286:1 () -> JOut
+test json_scalars 1296:1
+test json_object 1345:1
+test json_escapes 1390:1
+test json_errors 1414:1
+test json_depth 1489:1
+test json_capacity 1514:1
+test json_input_overflow 1536:1
+test json_validate 1556:1
+test json_ser 1575:1
+test json_frac_parse 1603:1
+test json_frac_roundtrip 1662:1
+module lib/Num.eat 1691:1
 export min 7:5 :: min
 export max 8:5 :: max
 export clamp 9:5 :: clamp
@@ -506,4 +551,4 @@ import min 59:5 :: lib/Num.eat min
 import parse_i32 63:5 :: lib/Parse.eat parse_i32
 import mul_64 67:5 :: lib/U128.eat mul_64
 func main 70:1 ()
-stats funcs=203 structs=17 stmts=1644
+stats funcs=224 structs=18 stmts=1827

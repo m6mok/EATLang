@@ -182,9 +182,11 @@ make verify_selfhost_verify_all # self-hosted верификатор: весь
   рекурсивный формат средствами тотального языка — дерево в плоском
   пуле узлов (4 096) с ареной строк, разбор явным стеком кадров
   (глубина 64), драйвер `for` со статической границей (вход
-  65 536 байт); SAX-валидатор, DOM-парсер (числа — целые i32),
-  сериализатор итеративной машиной; превышение любого потолка —
-  `Result::Err`, не trap; витрина `examples/json/` (`make run_json`)
+  65 536 байт); SAX-валидатор, DOM-парсер, сериализатор итеративной
+  машиной; числа — десятичный fixed-point (мантисса `i64` +
+  экспонента ≤ 0, дроби round-trip байт-в-байт; `f32`/`f64` в языке
+  нет); превышение любого потолка — `Result::Err`, не trap; витрина
+  `examples/json/` (`make run_json`)
 - [x] Микроконтроллеры ([план](docs/plans/MCU_PLAN.md), [mcu/](mcu/README.md)):
   в языке — hex-литералы, `~`, `u16`, `u64`/`i64`, `extern func`
   (внешние C-функции с контрактами — расширяемые аксиомы); 8 портов
@@ -209,3 +211,14 @@ make verify_selfhost_verify_all # self-hosted верификатор: весь
   `-O` (`SelfIrOpt` == `eatc ir -O`, `make verify_selfhost_opt`):
   по примерам trap-блоков −73…−81 %, IR −31…−40 %
   ([метрики](tests/bench/FINDINGS.md))
+- [x] HTTP/1.1-сервер ([план](docs/plans/HTTP_PLAN.md)): accept-loop —
+  единственный `loop` в `main`, соединения — bounded-пул без кучи
+  (`[Conn; N]` + курсор), сокет-аксиомы SPEC §7 без `WouldBlock`
+  (`socket_avail`/сентинел; сверка — записанный транскрипт `EAT_NET`,
+  бинарник == интерпретатор байт-в-байт); `lib/Http.eat` — автомат
+  request-line + заголовков (срезы, не копии), тело по Content-Length
+  и Transfer-Encoding: chunked (`Body`, суммарно > 65 536 → 413),
+  роутер + keep-alive; JSON-тело — через `lib/Json.eat` (дроби
+  round-trip); примеры `examples/http/` (эхо, Hello, пул, роутер, JSON-API
+  `curl -d '{"a":3,"b":4}' .../sum`); HTTP/2·3 и TLS отвергнуты
+  осознанно (§7: конфликт формы с языком + обязательный TLS)

@@ -50,6 +50,7 @@ check:
 	$(EATC) check --lib . $(HTTP_HELLO_MAIN)
 	$(EATC) check --lib . $(HTTP_POOL_MAIN)
 	$(EATC) check --lib . $(HTTP_ROUTER_MAIN)
+	$(EATC) check --lib . $(HTTP_API_MAIN)
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -101,6 +102,7 @@ HTTP_ECHO_MAIN = examples/http/Echo.eat
 HTTP_HELLO_MAIN = examples/http/Hello.eat
 HTTP_POOL_MAIN = examples/http/Pool.eat
 HTTP_ROUTER_MAIN = examples/http/Router.eat
+HTTP_API_MAIN = examples/http/Api.eat
 
 run_http_echo:
 	EAT_NET=examples/http/echo_net.txt $(EATC) run --lib . $(HTTP_ECHO_MAIN)
@@ -117,10 +119,19 @@ run_http_pool:
 run_http_router:
 	EAT_NET=examples/http/router_net.txt $(EATC) run --lib . $(HTTP_ROUTER_MAIN)
 
+# JSON-API (этап 4): тело Content-Length/chunked, дроби round-trip
+run_http_api:
+	EAT_NET=examples/http/api_net.txt $(EATC) run --lib . $(HTTP_API_MAIN)
+
 # живой роутер: curl http://127.0.0.1:8080/greet/мир
 serve_router:
 	@$(EATC) build --lib . $(HTTP_ROUTER_MAIN) -o build/HttpRouter > /dev/null
 	./build/HttpRouter $(PORT)
+
+# живой API: curl -i -d '{"a":3,"b":4}' http://127.0.0.1:8080/sum
+serve_api:
+	@$(EATC) build --lib . $(HTTP_API_MAIN) -o build/HttpApi > /dev/null
+	./build/HttpApi $(PORT)
 
 # Живой режим (вне гейта сверки): реальные неблокирующие сокеты.
 # Порт — аргумент (решение H3): make serve PORT=9090; дефолт 8080.
@@ -266,7 +277,8 @@ VERIFY_PROGS = examples/if_statement/Elif.eat examples/json/Main.eat \
 	examples/async/Async.eat examples/async/Pipe.eat \
 	examples/async/Debounce.eat examples/http/Echo.eat \
 	examples/http/Hello.eat examples/http/Pool.eat \
-	examples/http/Router.eat examples/blinky_cli/BlinkyCli.eat \
+	examples/http/Router.eat examples/http/Api.eat \
+	examples/blinky_cli/BlinkyCli.eat \
 	$(RT),lib/Hex.eat,examples/mos6502/Cpu6502.eat,examples/mos6502/Tests.eat,examples/mos6502/Main.eat
 
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
@@ -698,3 +710,8 @@ verify: build_all_examples
 	@EAT_NET=examples/http/router_net.txt ./build/HttpRouter > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED HttpRouter" || exit 1
+	@$(EATC) build --lib . $(HTTP_API_MAIN) -o build/HttpApi > /dev/null
+	@EAT_NET=examples/http/api_net.txt $(EATC) run --lib . $(HTTP_API_MAIN) > /tmp/eat_interp.txt
+	@EAT_NET=examples/http/api_net.txt ./build/HttpApi > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED HttpApi" || exit 1

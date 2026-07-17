@@ -6,9 +6,14 @@
 # Result::Err, не trap и не молчаливое усечение.
 #
 # Потолки (JSON_PLAN §2): вход 65 536 байт, пул 4 096 узлов,
-# глубина вложенности 64, арена строк 65 536 байт. Числа — MVP
-# (JSON_PLAN §7): только целые i32; дробь и экспонента — Err(JErr.Num)
-# (fixed-point — отдельный план FIXED_POINT_PLAN). Суррогатные пары
+# глубина вложенности 64, арена строк 65 536 байт. Числа —
+# ДЕСЯТИЧНЫЙ fixed-point (HTTP_PLAN §9, H5в; за пределами MVP
+# JSON_PLAN §7): значение = мантисса nval:i64 × 10^(nexp:i32), nexp ≤ 0
+# (3.14 → nval=314, nexp=−2). Плавающей точки в языке нет (SPEC §1);
+# парсинг целочисленный, round-trip десятичных литералов байт-в-байт.
+# Значащих цифр ≤ 18 (мантисса в i64) — иначе Err(JErr.Num). Экспонента
+# `e`/`E` во ВХОДЕ не принимается (Err(JErr.Num)): осознанная граница —
+# каждый принятый литерал сериализуется обратно точно. Суррогатные пары
 # \uD800..\uDFFF вне MVP — Err(JErr.Str); остальные \uXXXX кодируются
 # в UTF-8 (1..3 байта).
 
@@ -57,7 +62,8 @@ enum JErr {
 # используется при данном виде; «ссылки» — u32-индексы (правило 9)
 struct JNode {
     kind: u32    # J_NULL..J_OBJ
-    ival: i32    # J_NUM
+    nval: i64    # J_NUM: мантисса (значение = nval × 10^nexp)
+    nexp: i32    # J_NUM: десятичная экспонента, ≤ 0
     bval: bool   # J_BOOL
     s_off: u32   # J_STR: срез в арене
     s_len: u32
@@ -82,7 +88,8 @@ struct JDoc {
 
     # лексер: курсор и полезная нагрузка текущего токена
     pos: u32
-    tival: i32
+    tnval: i64   # число: мантисса
+    tnexp: i32   # число: десятичная экспонента (≤ 0)
     toff: u32
     tlen: u32
 
@@ -355,8 +362,10 @@ struct JDoc {
         return ok
     }
 
-    # число: только целые i32 (MVP); строгий JSON — без ведущих нулей,
-    # дробь/экспонента/длиннее 11 цифр — JErr.Num
+    # число: десятичный fixed-point (мантисса + экспонента ≤ 0).
+    # Строгий JSON — без ведущих нулей; целая часть, необязательная
+    # дробь (".", ≥1 цифра). Значащих цифр ≤ 18 (мантисса в i64).
+    # Экспонента `e`/`E`, "1." (точка без цифр), >18 цифр — JErr.Num.
     func lex_num(var self) -> u32
         requires true
         ensures true
@@ -371,39 +380,65 @@ struct JDoc {
             self.err = 5
             return 12
         }
-        var v: i64 = 0
-        var nd: u32 = 0
-        for _ in 0..12 {
+        var v: i64 = 0     # магнитуда мантиссы
+        var nd: u32 = 0    # всего значащих цифр
+        var idig: u32 = 0  # цифр в целой части
+        var exp: i32 = 0   # десятичная экспонента (≤ 0)
+        # целая часть
+        for _ in 0..19 {
             let b: u8 = self.cb()
             if b < 48 or b > 57 {
                 break
             }
+            if nd >= 18 {
+                self.err = 5     # мантисса не помещается в i64
+                return 12
+            }
             v = v * 10 + i64(b - 48)
             nd = nd + 1
+            idig = idig + 1
             self.pos = self.pos + 1
         }
+        # ведущий ноль: "0" один допустим, "0"+цифра — нет
+        if idig > 1 and first == 48 {
+            self.err = 5
+            return 12
+        }
+        # дробная часть
+        if self.cb() == 46 {
+            self.pos = self.pos + 1
+            var fdig: u32 = 0
+            for _ in 0..19 {
+                let b: u8 = self.cb()
+                if b < 48 or b > 57 {
+                    break
+                }
+                if nd >= 18 {
+                    self.err = 5
+                    return 12
+                }
+                v = v * 10 + i64(b - 48)
+                nd = nd + 1
+                fdig = fdig + 1
+                exp = exp - 1
+                self.pos = self.pos + 1
+            }
+            if fdig == 0 {
+                self.err = 5     # "1." — точка без дробных цифр
+                return 12
+            }
+        }
+        # хвост: ещё цифра, вторая точка или экспонента — отказ
         let t: u8 = self.cb()
         if (t >= 48 and t <= 57) or t == 46 or t == 101 or t == 69 {
             self.err = 5
             return 12
         }
-        if nd > 1 and first == 48 {
-            self.err = 5
-            return 12
-        }
         if neg {
-            if v > 2147483648 {
-                self.err = 5
-                return 12
-            }
-            self.tival = i32(i64(0) - v)
-            return 8
+            v = i64(0) - v
         }
-        if v > 2147483647 {
-            self.err = 5
-            return 12
-        }
-        self.tival = i32(v)
+        self.tnval = v
+        self.tnexp = exp
         return 8
     }
 
@@ -439,7 +474,7 @@ struct JDoc {
         }
         let id: u32 = self.n
         self.nodes[id] = JNode {
-            kind: k, ival: 0, bval: false, s_off: 0, s_len: 0,
+            kind: k, nval: 0, nexp: 0, bval: false, s_off: 0, s_len: 0,
             kid: JSENT, sib: JSENT, k_off: 0, k_len: 0
         }
         self.n = id + 1
@@ -473,7 +508,8 @@ struct JDoc {
         if k == 8 {
             let id: u32 = self.alloc(J_NUM)
             if self.err == 0 {
-                self.nodes[id].ival = self.tival
+                self.nodes[id].nval = self.tnval
+                self.nodes[id].nexp = self.tnexp
             }
             return id
         }
@@ -739,14 +775,55 @@ struct JDoc {
         return self.nodes[id].kind == J_NULL
     }
 
+    # целое i32: только если число без дробной части (nexp == 0) и в
+    # диапазоне i32; дробь/переполнение — None (честный отказ)
     func as_int(self, id: u32) -> Option<i32>
+        requires id < 4096
+        ensures true
+    {
+        if self.nodes[id].kind != J_NUM or self.nodes[id].nexp != 0 {
+            return None
+        }
+        let v: i64 = self.nodes[id].nval
+        let lo: i64 = -2147483648
+        let hi: i64 = 2147483647
+        if v < lo or v > hi {
+            return None
+        }
+        return Some(i32(v))
+    }
+
+    # целое i64: число без дробной части (nexp == 0), иначе None
+    func as_i64(self, id: u32) -> Option<i64>
+        requires id < 4096
+        ensures true
+    {
+        if self.nodes[id].kind != J_NUM or self.nodes[id].nexp != 0 {
+            return None
+        }
+        return Some(self.nodes[id].nval)
+    }
+
+    # мантисса числа (значение = nval × 10^nexp); не число — None
+    func num_mant(self, id: u32) -> Option<i64>
         requires id < 4096
         ensures true
     {
         if self.nodes[id].kind != J_NUM {
             return None
         }
-        return Some(self.nodes[id].ival)
+        return Some(self.nodes[id].nval)
+    }
+
+    # десятичная экспонента числа (≤ 0); не число — None
+    func num_exp(self, id: u32) -> Option<i32>
+        requires id < 4096
+        ensures true
+    {
+        if self.nodes[id].kind != J_NUM {
+            return None
+        }
+        return Some(self.nodes[id].nexp)
     }
 
     func as_bool(self, id: u32) -> Option<bool>
@@ -936,32 +1013,52 @@ struct JOut {
         }
     }
 
-    # десятичная печать i32; магнитуда через (v + 1) — как lib/Fmt
-    func dec(var self, v: i32)
-        requires true
+    # десятичная печать числа fixed-point: значение = mant × 10^exp,
+    # exp ≤ 0. Целая часть, при exp < 0 — точка и |exp| дробных цифр
+    # (с ведущими нулями). Магнитуда мантиссы ≤ 18 цифр (i64).
+    func num(var self, mant: i64, exp: i32)
+        requires exp <= 0
+        ensures true
     {
-        var m: u32 = 0
-        if v < 0 {
+        var mag: i64 = mant
+        if mant < 0 {
             self.byte(45)
-            m = u32(0 - (v + 1)) + 1
-        } else {
-            m = u32(v)
+            mag = i64(0) - mant
         }
-        var t: [u8; 10] = [0; 10]
+        # цифры магнитуды в обратном порядке (t[0] — младшая)
+        var t: [u8; 24] = [0; 24]
         var c: u32 = 0
-        for _ in 0..10 {
-            if c > 0 and m == 0 {
+        for _ in 0..24 {
+            if c > 0 and mag == 0 {
                 break
             }
-            t[c] = u8(m % 10 + 48)
-            m = m / 10
+            t[c] = u8(mag % 10) + 48
+            mag = mag / 10
             c = c + 1
         }
-        for i in 0..10 {
-            if i >= c {
+        var fd: u32 = 0
+        if exp < 0 {
+            fd = u32(i32(0) - exp)
+        }
+        # всего печатаемых цифр = max(c, fd + 1); ведущие нули дополняют
+        var total: u32 = c
+        if fd + 1 > total {
+            total = fd + 1
+        }
+        let intlen: u32 = total - fd    # цифр до точки (≥ 1)
+        let lead: u32 = total - c       # ведущих нулей
+        for p in 0..40 {
+            if p >= total {
                 break
             }
-            self.byte(t[c - 1 - i])
+            if p == intlen and fd > 0 {
+                self.byte(46)
+            }
+            if p < lead {
+                self.byte(48)
+            } else {
+                self.byte(t[c - 1 - (p - lead)])
+            }
         }
     }
 
@@ -1084,7 +1181,7 @@ struct JOut {
             return
         }
         if k == J_NUM {
-            self.dec(d.nodes[id].ival)
+            self.num(d.nodes[id].nval, d.nodes[id].nexp)
             return
         }
         self.qstr(d, d.nodes[id].s_off, d.nodes[id].s_len)
@@ -1175,11 +1272,11 @@ func json_doc() -> JDoc
 {
     return JDoc {
         nodes: [JNode {
-            kind: 0, ival: 0, bval: false, s_off: 0, s_len: 0,
+            kind: 0, nval: 0, nexp: 0, bval: false, s_off: 0, s_len: 0,
             kid: JSENT, sib: JSENT, k_off: 0, k_len: 0
         }; 4096],
         n: 0, arena: [0; 65536], a: 0, src: [0; 65536], sn: 0,
-        src_over: false, pos: 0, tival: 0, toff: 0, tlen: 0,
+        src_over: false, pos: 0, tnval: 0, tnexp: 0, toff: 0, tlen: 0,
         fc: [0; 64], fl: [0; 64], fst: [0; 64], fko: [0; 64], fkl: [0; 64],
         d: 0, root: JSENT, err: 0, done: 0, dry: 0, tcount: 0
     }
@@ -1349,7 +1446,22 @@ test json_errors {
         }
     }
     d.clear()
-    d.load("1.5")
+    d.load("1e9")
+    match d.parse() {
+        Ok(_) { assert false }
+        Err(e) {
+            match e {
+                Num { assert true }
+                Capacity { assert false }
+                Depth { assert false }
+                Input { assert false }
+                Syntax { assert false }
+                Str { assert false }
+            }
+        }
+    }
+    d.clear()
+    d.load("1.")
     match d.parse() {
         Ok(_) { assert false }
         Err(_) { assert true }
@@ -1480,6 +1592,96 @@ test json_ser {
             var o: JOut = json_out()
             match o.ser(d, r) {
                 Ok(_) { assert o.out_is("\"a\\n\\\"b\\u0007\"") }
+                Err(_) { assert false }
+            }
+        }
+        Err(_) { assert false }
+    }
+}
+
+# десятичный fixed-point: мантисса+экспонента, разбор дробей
+test json_frac_parse {
+    var d: JDoc = json_doc()
+    d.load("3.14")
+    match d.parse() {
+        Ok(r) {
+            assert d.kind_of(r) == J_NUM
+            var mok: bool = false
+            match d.num_mant(r) {
+                Some(m) { mok = m == 314 }
+                None {}
+            }
+            assert mok
+            var eok: bool = false
+            match d.num_exp(r) {
+                Some(e) { eok = e == -2 }
+                None {}
+            }
+            assert eok
+            # дробь целым не притворяется
+            match d.as_int(r) {
+                Some(_) { assert false }
+                None { assert true }
+            }
+        }
+        Err(_) { assert false }
+    }
+    # ведущий ноль дроби и знак
+    d.clear()
+    d.load("-0.5")
+    match d.parse() {
+        Ok(r) {
+            var ok: bool = false
+            match d.num_mant(r) {
+                Some(m) { ok = m == -5 }
+                None {}
+            }
+            assert ok
+        }
+        Err(_) { assert false }
+    }
+    # целое по-прежнему целое (nexp == 0)
+    d.clear()
+    d.load("42")
+    match d.parse() {
+        Ok(r) {
+            match d.as_int(r) {
+                Some(v) { assert v == 42 }
+                None { assert false }
+            }
+            match d.as_i64(r) {
+                Some(v) { assert v == 42 }
+                None { assert false }
+            }
+        }
+        Err(_) { assert false }
+    }
+}
+
+# round-trip: разбор дроби → сериализация байт-в-байт
+test json_frac_roundtrip {
+    var d: JDoc = json_doc()
+    d.load("{{\"pi\": 3.14, \"z\": 0.001, \"t\": 3.140, \"n\": -2}}")
+    match d.parse() {
+        Ok(r) {
+            var o: JOut = json_out()
+            match o.ser(d, r) {
+                Ok(_) {
+                    assert o.out_is("{{\"pi\":3.14,\"z\":0.001,\"t\":3.140,\"n\":-2}}")
+                }
+                Err(_) { assert false }
+            }
+        }
+        Err(_) { assert false }
+    }
+    # массив дробей и ноль
+    d.clear()
+    d.load("[0, 0.0, -0.25, 12.5]")
+    match d.parse() {
+        Ok(r) {
+            var o: JOut = json_out()
+            match o.ser(d, r) {
+                Ok(_) { assert o.out_is("[0,0.0,-0.25,12.5]") }
                 Err(_) { assert false }
             }
         }

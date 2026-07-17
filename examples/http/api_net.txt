@@ -1,0 +1,26 @@
+# Транскрипт сверки JSON-API (HTTP_PLAN этап 4, решения H2/H5):
+# тело Content-Length и chunked, дроби round-trip, потолки 413/400.
+# GET / — справка.
+accept
+data 4 GET / HTTP/1.1\r\nHost: a\r\n\r\n
+close 4
+# POST /sum — целые: {"a":3,"b":4} -> {"sum":7}.
+accept
+data 5 POST /sum HTTP/1.1\r\nContent-Length: 13\r\n\r\n{"a":3,"b":4}
+close 5
+# POST /echo — Content-Length, дробь и массив: минифицированный обратно.
+accept
+data 6 POST /echo HTTP/1.1\r\nContent-Length: 34\r\n\r\n{"pi":3.14,"xs":[1,2,3],"ok":true}
+close 6
+# POST /echo — chunked (два чанка 9 и 6 + завершающий 0): та же дробь.
+accept
+data 7 POST /echo HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n9\r\n{"x":0.5,\r\n6\r\n"n":7}\r\n0\r\n\r\n
+close 7
+# POST /echo — Content-Length больше MAX_BODY: 413 без чтения тела.
+accept
+data 8 POST /echo HTTP/1.1\r\nContent-Length: 100000\r\n\r\n
+close 8
+# POST /echo — кривой JSON в теле: 400.
+accept
+data 9 POST /echo HTTP/1.1\r\nContent-Length: 5\r\n\r\n{oops
+close 9

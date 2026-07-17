@@ -22,11 +22,14 @@ export {
     req_new,
     Resp,
     resp_new,
+    Body,
+    body_new,
     PARSE_MORE,
     PARSE_DONE,
     HTTP_REQ_CAP,
     HTTP_RESP_CAP,
     HTTP_MAX_HEADERS,
+    HTTP_MAX_BODY,
     HTTP_NONE,
 }
 
@@ -40,6 +43,8 @@ import {
 const HTTP_REQ_CAP: u32 = 8192
 const HTTP_RESP_CAP: u32 = 16384
 const HTTP_MAX_HEADERS: u32 = 64
+# суммарный потолок тела (в т.ч. сумма чанков) -> 413 (план §4)
+const HTTP_MAX_BODY: u32 = 65536
 
 const PARSE_MORE: u32 = 0
 const PARSE_DONE: u32 = 1
@@ -374,6 +379,62 @@ struct Req {
         return self.version_is("HTTP/1.0")
     }
 
+    # Срез raw[s..s+l) как десятичный u32. Пусто/не-цифра — None;
+    # значение больше HTTP_MAX_BODY клампится к MAX_BODY+1 (без
+    # переполнения u32) — вызывающий отвечает 413, не читая тело.
+    func span_u32(self, s: u32, l: u32) -> Option<u32>
+        requires true
+        ensures true
+    {
+        if l == 0 {
+            return None
+        }
+        var v: u32 = 0
+        var ok: bool = true
+        for i in 0..20 {
+            if u32(i) >= l or not ok {
+                break
+            }
+            let b: u8 = self.raw[s + u32(i)]
+            if b < 48 or b > 57 {
+                ok = false
+            } elif v > HTTP_MAX_BODY {
+                v = HTTP_MAX_BODY + 1
+            } else {
+                v = v * 10 + u32(b - 48)
+            }
+        }
+        if not ok {
+            return None
+        }
+        return Some(v)
+    }
+
+    # Content-Length как u32 (None — нет заголовка или значение кривое).
+    func content_length(self) -> Option<u32>
+        requires true
+        ensures true
+    {
+        let i: u32 = self.find_header("content-length")
+        if i == HTTP_NONE or i >= 64 {
+            return None
+        }
+        return self.span_u32(self.hdr[i].vs, self.hdr[i].vl)
+    }
+
+    # Transfer-Encoding: chunked (без регистра). MVP: только сам токен
+    # `chunked` (списки кодировок вроде "gzip, chunked" — не разбираем).
+    func is_chunked(self) -> bool
+        requires true
+        ensures true
+    {
+        let i: u32 = self.find_header("transfer-encoding")
+        if i == HTTP_NONE or i >= 64 {
+            return false
+        }
+        return self.header_val_is(i, "chunked")
+    }
+
     # Сброс кадра под следующий запрос БЕЗ пересоздания (обнуление
     # raw[8192] — треть цены запроса, OPTIMIZATIONS_PLAN §8.2):
     # скалярные поля в 0, raw/hdr не трогаются. Инвариант чистоты:
@@ -513,6 +574,271 @@ func req_new() -> Req
     }
 }
 
+# Тело запроса в фиксированный буфер HTTP_MAX_BODY (план §8 этап 4).
+# Два обрамления: Content-Length (mode 0) и Transfer-Encoding: chunked
+# (mode 1). Байты подаются push (после CRLFCRLF заголовков). Превышение
+# HTTP_MAX_BODY — 413, кривой chunked — 400: ошибка-значение, НЕ trap и
+# не усечение (инвариант §11). Тело — сырые байты; JSON-разбор делает
+# вызывающий через lib/Json.eat (Http от Json не зависит).
+struct Body {
+    buf: [u8; 65536]   # HTTP_MAX_BODY — декодированное тело
+    bn: u32
+    mode: u32     # 0 Content-Length, 1 chunked
+    need: u32     # Content-Length: осталось прочитать
+    cs: u32       # chunked: 0 size · 1 data · 2 dcr · 3 dlf · 4 ecr · 5 elf
+    csz: u32      # текущий чанк: осталось байт
+    seen: bool    # в size-строке была ≥1 hex-цифра
+    skip: bool    # в size-строке пошло расширение (;…) — до LF игнор
+    state: u32    # 0 читаем · 1 готово · 2 ошибка
+    err: u32      # 0 · 413 · 400
+
+    # Тело по Content-Length: n байт (n > MAX_BODY — сразу 413, тело не
+    # читается; n == 0 — пустое тело, сразу готово).
+    func begin_cl(var self, n: u32)
+        requires true
+        ensures true
+    {
+        self.mode = 0
+        self.need = n
+        if n > HTTP_MAX_BODY {
+            self.state = 2
+            self.err = 413
+        } elif n == 0 {
+            self.state = 1
+        }
+    }
+
+    # Тело chunked: автомат размеров/данных ведёт push.
+    func begin_chunked(var self)
+        requires true
+        ensures true
+    {
+        self.mode = 1
+        self.cs = 0
+    }
+
+    # Байт в буфер тела; false — потолок HTTP_MAX_BODY (413).
+    func store(var self, b: u8) -> bool
+        requires true
+        ensures true
+    {
+        if self.bn >= 65536 {
+            return false
+        }
+        self.buf[self.bn] = b
+        self.bn = self.bn + 1
+        return true
+    }
+
+    # hex-цифра -> 0..15; иначе 99 (как lib/Hex.hex_val).
+    func hexv(self, b: u8) -> u32
+        requires true
+        ensures true
+    {
+        if b >= 48 and b <= 57 {
+            return u32(b - 48)
+        }
+        if b >= 97 and b <= 102 {
+            return u32(b - 87)
+        }
+        if b >= 65 and b <= 70 {
+            return u32(b - 55)
+        }
+        return 99
+    }
+
+    # Конец size-строки chunked: нет hex-цифр — 400; нулевой размер —
+    # последний чанк (ждём финальный CRLF), иначе — читаем данные.
+    func size_end(var self) -> u32
+        requires true
+        ensures true
+    {
+        if not self.seen {
+            self.state = 2
+            self.err = 400
+            return 400
+        }
+        self.seen = false
+        self.skip = false
+        if self.csz == 0 {
+            self.cs = 4
+            return PARSE_MORE
+        }
+        self.cs = 1
+        return PARSE_MORE
+    }
+
+    # size-строка chunked: hex-размер (+ расширение ;… до LF).
+    func chunk_size(var self, b: u8) -> u32
+        requires true
+        ensures true
+    {
+        if self.skip {
+            if b == 10 {
+                return self.size_end()
+            }
+            return PARSE_MORE
+        }
+        if b == 59 {
+            self.skip = true
+            return PARSE_MORE
+        }
+        if b == 13 {
+            return PARSE_MORE
+        }
+        if b == 10 {
+            return self.size_end()
+        }
+        let h: u32 = self.hexv(b)
+        if h >= 16 {
+            self.state = 2
+            self.err = 400
+            return 400
+        }
+        if self.csz > HTTP_MAX_BODY {
+            self.csz = HTTP_MAX_BODY + 1
+        } else {
+            self.csz = self.csz * 16 + h
+        }
+        self.seen = true
+        return PARSE_MORE
+    }
+
+    # Разделители chunked после данных (cs 2/3) и финальный CRLF (cs 4/5).
+    func chunk_delim(var self, b: u8) -> u32
+        requires true
+        ensures true
+    {
+        if self.cs == 2 {
+            if b == 13 {
+                self.cs = 3
+                return PARSE_MORE
+            }
+            if b == 10 {
+                self.cs = 0
+                return PARSE_MORE
+            }
+        } elif self.cs == 3 {
+            if b == 10 {
+                self.cs = 0
+                return PARSE_MORE
+            }
+        } elif self.cs == 4 {
+            if b == 13 {
+                self.cs = 5
+                return PARSE_MORE
+            }
+            if b == 10 {
+                self.state = 1
+                return PARSE_DONE
+            }
+        } elif b == 10 {
+            self.state = 1
+            return PARSE_DONE
+        }
+        self.state = 2
+        self.err = 400
+        return 400
+    }
+
+    # Байт тела в режиме chunked: диспетч по подсостоянию cs.
+    func chunk(var self, b: u8) -> u32
+        requires true
+        ensures true
+    {
+        if self.cs == 0 {
+            return self.chunk_size(b)
+        }
+        if self.cs == 1 {
+            if not self.store(b) {
+                self.state = 2
+                self.err = 413
+                return 413
+            }
+            self.csz = self.csz - 1
+            if self.csz == 0 {
+                self.cs = 2
+            }
+            return PARSE_MORE
+        }
+        return self.chunk_delim(b)
+    }
+
+    # Очередной байт тела. PARSE_MORE / PARSE_DONE / 413 / 400.
+    # После готовности/ошибки идемпотентен (как Req.push_byte).
+    func push(var self, b: u8) -> u32
+        requires true
+        ensures true
+    {
+        if self.state == 1 {
+            return PARSE_DONE
+        }
+        if self.state == 2 {
+            return self.err
+        }
+        if self.mode == 0 {
+            if not self.store(b) {
+                self.state = 2
+                self.err = 413
+                return 413
+            }
+            self.need = self.need - 1
+            if self.need == 0 {
+                self.state = 1
+                return PARSE_DONE
+            }
+            return PARSE_MORE
+        }
+        return self.chunk(b)
+    }
+
+    # Готово ли тело целиком принято.
+    func is_done(self) -> bool
+        requires true
+        ensures true
+    {
+        return self.state == 1
+    }
+
+    # Байт декодированного тела (для копирования в JDoc и т.п.).
+    func at(self, i: u32) -> u8
+        requires i < 65536
+        ensures true
+    {
+        return self.buf[i]
+    }
+
+    # Декодированное тело == строка (точно, по байтам) — для тестов.
+    func buf_is(self, s: str<64>) -> bool
+        requires true
+        ensures true
+    {
+        if self.bn != len(s) {
+            return false
+        }
+        var ok: bool = true
+        for i in 0..64 {
+            if u32(i) >= self.bn or not ok {
+                break
+            }
+            if self.buf[i] != u8(s[i]) {
+                ok = false
+            }
+        }
+        return ok
+    }
+}
+
+func body_new() -> Body
+    requires true
+    ensures true
+{
+    return Body {
+        buf: [0; 65536], bn: 0, mode: 0, need: 0, cs: 0, csz: 0,
+        seen: false, skip: false, state: 0, err: 0,
+    }
+}
+
 # Сборка ответа в фиксированный буфер RESP_CAP. Переполнение — флаг
 # of (ошибка-значение: отправлять такой ответ нельзя), не trap и не
 # усечение.
@@ -616,6 +942,25 @@ struct Resp {
         self.crlf()
         self.crlf()
         self.put_str(s)
+    }
+
+    # "Content-Length: n" CRLF — для тела произвольной длины (байты
+    # шлёт вызывающий отдельным socket_write_span из своего буфера).
+    func content_length(var self, n: u32)
+        requires true
+        ensures true
+    {
+        self.put_str("Content-Length: ")
+        self.put_dec(n)
+        self.crlf()
+    }
+
+    # Пустая строка — конец заголовков (дальше идёт тело).
+    func end_headers(var self)
+        requires true
+        ensures true
+    {
+        self.crlf()
     }
 }
 
@@ -780,4 +1125,115 @@ test http_resp_build {
     assert w.n == 17 + 19 + 19 + 2 + 2
     assert w.buf[9] == 50
     assert w.buf[w.n - 1] == 105
+}
+
+# Content-Length из заголовка (срез raw как u32).
+test http_content_length {
+    var r: Req = req_new()
+    discard r.feed_line("POST /a HTTP/1.1")
+    discard r.feed_line("Content-Length: 27")
+    assert r.feed_line("") == PARSE_DONE
+    var got: bool = false
+    match r.content_length() {
+        Some(n) { got = n == 27 }
+        None {}
+    }
+    assert got
+    assert not r.is_chunked()
+    # нет заголовка — None
+    var r2: Req = req_new()
+    discard r2.feed_line("GET / HTTP/1.1")
+    discard r2.feed_line("")
+    match r2.content_length() {
+        Some(_) { assert false }
+        None { assert true }
+    }
+    # chunked распознаётся без регистра
+    var r3: Req = req_new()
+    discard r3.feed_line("POST /a HTTP/1.1")
+    discard r3.feed_line("Transfer-Encoding: Chunked")
+    discard r3.feed_line("")
+    assert r3.is_chunked()
+}
+
+# Тело по Content-Length: подать ровно need байт.
+test http_body_cl {
+    var b: Body = body_new()
+    b.begin_cl(11)
+    var st: u32 = PARSE_MORE
+    let s: str<16> = "hello world"
+    for i in 0..16 {
+        if u32(i) >= len(s) {
+            break
+        }
+        st = b.push(u8(s[i]))
+    }
+    assert st == PARSE_DONE
+    assert b.is_done()
+    assert b.bn == 11
+    assert b.buf_is("hello world")
+    # идемпотентность после готовности
+    assert b.push(65) == PARSE_DONE
+    # пустое тело — сразу готово
+    var e: Body = body_new()
+    e.begin_cl(0)
+    assert e.is_done()
+}
+
+# Content-Length больше потолка -> 413 без чтения тела.
+test http_body_cl_413 {
+    var b: Body = body_new()
+    b.begin_cl(HTTP_MAX_BODY + 1)
+    assert not b.is_done()
+    assert b.err == 413
+    assert b.push(65) == 413
+}
+
+# Тело chunked: два чанка + завершающий 0-чанк.
+test http_body_chunked {
+    var b: Body = body_new()
+    b.begin_chunked()
+    # "5" CRLF "hello" CRLF "6" CRLF " world" CRLF "0" CRLF CRLF
+    discard b.push(53)
+    discard b.push(13)
+    discard b.push(10)
+    let s1: str<8> = "hello"
+    for i in 0..8 {
+        if u32(i) >= len(s1) {
+            break
+        }
+        discard b.push(u8(s1[i]))
+    }
+    discard b.push(13)
+    discard b.push(10)
+    discard b.push(54)
+    discard b.push(13)
+    discard b.push(10)
+    let s2: str<8> = " world"
+    for i in 0..8 {
+        if u32(i) >= len(s2) {
+            break
+        }
+        discard b.push(u8(s2[i]))
+    }
+    discard b.push(13)
+    discard b.push(10)
+    discard b.push(48)
+    discard b.push(13)
+    discard b.push(10)
+    discard b.push(13)
+    let last: u32 = b.push(10)
+    assert last == PARSE_DONE
+    assert b.is_done()
+    assert b.bn == 11
+    assert b.buf_is("hello world")
+}
+
+# Кривой размер чанка (не-hex) -> 400.
+test http_body_chunked_400 {
+    var b: Body = body_new()
+    b.begin_chunked()
+    assert b.push(122) == 400
+    assert not b.is_done()
+    assert b.err == 400
 }
