@@ -152,29 +152,32 @@ struct Req 72:1
   method version_is 285:5 (v: str<64>) -> bool
   method find_header 293:5 (name: str<64>) -> u32
   method header_val_is 311:5 (i: u32, v: str<64>) -> bool
-  method wants_close 321:5 () -> bool
-  method feed_line 339:5 (s: str<256>) var_self -> u32
-func req_new 356:1 () -> Req
-struct Resp 371:1
+  method path_starts 319:5 (pre: str<64>) -> bool
+  method path_param 331:5 (skip: u32) -> Option<str<64>>
+  method wants_close 351:5 () -> bool
+  method feed_line 369:5 (s: str<256>) var_self -> u32
+func req_new 386:1 () -> Req
+struct Resp 401:1
   field buf :: [u8; 16384]
   field n :: u32
   field of :: bool
-  method put_byte 376:5 (b: u8) var_self
-  method put_str 388:5 (s: str<256>) var_self
-  method put_dec 400:5 (v: u32) var_self
-  method crlf 414:5 () var_self
-  method status_line 423:5 (code: u32, text: str<64>) var_self
-  method header_line 440:5 (name: str<64>, val: str<128>) var_self
-  method body 462:5 (s: str<256>) var_self
-func resp_new 474:1 () -> Resp
-test http_reqline_ok 481:1
-test http_header_ows_ci 498:1
-test http_bad_reqline_400 514:1
-test http_bad_header_400 524:1
-test http_too_many_headers_431 533:1
-test http_wants_close 543:1
-test http_resp_build 564:1
-module lib/Io.eat 575:1
+  method put_byte 406:5 (b: u8) var_self
+  method put_str 418:5 (s: str<256>) var_self
+  method put_dec 430:5 (v: u32) var_self
+  method crlf 444:5 () var_self
+  method status_line 453:5 (code: u32, text: str<64>) var_self
+  method header_line 470:5 (name: str<64>, val: str<128>) var_self
+  method body 492:5 (s: str<256>) var_self
+func resp_new 504:1 () -> Resp
+test http_reqline_ok 511:1
+test http_header_ows_ci 528:1
+test http_bad_reqline_400 544:1
+test http_bad_header_400 554:1
+test http_too_many_headers_431 563:1
+test http_path_param 573:1
+test http_wants_close 599:1
+test http_resp_build 620:1
+module lib/Io.eat 631:1
 export read_line 8:5 :: read_line
 func read_line 11:1 () -> Result<str<256>, IoError>
 module lib/Json.eat 29:1
@@ -486,4 +489,4 @@ import json_doc 55:5 :: lib/Json.eat json_doc
 import min 59:5 :: lib/Num.eat min
 import parse_i32 63:5 :: lib/Parse.eat parse_i32
 func main 66:1 ()
-stats funcs=192 structs=16 stmts=1422
+stats funcs=194 structs=16 stmts=1433

@@ -340,14 +340,23 @@ picoserve), либо отдельный C-шим (OpenSSL/mbedTLS). Чистый
    `VERIFIED HttpPool`. **Порог выполнен:** несколько одновременных
    соединений на одном потоке, корректный `Connection: close`,
    полный гейт.
-3. **Роутер + обработчики + шаблоны.** `const ROUTES: [Route; N]` (метод,
-   шаблон пути, id); матчинг — `for` по таблице с `break`, диспетч —
-   исчерпывающий `match` по id (указателей на функции нет — граф статичен);
-   параметры пути в поля фиксированного размера; тело ответа — bounded
-   string building поверх `append_*` из [Rt.eat](../../selfhost/Rt.eat) →
-   `socket_write_span`. **Порог:** несколько маршрутов с параметрами,
-   генерируемый HTML. Роут-таблица — кандидат на comptime
-   ([COMPTIME_PLAN.md](COMPTIME_PLAN.md): perfect-hash на компиляции).
+3. **Роутер + обработчики + шаблоны** (✅ 2026-07-17).
+   `examples/http/Router.eat`: таблица `[RouteRow; 4]` (метод, шаблон
+   — точный или префикс, id; const-структов в языке нет — таблица
+   собирается функцией `routes()`, comptime-запекание — кандидат
+   COMPTIME_PLAN); матчинг `route_of` — один `for` с `break` (первое
+   совпадение — приоритет); диспетч — **исчерпывающий `match` по
+   `enum Route`** (добавил маршрут — компилятор требует обработчик;
+   указателей на функции нет, граф статичен — конвенция фреймворка,
+   докстринг lib/Http.eat). Параметры пути: `Req.path_starts`
+   (префикс) + `Req.path_param -> Option<str<64>>` (длиннее 64 байт —
+   `None` и 404, не усечение) — новые методы lib (тест
+   `http_path_param`). Генерируемый HTML — интерполяция в `str<256>`
+   поверх `Resp` → `socket_write_span`. Транскрипт `router_net.txt`
+   (`/`, `/hello`, `/greet/mir`, POST `/ping`, 404), цели
+   `run_http_router` / `serve_router`, стэнза `VERIFIED HttpRouter`.
+   **Порог выполнен:** маршруты с параметрами, генерируемый HTML,
+   полный гейт.
 4. **Тело/сериализация.** JSON-тело — через [JSON_PLAN.md](JSON_PLAN.md)
    (bounded-depth, глубже лимита → 400). **Порог:** round-trip `struct` ↔
    JSON в `test`-блоках.

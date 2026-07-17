@@ -49,6 +49,7 @@ check:
 	$(EATC) check --lib . $(HTTP_ECHO_MAIN)
 	$(EATC) check --lib . $(HTTP_HELLO_MAIN)
 	$(EATC) check --lib . $(HTTP_POOL_MAIN)
+	$(EATC) check --lib . $(HTTP_ROUTER_MAIN)
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -99,6 +100,7 @@ run_async_debounce:
 HTTP_ECHO_MAIN = examples/http/Echo.eat
 HTTP_HELLO_MAIN = examples/http/Hello.eat
 HTTP_POOL_MAIN = examples/http/Pool.eat
+HTTP_ROUTER_MAIN = examples/http/Router.eat
 
 run_http_echo:
 	EAT_NET=examples/http/echo_net.txt $(EATC) run --lib . $(HTTP_ECHO_MAIN)
@@ -110,6 +112,15 @@ run_http_hello:
 run_http_pool:
 	EAT_TICKS=virt EAT_NET=examples/http/pool_net.txt \
 		$(EATC) run --lib . $(HTTP_POOL_MAIN)
+
+# роутер: таблица маршрутов + параметры пути + HTML
+run_http_router:
+	EAT_NET=examples/http/router_net.txt $(EATC) run --lib . $(HTTP_ROUTER_MAIN)
+
+# живой роутер: curl http://127.0.0.1:8080/greet/мир
+serve_router:
+	@$(EATC) build --lib . $(HTTP_ROUTER_MAIN) -o build/HttpRouter > /dev/null
+	./build/HttpRouter $(PORT)
 
 # Живой режим (вне гейта сверки): реальные неблокирующие сокеты.
 # Порт — аргумент (решение H3): make serve PORT=9090; дефолт 8080.
@@ -664,3 +675,8 @@ verify: build_all_examples
 	@EAT_TICKS=virt EAT_NET=examples/http/pool_net.txt ./build/HttpPool > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED HttpPool" || exit 1
+	@$(EATC) build --lib . $(HTTP_ROUTER_MAIN) -o build/HttpRouter > /dev/null
+	@EAT_NET=examples/http/router_net.txt $(EATC) run --lib . $(HTTP_ROUTER_MAIN) > /tmp/eat_interp.txt
+	@EAT_NET=examples/http/router_net.txt ./build/HttpRouter > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED HttpRouter" || exit 1

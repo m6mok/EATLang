@@ -315,6 +315,36 @@ struct Req {
         return self.span_is_ci(self.hdr[i].vs, self.hdr[i].vl, v)
     }
 
+    # Путь начинается с префикса (этап 3, маршруты-шаблоны).
+    func path_starts(self, pre: str<64>) -> bool
+        requires true
+        ensures true
+    {
+        if self.pl < len(pre) {
+            return false
+        }
+        return self.span_is(self.ps, len(pre), pre)
+    }
+
+    # Параметр пути: хвост после skip байт. None — хвоста нет или он
+    # длиннее 64 байт (маршрут обязан ответить 404, а не усекать).
+    func path_param(self, skip: u32) -> Option<str<64>>
+        requires true
+        ensures true
+    {
+        if self.pl <= skip or self.pl - skip > 64 {
+            return None
+        }
+        var out: str<64> = ""
+        for i in 0..64 {
+            if u32(i) >= self.pl - skip {
+                break
+            }
+            out = "{out}{char(self.raw[self.ps + skip + u32(i)])}"
+        }
+        return Some(out)
+    }
+
     # Закрывать ли соединение по завершении ответа (этап 2,
     # keep-alive): явный `Connection: close` — да; явный `keep-alive`
     # — нет; иначе по версии (HTTP/1.1 держит, HTTP/1.0 закрывает).
@@ -538,6 +568,32 @@ test http_too_many_headers_431 {
         st = r.feed_line("H{i}: v")
     }
     assert st == 431
+}
+
+test http_path_param {
+    var r: Req = req_new()
+    discard r.feed_line("GET /greet/mir HTTP/1.1")
+    discard r.feed_line("")
+    assert r.path_starts("/greet/")
+    assert not r.path_starts("/user/")
+    var got: bool = false
+    match r.path_param(7) {
+        Some(name) {
+            got = name == "mir"
+        }
+        None {}
+    }
+    assert got
+    # хвоста нет — None
+    var r2: Req = req_new()
+    discard r2.feed_line("GET /greet/ HTTP/1.1")
+    discard r2.feed_line("")
+    var none2: bool = false
+    match r2.path_param(7) {
+        Some(_) {}
+        None { none2 = true }
+    }
+    assert none2
 }
 
 test http_wants_close {

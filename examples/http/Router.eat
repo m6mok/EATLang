@@ -1,0 +1,300 @@
+# Роутер (docs/plans/HTTP_PLAN.md, этап 3): таблица маршрутов
+# [RouteRow; N] (метод, шаблон пути, id), матчинг — один for с break,
+# диспетч — исчерпывающий match по enum Route в обработчике. Это
+# конвенция фреймворка: указателей на функции в языке нет (правило 9),
+# граф вызовов статичен — каждый маршрут виден компилятору. Параметры
+# пути — шаблон-префикс + Req.path_param (Option: длиннее 64 байт —
+# None и 404, не усечение). Тело ответа — генерируемый HTML поверх
+# Resp (bounded string building). Один запрос за раз (пул — Pool.eat).
+
+import {
+    Req,
+    req_new,
+    Resp,
+    resp_new,
+    PARSE_MORE,
+    PARSE_DONE,
+} from "lib/Http.eat"
+
+import {
+    get,
+} from "lib/Args.eat"
+
+import {
+    parse_i32,
+} from "lib/Parse.eat"
+
+const NO_CONN: u32 = 4294967295
+const SENT: u32 = 4294967295
+const PORT_DEFAULT: u32 = 8080
+# детерминированный останов для сверки по транскрипту
+const SERVE_CONNS: u32 = 5
+const N_ROUTES: u32 = 4
+# id мимо таблицы — «не найдено» (ветка Miss в match)
+const MISS: u32 = 4
+
+# Маршруты как значения enum: match по ним обязан быть исчерпывающим —
+# добавил маршрут в таблицу, компилятор заставит добавить обработчик.
+enum Route {
+    Home,
+    Hello,
+    Greet,
+    Ping,
+    Miss
+}
+
+# Строка таблицы: метод, шаблон (точный или префикс), id.
+struct RouteRow {
+    m: str<8>
+    p: str<64>
+    pre: bool
+    id: u32
+}
+
+# Таблица маршрутов; порядок — приоритет (первое совпадение).
+func routes() -> [RouteRow; 4]
+    requires true
+    ensures true
+{
+    return [
+        RouteRow { m: "GET", p: "/", pre: false, id: 0 },
+        RouteRow { m: "GET", p: "/hello", pre: false, id: 1 },
+        RouteRow { m: "GET", p: "/greet/", pre: true, id: 2 },
+        RouteRow { m: "POST", p: "/ping", pre: false, id: 3 },
+    ]
+}
+
+# Матчинг по таблице: for со статической границей и одним break.
+func route_of(r: Req) -> u32
+    requires true
+    ensures result <= 4
+{
+    let t: [RouteRow; 4] = routes()
+    var id: u32 = MISS
+    for i in 0..4 {
+        if id != MISS {
+            break
+        }
+        if r.method_is(t[i].m) {
+            if t[i].pre {
+                if r.path_starts(t[i].p) {
+                    id = t[i].id
+                }
+            } elif r.path_is(t[i].p) {
+                id = t[i].id
+            }
+        }
+    }
+    if id > 4 {
+        return MISS
+    }
+    return id
+}
+
+func to_route(id: u32) -> Route
+    requires true
+    ensures true
+{
+    if id == 0 {
+        return Route.Home
+    } elif id == 1 {
+        return Route.Hello
+    } elif id == 2 {
+        return Route.Greet
+    } elif id == 3 {
+        return Route.Ping
+    }
+    return Route.Miss
+}
+
+func html_page(title: str<64>, body: str<128>) -> Resp
+    requires true
+    ensures true
+{
+    var w: Resp = resp_new()
+    w.status_line(200, "OK")
+    w.header_line("Content-Type", "text/html; charset=utf-8")
+    w.header_line("Connection", "close")
+    let t: str<256> = "<html><head><title>{title}</title></head><body>{body}</body></html>\n"
+    w.body(t)
+    return w
+}
+
+func text_ok(body: str<64>) -> Resp
+    requires true
+    ensures true
+{
+    var w: Resp = resp_new()
+    w.status_line(200, "OK")
+    w.header_line("Connection", "close")
+    w.body(body)
+    return w
+}
+
+func not_found() -> Resp
+    requires true
+    ensures true
+{
+    var w: Resp = resp_new()
+    w.status_line(404, "Not Found")
+    w.header_line("Connection", "close")
+    w.body("no such route\n")
+    return w
+}
+
+# Обработчик готового запроса: диспетч — исчерпывающий match по
+# Route (обработчики — обычные ветки, граф статичен).
+func handle(r: Req) -> Resp
+    requires true
+    ensures true
+{
+    var w: Resp = resp_new()
+    match to_route(route_of(r)) {
+        Home {
+            w = html_page("EATLang HTTP", "<h1>Маршруты</h1><a href=\"/hello\">hello</a>")
+        }
+        Hello {
+            w = text_ok("Hello, world!\n")
+        }
+        Greet {
+            # /greet/<имя>: параметр пути после префикса (7 байт)
+            match r.path_param(7) {
+                Some(name) {
+                    w = html_page("greet", "<h1>Привет, {name}!</h1>")
+                }
+                None {
+                    w = not_found()
+                }
+            }
+        }
+        Ping {
+            w = text_ok("pong\n")
+        }
+        Miss {
+            w = not_found()
+        }
+    }
+    return w
+}
+
+# Ответ на ошибку разбора (413/431/400) — готовый статус парсера.
+func parse_error_resp(st: u32) -> Resp
+    requires true
+    ensures true
+{
+    var w: Resp = resp_new()
+    if st == 413 {
+        w.status_line(413, "Payload Too Large")
+    } elif st == 431 {
+        w.status_line(431, "Request Header Fields Too Large")
+    } else {
+        w.status_line(400, "Bad Request")
+    }
+    w.header_line("Connection", "close")
+    w.body("")
+    return w
+}
+
+# Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
+func port_arg() -> u32
+    requires true
+    ensures result <= 65535
+{
+    match get(0) {
+        Ok(s) {
+            match parse_i32(s) {
+                Ok(v) {
+                    if v >= 1 and v <= 65535 {
+                        return u32(v)
+                    }
+                }
+                Err(_) {}
+            }
+        }
+        Err(_) {}
+    }
+    return PORT_DEFAULT
+}
+
+func send_resp(fd: u32, w: Resp)
+    requires true
+    ensures true
+{
+    if w.of {
+        return
+    }
+    var sent: u32 = 0
+    for _ in 0..64 {
+        if sent >= w.n {
+            break
+        }
+        sent = sent + socket_write_span(fd, w.buf, sent, w.n - sent)
+    }
+}
+
+func main() {
+    var lst: u32 = 0
+    var live: bool = false
+    match socket_listen(u16(port_arg())) {
+        Ok(fd) {
+            lst = fd
+            live = true
+        }
+        Err(_) {
+            print("router: не удалось открыть порт")
+        }
+    }
+    if live {
+        var conn: u32 = SENT
+        var served: u32 = 0
+        var req: Req = req_new()
+        var st: u32 = PARSE_MORE
+        var eof: bool = false
+        loop {
+            if conn == SENT {
+                let c: u32 = socket_accept(lst)
+                if c != NO_CONN {
+                    conn = c
+                    req = req_new()
+                    st = PARSE_MORE
+                    eof = false
+                }
+            }
+            if conn != SENT {
+                for _ in 0..8900 {
+                    if st != PARSE_MORE or eof or socket_avail(conn) == 0 {
+                        break
+                    }
+                    match socket_read_byte(conn) {
+                        Ok(b) {
+                            st = req.push_byte(b)
+                        }
+                        Err(_) {
+                            eof = true
+                        }
+                    }
+                }
+                if st == PARSE_DONE {
+                    send_resp(conn, handle(req))
+                    socket_close(conn)
+                    conn = SENT
+                    served = served + 1
+                } elif st != PARSE_MORE {
+                    send_resp(conn, parse_error_resp(st))
+                    socket_close(conn)
+                    conn = SENT
+                    served = served + 1
+                } elif eof {
+                    socket_close(conn)
+                    conn = SENT
+                    served = served + 1
+                }
+            }
+            if served >= SERVE_CONNS {
+                break
+            }
+        }
+        socket_close(lst)
+        print("router: обслужено {served} запросов")
+    }
+}

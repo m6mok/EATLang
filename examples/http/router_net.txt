@@ -1,0 +1,17 @@
+# Транскрипт сверки роутера (HTTP_PLAN этап 3, решение H2):
+# таблица маршрутов, параметр пути, генерируемый HTML, 404.
+accept
+data 4 GET / HTTP/1.1\r\nHost: a\r\n\r\n
+close 4
+accept
+data 5 GET /hello HTTP/1.1\r\n\r\n
+close 5
+accept
+data 6 GET /greet/mir HTTP/1.1\r\n\r\n
+close 6
+accept
+data 7 POST /ping HTTP/1.1\r\n\r\n
+close 7
+accept
+data 8 GET /nope HTTP/1.1\r\n\r\n
+close 8
