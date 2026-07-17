@@ -36,7 +36,8 @@ if sys.platform == "darwin":
 else:
     STACK = ["-Wl,-z,stacksize=268435456"]
 
-MICRO = ["arith", "sort", "branch", "u64"]   # состав этапа 7.2
+MICRO = ["arith", "sort", "branch", "u64", "http"]  # состав 7.2 + http
+DECOMPOSE = {"branch", "http"}               # где делить мид-энд/кодоген
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +180,7 @@ def bench_micro(key, quick, decompose, rows):
     assert ll.exists(), f"{ll}: build не оставил .ll"
 
     entries = [("build (llvmlite)", cmd, bin_)]
-    for label, builder in variants(ll, key, decompose and key == "branch"):
+    for label, builder in variants(ll, key, decompose and key in DECOMPOSE):
         b = cl.OUT / (key + "_" + re.sub(r"[^a-zA-Z0-9]+", "_", label))
         builder(b)
         entries.append((label, [b], b))
