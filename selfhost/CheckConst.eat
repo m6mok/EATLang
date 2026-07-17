@@ -48,7 +48,7 @@ extend Check {
             } elif k == 40 and self.p.nx[n / 65536][n % 65536] == 15 {
                 if ph == 0 {
                     s2[f] = 1
-                    s1[sp] = self.p.nfc[n / 65536][n % 65536]
+                    s1[sp] = self.first_child(n)
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
@@ -62,14 +62,12 @@ extend Check {
                     and self.p.nx[n / 65536][n % 65536] <= 14) {
                 if ph == 0 {
                     s2[f] = 1
-                    s1[sp] = self.p.nfc[n / 65536][n % 65536]
+                    s1[sp] = self.first_child(n)
                     s2[sp] = 0
                     sp = sp + 1
                 } elif ph == 1 {
                     s2[f] = 2
-                    s1[sp] = self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][
-                        self.p.nfc[n / 65536][n % 65536] % 65536
-                    ]
+                    s1[sp] = self.second_child(n)
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
@@ -350,6 +348,7 @@ extend Check {
                     if c == NONE or sp >= 128 {
                         break
                     }
+                    assert c < 131072
                     st[sp] = c
                     sp = sp + 1
                     c = self.p.nns[c / 65536][c % 65536]
@@ -400,9 +399,8 @@ extend Check {
         var st: [u32; 64] = [0; 64]
         var sp: u32 = 1
         let d: u32 = self.cnd[ci]
-        st[0] = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
-            self.p.nfc[d / 65536][d % 65536] % 65536
-        ]
+        assert d != NONE
+        st[0] = self.second_child(d)
         for _ in 0..131072 {
             if sp == 0 or self.failed {
                 break
@@ -435,6 +433,7 @@ extend Check {
                 if c == NONE or sp >= 64 {
                     break
                 }
+                assert c < 131072
                 st[sp] = c
                 sp = sp + 1
                 c = self.p.nns[c / 65536][c % 65536]

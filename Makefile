@@ -140,27 +140,27 @@ bench_crosslang:
 SELFHOST_LEXER = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
 	selfhost/LexMain.eat
 SELFHOST_PARSER = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParseMain.eat
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/ParseMain.eat
 SELFHOST_SIG = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/SigMain.eat
 SELFHOST_TYPED = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/TypedMain.eat
 SELFHOST_IR = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
 	selfhost/IrMain.eat
 SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
-	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
 	selfhost/IrCodesMain.eat
 SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
-	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/CheckFold.eat \
 	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \
@@ -172,7 +172,7 @@ SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
 # (без Rt/lib). Этап 1: интервальное ядро на курируемом списке кейсов.
 # CheckFold — для `-O` (этап 5): ct_fold_pass перед verify по argv-флагу.
 SELFHOST_VERIFY = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/Check.eat \
+	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
 	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
 	selfhost/CheckFold.eat \
 	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \

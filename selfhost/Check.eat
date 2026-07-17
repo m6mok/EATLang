@@ -521,12 +521,14 @@ struct Check {
         self.fhx[slot] = i
     }
 
-    # Функция верхнего уровня (owner NONE) по имени.
+    # Функция верхнего уровня (owner NONE) по имени. Привязка к локали
+    # перед return сохраняет hive-дырку summary для вызывающих (§1.5).
     func find_func(var self, a: u32, l: u32) -> u32
         requires true
         ensures true
     {
-        return self.fh_find(NONE, a, l)
+        let f: u32 = self.fh_find(NONE, a, l)
+        return f
     }
 
     # Запись таблицы функций по узлу AST.
@@ -592,6 +594,47 @@ struct Check {
         return 0
     }
 
+    # Первый/второй ребёнок узла: guard — доказательство (§1.5),
+    # assert схлопывает дырку NONE-линка, ensures отдаёт плотный индекс.
+    func first_child(var self, n: u32) -> u32
+        requires n < 131072
+        ensures result < 131072
+    {
+        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        assert c != NONE
+        return c
+    }
+
+    func second_child(var self, n: u32) -> u32
+        requires n < 131072
+        ensures result < 131072
+    {
+        let c: u32 = self.first_child(n)
+        let d: u32 = self.p.nns[c / 65536][c % 65536]
+        assert d != NONE
+        return d
+    }
+
+    # Аргументы составного типа (ya/yb): в ветках массив/Result/Option
+    # там лежит индекс типа — assert делает это доказательством (§1.5).
+    func ty_a(var self, t: u32) -> u32
+        requires t < 512
+        ensures result < 512
+    {
+        let a: u32 = self.ya[t]
+        assert a < 512
+        return a
+    }
+
+    func ty_b(var self, t: u32) -> u32
+        requires t < 512
+        ensures result < 512
+    {
+        let b: u32 = self.yb[t]
+        assert b < 512
+        return b
+    }
+
     # Разрешить узел типа AST → индекс типа. Явный стек кадров:
     # (узел, фаза, результат первого ребёнка).
     func resolve(var self, root: u32) -> u32
@@ -622,17 +665,14 @@ struct Check {
                     if sp >= 32 {
                         self.fail_node(n, "слишком глубокий тип")
                     } else {
-                        s1[sp] = self.p.nfc[n / 65536][n % 65536]
+                        # push'и через first_child — стек s1 плотный (§1.5)
+                        s1[sp] = self.first_child(n)
                         s2[sp] = 0
                         sp = sp + 1
                     }
                 } else {
                     s3[f] = ret
-                    self.const_eval(
-                        self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][
-                            self.p.nfc[n / 65536][n % 65536] % 65536
-                        ]
-                    )
+                    self.const_eval(self.second_child(n))
                     let sz: u32 = self.cem_dim(65536)
                     if sz == 0 {
                         self.fail_node(n, "размер массива вне (0, 65536]")
@@ -641,7 +681,7 @@ struct Check {
                     sp = f
                 }
             } elif k == 29 {
-                self.const_eval(self.p.nfc[n / 65536][n % 65536])
+                self.const_eval(self.first_child(n))
                 let cap: u32 = self.cem_dim(256)
                 if cap == 0 {
                     self.fail_node(n, "ёмкость строки вне (0, 256]")
@@ -651,15 +691,13 @@ struct Check {
             } elif k == 30 {
                 if ph == 0 {
                     s2[f] = 1
-                    s1[sp] = self.p.nfc[n / 65536][n % 65536]
+                    s1[sp] = self.first_child(n)
                     s2[sp] = 0
                     sp = sp + 1
                 } elif ph == 1 {
                     s3[f] = ret
                     s2[f] = 2
-                    s1[sp] = self.p.nns[self.p.nfc[n / 65536][n % 65536] / 65536][
-                        self.p.nfc[n / 65536][n % 65536] % 65536
-                    ]
+                    s1[sp] = self.second_child(n)
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
@@ -669,7 +707,7 @@ struct Check {
             } elif k == 31 {
                 if ph == 0 {
                     s2[f] = 1
-                    s1[sp] = self.p.nfc[n / 65536][n % 65536]
+                    s1[sp] = self.first_child(n)
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
@@ -1108,6 +1146,7 @@ struct Check {
             if m == NONE or self.failed {
                 break
             }
+            assert m < 131072
             let nxt: u32 = self.p.nns[m / 65536][m % 65536]
             var c: u32 = self.p.nfc[s / 65536][s % 65536]
             for _ in 0..1024 {
@@ -1129,9 +1168,11 @@ struct Check {
                 if self.p.nfc[s / 65536][s % 65536] == NONE {
                     self.p.nfc[s / 65536][s % 65536] = m
                 } else {
-                    self.p.nns[self.p.nlc[s / 65536][s % 65536] / 65536][
-                        self.p.nlc[s / 65536][s % 65536] % 65536
-                    ] = m
+                    # guard — доказательство (§1.5): список непуст ⇒
+                    # nlc[s] != NONE; hoist схлопывает дырку к плотной части
+                    let lc: u32 = self.p.nlc[s / 65536][s % 65536]
+                    assert lc != NONE
+                    self.p.nns[lc / 65536][lc % 65536] = m
                 }
                 self.p.nlc[s / 65536][s % 65536] = m
             }
@@ -1140,15 +1181,21 @@ struct Check {
     }
 
     # Убрать узел e из списка деклараций программы (узел 0); prev —
-    # предыдущая декларация (NONE не встречается: struct всегда раньше).
+    # предыдущая декларация: NONE не встречается (цель extend — struct
+    # раньше по потоку), инвариант проверяется assert'ом. Ветвление по
+    # NONE и assert'ы — гигиена инвариантов пулов (OPTIMIZATIONS_PLAN
+    # §1.5): запись «дырочного» значения целиком растянула бы плотную
+    # часть инварианта nns/nlc на весь u32.
     func unlink_top(var self, e: u32, prev: u32)
         requires e < 131072
         ensures true
     {
+        assert prev < 131072
         let nxt: u32 = self.p.nns[e / 65536][e % 65536]
-        if prev == NONE {
-            self.p.nfc[0 / 65536][0 % 65536] = nxt
+        if nxt == NONE {
+            self.p.nns[prev / 65536][prev % 65536] = NONE
         } else {
+            assert nxt < 131072
             self.p.nns[prev / 65536][prev % 65536] = nxt
         }
         if self.p.nlc[0 / 65536][0 % 65536] == e {
@@ -1344,6 +1391,7 @@ struct Check {
                     if c == NONE or sp >= 64 {
                         break
                     }
+                    assert c < 131072
                     st[sp] = c
                     sp = sp + 1
                     c = self.p.nns[c / 65536][c % 65536]
@@ -1611,12 +1659,12 @@ struct Check {
             if tk == 8 or tk == 9 {
                 self.cyc_hit(tk, self.ys[t], self.yl[t])
             } elif tk == 7 or tk == 11 {
-                ts[tp] = self.ya[t]
+                ts[tp] = self.ty_a(t)
                 tp = tp + 1
             } elif tk == 10 {
-                ts[tp] = self.ya[t]
+                ts[tp] = self.ty_a(t)
                 tp = tp + 1
-                ts[tp] = self.yb[t]
+                ts[tp] = self.ty_b(t)
                 tp = tp + 1
             }
         }
@@ -1641,7 +1689,8 @@ struct Check {
         ensures true
     {
         if tk == 8 {
-            return self.find_struct(a, l)
+            let si: u32 = self.find_struct(a, l)
+            return si
         }
         let e: u32 = self.find_enum(a, l)
         if e == NONE {
@@ -1725,21 +1774,24 @@ struct Check {
             if is_stmt_kind(k) {
                 cnt = cnt + 1
             }
-            if self.p.nfc[cur / 65536][cur % 65536] != NONE and sp < 64 {
+            # hoist линков (§1.5): cur плотный, стек st чист
+            let c: u32 = self.p.nfc[cur / 65536][cur % 65536]
+            if c != NONE and sp < 64 {
                 st[sp] = cur
                 sp = sp + 1
-                cur = self.p.nfc[cur / 65536][cur % 65536]
+                cur = c
             } else {
                 var moved: bool = false
                 for _ in 0..64 {
                     if moved {
                         break
                     }
+                    let nx: u32 = self.p.nns[cur / 65536][cur % 65536]
                     if cur == root or sp == 0 {
                         done = true
                         moved = true
-                    } elif self.p.nns[cur / 65536][cur % 65536] != NONE {
-                        cur = self.p.nns[cur / 65536][cur % 65536]
+                    } elif nx != NONE {
+                        cur = nx
                         moved = true
                     } else {
                         sp = sp - 1

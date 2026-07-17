@@ -225,9 +225,12 @@ struct Parser {
         if self.nfc[p / 65536][p % 65536] == NONE {
             self.nfc[p / 65536][p % 65536] = c
         } else {
-            self.nns[self.nlc[p / 65536][p % 65536] / 65536][
-                self.nlc[p / 65536][p % 65536] % 65536
-            ] = c
+            # guard — доказательство (OPTIMIZATIONS_PLAN §1.5): список
+            # непуст ⇒ nlc[p] != NONE; hoist + assert схлопывают дырку
+            # инварианта пула к плотной части — банк доказан
+            let lc: u32 = self.nlc[p / 65536][p % 65536]
+            assert lc != NONE
+            self.nns[lc / 65536][lc % 65536] = c
         }
         self.nlc[p / 65536][p % 65536] = c
     }
@@ -238,16 +241,28 @@ struct Parser {
         requires s < 131072 and f < 131072
         ensures true
     {
+        # Записи линков ветвятся по NONE (гигиена пулов, §1.5): копия
+        # «дырочного» значения одной строкой отравила бы инвариант nns.
         let last: u32 = self.nx[s / 65536][s % 65536]
         if last == NONE {
             let head: u32 = self.nfc[s / 65536][s % 65536]
-            self.nns[f / 65536][f % 65536] = head
-            self.nfc[s / 65536][s % 65536] = f
             if head == NONE {
+                self.nns[f / 65536][f % 65536] = NONE
+                self.nfc[s / 65536][s % 65536] = f
                 self.nlc[s / 65536][s % 65536] = f
+            } else {
+                assert head < 131072
+                self.nns[f / 65536][f % 65536] = head
+                self.nfc[s / 65536][s % 65536] = f
             }
         } else {
-            self.nns[f / 65536][f % 65536] = self.nns[last / 65536][last % 65536]
+            let nxt: u32 = self.nns[last / 65536][last % 65536]
+            if nxt == NONE {
+                self.nns[f / 65536][f % 65536] = NONE
+            } else {
+                assert nxt < 131072
+                self.nns[f / 65536][f % 65536] = nxt
+            }
             self.nns[last / 65536][last % 65536] = f
             if self.nlc[s / 65536][s % 65536] == last {
                 self.nlc[s / 65536][s % 65536] = f
@@ -268,8 +283,21 @@ struct Parser {
         }
         self.fk[self.nf] = k
         self.fp[self.nf] = ph
-        self.fnod[self.nf] = node
-        self.fat[self.nf] = att
+        # Гигиена пулов (§1.5): node/att — «узел или NONE»; ветвление
+        # держит инварианты fnod/fat плотными (∪ {NONE}), assert —
+        # доказательство для всех последующих чтений кадра.
+        if node == NONE {
+            self.fnod[self.nf] = NONE
+        } else {
+            assert node < 131072
+            self.fnod[self.nf] = node
+        }
+        if att == NONE {
+            self.fat[self.nf] = NONE
+        } else {
+            assert att < 131072
+            self.fat[self.nf] = att
+        }
         self.fx[self.nf] = x
         self.nf = self.nf + 1
     }
@@ -279,6 +307,17 @@ struct Parser {
         ensures true
     {
         self.fp[self.nf - 1] = ph
+    }
+
+    # Узел кадра f: guard — доказательство (§1.5), у кадров операторов
+    # и деклараций узел есть всегда (NONE — только у кадров expr/type).
+    func frame_node(var self, f: u32) -> u32
+        requires f < 64
+        ensures result < 131072
+    {
+        let nd: u32 = self.fnod[f]
+        assert nd != NONE
+        return nd
     }
 
     # Завершение кадра: узел прикрепляется к цели и попадает в ret.
@@ -667,7 +706,7 @@ struct Parser {
             return
         }
         self.advance()
-        self.append_child(self.fnod[f], p)
+        self.append_child(self.frame_node(f), p)
         self.fx[f] = self.fx[f] + 256
         self.fp[f] = 6
         self.start_type(p)
@@ -687,14 +726,15 @@ struct Parser {
             self.fail("self (var в параметрах — только у self)")
             return
         }
-        if self.fx[f] % 2 == 0 or self.nfc[self.fnod[f] / 65536][self.fnod[f] % 65536] != NONE {
+        let nd: u32 = self.frame_node(f)
+        if self.fx[f] % 2 == 0 or self.nfc[nd / 65536][nd % 65536] != NONE {
             self.fail("self допустим только первым параметром метода struct")
             return
         }
         let p: u32 = self.alloc(7, self.t_line(), self.t_col())
         self.nx[p / 65536][p % 65536] = mut
         self.advance()
-        self.append_child(self.fnod[f], p)
+        self.append_child(self.frame_node(f), p)
         self.fx[f] = self.fx[f] + 256
         if self.tk_at() == 43 {
             self.advance()
@@ -726,7 +766,7 @@ struct Parser {
         if self.tk_at() == 48 {
             self.advance()
             let w: u32 = self.alloc(8, 0, 0)
-            self.append_child(self.fnod[f], w)
+            self.append_child(self.frame_node(f), w)
             self.fp[f] = 3
             self.start_type(w)
         } else {
@@ -743,7 +783,7 @@ struct Parser {
         if self.tk_at() == 21 {
             self.advance()
             let w: u32 = self.alloc(9, 0, 0)
-            self.append_child(self.fnod[f], w)
+            self.append_child(self.frame_node(f), w)
             self.fp[f] = 5
             self.push_expr(w, 1, 0)
         } else {
@@ -759,7 +799,7 @@ struct Parser {
         if self.tk_at() == 22 {
             self.advance()
             let w: u32 = self.alloc(10, 0, 0)
-            self.append_child(self.fnod[f], w)
+            self.append_child(self.frame_node(f), w)
             self.fp[f] = 8
             self.push_expr(w, 1, 0)
         } else {
@@ -1244,7 +1284,7 @@ struct Parser {
             self.fail("discard применим только к вызову функции")
             return
         }
-        self.append_child(self.fnod[self.nf - 1], self.ret)
+        self.append_child(self.frame_node(self.nf - 1), self.ret)
         self.end_of_stmt()
         self.complete()
     }
@@ -1540,791 +1580,6 @@ struct Parser {
         ensures true
     {
         self.complete()
-    }
-
-    # --- машина выражений (шунтинг-ярд) --------------------------------
-
-    func push_expr(var self, att: u32, allow: u32, lvl: u32)
-        requires allow <= 1 and lvl <= 1
-        ensures true
-    {
-        self.push_frame(4, 0, NONE, att, allow + lvl * 2)
-    }
-
-    func step_expr(var self)
-        requires true
-        ensures true
-    {
-        if self.fp[self.nf - 1] == 0 {
-            self.expr_operand()
-        } else {
-            self.expr_infix()
-        }
-    }
-
-    func push_opnd(var self, n: u32)
-        requires n < 131072
-        ensures true
-    {
-        if self.nos >= 64 {
-            self.fail("превышен предел: глубина выражения")
-            return
-        }
-        self.opnd[self.nos] = n
-        self.nos = self.nos + 1
-    }
-
-    func pop_opnd(var self) -> u32
-        requires true
-        ensures result < 131072
-    {
-        if self.nos == 0 {
-            self.fail("внутренняя ошибка: пустой стек операндов")
-            return 0
-        }
-        self.nos = self.nos - 1
-        return self.opnd[self.nos]
-    }
-
-    func push_oper(var self, k: u32, a: u32, fl: u32, ln: u32, cl: u32)
-        requires k <= 8
-        ensures true
-    {
-        if self.nop >= 64 {
-            self.fail("превышен предел: глубина выражения")
-            return
-        }
-        self.pk[self.nop] = k
-        self.pa[self.nop] = a
-        self.pb[self.nop] = 0
-        self.pc2[self.nop] = 0
-        self.pd2[self.nop] = 0
-        self.pfl[self.nop] = fl
-        self.pln[self.nop] = ln
-        self.pcl[self.nop] = cl
-        self.nop = self.nop + 1
-    }
-
-    # Текущие флаги уровня: верхняя запись стека, иначе базовые кадра.
-    func cur_flags(var self) -> u32
-        requires true
-        ensures true
-    {
-        if self.nop > 0 {
-            return self.pfl[self.nop - 1]
-        }
-        return self.fx[self.nf - 1]
-    }
-
-    # Ближайший сентинель (вид) — NONE, если стек без сентинелей.
-    func top_sent(var self) -> u32
-        requires true
-        ensures true
-    {
-        var found: u32 = NONE
-        for d in 0..64 {
-            if d >= self.nop or found != NONE {
-                break
-            }
-            let e: u32 = self.nop - 1 - d
-            if self.pk[e] <= 7 {
-                found = self.pk[e]
-            }
-        }
-        return found
-    }
-
-    # Свернуть одну операцию с вершины стека.
-    func reduce_one(var self)
-        requires self.nop >= 1
-        ensures true
-    {
-        let e: u32 = self.nop - 1
-        self.nop = e
-        let code: u32 = self.pa[e]
-        let ln: u32 = self.pln[e]
-        let cl: u32 = self.pcl[e]
-        if code == 15 {
-            let v: u32 = self.pop_opnd()
-            if self.failed {
-                return
-            }
-            if self.nk[v / 65536][v % 65536] == 32 {
-                # -литерал — одно число (иначе INT_MIN невыразим)
-                if self.nx[v / 65536][v % 65536] > 0 or self.nxh[v / 65536][v % 65536] > 0 {
-                    self.ny[v / 65536][v % 65536] = 1 - self.ny[v / 65536][v % 65536]
-                }
-                self.nl[v / 65536][v % 65536] = ln
-                self.nc[v / 65536][v % 65536] = cl
-                self.push_opnd(v)
-            } else {
-                let un: u32 = self.alloc(40, ln, cl)
-                self.nx[un / 65536][un % 65536] = 15
-                self.append_child(un, v)
-                self.push_opnd(un)
-            }
-            return
-        }
-        if code == 3 or code == 21 {
-            let v2: u32 = self.pop_opnd()
-            let un2: u32 = self.alloc(40, ln, cl)
-            self.nx[un2 / 65536][un2 % 65536] = code
-            self.append_child(un2, v2)
-            self.push_opnd(un2)
-            return
-        }
-        let bn: u32 = self.alloc(39, ln, cl)
-        self.nx[bn / 65536][bn % 65536] = code
-        let r: u32 = self.pop_opnd()
-        let l: u32 = self.pop_opnd()
-        self.append_child(bn, l)
-        self.append_child(bn, r)
-        self.push_opnd(bn)
-    }
-
-    func reduce_ge(var self, p: u32)
-        requires true
-        ensures true
-    {
-        var more: bool = true
-        for _ in 0..64 {
-            if self.nop == 0 or self.failed or not more {
-                break
-            }
-            let e: u32 = self.nop - 1
-            more = false
-            if self.pk[e] == 8 {
-                if prec_of(self.pa[e]) >= p {
-                    self.reduce_one()
-                    more = true
-                }
-            }
-        }
-    }
-
-    func reduce_gt(var self, p: u32)
-        requires true
-        ensures true
-    {
-        var more: bool = true
-        for _ in 0..64 {
-            if self.nop == 0 or self.failed or not more {
-                break
-            }
-            let e: u32 = self.nop - 1
-            more = false
-            if self.pk[e] == 8 {
-                if prec_of(self.pa[e]) > p {
-                    self.reduce_one()
-                    more = true
-                }
-            }
-        }
-    }
-
-    # Свернуть все операции до ближайшего сентинеля.
-    func reduce_sent(var self)
-        requires true
-        ensures true
-    {
-        var more: bool = true
-        for _ in 0..64 {
-            if self.nop == 0 or self.failed or not more {
-                break
-            }
-            if self.pk[self.nop - 1] == 8 {
-                self.reduce_one()
-            } else {
-                more = false
-            }
-        }
-    }
-
-    # Выражение окончено: свернуть всё; незакрытый сентинель — ошибка.
-    func end_expr(var self)
-        requires true
-        ensures true
-    {
-        self.reduce_sent()
-        if self.failed {
-            return
-        }
-        if self.nop > 0 {
-            self.sent_error(self.pk[self.nop - 1])
-            return
-        }
-        if self.nos != 1 {
-            self.fail("ожидалось выражение")
-            return
-        }
-        let node: u32 = self.pop_opnd()
-        self.fnod[self.nf - 1] = node
-        self.complete()
-    }
-
-    func sent_error(var self, k: u32)
-        requires true
-        ensures true
-    {
-        if k == 0 or k == 1 or k == 2 {
-            self.fail("ожидалось ')'")
-        } elif k == 3 or k == 4 or k == 5 {
-            self.fail("ожидалось ']'")
-        } elif k == 6 {
-            self.fail("ожидалось имя поля или '}}'")
-        } else {
-            self.fail("лишние символы в интерполяции строки")
-        }
-    }
-
-    # --- позиция операнда --------------------------------------------------
-
-    func expr_operand(var self)
-        requires true
-        ensures true
-    {
-        let k: u32 = self.tk_at()
-        let ln: u32 = self.t_line()
-        let cl: u32 = self.t_col()
-        if k == 0 {
-            let mag: u64 = self.tok_u64()
-            let n: u32 = self.alloc(32, ln, cl)
-            self.nx[n / 65536][n % 65536] = u32(mag & 4294967295)
-            self.nxh[n / 65536][n % 65536] = u32(mag >> 32)
-            self.advance()
-            self.push_opnd(n)
-            self.set_phase(1)
-        } elif k == 25 or k == 26 {
-            let n2: u32 = self.alloc(33, ln, cl)
-            if k == 25 {
-                self.nx[n2 / 65536][n2 % 65536] = 1
-            }
-            self.advance()
-            self.push_opnd(n2)
-            self.set_phase(1)
-        } elif k == 2 {
-            let n3: u32 = self.alloc(34, ln, cl)
-            self.set_str(n3, self.cur)
-            self.advance()
-            self.push_opnd(n3)
-            self.set_phase(1)
-        } elif k == 1 {
-            self.expr_op_string()
-        } elif k == 24 {
-            let n4: u32 = self.alloc(38, ln, cl)
-            self.advance()
-            self.push_opnd(n4)
-            self.set_phase(1)
-        } elif k == 3 {
-            self.expr_op_ident()
-        } elif k == 30 {
-            self.advance()
-            self.push_oper(0, 0, 1, ln, cl)
-        } elif k == 34 {
-            self.advance()
-            if self.tk_at() == 35 {
-                self.fail("литерал массива не может быть пустым")
-                return
-            }
-            let n5: u32 = self.alloc(47, ln, cl)
-            self.push_oper(4, n5, self.cur_flags() % 2, ln, cl)
-        } elif k == 50 {
-            self.push_oper(8, 15, self.cur_flags(), ln, cl)
-            self.advance()
-        } elif k == 61 {
-            self.push_oper(8, 21, self.cur_flags(), ln, cl)
-            self.advance()
-        } elif k == 29 {
-            if not self.expr_not_ok() {
-                self.fail("ожидалось выражение, найдено not")
-                return
-            }
-            self.push_oper(8, 3, self.cur_flags(), ln, cl)
-            self.advance()
-        } else {
-            self.fail("ожидалось выражение")
-        }
-    }
-
-    # `not` допустим там, где его принял бы parse_not эталона:
-    # в начале выражения, после or/and или после сентинеля.
-    func expr_not_ok(var self) -> bool
-        requires true
-        ensures true
-    {
-        if self.nop == 0 {
-            return true
-        }
-        let e: u32 = self.nop - 1
-        if self.pk[e] <= 7 {
-            return true
-        }
-        let c: u32 = self.pa[e]
-        return c == 1 or c == 2
-    }
-
-    func expr_op_ident(var self)
-        requires true
-        ensures true
-    {
-        let ln: u32 = self.t_line()
-        let cl: u32 = self.t_col()
-        let ti: u32 = self.cur
-        self.advance()
-        let k2: u32 = self.tk_at()
-        if k2 == 30 {
-            self.advance()
-            let cn: u32 = self.alloc(41, ln, cl)
-            self.set_str(cn, ti)
-            if self.tk_at() == 31 {
-                self.advance()
-                self.push_opnd(cn)
-                self.set_phase(1)
-            } else {
-                self.push_oper(1, cn, 1, ln, cl)
-            }
-            return
-        }
-        if k2 == 32 and self.cur_flags() % 2 == 1 {
-            self.advance()
-            let sn: u32 = self.alloc(45, ln, cl)
-            self.set_str(sn, ti)
-            self.skip_nl()
-            if self.tk_at() == 33 {
-                self.advance()
-                self.push_opnd(sn)
-                self.set_phase(1)
-                return
-            }
-            self.push_oper(6, sn, 1, ln, cl)
-            self.slit_after()
-            return
-        }
-        let nn: u32 = self.alloc(37, ln, cl)
-        self.set_str(nn, ti)
-        self.push_opnd(nn)
-        self.set_phase(1)
-    }
-
-    # STRING: строка без скобок — один литеральный сегмент; со скобками —
-    # сегменты из прохода интерполяции, выражения парсятся из под-регионов
-    # пула токенов через SEG-сентинель (прыжок курсора туда и обратно).
-    func expr_op_string(var self)
-        requires true
-        ensures true
-    {
-        let ti: u32 = self.cur
-        let node: u32 = self.alloc(35, self.t_line(), self.t_col())
-        self.advance()
-        let sg: u32 = self.lex.tok_sg(ti)
-        if sg == NONE {
-            if self.lex.tok_vl(ti) > 0 {
-                let seg: u32 = self.alloc(36, 0, 0)
-                self.nss[seg / 65536][seg % 65536] = self.lex.tok_vs(ti)
-                self.nsl[seg / 65536][seg % 65536] = self.lex.tok_vl(ti)
-                self.append_child(node, seg)
-            }
-            self.push_opnd(node)
-            self.set_phase(1)
-            return
-        }
-        let send: u32 = sg + self.lex.tok_ns(ti)
-        let nxt: u32 = self.seg_scan(node, sg, send)
-        if nxt == NONE {
-            self.push_opnd(node)
-            self.set_phase(1)
-        } else {
-            self.push_oper(7, node, 1, 0, 0)
-            self.pb[self.nop - 1] = self.cur
-            self.pc2[self.nop - 1] = nxt
-            self.pd2[self.nop - 1] = send
-            self.cur = self.lex.sga[nxt]
-        }
-    }
-
-    # Прикрепить литеральные сегменты от si; вернуть индекс следующего
-    # сегмента-выражения (NONE, если сегменты кончились).
-    func seg_scan(var self, node: u32, si: u32, send: u32) -> u32
-        requires node < 131072
-        ensures true
-    {
-        var nxt: u32 = NONE
-        var i: u32 = si
-        for _ in 0..2048 {
-            if i >= send or nxt != NONE {
-                break
-            }
-            if self.lex.sgk[i] == 0 {
-                let sn: u32 = self.alloc(36, 0, 0)
-                self.nss[sn / 65536][sn % 65536] = self.lex.sga[i]
-                self.nsl[sn / 65536][sn % 65536] = self.lex.sgb[i]
-                self.append_child(node, sn)
-                i = i + 1
-            } else {
-                nxt = i
-            }
-        }
-        return nxt
-    }
-
-    # Под-выражение сегмента готово (курсор на EOF под-региона).
-    func seg_complete(var self)
-        requires true
-        ensures true
-    {
-        self.reduce_sent()
-        if self.failed {
-            return
-        }
-        if self.nop == 0 or self.pk[self.nop - 1] != 7 {
-            self.fail("лишние символы в интерполяции строки")
-            return
-        }
-        let e: u32 = self.nop - 1
-        let node: u32 = self.pa[e]
-        let val: u32 = self.pop_opnd()
-        self.append_child(node, val)
-        let nxt: u32 = self.seg_scan(node, self.pc2[e] + 1, self.pd2[e])
-        if nxt == NONE {
-            self.cur = self.pb[e]
-            self.nop = e
-            self.push_opnd(node)
-            self.set_phase(1)
-        } else {
-            self.pc2[e] = nxt
-            self.cur = self.lex.sga[nxt]
-            self.set_phase(0)
-        }
-    }
-
-    # --- позиция после операнда ------------------------------------------
-
-    func expr_infix(var self)
-        requires true
-        ensures true
-    {
-        let k: u32 = self.tk_at()
-        let oc: u32 = tok2op(k)
-        if oc != 0 {
-            self.expr_binop(oc)
-            return
-        }
-        if k == 46 {
-            self.expr_dot()
-            return
-        }
-        if k == 34 {
-            self.expr_index()
-            return
-        }
-        if k == 43 {
-            self.expr_comma()
-            return
-        }
-        if k == 31 {
-            self.expr_rparen()
-            return
-        }
-        if k == 35 {
-            self.expr_rbracket()
-            return
-        }
-        if k == 45 {
-            self.expr_semi()
-            return
-        }
-        if k == 33 {
-            self.expr_rbrace()
-            return
-        }
-        if k == 54 {
-            self.expr_newline()
-            return
-        }
-        if k == 55 {
-            if self.top_sent() == 7 {
-                self.seg_complete()
-                return
-            }
-        }
-        self.end_expr()
-    }
-
-    func expr_binop(var self, oc: u32)
-        requires oc >= 1 and oc <= 20
-        ensures true
-    {
-        let fl: u32 = self.cur_flags()
-        let p: u32 = prec_of(oc)
-        if fl / 2 % 2 == 1 and p < 9 {
-            # const-выражение: только + - * / %
-            self.end_expr()
-            return
-        }
-        if p == 4 {
-            self.reduce_gt(4)
-            if self.nop > 0 {
-                let e: u32 = self.nop - 1
-                if self.pk[e] == 8 {
-                    if prec_of(self.pa[e]) == 4 {
-                        # сравнение неассоциативно — выражение окончено
-                        self.end_expr()
-                        return
-                    }
-                }
-            }
-        } else {
-            self.reduce_ge(p)
-        }
-        self.push_oper(8, oc, self.cur_flags(), self.t_line(), self.t_col())
-        self.advance()
-        self.set_phase(0)
-    }
-
-    func expr_dot(var self)
-        requires true
-        ensures true
-    {
-        self.advance()
-        if self.tk_at() != 3 {
-            self.fail("ожидалось имя поля или метода")
-            return
-        }
-        let ln: u32 = self.t_line()
-        let cl: u32 = self.t_col()
-        let ti: u32 = self.cur
-        self.advance()
-        if self.tk_at() == 30 {
-            self.advance()
-            let m: u32 = self.alloc(42, ln, cl)
-            self.set_str(m, ti)
-            let obj: u32 = self.pop_opnd()
-            self.append_child(m, obj)
-            if self.tk_at() == 31 {
-                self.advance()
-                self.push_opnd(m)
-            } else {
-                self.push_oper(2, m, 1, ln, cl)
-                self.set_phase(0)
-            }
-            return
-        }
-        let mem: u32 = self.alloc(43, ln, cl)
-        self.set_str(mem, ti)
-        let obj2: u32 = self.pop_opnd()
-        self.append_child(mem, obj2)
-        self.push_opnd(mem)
-    }
-
-    func expr_index(var self)
-        requires true
-        ensures true
-    {
-        let ln: u32 = self.t_line()
-        let cl: u32 = self.t_col()
-        self.advance()
-        let n: u32 = self.alloc(44, ln, cl)
-        let obj: u32 = self.pop_opnd()
-        self.append_child(n, obj)
-        self.push_oper(3, n, self.cur_flags() % 2, ln, cl)
-        self.set_phase(0)
-    }
-
-    func expr_comma(var self)
-        requires true
-        ensures true
-    {
-        let ts: u32 = self.top_sent()
-        if ts == 1 or ts == 2 {
-            self.reduce_sent()
-            let e: u32 = self.nop - 1
-            let arg: u32 = self.pop_opnd()
-            self.append_child(self.pa[e], arg)
-            self.advance()
-            if self.tk_at() == 31 {
-                self.advance()
-                self.nop = e
-                self.push_opnd(self.pa[e])
-                self.set_phase(1)
-            } else {
-                self.set_phase(0)
-            }
-            return
-        }
-        if ts == 4 {
-            self.reduce_sent()
-            let e2: u32 = self.nop - 1
-            let el: u32 = self.pop_opnd()
-            self.append_child(self.pa[e2], el)
-            self.advance()
-            if self.tk_at() == 35 {
-                self.advance()
-                self.nop = e2
-                self.push_opnd(self.pa[e2])
-                self.set_phase(1)
-            } else {
-                self.set_phase(0)
-            }
-            return
-        }
-        if ts == 6 {
-            self.reduce_sent()
-            self.slit_value_done()
-            self.advance()
-            self.skip_nl()
-            self.slit_after()
-            return
-        }
-        self.end_expr()
-    }
-
-    # Значение поля struct-литерала готово: прикрепить к последнему fld.
-    func slit_value_done(var self)
-        requires true
-        ensures true
-    {
-        let e: u32 = self.nop - 1
-        let val: u32 = self.pop_opnd()
-        self.append_child(self.nlc[self.pa[e] / 65536][self.pa[e] % 65536], val)
-    }
-
-    # После значения поля: '}' закрывает литерал, иначе — новое поле.
-    func slit_after(var self)
-        requires true
-        ensures true
-    {
-        if self.tk_at() == 33 {
-            self.advance()
-            let e: u32 = self.nop - 1
-            let sl: u32 = self.pa[e]
-            self.nop = e
-            self.push_opnd(sl)
-            self.set_phase(1)
-            return
-        }
-        if self.tk_at() != 3 {
-            self.fail("ожидалось имя поля")
-            return
-        }
-        let fld: u32 = self.alloc(46, 0, 0)
-        self.set_str(fld, self.cur)
-        self.advance()
-        let e2: u32 = self.nop - 1
-        self.append_child(self.pa[e2], fld)
-        if self.tk_at() != 44 {
-            self.fail("ожидалось ':' после имени поля")
-            return
-        }
-        self.advance()
-        self.set_phase(0)
-    }
-
-    func expr_rparen(var self)
-        requires true
-        ensures true
-    {
-        let ts: u32 = self.top_sent()
-        if ts == 0 {
-            self.reduce_sent()
-            self.nop = self.nop - 1
-            self.advance()
-            return
-        }
-        if ts == 1 or ts == 2 {
-            self.reduce_sent()
-            let e: u32 = self.nop - 1
-            let arg: u32 = self.pop_opnd()
-            self.append_child(self.pa[e], arg)
-            self.advance()
-            self.nop = e
-            self.push_opnd(self.pa[e])
-            return
-        }
-        self.end_expr()
-    }
-
-    func expr_rbracket(var self)
-        requires true
-        ensures true
-    {
-        let ts: u32 = self.top_sent()
-        if ts == 3 or ts == 4 or ts == 5 {
-            self.reduce_sent()
-            let e: u32 = self.nop - 1
-            let v: u32 = self.pop_opnd()
-            self.append_child(self.pa[e], v)
-            self.advance()
-            self.nop = e
-            self.push_opnd(self.pa[e])
-            return
-        }
-        self.end_expr()
-    }
-
-    # `[значение; N]` — литерал заполнения: ARR-сентинель становится FILL.
-    func expr_semi(var self)
-        requires true
-        ensures true
-    {
-        let ts: u32 = self.top_sent()
-        if ts == 4 {
-            self.reduce_sent()
-            let e: u32 = self.nop - 1
-            if self.pk[e] == 4 and self.nfc[self.pa[e] / 65536][self.pa[e] % 65536] == NONE {
-                let fill: u32 = self.alloc(48, self.pln[e], self.pcl[e])
-                let v: u32 = self.pop_opnd()
-                self.append_child(fill, v)
-                self.pk[e] = 5
-                self.pa[e] = fill
-                self.pfl[e] = self.pfl[e] % 2 + 2
-                self.advance()
-                self.set_phase(0)
-                return
-            }
-        }
-        self.end_expr()
-    }
-
-    func expr_rbrace(var self)
-        requires true
-        ensures true
-    {
-        if self.top_sent() == 6 {
-            self.reduce_sent()
-            self.slit_value_done()
-            self.advance()
-            let e: u32 = self.nop - 1
-            let sl: u32 = self.pa[e]
-            self.nop = e
-            self.push_opnd(sl)
-            self.set_phase(1)
-            return
-        }
-        self.end_expr()
-    }
-
-    func expr_newline(var self)
-        requires true
-        ensures true
-    {
-        let ts: u32 = self.top_sent()
-        if ts == 6 {
-            # значение поля закончилось переводом строки
-            self.reduce_sent()
-            self.slit_value_done()
-            self.advance()
-            if self.tk_at() == 43 {
-                self.advance()
-                self.skip_nl()
-            }
-            self.slit_after()
-            return
-        }
-        if ts == 7 {
-            self.advance()
-            return
-        }
-        self.end_expr()
     }
 
     # --- дамп AST -----------------------------------------------------------

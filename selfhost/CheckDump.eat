@@ -63,7 +63,7 @@ extend Check {
                 if ph == 0 {
                     write("[")
                     s2[f] = 1
-                    s1[sp] = self.ya[t]
+                    s1[sp] = self.ty_a(t)
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
@@ -77,13 +77,13 @@ extend Check {
                 if ph == 0 {
                     write("Result<")
                     s2[f] = 1
-                    s1[sp] = self.ya[t]
+                    s1[sp] = self.ty_a(t)
                     s2[sp] = 0
                     sp = sp + 1
                 } elif ph == 1 {
                     write(", ")
                     s2[f] = 2
-                    s1[sp] = self.yb[t]
+                    s1[sp] = self.ty_b(t)
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
@@ -94,7 +94,7 @@ extend Check {
                 if ph == 0 {
                     write("Option<")
                     s2[f] = 1
-                    s1[sp] = self.ya[t]
+                    s1[sp] = self.ty_a(t)
                     s2[sp] = 0
                     sp = sp + 1
                 } else {
@@ -399,7 +399,7 @@ extend Check {
     # --- рёбра графа вызовов ------------------------------------------------
 
     func add_edge(var self, c: u32, d: u32)
-        requires true
+        requires d < 1024
         ensures true
     {
         var dup: bool = false
@@ -584,22 +584,25 @@ extend Check {
                 break
             }
             self.tprint(cur, dpt)
-            if self.p.nfc[cur / 65536][cur % 65536] != NONE and sp < 64 {
+            # hoist линков (§1.5): cur остаётся плотным, стек st чист
+            let c: u32 = self.p.nfc[cur / 65536][cur % 65536]
+            if c != NONE and sp < 64 {
                 st[sp] = cur
                 sp = sp + 1
                 dpt = dpt + 1
-                cur = self.p.nfc[cur / 65536][cur % 65536]
+                cur = c
             } else {
                 var moved: bool = false
                 for _ in 0..64 {
                     if moved {
                         break
                     }
+                    let nx: u32 = self.p.nns[cur / 65536][cur % 65536]
                     if sp == 0 {
                         done = true
                         moved = true
-                    } elif self.p.nns[cur / 65536][cur % 65536] != NONE {
-                        cur = self.p.nns[cur / 65536][cur % 65536]
+                    } elif nx != NONE {
+                        cur = nx
                         moved = true
                     } else {
                         sp = sp - 1

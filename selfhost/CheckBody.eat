@@ -1345,10 +1345,30 @@ extend Check {
         }
         self.qk2[self.nq] = k
         self.qn[self.nq] = node
-        self.qp[self.nq] = cursor
+        # гигиена пула qp (§1.5): курсор — «узел или NONE», ветвление
+        # держит инвариант плотным, assert — доказательство чтений
+        if cursor == NONE {
+            self.qp[self.nq] = NONE
+        } else {
+            assert cursor < 131072
+            self.qp[self.nq] = cursor
+        }
         self.qx[self.nq] = aux
         self.qy[self.nq] = NONE
         self.nq = self.nq + 1
+    }
+
+    # Сдвиг курсора кадра f на следующего брата cur: гигиена qp (§1.5).
+    func qp_next(var self, f: u32, cur: u32)
+        requires f < 128 and cur < 131072
+        ensures true
+    {
+        let nx: u32 = self.p.nns[cur / 65536][cur % 65536]
+        if nx == NONE {
+            self.qp[f] = NONE
+        } else {
+            self.qp[f] = nx
+        }
     }
 
     func start_block_frame(var self, body: u32, ns: u32)
@@ -1446,7 +1466,7 @@ extend Check {
             self.fail_node(cur, "недостижимый код после return/break (правило 10)")
             return
         }
-        self.qp[f] = self.p.nns[cur / 65536][cur % 65536]
+        self.qp_next(f, cur)
         self.qy[f] = cur
         self.check_stmt(cur)
     }
@@ -1598,7 +1618,7 @@ extend Check {
             self.nq = f
             return
         }
-        self.qp[f] = self.p.nns[cur / 65536][cur % 65536]
+        self.qp_next(f, cur)
         let k: u32 = self.p.nk[cur / 65536][cur % 65536]
         if k == 12 {
             self.start_block_frame(cur, 1)
@@ -1812,7 +1832,9 @@ extend Check {
         if self.qy[f] == 1 {
             self.pop_scope()
             self.qy[f] = NONE
-            self.qp[f] = self.p.nns[self.qp[f] / 65536][self.qp[f] % 65536]
+            let c2: u32 = self.qp[f]
+            assert c2 != NONE
+            self.qp_next(f, c2)
             return
         }
         let cur: u32 = self.qp[f]
