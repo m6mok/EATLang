@@ -189,14 +189,23 @@ def build_eat(name, stem, libs, rep):
     """Штатный eatc build: доказанные проверки сняты верификатором."""
     src = scaled("eat", PROGRAMS / f"{name}.eat", rep)
     bin_ = OUT / f"{stem}_eat_r{rep}"
-    secs = timed_build(eatc("build", RT, *libs, src, "-o", bin_))
+    if libs == "driver":
+        secs = timed_build(eatc("build", "--lib", ROOT, src, "-o", bin_))
+    else:
+        secs = timed_build(eatc("build", RT, *libs, src, "-o", bin_))
     return [bin_], bin_, secs
 
 
 def eat_cat(name, stem, libs, rep):
-    """Конкатенация Rt + lib + программа — вход одно-файловых команд."""
+    """Конкатенация Rt + lib + программа — вход одно-файловых команд.
+    В драйверном режиме ("driver") поток с #module-маркерами собирает
+    eatc stream — вручную склеенный cat не разрешил бы import-шапки."""
     src = scaled("eat", PROGRAMS / f"{name}.eat", rep)
     cat = OUT / f"{stem}_eatcat_r{rep}.eat"
+    if libs == "driver":
+        p = sh(eatc("stream", "--lib", ROOT, src), capture=True)
+        cat.write_bytes(p.stdout)
+        return cat
     parts = [RT.read_text(encoding="utf-8")]
     parts += [(ROOT / lib).read_text(encoding="utf-8") for lib in libs]
     parts.append(src.read_text(encoding="utf-8"))

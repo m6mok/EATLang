@@ -1,0 +1,59 @@
+# Нагрузочный тест: деление 128 бит lib/U128.eat — полное сдвиговое
+# divrem (всегда ровно 128 итераций) и быстрый divrem_32 (4 шага по
+# лимбам). Делимое — из двух LCG-слов < 2^48 (u64-арифметика без
+# trap, приём U64Bench), делитель 64-битный — профиль клиентов:
+# Q32.32/Deci6 делят на raw, печать — на 10. Базовая порция —
+# 400 полных + 4000 быстрых делений; REPEAT масштабирует.
+
+import {
+    u128,
+    u128_hi_lo,
+    U128DivRem,
+} from "lib/U128.eat"
+
+const REPEAT: u32 = 1
+
+func lcg(x: u64) -> u64
+    requires x < 281474976710656
+    ensures result < 281474976710656
+{
+    return (x * 31 + 7) % 281474976710656
+}
+
+func work(seed: u64) -> u64
+    requires seed < 65536
+    ensures true
+{
+    var x: u64 = seed + 3
+    var acc: u64 = 0
+    for _ in 0..400 {
+        x = lcg(x)
+        let hi: u64 = x
+        x = lcg(x)
+        let lo: u64 = x
+        x = lcg(x)
+        let d: u64 = x | 1
+        let dr: U128DivRem = u128_hi_lo(hi, lo).divrem(u128(d))
+        acc = acc ^ dr.q.lo64() ^ dr.q.hi64() ^ dr.r.lo64()
+    }
+    for _ in 0..4000 {
+        x = lcg(x)
+        let hi: u64 = x
+        x = lcg(x)
+        let lo: u64 = x
+        x = lcg(x)
+        let d32: u64 = (x & 4294967295) | 1
+        let dr: U128DivRem = u128_hi_lo(hi, lo).divrem_32(d32)
+        acc = acc ^ dr.q.lo64() ^ dr.q.hi64() ^ dr.r.lo64()
+    }
+    return acc % 65536
+}
+
+func main() {
+    var acc: u64 = 7
+    for _ in 0..REPEAT {
+        acc = work(acc)
+    }
+    let c: u32 = u32(acc)
+    print("checksum {c}")
+}

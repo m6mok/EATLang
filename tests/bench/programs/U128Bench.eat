@@ -1,0 +1,45 @@
+# Нагрузочный тест: 128-битная арифметика lib/U128.eat (вид U128,
+# вариант A — программные 32-битные лимбы в u64). Крипто/PRNG-профиль
+# без деления: шаг LCG128 state = state*MUL + INC mod 2^128 (константы
+# PCG64), точное произведение mul_64 и свёртка выборкой битов. Базовая
+# порция — 20 000 шагов; REPEAT масштабирует. Цена против нативного
+# 128-бит — порты crosslang (u128); замер — гейт этапа 4 U128_PLAN
+# (intrinsics только по замеру).
+
+import {
+    U128,
+    u128,
+    u128_hi_lo,
+    mul_64,
+} from "lib/U128.eat"
+
+const REPEAT: u32 = 1
+
+func work(seed: u64) -> u64
+    requires seed < 65536
+    ensures true
+{
+    let mc: U128 = u128_hi_lo(2549297995355413924, 4865540595714422341)
+    let inc: U128 = u128(1442695040888963407)
+    var s: U128 = u128_hi_lo(seed, 11634580027462260723)
+    var acc: u64 = 0
+    for _ in 0..20 {
+        for _ in 0..1000 {
+            s = s.mul_wrap(mc).add_wrap(inc)
+            let hi: u64 = s.hi64()
+            let lo: u64 = s.lo64()
+            let p: U128 = mul_64(hi ^ acc, lo | 1)
+            acc = acc ^ p.hi64() ^ (p.lo64() >> 7)
+        }
+    }
+    return acc % 65536
+}
+
+func main() {
+    var acc: u64 = 7
+    for _ in 0..REPEAT {
+        acc = work(acc)
+    }
+    let c: u32 = u32(acc)
+    print("checksum {c}")
+}

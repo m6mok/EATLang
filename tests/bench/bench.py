@@ -80,6 +80,12 @@ RUNTIME_PROGRAMS = [
     ("SortBench", 250_000, 512, 64),
     ("BranchBench", 500_000, 512, 64),
     ("MachineBench", 500_000, 512, 64),
+    # 128-битная арифметика lib/U128.eat (U128_PLAN, замер этапа 4):
+    # модуль с import-шапкой — cat-режим невозможен, сборку ведёт
+    # драйвер ("driver" → eatc --lib .). Микс — LCG128+mul_64 (крипто),
+    # деление — полный divrem (128 итераций) + divrem_32.
+    ("U128Bench", 20_000, 512, 64, "driver"),
+    ("U128DivBench", 4_400, 512, 64, "driver"),
 ]
 RUNTIME_QUICK = {"ArithBench", "StrBench", "TrapBench"}
 
@@ -275,13 +281,19 @@ def bench_runtime(quick: bool):
         if quick and name not in RUNTIME_QUICK:
             continue
         src = PROGRAMS / f"{name}.eat"
-        # доп. модули lib/ (cat-режим): между Rt и программой
-        libs = [str(ROOT / p) for p in (rest[0] if rest else [])]
+        # доп. модули lib/: cat-режим (список между Rt и программой)
+        # либо "driver" — сборка драйвером импортов (eatc --lib .)
+        mods = rest[0] if rest else []
+        if mods == "driver":
+            head, libs = ["--lib", str(ROOT)], []
+        else:
+            head = [str(RT)]
+            libs = [str(ROOT / p) for p in mods]
         text = src.read_text(encoding="utf-8")
 
         # интерпретатор: базовая порция, вывод забираем для сверки
         interp = run_timed(
-            eatc("run", str(RT), *libs, str(src)), capture=True)
+            eatc("run", *head, *libs, str(src)), capture=True)
         if interp.rc != 0:
             fail(f"runtime {name} interp: {errtail(interp.err)}")
             continue
@@ -289,7 +301,7 @@ def bench_runtime(quick: bool):
         # сборка базового варианта и дифференциальная сверка вывода
         bin_base = OUT / name
         build = run_timed(
-            eatc("build", str(RT), *libs, str(src), "-o", str(bin_base)))
+            eatc("build", *head, *libs, str(src), "-o", str(bin_base)))
         if build.rc != 0:
             fail(f"runtime {name} build: {errtail(build.err)}")
             continue
@@ -307,7 +319,7 @@ def bench_runtime(quick: bool):
         xl_src.write_text(text.replace(
             marker, f"const REPEAT: u32 = {rep}"), encoding="utf-8")
         bin_xl = OUT / f"{name}XL"
-        bxl = run_timed(eatc("build", str(RT), *libs, str(xl_src),
+        bxl = run_timed(eatc("build", *head, *libs, str(xl_src),
                              "-o", str(bin_xl)))
         if bxl.rc != 0:
             fail(f"runtime {name} XL build: {errtail(bxl.err)}")

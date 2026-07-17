@@ -488,5 +488,6 @@ import JDoc 54:5 :: lib/Json.eat JDoc
 import json_doc 55:5 :: lib/Json.eat json_doc
 import min 59:5 :: lib/Num.eat min
 import parse_i32 63:5 :: lib/Parse.eat parse_i32
-func main 66:1 ()
-stats funcs=194 structs=16 stmts=1433
+import mul_64 67:5 :: lib/U128.eat mul_64
+func main 70:1 ()
+stats funcs=194 structs=16 stmts=1434
