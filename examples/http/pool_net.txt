@@ -1,0 +1,11 @@
+# Транскрипт сверки пула (HTTP_PLAN этап 2, решение H2).
+# conn 4: два pipelined-запроса — первый уходит с keep-alive,
+#   второй просит close (и одновременно упирается в MAX_REQ_PER_CONN).
+# conn 5: параллельный 404 с keep-alive, затем пир закрывает (Eof).
+# conn 6: молчит — закрытие по idle-таймауту (Timer, EAT_TICKS=virt).
+accept
+accept
+data 4 GET / HTTP/1.1\r\nHost: a\r\n\r\nGET / HTTP/1.1\r\nConnection: close\r\n\r\n
+data 5 GET /other HTTP/1.1\r\n\r\n
+close 5
+accept

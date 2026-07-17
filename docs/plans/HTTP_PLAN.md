@@ -325,9 +325,21 @@ picoserve), либо отдельный C-шим (OpenSSL/mbedTLS). Чистый
    `VERIFIED HttpHello`; интерфейс — в `tests/sig/lib.sig`
    (SigProbe). **Порог выполнен:** «Hello, world» по HTTP/1.1, ноль
    кучи, 413 при переполнении `REQ_CAP`, полный гейт.
-2. **Пул + keep-alive.** `[Conn; MAX_CONN]`, автомат `state`,
-   `MAX_REQ_PER_CONN`, циклический исполнитель §6.2. **Порог:** несколько
-   одновременных соединений на одном потоке, корректный `Connection: close`.
+2. **Пул + keep-alive** (✅ 2026-07-17). `examples/http/Pool.eat`:
+   `[Conn; 16]` в кадре `main` (слот — поиск `fd == SENT`), `Conn` —
+   задача-автомат конвенции `lib/Async.eat` (`step() -> Poll`,
+   `Ready` — слот освобождён; фазы read/send полями `responding`/
+   `sent`-курсор); keep-alive решает `Req.wants_close()` (новый метод
+   lib: `Connection: close`/`keep-alive`/версия — RFC-семантика,
+   тест `http_wants_close`) и потолок `MAX_REQ_PER_CONN` →
+   принудительный `Connection: close`; idle-таймаут — `Timer` из
+   `lib/Async.eat` (`EAT_TICKS=virt` в сверке), активность отодвигает
+   дедлайн. Транскрипт `pool_net.txt`: два одновременных соединения
+   (pipelining на одном + 404 на другом), Eof-путь, молчащее
+   соединение закрывается таймером; цель `run_http_pool`, стэнза
+   `VERIFIED HttpPool`. **Порог выполнен:** несколько одновременных
+   соединений на одном потоке, корректный `Connection: close`,
+   полный гейт.
 3. **Роутер + обработчики + шаблоны.** `const ROUTES: [Route; N]` (метод,
    шаблон пути, id); матчинг — `for` по таблице с `break`, диспетч —
    исчерпывающий `match` по id (указателей на функции нет — граф статичен);

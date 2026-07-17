@@ -48,6 +48,7 @@ check:
 	$(EATC) check --lib . examples/async/Debounce.eat
 	$(EATC) check --lib . $(HTTP_ECHO_MAIN)
 	$(EATC) check --lib . $(HTTP_HELLO_MAIN)
+	$(EATC) check --lib . $(HTTP_POOL_MAIN)
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -97,12 +98,18 @@ run_async_debounce:
 # write); живые сокеты — только make serve, ВНЕ гейта verify.
 HTTP_ECHO_MAIN = examples/http/Echo.eat
 HTTP_HELLO_MAIN = examples/http/Hello.eat
+HTTP_POOL_MAIN = examples/http/Pool.eat
 
 run_http_echo:
 	EAT_NET=examples/http/echo_net.txt $(EATC) run --lib . $(HTTP_ECHO_MAIN)
 
 run_http_hello:
 	EAT_NET=examples/http/hello_net.txt $(EATC) run --lib . $(HTTP_HELLO_MAIN)
+
+# пул + keep-alive + idle-таймаут: Timer на виртуальных часах
+run_http_pool:
+	EAT_TICKS=virt EAT_NET=examples/http/pool_net.txt \
+		$(EATC) run --lib . $(HTTP_POOL_MAIN)
 
 # Живой режим (вне гейта сверки): реальные неблокирующие сокеты.
 # Порт — аргумент (решение H3): make serve PORT=9090; дефолт 8080.
@@ -652,3 +659,8 @@ verify: build_all_examples
 	@EAT_NET=examples/http/hello_net.txt ./build/HttpHello > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED HttpHello" || exit 1
+	@$(EATC) build --lib . $(HTTP_POOL_MAIN) -o build/HttpPool > /dev/null
+	@EAT_TICKS=virt EAT_NET=examples/http/pool_net.txt $(EATC) run --lib . $(HTTP_POOL_MAIN) > /tmp/eat_interp.txt
+	@EAT_TICKS=virt EAT_NET=examples/http/pool_net.txt ./build/HttpPool > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED HttpPool" || exit 1

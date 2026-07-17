@@ -1,0 +1,293 @@
+# Пул соединений + keep-alive (docs/plans/HTTP_PLAN.md, этап 2):
+# [Conn; MAX_CONN] — весь «heap» сервера в кадре main, слот берётся
+# поиском fd == SENT (пул + курсор), «текущее соединение» — индекс.
+# Каждый Conn — задача-автомат по конвенции lib/Async.eat:
+# step() -> Poll, Ready — соединение закрыто и слот возвращён пулу.
+# keep-alive: соединение живёт served < MAX_REQ_PER_CONN запросов,
+# дальше принудительный Connection: close (крышка цикла — идиома
+# языка); молчание дольше IDLE_TICKS — закрытие по Timer из
+# lib/Async.eat (в сверке EAT_TICKS=virt — виртуальные часы).
+# Один поток, никакого вытеснения: конкурентность — витки loop.
+
+import {
+    Req,
+    req_new,
+    Resp,
+    resp_new,
+    PARSE_MORE,
+    PARSE_DONE,
+} from "lib/Http.eat"
+
+import {
+    Poll,
+    ready,
+    Timer,
+} from "lib/Async.eat"
+
+import {
+    get,
+} from "lib/Args.eat"
+
+import {
+    parse_i32,
+} from "lib/Parse.eat"
+
+const NO_CONN: u32 = 4294967295
+const SENT: u32 = 4294967295
+const PORT_DEFAULT: u32 = 8080
+# запросов на keep-alive-соединение до принудительного close
+# (демонстрационный потолок; боевое значение — план §4: 100)
+const MAX_REQ_PER_CONN: u32 = 2
+# тишина в виртуальных тиках до закрытия по idle-таймауту
+const IDLE_TICKS: u64 = 40
+# детерминированный останов сверки: столько закрытий — и сервер выходит
+const STOP_CONNS: u32 = 3
+# бюджет дренажа одного шага: REQ_CAP + заголовочный запас
+const DRAIN_BUDGET: u32 = 8900
+
+# Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
+func port_arg() -> u32
+    requires true
+    ensures result <= 65535
+{
+    match get(0) {
+        Ok(s) {
+            match parse_i32(s) {
+                Ok(v) {
+                    if v >= 1 and v <= 65535 {
+                        return u32(v)
+                    }
+                }
+                Err(_) {}
+            }
+        }
+        Err(_) {}
+    }
+    return PORT_DEFAULT
+}
+
+# Слот пула: кадр задачи-автомата (всё, что живёт между витками).
+struct Conn {
+    fd: u32
+    req: Req
+    w: Resp
+    sent: u32
+    responding: bool
+    close_after: bool
+    served: u32
+    idle: Timer
+
+    # Занять слот принятым соединением.
+    func open(var self, fd: u32)
+        requires true
+        ensures true
+    {
+        self.fd = fd
+        self.req = req_new()
+        self.w = resp_new()
+        self.sent = 0
+        self.responding = false
+        self.close_after = false
+        self.served = 0
+        self.idle = Timer { next: ticks() + IDLE_TICKS }
+    }
+
+    # Закрыть соединение и вернуть слот пулу.
+    func shut(var self) -> Poll
+        requires true
+        ensures true
+    {
+        socket_close(self.fd)
+        self.fd = SENT
+        return Poll.Ready
+    }
+
+    # Ответ по итогу разбора; keep-alive решают заголовки запроса и
+    # потолок MAX_REQ_PER_CONN (крышка keep-alive — Connection: close).
+    func build(var self, st: u32)
+        requires true
+        ensures true
+    {
+        self.served = self.served + 1
+        var keep: bool = false
+        self.w = resp_new()
+        self.sent = 0
+        if st == PARSE_DONE {
+            keep = (not self.req.wants_close()
+                and self.served < MAX_REQ_PER_CONN)
+            if self.req.method_is("GET") and self.req.path_is("/") {
+                self.w.status_line(200, "OK")
+            } else {
+                self.w.status_line(404, "Not Found")
+            }
+        } elif st == 413 {
+            self.w.status_line(413, "Payload Too Large")
+        } elif st == 431 {
+            self.w.status_line(431, "Request Header Fields Too Large")
+        } else {
+            self.w.status_line(400, "Bad Request")
+        }
+        if keep {
+            self.w.header_line("Connection", "keep-alive")
+        } else {
+            self.w.header_line("Connection", "close")
+        }
+        if st == PARSE_DONE {
+            let t: str<64> = "req {self.served} on conn\n"
+            self.w.body(t)
+        } else {
+            self.w.body("")
+        }
+        self.close_after = not keep
+        self.responding = true
+    }
+
+    # Фаза чтения: дренаж готовых байтов сквозь автомат парсера;
+    # тишина дольше IDLE_TICKS — закрытие по таймеру.
+    func step_read(var self) -> Poll
+        requires true
+        ensures true
+    {
+        var st: u32 = PARSE_MORE
+        var eof: bool = false
+        var got: bool = false
+        for _ in 0..8900 {
+            if st != PARSE_MORE or eof or socket_avail(self.fd) == 0 {
+                break
+            }
+            match socket_read_byte(self.fd) {
+                Ok(b) {
+                    st = self.req.push_byte(b)
+                    got = true
+                }
+                Err(_) {
+                    eof = true
+                }
+            }
+        }
+        if got {
+            # активность отодвигает idle-дедлайн
+            self.idle.next = ticks() + IDLE_TICKS
+        }
+        if st != PARSE_MORE {
+            self.build(st)
+            return Poll.Pending
+        }
+        if eof {
+            # пир закрыл соединение — слот свободен
+            return self.shut()
+        }
+        match self.idle.fire(IDLE_TICKS) {
+            Some(_) {
+                return self.shut()
+            }
+            None {}
+        }
+        return Poll.Pending
+    }
+
+    # Фаза отправки: неблокирующая досылка курсором (правило 7);
+    # после полного ответа — либо close, либо следующий запрос.
+    func step_send(var self) -> Poll
+        requires true
+        ensures true
+    {
+        if self.w.of {
+            # переполненный ответ не отправляется (ошибка-значение)
+            return self.shut()
+        }
+        for _ in 0..8 {
+            if self.sent >= self.w.n {
+                break
+            }
+            let took: u32 = socket_write_span(
+                self.fd, self.w.buf, self.sent, self.w.n - self.sent)
+            self.sent = self.sent + took
+        }
+        if self.sent >= self.w.n {
+            if self.close_after {
+                return self.shut()
+            }
+            # keep-alive: тот же слот ждёт следующий запрос
+            self.responding = false
+            self.req = req_new()
+            self.idle.next = ticks() + IDLE_TICKS
+        }
+        return Poll.Pending
+    }
+
+    # Один шаг автомата соединения; после Ready шаг идемпотентен.
+    func step(var self) -> Poll
+        requires true
+        ensures true
+    {
+        if self.fd == SENT {
+            return Poll.Ready
+        }
+        if self.responding {
+            return self.step_send()
+        }
+        return self.step_read()
+    }
+}
+
+# Пустой слот пула.
+func conn_blank() -> Conn
+    requires true
+    ensures true
+{
+    return Conn {
+        fd: SENT, req: req_new(), w: resp_new(), sent: 0,
+        responding: false, close_after: false, served: 0,
+        idle: Timer { next: 0 },
+    }
+}
+
+func main() {
+    var lst: u32 = 0
+    var live: bool = false
+    match socket_listen(u16(port_arg())) {
+        Ok(fd) {
+            lst = fd
+            live = true
+        }
+        Err(_) {
+            print("pool: не удалось открыть порт")
+        }
+    }
+    if live {
+        # пул — весь «heap» сервера: [Conn; MAX_CONN] в кадре main
+        var pool: [Conn; 16] = [conn_blank(); 16]
+        var closed: u32 = 0
+        loop {
+            # 1) принять готовое соединение в свободный слот
+            let c: u32 = socket_accept(lst)
+            if c != NO_CONN {
+                var placed: bool = false
+                for i in 0..16 {
+                    if not placed and pool[i].fd == SENT {
+                        pool[i].open(c)
+                        placed = true
+                    }
+                }
+                if not placed {
+                    # пул полон — отказ без обслуживания
+                    socket_close(c)
+                }
+            }
+            # 2) один шаг автомата у каждого активного соединения
+            for i in 0..16 {
+                if pool[i].fd != SENT {
+                    if ready(pool[i].step()) {
+                        closed = closed + 1
+                    }
+                }
+            }
+            if closed >= STOP_CONNS {
+                break
+            }
+        }
+        socket_close(lst)
+        print("pool: закрыто {closed} соединений")
+    }
+}

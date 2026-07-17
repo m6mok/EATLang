@@ -315,6 +315,25 @@ struct Req {
         return self.span_is_ci(self.hdr[i].vs, self.hdr[i].vl, v)
     }
 
+    # Закрывать ли соединение по завершении ответа (этап 2,
+    # keep-alive): явный `Connection: close` — да; явный `keep-alive`
+    # — нет; иначе по версии (HTTP/1.1 держит, HTTP/1.0 закрывает).
+    func wants_close(self) -> bool
+        requires true
+        ensures true
+    {
+        let c: u32 = self.find_header("connection")
+        if c != HTTP_NONE and c < 64 {
+            if self.header_val_is(c, "close") {
+                return true
+            }
+            if self.header_val_is(c, "keep-alive") {
+                return false
+            }
+        }
+        return self.version_is("HTTP/1.0")
+    }
+
     # Скормить строку и CRLF (тесты и клиенты без посимвольного
     # шума); результат — последний push_byte.
     func feed_line(var self, s: str<256>) -> u32
@@ -519,6 +538,27 @@ test http_too_many_headers_431 {
         st = r.feed_line("H{i}: v")
     }
     assert st == 431
+}
+
+test http_wants_close {
+    var r: Req = req_new()
+    discard r.feed_line("GET / HTTP/1.1")
+    discard r.feed_line("Connection: close")
+    discard r.feed_line("")
+    assert r.wants_close()
+    var r2: Req = req_new()
+    discard r2.feed_line("GET / HTTP/1.1")
+    discard r2.feed_line("")
+    assert not r2.wants_close()
+    var r3: Req = req_new()
+    discard r3.feed_line("GET / HTTP/1.0")
+    discard r3.feed_line("")
+    assert r3.wants_close()
+    var r4: Req = req_new()
+    discard r4.feed_line("GET / HTTP/1.0")
+    discard r4.feed_line("Connection: Keep-Alive")
+    discard r4.feed_line("")
+    assert not r4.wants_close()
 }
 
 test http_resp_build {

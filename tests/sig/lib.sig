@@ -89,41 +89,7 @@ func fmt_is 94:1 (t: Dec, kw: str<32>) -> bool
 test fmt_u32_digits 113:1
 test fmt_u64_digits 120:1
 test fmt_i32_digits 126:1
-module lib/Fixed.eat 133:1
-export Q16 19:5 :: Q16
-export Q16_SCALE 20:5 :: Q16_SCALE
-export q16 21:5 :: q16
-export q16_ratio 22:5 :: q16_ratio
-import Dec 26:5 :: lib/Fmt.eat Dec
-import fmt_u32 27:5 :: lib/Fmt.eat fmt_u32
-const Q16_SCALE 30:1 :: i32 = 65536
-struct Q16 32:1
-  field v :: i32
-  method add 35:5 (o: Q16) -> Q16
-  method sub 42:5 (o: Q16) -> Q16
-  method neg 49:5 () -> Q16
-  method mul 56:5 (o: Q16) -> Q16
-  method div 63:5 (o: Q16) -> Q16
-  method eq 70:5 (o: Q16) -> bool
-  method lt 77:5 (o: Q16) -> bool
-  method le 84:5 (o: Q16) -> bool
-  method abs 91:5 () -> Q16
-  method min 101:5 (o: Q16) -> Q16
-  method max 111:5 (o: Q16) -> Q16
-  method clamp 121:5 (lo: Q16, hi: Q16) -> Q16
-  method to_int 135:5 () -> i32
-  method round 143:5 () -> i32
-  method floor 154:5 () -> Q16
-  method ceil 166:5 () -> Q16
-  method repr 181:5 (digits: u32) -> str<32>
-func q16 222:1 (n: i32) -> Q16
-func q16_ratio 231:1 (num: i32, den: i32) -> Q16
-test q16_ctor 238:1
-test q16_arith 251:1
-test q16_cmp_util 267:1
-test q16_round 287:1
-test q16_repr 306:1
-module lib/Hex.eat 317:1
+module lib/Hex.eat 133:1
 export hex_digit 6:5 :: hex_digit
 export write_hex8 7:5 :: write_hex8
 export write_hex16 8:5 :: write_hex16
@@ -186,27 +152,29 @@ struct Req 72:1
   method version_is 285:5 (v: str<64>) -> bool
   method find_header 293:5 (name: str<64>) -> u32
   method header_val_is 311:5 (i: u32, v: str<64>) -> bool
-  method feed_line 320:5 (s: str<256>) var_self -> u32
-func req_new 337:1 () -> Req
-struct Resp 352:1
+  method wants_close 321:5 () -> bool
+  method feed_line 339:5 (s: str<256>) var_self -> u32
+func req_new 356:1 () -> Req
+struct Resp 371:1
   field buf :: [u8; 16384]
   field n :: u32
   field of :: bool
-  method put_byte 357:5 (b: u8) var_self
-  method put_str 369:5 (s: str<256>) var_self
-  method put_dec 381:5 (v: u32) var_self
-  method crlf 395:5 () var_self
-  method status_line 404:5 (code: u32, text: str<64>) var_self
-  method header_line 421:5 (name: str<64>, val: str<128>) var_self
-  method body 443:5 (s: str<256>) var_self
-func resp_new 455:1 () -> Resp
-test http_reqline_ok 462:1
-test http_header_ows_ci 479:1
-test http_bad_reqline_400 495:1
-test http_bad_header_400 505:1
-test http_too_many_headers_431 514:1
-test http_resp_build 524:1
-module lib/Io.eat 535:1
+  method put_byte 376:5 (b: u8) var_self
+  method put_str 388:5 (s: str<256>) var_self
+  method put_dec 400:5 (v: u32) var_self
+  method crlf 414:5 () var_self
+  method status_line 423:5 (code: u32, text: str<64>) var_self
+  method header_line 440:5 (name: str<64>, val: str<128>) var_self
+  method body 462:5 (s: str<256>) var_self
+func resp_new 474:1 () -> Resp
+test http_reqline_ok 481:1
+test http_header_ows_ci 498:1
+test http_bad_reqline_400 514:1
+test http_bad_header_400 524:1
+test http_too_many_headers_431 533:1
+test http_wants_close 543:1
+test http_resp_build 564:1
+module lib/Io.eat 575:1
 export read_line 8:5 :: read_line
 func read_line 11:1 () -> Result<str<256>, IoError>
 module lib/Json.eat 29:1
@@ -350,7 +318,153 @@ export parse_i32 7:5 :: parse_i32
 func parse_i32 10:1 (s: str<256>) -> Result<i32, ParseError>
 test parse_i32_ok 34:1
 test parse_i32_err 53:1
-module tests/sig/SigProbe.eat 85:1
+module lib/U128.eat 85:1
+export U128 26:5 :: U128
+export U128DivRem 27:5 :: U128DivRem
+export I128 28:5 :: I128
+export I128DivRem 29:5 :: I128DivRem
+export u128 30:5 :: u128
+export u128_hi_lo 31:5 :: u128_hi_lo
+export mul_64 32:5 :: mul_64
+export i128 33:5 :: i128
+export i128_make 34:5 :: i128_make
+import hex_digit 38:5 :: lib/Hex.eat hex_digit
+struct U128 41:1
+  field w0 :: u64
+  field w1 :: u64
+  field w2 :: u64
+  field w3 :: u64
+  method lo64 48:5 () -> u64
+  method hi64 57:5 () -> u64
+  method is_zero 65:5 () -> bool
+  method eq 72:5 (o: U128) -> bool
+  method lt 79:5 (o: U128) -> bool
+  method le 95:5 (o: U128) -> bool
+  method add 103:5 (o: U128) -> U128
+  method add_wrap 123:5 (o: U128) -> U128
+  method sub 144:5 (o: U128) -> U128
+  method sub_wrap 168:5 (o: U128) -> U128
+  method shl 191:5 (k: u32) -> U128
+  method shl_wrap 220:5 (k: u32) -> U128
+  method shr 247:5 (k: u32) -> U128
+  method mul 328:5 (o: U128) -> U128
+  method mul_wrap 353:5 (o: U128) -> U128
+  method divrem 378:5 (o: U128) -> U128DivRem
+  method divrem_32 421:5 (d: u64) -> U128DivRem
+  method div 447:5 (o: U128) -> U128
+  method rem 459:5 (o: U128) -> U128
+  method repr_hex 474:5 () -> str<32>
+  method repr_dec 503:5 () -> str<40>
+func u128 275:1 (lo: u64) -> U128
+func u128_hi_lo 284:1 (hi: u64, lo: u64) -> U128
+func mul_64 296:1 (a: u64, b: u64) -> U128
+struct U128DivRem 319:1
+  field q :: U128
+  field r :: U128
+struct I128 534:1
+  field sgn :: bool
+  field mag :: U128
+  method is_zero 567:5 () -> bool
+  method eq 574:5 (o: I128) -> bool
+  method lt 581:5 (o: I128) -> bool
+  method le 597:5 (o: I128) -> bool
+  method neg 604:5 () -> I128
+  method abs 613:5 () -> I128
+  method add 623:5 (o: I128) -> I128
+  method sub 640:5 (o: I128) -> I128
+  method mul 652:5 (o: I128) -> I128
+  method to_i64 664:5 () -> i64
+  method repr_dec 677:5 () -> str<40>
+  method divrem 699:5 (o: I128) -> I128DivRem
+  method div 716:5 (o: I128) -> I128
+  method rem 728:5 (o: I128) -> I128
+func i128_make 540:1 (sgn: bool, mag: U128) -> I128
+func i128 554:1 (v: i64) -> I128
+struct I128DivRem 690:1
+  field q :: I128
+  field r :: I128
+test u128_ctor_edges 741:1
+test u128_add_sub_edges 756:1
+test u128_cmp 771:1
+test u128_mul64_edges 786:1
+test u128_mul_edges 796:1
+test u128_shifts 808:1
+test u128_divrem 824:1
+test u128_repr 844:1
+test i128_basics 858:1
+test i128_arith 875:1
+test i128_cmp 890:1
+test i128_divrem 902:1
+test i128_repr 914:1
+module lib/Fixed.eat 921:1
+export Q16 26:5 :: Q16
+export Q16_SCALE 27:5 :: Q16_SCALE
+export q16 28:5 :: q16
+export q16_ratio 29:5 :: q16_ratio
+export Q32 30:5 :: Q32
+export Q32_SCALE 31:5 :: Q32_SCALE
+export q32 32:5 :: q32
+export q32_ratio 33:5 :: q32_ratio
+import Dec 37:5 :: lib/Fmt.eat Dec
+import fmt_u32 38:5 :: lib/Fmt.eat fmt_u32
+import I128 42:5 :: lib/U128.eat I128
+import i128 43:5 :: lib/U128.eat i128
+import i128_make 44:5 :: lib/U128.eat i128_make
+const Q16_SCALE 47:1 :: i32 = 65536
+const Q32_SCALE 48:1 :: i64 = 4294967296
+struct Q16 50:1
+  field v :: i32
+  method add 53:5 (o: Q16) -> Q16
+  method sub 60:5 (o: Q16) -> Q16
+  method neg 67:5 () -> Q16
+  method mul 74:5 (o: Q16) -> Q16
+  method div 81:5 (o: Q16) -> Q16
+  method eq 88:5 (o: Q16) -> bool
+  method lt 95:5 (o: Q16) -> bool
+  method le 102:5 (o: Q16) -> bool
+  method abs 109:5 () -> Q16
+  method min 119:5 (o: Q16) -> Q16
+  method max 129:5 (o: Q16) -> Q16
+  method clamp 139:5 (lo: Q16, hi: Q16) -> Q16
+  method to_int 153:5 () -> i32
+  method round 161:5 () -> i32
+  method floor 172:5 () -> Q16
+  method ceil 184:5 () -> Q16
+  method repr 199:5 (digits: u32) -> str<32>
+func q16 240:1 (n: i32) -> Q16
+func q16_ratio 249:1 (num: i32, den: i32) -> Q16
+test q16_ctor 256:1
+test q16_arith 269:1
+test q16_cmp_util 285:1
+test q16_round 305:1
+test q16_repr 324:1
+struct Q32 341:1
+  field v :: i64
+  method add 344:5 (o: Q32) -> Q32
+  method sub 351:5 (o: Q32) -> Q32
+  method neg 358:5 () -> Q32
+  method mul 367:5 (o: Q32) -> Q32
+  method div 378:5 (o: Q32) -> Q32
+  method eq 387:5 (o: Q32) -> bool
+  method lt 394:5 (o: Q32) -> bool
+  method le 401:5 (o: Q32) -> bool
+  method abs 408:5 () -> Q32
+  method min 418:5 (o: Q32) -> Q32
+  method max 428:5 (o: Q32) -> Q32
+  method clamp 438:5 (lo: Q32, hi: Q32) -> Q32
+  method to_int 452:5 () -> i32
+  method round 461:5 () -> i32
+  method floor 472:5 () -> Q32
+  method ceil 484:5 () -> Q32
+  method repr 498:5 (digits: u32) -> str<32>
+func q32 538:1 (n: i32) -> Q32
+func q32_ratio 547:1 (num: i64, den: i64) -> Q32
+test q32_ctor 556:1
+test q32_arith 572:1
+test q32_cmp_util 589:1
+test q32_round 604:1
+test q32_repr 617:1
+module tests/sig/SigProbe.eat 627:1
 import is_digit 8:5 :: lib/Ascii.eat is_digit
 import get 12:5 :: lib/Args.eat get
 import Poll 16:5 :: lib/Async.eat Poll
@@ -372,4 +486,4 @@ import json_doc 55:5 :: lib/Json.eat json_doc
 import min 59:5 :: lib/Num.eat min
 import parse_i32 63:5 :: lib/Parse.eat parse_i32
 func main 66:1 ()
-stats funcs=132 structs=11 stmts=1101
+stats funcs=192 structs=16 stmts=1422
