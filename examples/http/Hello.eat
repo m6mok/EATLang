@@ -1,0 +1,167 @@
+# «Hello, world» по HTTP/1.1 (docs/plans/HTTP_PLAN.md, этап 1):
+# lib/Http.eat — автомат request-line + заголовков в фиксированных
+# буферах, статический ответ. Один запрос за раз (пул — этап 2).
+# Превышение потолка — HTTP-ошибка-значение, не trap: 413 (REQ_CAP),
+# 431 (MAX_HEADERS), 400 (кривой синтаксис). Сверка — транскрипт
+# EAT_NET (решение H2), живой режим — make serve_hello.
+
+import {
+    Req,
+    req_new,
+    Resp,
+    resp_new,
+    PARSE_MORE,
+    PARSE_DONE,
+} from "lib/Http.eat"
+
+import {
+    get,
+} from "lib/Args.eat"
+
+import {
+    parse_i32,
+} from "lib/Parse.eat"
+
+const NO_CONN: u32 = 4294967295
+const SENT: u32 = 4294967295
+const PORT_DEFAULT: u32 = 8080
+# детерминированный останов для сверки (у вечного сервера нет break)
+const SERVE_CONNS: u32 = 4
+# бюджет дренажа одного витка: REQ_CAP + заголовочный запас
+const DRAIN_BUDGET: u32 = 8900
+
+# Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
+func port_arg() -> u32
+    requires true
+    ensures result <= 65535
+{
+    match get(0) {
+        Ok(s) {
+            match parse_i32(s) {
+                Ok(v) {
+                    if v >= 1 and v <= 65535 {
+                        return u32(v)
+                    }
+                }
+                Err(_) {}
+            }
+        }
+        Err(_) {}
+    }
+    return PORT_DEFAULT
+}
+
+# Ответ по итогу разбора: DONE — маршрут (этап 1: только GET /),
+# иначе готовый статус ошибки парсера.
+func build_resp(st: u32, r: Req) -> Resp
+    requires true
+    ensures true
+{
+    var w: Resp = resp_new()
+    if st == PARSE_DONE {
+        if r.method_is("GET") and r.path_is("/") {
+            w.status_line(200, "OK")
+            w.header_line("Connection", "close")
+            w.body("Hello, world!\n")
+        } else {
+            w.status_line(404, "Not Found")
+            w.header_line("Connection", "close")
+            w.body("no such route\n")
+        }
+    } elif st == 413 {
+        w.status_line(413, "Payload Too Large")
+        w.header_line("Connection", "close")
+        w.body("")
+    } elif st == 431 {
+        w.status_line(431, "Request Header Fields Too Large")
+        w.header_line("Connection", "close")
+        w.body("")
+    } else {
+        w.status_line(400, "Bad Request")
+        w.header_line("Connection", "close")
+        w.body("")
+    }
+    return w
+}
+
+# Неблокирующая отправка с курсором досылки (правило 7: принятое
+# ядром ведёт курсор). Переполненный Resp не отправляется вовсе.
+func send_resp(fd: u32, w: Resp)
+    requires true
+    ensures true
+{
+    if w.of {
+        return
+    }
+    var sent: u32 = 0
+    for _ in 0..64 {
+        if sent >= w.n {
+            break
+        }
+        sent = sent + socket_write_span(fd, w.buf, sent, w.n - sent)
+    }
+}
+
+func main() {
+    var lst: u32 = 0
+    var live: bool = false
+    match socket_listen(u16(port_arg())) {
+        Ok(fd) {
+            lst = fd
+            live = true
+        }
+        Err(_) {
+            print("hello: не удалось открыть порт")
+        }
+    }
+    if live {
+        var conn: u32 = SENT
+        var served: u32 = 0
+        var req: Req = req_new()
+        var st: u32 = PARSE_MORE
+        var eof: bool = false
+        loop {
+            if conn == SENT {
+                let c: u32 = socket_accept(lst)
+                if c != NO_CONN {
+                    conn = c
+                    req = req_new()
+                    st = PARSE_MORE
+                    eof = false
+                }
+            }
+            if conn != SENT {
+                # дренаж готовых байтов сквозь автомат парсера
+                for _ in 0..8900 {
+                    if st != PARSE_MORE or eof or socket_avail(conn) == 0 {
+                        break
+                    }
+                    match socket_read_byte(conn) {
+                        Ok(b) {
+                            st = req.push_byte(b)
+                        }
+                        Err(_) {
+                            eof = true
+                        }
+                    }
+                }
+                if st != PARSE_MORE {
+                    send_resp(conn, build_resp(st, req))
+                    socket_close(conn)
+                    conn = SENT
+                    served = served + 1
+                } elif eof {
+                    # пир оборвал соединение до конца запроса — сброс
+                    socket_close(conn)
+                    conn = SENT
+                    served = served + 1
+                }
+            }
+            if served >= SERVE_CONNS {
+                break
+            }
+        }
+        socket_close(lst)
+        print("hello: обслужено {served} соединений")
+    }
+}

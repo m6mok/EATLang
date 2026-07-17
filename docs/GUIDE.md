@@ -659,6 +659,19 @@ Result<u32, IoError>` (bind+listen; `Err(Fail)` — порт занят),
 аргумент бинарника: `make serve PORT=9090`), в гейт сверки он не
 входит. Пример: `examples/http/Echo.eat` (`make run_http_echo`).
 
+Сам HTTP/1.1 — `lib/Http.eat` (этап 1 плана): `Req` — автомат
+request-line + заголовков (`push_byte` на каждый принятый байт →
+`PARSE_MORE` / `PARSE_DONE` / готовый статус ошибки: 400 —
+синтаксис, 413 — переполнен `REQ_CAP` 8192, 431 — больше 64
+заголовков; после `Done`/ошибки шаг идемпотентен), `Header` — срезы
+в буфере запроса (не копии), матчеры `method_is`/`path_is`/
+`find_header`/`header_val_is` (имена и токены — без учёта регистра);
+`Resp` — сборка ответа в буфер `RESP_CAP` (`status_line`/
+`header_line`/`body` с автоматическим `Content-Length`; переполнение
+— флаг `of`, ошибка-значение, не усечение). Пример:
+`examples/http/Hello.eat` (`make run_http_hello`, живой —
+`make serve_hello` и `curl -i http://127.0.0.1:8080/`).
+
 ### Дроби без float: Q16.16 и Q32.32 из lib/Fixed.eat
 
 Float'ов в языке нет — дроби считает fixed-point

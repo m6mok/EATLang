@@ -1,0 +1,534 @@
+# lib/Http.eat — минимальный HTTP/1.1 (docs/plans/HTTP_PLAN.md,
+# этап 1): автомат request-line + заголовков в фиксированных буферах.
+# Header — срезы в буфере запроса (смещение+длина), не копии.
+# Превышение любого потолка — HTTP-ошибка-значение (413/431/400),
+# НЕ trap и не молчаливое усечение (инвариант плана §11).
+#
+# Конвенция фреймворка: указателей на функции в языке нет (правило 9),
+# поэтому диспетч обработчиков — исчерпывающий match по id маршрута в
+# пользовательском main (этап 3), а не колбэки. Сервер зовёт
+# Req.push_byte на каждый принятый байт: PARSE_MORE — читать дальше,
+# PARSE_DONE — запрос готов (CRLFCRLF), иначе — готовый HTTP-статус
+# ошибки (400 кривой синтаксис, 413 переполнен REQ_CAP, 431 больше
+# MAX_HEADERS заголовков); после Done/ошибки push_byte идемпотентен.
+#
+# Тесты — только чистый парсинг буферов, без аксиом с состоянием
+# (урок FAULTS 2026-07-17: тест с аксиомой сдвигает виртуальные часы
+# интерпретатора и ломает паритет).
+
+export {
+    Header,
+    Req,
+    req_new,
+    Resp,
+    resp_new,
+    PARSE_MORE,
+    PARSE_DONE,
+    HTTP_REQ_CAP,
+    HTTP_RESP_CAP,
+    HTTP_MAX_HEADERS,
+    HTTP_NONE,
+}
+
+import {
+    Dec,
+    fmt_u32,
+} from "lib/Fmt.eat"
+
+# Потолки этапа 1 (решение H3, план §4): размеры зашиты в типы —
+# массив фиксированного размера есть часть типа (правило 3).
+const HTTP_REQ_CAP: u32 = 8192
+const HTTP_RESP_CAP: u32 = 16384
+const HTTP_MAX_HEADERS: u32 = 64
+
+const PARSE_MORE: u32 = 0
+const PARSE_DONE: u32 = 1
+# «нет такого» для поисков по заголовкам (идиома SENT-сентинела)
+const HTTP_NONE: u32 = 4294967295
+
+# ASCII в нижний регистр — для регистронезависимых имён заголовков
+# (RFC 9110: имена case-insensitive, значения сравниваем так же для
+# токенов вроде close/keep-alive).
+func lower(b: u8) -> u8
+    requires true
+    ensures true
+{
+    if b >= 65 and b <= 90 {
+        return b + 32
+    }
+    return b
+}
+
+# Срез заголовка в буфере запроса: имя и значение (не копии).
+struct Header {
+    ns: u32
+    nl: u32
+    vs: u32
+    vl: u32
+}
+
+# Кадр разбора одного запроса. state: 0 — request-line, 1 — заголовки,
+# 2 — готов, 3 — ошибка (готовый статус в err).
+struct Req {
+    raw: [u8; 8192]
+    n: u32
+    state: u32
+    ls: u32
+    ms: u32
+    ml: u32
+    ps: u32
+    pl: u32
+    vs: u32
+    vl: u32
+    hdr: [Header; 64]
+    nh: u32
+    err: u32
+
+    # Очередной принятый байт. PARSE_MORE / PARSE_DONE / 400|413|431.
+    func push_byte(var self, b: u8) -> u32
+        requires true
+        ensures true
+    {
+        if self.state == 2 {
+            return PARSE_DONE
+        }
+        if self.state == 3 {
+            return self.err
+        }
+        if self.n >= 8192 {
+            # REQ_CAP исчерпан до конца запроса -> 413 Payload Too Large
+            self.state = 3
+            self.err = 413
+            return 413
+        }
+        self.raw[self.n] = b
+        self.n = self.n + 1
+        if b != 10 {
+            return PARSE_MORE
+        }
+        # строка [ls..le): перевод строки съеден, CR перед ним откусить
+        var le: u32 = self.n - 1
+        if le > self.ls and le >= 1 and self.raw[le - 1] == 13 {
+            le = le - 1
+        }
+        let ls2: u32 = self.ls
+        self.ls = self.n
+        if self.state == 0 {
+            return self.parse_reqline(ls2, le)
+        }
+        if le == ls2 {
+            # пустая строка — конец заголовков
+            self.state = 2
+            return PARSE_DONE
+        }
+        return self.parse_header(ls2, le)
+    }
+
+    # SP-позиция в raw[b0..e0) или HTTP_NONE.
+    func find_sp(var self, b0: u32, e0: u32) -> u32
+        requires true
+        ensures true
+    {
+        var at: u32 = HTTP_NONE
+        for i in 0..8192 {
+            if u32(i) >= e0 or at != HTTP_NONE {
+                break
+            }
+            if u32(i) >= b0 {
+                if self.raw[i] == 32 {
+                    at = u32(i)
+                }
+            }
+        }
+        return at
+    }
+
+    # METHOD SP PATH SP VERSION; пустые компоненты и лишние формы — 400.
+    func parse_reqline(var self, ls2: u32, le: u32) -> u32
+        requires true
+        ensures true
+    {
+        let sp1: u32 = self.find_sp(ls2, le)
+        var bad: bool = sp1 == HTTP_NONE
+        var sp2: u32 = HTTP_NONE
+        if not bad {
+            sp2 = self.find_sp(sp1 + 1, le)
+            bad = sp2 == HTTP_NONE
+        }
+        if not bad {
+            # непустые метод/путь/версия; третьего пробела быть не должно
+            bad = (sp1 == ls2 or sp2 == sp1 + 1 or sp2 + 1 == le
+                or self.find_sp(sp2 + 1, le) != HTTP_NONE)
+        }
+        if bad {
+            self.state = 3
+            self.err = 400
+            return 400
+        }
+        self.ms = ls2
+        self.ml = sp1 - ls2
+        self.ps = sp1 + 1
+        self.pl = sp2 - sp1 - 1
+        self.vs = sp2 + 1
+        self.vl = le - sp2 - 1
+        self.state = 1
+        return PARSE_MORE
+    }
+
+    # Name: value; OWS вокруг значения срезается, имя непустое.
+    func parse_header(var self, ls2: u32, le: u32) -> u32
+        requires true
+        ensures true
+    {
+        if self.nh >= 64 {
+            # заголовков больше MAX_HEADERS -> 431 Header Fields Too Large
+            self.state = 3
+            self.err = 431
+            return 431
+        }
+        var colon: u32 = HTTP_NONE
+        for i in 0..8192 {
+            if u32(i) >= le or colon != HTTP_NONE {
+                break
+            }
+            if u32(i) >= ls2 {
+                if self.raw[i] == 58 {
+                    colon = u32(i)
+                }
+            }
+        }
+        if colon == HTTP_NONE or colon == ls2 {
+            self.state = 3
+            self.err = 400
+            return 400
+        }
+        var vs2: u32 = colon + 1
+        var vl2: u32 = le - vs2
+        for _ in 0..8192 {
+            if vl2 == 0 or (self.raw[vs2] != 32 and self.raw[vs2] != 9) {
+                break
+            }
+            vs2 = vs2 + 1
+            vl2 = vl2 - 1
+        }
+        var stop: bool = false
+        for _ in 0..8192 {
+            if vl2 == 0 or stop {
+                break
+            }
+            let tb: u8 = self.raw[vs2 + vl2 - 1]
+            if tb != 32 and tb != 9 {
+                stop = true
+            } else {
+                vl2 = vl2 - 1
+            }
+        }
+        self.hdr[self.nh] = Header { ns: ls2, nl: colon - ls2, vs: vs2, vl: vl2 }
+        self.nh = self.nh + 1
+        return PARSE_MORE
+    }
+
+    # Срез raw[s..s+l) == строка (точно, по байтам).
+    func span_is(self, s: u32, l: u32, kw: str<64>) -> bool
+        requires true
+        ensures true
+    {
+        if l != len(kw) {
+            return false
+        }
+        var ok2: bool = true
+        for i in 0..64 {
+            if u32(i) >= l or not ok2 {
+                break
+            }
+            if self.raw[s + u32(i)] != u8(kw[i]) {
+                ok2 = false
+            }
+        }
+        return ok2
+    }
+
+    # Срез raw[s..s+l) == строка без учёта регистра ASCII.
+    func span_is_ci(self, s: u32, l: u32, kw: str<64>) -> bool
+        requires true
+        ensures true
+    {
+        if l != len(kw) {
+            return false
+        }
+        var ok2: bool = true
+        for i in 0..64 {
+            if u32(i) >= l or not ok2 {
+                break
+            }
+            if lower(self.raw[s + u32(i)]) != lower(u8(kw[i])) {
+                ok2 = false
+            }
+        }
+        return ok2
+    }
+
+    func method_is(self, m: str<64>) -> bool
+        requires true
+        ensures true
+    {
+        return self.span_is(self.ms, self.ml, m)
+    }
+
+    func path_is(self, p: str<64>) -> bool
+        requires true
+        ensures true
+    {
+        return self.span_is(self.ps, self.pl, p)
+    }
+
+    func version_is(self, v: str<64>) -> bool
+        requires true
+        ensures true
+    {
+        return self.span_is(self.vs, self.vl, v)
+    }
+
+    # Индекс заголовка по имени (без регистра) или HTTP_NONE.
+    func find_header(self, name: str<64>) -> u32
+        requires true
+        ensures true
+    {
+        var at: u32 = HTTP_NONE
+        for i in 0..64 {
+            if u32(i) >= self.nh or at != HTTP_NONE {
+                break
+            }
+            if self.span_is_ci(self.hdr[i].ns, self.hdr[i].nl, name) {
+                at = u32(i)
+            }
+        }
+        return at
+    }
+
+    # Значение i-го заголовка == строка (без регистра: токены вроде
+    # close/keep-alive сравниваются case-insensitive).
+    func header_val_is(self, i: u32, v: str<64>) -> bool
+        requires i < 64
+        ensures true
+    {
+        return self.span_is_ci(self.hdr[i].vs, self.hdr[i].vl, v)
+    }
+
+    # Скормить строку и CRLF (тесты и клиенты без посимвольного
+    # шума); результат — последний push_byte.
+    func feed_line(var self, s: str<256>) -> u32
+        requires true
+        ensures true
+    {
+        var st: u32 = PARSE_MORE
+        for i in 0..256 {
+            if u32(i) >= len(s) {
+                break
+            }
+            st = self.push_byte(u8(s[i]))
+        }
+        st = self.push_byte(13)
+        st = self.push_byte(10)
+        return st
+    }
+}
+
+func req_new() -> Req
+    requires true
+    ensures true
+{
+    return Req {
+        raw: [0; 8192], n: 0, state: 0, ls: 0,
+        ms: 0, ml: 0, ps: 0, pl: 0, vs: 0, vl: 0,
+        hdr: [Header { ns: 0, nl: 0, vs: 0, vl: 0 }; 64],
+        nh: 0, err: 0,
+    }
+}
+
+# Сборка ответа в фиксированный буфер RESP_CAP. Переполнение — флаг
+# of (ошибка-значение: отправлять такой ответ нельзя), не trap и не
+# усечение.
+struct Resp {
+    buf: [u8; 16384]
+    n: u32
+    of: bool
+
+    func put_byte(var self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.n < 16384 {
+            self.buf[self.n] = b
+            self.n = self.n + 1
+        } else {
+            self.of = true
+        }
+    }
+
+    func put_str(var self, s: str<256>)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if u32(i) >= len(s) {
+                break
+            }
+            self.put_byte(u8(s[i]))
+        }
+    }
+
+    func put_dec(var self, v: u32)
+        requires true
+        ensures true
+    {
+        let d: Dec = fmt_u32(v)
+        for i in 0..20 {
+            if u32(i) >= d.ln {
+                break
+            }
+            self.put_byte(d.d[i])
+        }
+    }
+
+    # CRLF: '\r' в строковых литералах языка нет — байтами.
+    func crlf(var self)
+        requires true
+        ensures true
+    {
+        self.put_byte(13)
+        self.put_byte(10)
+    }
+
+    # "HTTP/1.1 <code> <text>" CRLF
+    func status_line(var self, code: u32, text: str<64>)
+        requires true
+        ensures true
+    {
+        self.put_str("HTTP/1.1 ")
+        self.put_dec(code)
+        self.put_byte(32)
+        for i in 0..64 {
+            if u32(i) >= len(text) {
+                break
+            }
+            self.put_byte(u8(text[i]))
+        }
+        self.crlf()
+    }
+
+    # "<name>: <val>" CRLF
+    func header_line(var self, name: str<64>, val: str<128>)
+        requires true
+        ensures true
+    {
+        for i in 0..64 {
+            if u32(i) >= len(name) {
+                break
+            }
+            self.put_byte(u8(name[i]))
+        }
+        self.put_byte(58)
+        self.put_byte(32)
+        for i in 0..128 {
+            if u32(i) >= len(val) {
+                break
+            }
+            self.put_byte(u8(val[i]))
+        }
+        self.crlf()
+    }
+
+    # Content-Length + пустая строка + тело: ответ завершён.
+    func body(var self, s: str<256>)
+        requires true
+        ensures true
+    {
+        self.put_str("Content-Length: ")
+        self.put_dec(len(s))
+        self.crlf()
+        self.crlf()
+        self.put_str(s)
+    }
+}
+
+func resp_new() -> Resp
+    requires true
+    ensures true
+{
+    return Resp { buf: [0; 16384], n: 0, of: false }
+}
+
+test http_reqline_ok {
+    var r: Req = req_new()
+    assert r.feed_line("GET /hi HTTP/1.1") == PARSE_MORE
+    assert r.feed_line("Host: example.com") == PARSE_MORE
+    assert r.feed_line("") == PARSE_DONE
+    assert r.method_is("GET")
+    assert r.path_is("/hi")
+    assert r.version_is("HTTP/1.1")
+    assert not r.path_is("/other")
+    assert r.nh == 1
+    assert r.find_header("host") == 0
+    assert r.find_header("HOST") == 0
+    assert r.find_header("nope") == HTTP_NONE
+    # после Done push_byte идемпотентен
+    assert r.push_byte(65) == PARSE_DONE
+}
+
+test http_header_ows_ci {
+    var r: Req = req_new()
+    discard r.feed_line("POST /a HTTP/1.1")
+    discard r.feed_line("Connection:   close  ")
+    discard r.feed_line("X-N:")
+    assert r.feed_line("") == PARSE_DONE
+    assert r.method_is("POST")
+    let c: u32 = r.find_header("connection")
+    assert c == 0
+    assert r.header_val_is(c, "close")
+    assert r.header_val_is(c, "CLOSE")
+    # пустое значение допустимо, имя — нет
+    assert r.find_header("x-n") == 1
+    assert r.header_val_is(1, "")
+}
+
+test http_bad_reqline_400 {
+    var r: Req = req_new()
+    assert r.feed_line("BROKEN") == 400
+    assert r.push_byte(65) == 400
+    var r2: Req = req_new()
+    assert r2.feed_line("GET /x HTTP/1.1 extra") == 400
+    var r3: Req = req_new()
+    assert r3.feed_line("GET  HTTP/1.1") == 400
+}
+
+test http_bad_header_400 {
+    var r: Req = req_new()
+    discard r.feed_line("GET / HTTP/1.1")
+    assert r.feed_line("no-colon-here") == 400
+    var r2: Req = req_new()
+    discard r2.feed_line("GET / HTTP/1.1")
+    assert r2.feed_line(": empty-name") == 400
+}
+
+test http_too_many_headers_431 {
+    var r: Req = req_new()
+    discard r.feed_line("GET / HTTP/1.1")
+    var st: u32 = PARSE_MORE
+    for i in 0..65 {
+        st = r.feed_line("H{i}: v")
+    }
+    assert st == 431
+}
+
+test http_resp_build {
+    var w: Resp = resp_new()
+    w.status_line(200, "OK")
+    w.header_line("Connection", "close")
+    w.body("hi")
+    assert not w.of
+    # HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nhi
+    assert w.n == 17 + 19 + 19 + 2 + 2
+    assert w.buf[9] == 50
+    assert w.buf[w.n - 1] == 105
+}

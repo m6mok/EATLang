@@ -310,10 +310,21 @@ picoserve), либо отдельный C-шим (OpenSSL/mbedTLS). Чистый
    MODIFYING §2–3, подсветка vscode. **Порог выполнен:** эхо
    байт-в-байт (интерпретатор == бинарник, trap-тексты тоже), нулевой
    heap, полный гейт.
-1. **Минимальный HTTP/1.1, один запрос за раз.** `lib/Http.eat`: автомат
-   request-line + заголовки в фиксированные буфера; статический ответ.
-   **Порог:** «Hello, world» по HTTP/1.1, ноль malloc, 413 при переполнении
-   `REQ_CAP`.
+1. **Минимальный HTTP/1.1, один запрос за раз** (✅ 2026-07-17).
+   `lib/Http.eat`: `Req` — автомат request-line + заголовков
+   (`push_byte` → `PARSE_MORE`/`PARSE_DONE`/400|413|431, после
+   Done/ошибки идемпотентен), `Header` — срезы в `raw` (не копии),
+   OWS-трим значения, матчеры `method_is`/`path_is`/`version_is`/
+   `find_header`/`header_val_is` (регистронезависимо, RFC 9110);
+   `Resp` — сборка в `RESP_CAP` (`status_line`/`header_line`/`body`
+   c `Content-Length` через `lib/Fmt.fmt_u32`; переполнение — флаг
+   `of`, не усечение). Тесты — чистый парсинг буферов (6 test-блоков,
+   без аксиом). `examples/http/Hello.eat` + транскрипт
+   `hello_net.txt` (200 / 404 / 400 / 413 — 8,4 КБ данных бьются об
+   `REQ_CAP`), цели `run_http_hello` / `serve_hello`, стэнза
+   `VERIFIED HttpHello`; интерфейс — в `tests/sig/lib.sig`
+   (SigProbe). **Порог выполнен:** «Hello, world» по HTTP/1.1, ноль
+   кучи, 413 при переполнении `REQ_CAP`, полный гейт.
 2. **Пул + keep-alive.** `[Conn; MAX_CONN]`, автомат `state`,
    `MAX_REQ_PER_CONN`, циклический исполнитель §6.2. **Порог:** несколько
    одновременных соединений на одном потоке, корректный `Connection: close`.
