@@ -52,6 +52,15 @@ BENCHES = {
     "bank": ("BankBench", 200_000, 2048, 64, 8, []),
     "strcmp": ("StrCmpBench", 20_000, 128, 16, 4, []),
     "u64": ("U64Bench", 200_000, 4096, 128, 8, []),
+    # 128-битная арифметика lib/U128.eat (U128_PLAN, замер этапа 4):
+    # "driver" вместо списка модулей — у U128 import-шапка, cat-режим
+    # невозможен, поток собирает драйвер (eatc --lib . / stream)
+    "u128": ("U128Bench", 20_000, 1024, 64, 8, "driver"),
+    "u128div": ("U128DivBench", 4_400, 2048, 128, 32, "driver"),
+    # HTTP-парсер lib/Http.eat (HTTP_PLAN): 2 000 запросов на REPEAT=1
+    # (4 профиля × 500) — request-line, заголовки, роутер, keep-alive;
+    # драйвер: HttpBench → lib/Http.eat → lib/Fmt.eat
+    "http": ("HttpBench", 2_000, 256, 32, 4, "driver"),
 }
 
 REP_VERIFY = 2          # сверочный REPEAT: одинаковый у всех языков

@@ -1,0 +1,122 @@
+# Нагрузочный тест HTTP-парсера (lib/Http.eat, docs/plans/HTTP_PLAN.md):
+# разбор request-line + заголовков, мини-роутер (точный путь, префикс,
+# параметр), решение keep-alive. Четыре профиля запроса: типовой GET с
+# параметром пути, POST с trace-заголовком и close, кривая request-line
+# (400) и HTTP/1.0-миссинг (404 + close). Пути и значения зависят от
+# счётчика (интерполяция) — LLVM не может ни сфолдить разбор, ни
+# вынести его из цикла. Базовая порция — 2 000 запросов (4 × 500);
+# REPEAT масштабирует. Собирается драйвером (--lib): lib/Http.eat
+# импортирует lib/Fmt.eat.
+
+import {
+    Req,
+    req_new,
+    HTTP_NONE,
+} from "lib/Http.eat"
+
+const REPEAT: u32 = 1
+
+# Мини-роутер: / -> 200, /greet/* -> 201, иначе 404.
+func route_code(r: Req) -> u32
+    requires true
+    ensures true
+{
+    if r.path_is("/") {
+        return 200
+    }
+    if r.path_starts("/greet/") {
+        return 201
+    }
+    return 404
+}
+
+# Типовой GET: параметр пути, четыре заголовка, keep-alive.
+func profile_a(k: u32) -> u32
+    requires true
+    ensures true
+{
+    var r: Req = req_new()
+    discard r.feed_line("GET /greet/user{k} HTTP/1.1")
+    discard r.feed_line("Host: bench.local")
+    discard r.feed_line("User-Agent: eat-bench/1.0")
+    discard r.feed_line("Accept: */*")
+    discard r.feed_line("Connection: keep-alive")
+    let st: u32 = r.feed_line("")
+    var acc: u32 = st * 7 + r.nh
+    if r.method_is("GET") {
+        acc = acc + route_code(r)
+    }
+    match r.path_param(7) {
+        Some(name) {
+            acc = acc + len(name)
+        }
+        None {}
+    }
+    if not r.wants_close() {
+        acc = acc + 1
+    }
+    let c: u32 = r.find_header("connection")
+    if c != HTTP_NONE {
+        acc = acc + c
+    }
+    return acc
+}
+
+# POST с trace-заголовком и явным close.
+func profile_b(k: u32) -> u32
+    requires true
+    ensures true
+{
+    var r: Req = req_new()
+    discard r.feed_line("POST /api/items HTTP/1.1")
+    discard r.feed_line("Content-Type: application/json")
+    discard r.feed_line("X-Trace-Id: t-{k}")
+    discard r.feed_line("Connection: close")
+    let st: u32 = r.feed_line("")
+    var acc: u32 = st * 7 + r.nh + route_code(r)
+    if r.wants_close() {
+        acc = acc + 2
+    }
+    let t: u32 = r.find_header("x-trace-id")
+    if t != HTTP_NONE and t < 64 {
+        acc = acc + r.hdr[t].vl
+    }
+    return acc
+}
+
+# Кривая request-line (без пробелов) — 400 от парсера.
+func profile_c(k: u32) -> u32
+    requires true
+    ensures true
+{
+    var r: Req = req_new()
+    return r.feed_line("BROKEN-{k}")
+}
+
+# HTTP/1.0 мимо маршрутов: 404 + wants_close по версии.
+func profile_d() -> u32
+    requires true
+    ensures true
+{
+    var r: Req = req_new()
+    discard r.feed_line("GET /nope HTTP/1.0")
+    let st: u32 = r.feed_line("")
+    var acc: u32 = st * 7 + route_code(r)
+    if r.wants_close() {
+        acc = acc + 3
+    }
+    return acc
+}
+
+func main() {
+    var acc: u32 = 0
+    for _ in 0..REPEAT {
+        for k in 0..500 {
+            acc = (acc * 31 + profile_a(k)) % 65536
+            acc = (acc * 31 + profile_b(k)) % 65536
+            acc = (acc * 31 + profile_c(k)) % 65536
+            acc = (acc * 31 + profile_d()) % 65536
+        }
+    }
+    print("checksum {acc}")
+}
