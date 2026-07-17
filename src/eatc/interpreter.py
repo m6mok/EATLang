@@ -99,6 +99,8 @@ IMPURE_AXIOMS = frozenset({
     "read_byte", "write_byte", "write_span", "write_err_byte", "exit",
     "arg_count", "arg_len", "arg_byte", "print", "write",
     "in_avail", "ticks",
+    "socket_listen", "socket_accept", "socket_avail",
+    "socket_read_byte", "socket_write_span", "socket_close",
 })
 
 
@@ -155,6 +157,9 @@ class Interpreter:
         self._ticks_virt: bool | None = None
         self._ticks_val: int = 0
         self._ticks_base: int | None = None
+        # сокеты (HTTP_PLAN §5): транскрипт EAT_NET либо живой режим,
+        # ленивое состояние как у часов ticks
+        self._net = None
         self.consts: dict[str, Slot] = {}
         self.funcs: dict[str, ast.FuncDecl] = {}
         self.structs: dict[str, StructRT] = {}
@@ -895,6 +900,24 @@ class Interpreter:
             return self._in_avail()
         if name == "ticks":
             return self._ticks()
+        if name == "socket_listen":
+            return self._net_ref().listen(args[0])
+        if name == "socket_accept":
+            return self._net_ref().accept(args[0])
+        if name == "socket_avail":
+            return self._net_ref().avail(args[0])
+        if name == "socket_read_byte":
+            return self._net_ref().read_byte(args[0])
+        if name == "socket_write_span":
+            fd, obj, off, ln = args
+            if off + ln > len(obj):
+                raise self.trap(
+                    node, "socket_write_span вне границ массива"
+                )
+            return self._net_ref().write_span(fd, obj[off:off + ln])
+        if name == "socket_close":
+            self._net_ref().close(args[0])
+            return None
         if name == "len":
             return len(args[0])
         if name == "char":
@@ -952,6 +975,17 @@ class Interpreter:
             self._ticks_base = now
         return now - self._ticks_base
 
+    def _net_ref(self):
+        """Сокеты (HTTP_PLAN §5): EAT_NET=<файл> — транскрипт (сверка),
+        иначе живой режим. Ленивая инициализация, как часы ticks."""
+        if self._net is None:
+            path = os.environ.get("EAT_NET")
+            if path:
+                self._net = _NetTranscript(self, path)
+            else:
+                self._net = _NetLive(self)
+        return self._net
+
     # --- диспетчеры (type(node) -> метод, вместо цепочек isinstance) --------
 
     _EVAL = {
@@ -985,3 +1019,271 @@ class Interpreter:
         ast.ExprStmt: _exec_expr,
         ast.DiscardStmt: _exec_expr,
     }
+
+
+NO_CONN = 0xFFFFFFFF
+
+
+def _shim_trap(msg: str):
+    """Trap на границе аксиом (контракт fd, кривой сценарий): зеркало
+    eat_trap шима — сообщение без координат в stderr, код 1. Тексты —
+    байт-в-байт с runtime.c."""
+    sys.stdout.flush()
+    sys.stderr.buffer.write((msg + "\n").encode("utf-8"))
+    sys.stderr.flush()
+    raise SystemExit(1)
+
+
+class _NetTranscript:
+    """Сокеты в режиме сверки (HTTP_PLAN §5, решение H2): записанный
+    транскрипт EAT_NET — текстовые события `accept` / `data <fd>
+    <байты>` / `close <fd>`, потребляются по порядку. Зеркало разбора
+    и семантики сокетной секции runtime.c: дескрипторы детерминированы
+    (слушатель 3, соединения 4, 5, ...), данные «в пути» применяются
+    до ближайшего accept (net_advance), чтение без готовых данных —
+    детерминированный trap (суррогат вечной блокировки)."""
+
+    def __init__(self, it, path):
+        self.it = it
+        self.events = []      # (kind 0|1|2, fd, payload bytes)
+        self.ev_next = 0
+        self.conns = []       # [queue bytearray, peer_closed, prog_closed]
+        self.listener_open = False
+        self._parse(path)
+
+    def _fail(self):
+        _shim_trap("EAT_NET: неверный сценарий")
+
+    def _parse(self, path):
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            self._fail()
+        i, n = 0, len(data)
+        while i < n:
+            c = data[i]
+            if c == 0x0A:
+                i += 1
+                continue
+            if c == 0x23:  # '#' — комментарий до конца строки
+                while i < n and data[i] != 0x0A:
+                    i += 1
+                continue
+            j = i
+            while j < n and data[j] not in (0x0A, 0x20):
+                j += 1
+            word = data[i:j]
+            i = j
+            tail_sp = i < n and data[i] == 0x20
+            if word == b"accept":
+                if tail_sp:
+                    self._fail()
+                self.events.append((0, 0, b""))
+                continue
+            if word not in (b"data", b"close"):
+                self._fail()
+            if not tail_sp:
+                self._fail()
+            i += 1
+            fd, nd = 0, 0
+            while i < n and 0x30 <= data[i] <= 0x39:
+                fd = fd * 10 + (data[i] - 0x30)
+                nd += 1
+                i += 1
+            if nd == 0:
+                self._fail()
+            if word == b"close":
+                if i < n and data[i] != 0x0A:
+                    self._fail()
+                self.events.append((2, fd, b""))
+                continue
+            if i >= n or data[i] != 0x20:
+                self._fail()
+            i += 1
+            payload = bytearray()
+            while i < n and data[i] != 0x0A:
+                b = data[i]
+                if b == 0x5C:  # '\'
+                    i += 1
+                    e = data[i] if i < n else -1
+                    if e == ord("r"):
+                        payload.append(0x0D)
+                    elif e == ord("n"):
+                        payload.append(0x0A)
+                    elif e == ord("t"):
+                        payload.append(0x09)
+                    elif e == 0x5C:
+                        payload.append(0x5C)
+                    elif e == ord("x"):
+                        h = data[i + 1:i + 3].decode("ascii", "replace")
+                        i += 2
+                        try:
+                            payload.append(int(h, 16))
+                        except ValueError:
+                            self._fail()
+                    else:
+                        self._fail()
+                else:
+                    payload.append(b)
+                i += 1
+            self.events.append((1, fd, bytes(payload)))
+
+    def _advance(self):
+        """Применить пассивные события (data/close) до ближайшего
+        accept: темп поступления задаёт сценарий."""
+        while self.ev_next < len(self.events):
+            kind, fd, payload = self.events[self.ev_next]
+            if kind == 0:
+                break
+            if fd < 4 or fd - 4 >= len(self.conns):
+                self._fail()
+            conn = self.conns[fd - 4]
+            if kind == 2:
+                conn[1] = True
+            elif payload:
+                conn[0].extend(payload)
+            self.ev_next += 1
+
+    def _slot(self, fd):
+        if fd < 4 or fd - 4 >= len(self.conns) or self.conns[fd - 4][2]:
+            _shim_trap("socket: неверный дескриптор")
+        return self.conns[fd - 4]
+
+    def listen(self, port):
+        self.listener_open = True
+        return Tagged("Ok", 3)
+
+    def accept(self, fd):
+        if fd != 3 or not self.listener_open:
+            _shim_trap("socket: неверный дескриптор")
+        self._advance()
+        if (
+            self.ev_next < len(self.events)
+            and self.events[self.ev_next][0] == 0
+        ):
+            self.ev_next += 1
+            self.conns.append([bytearray(), False, False])
+            return 4 + len(self.conns) - 1
+        return NO_CONN
+
+    def avail(self, fd):
+        conn = self._slot(fd)
+        self._advance()
+        if conn[0]:
+            return min(len(conn[0]), 0xFFFFFFFF)
+        return 1 if conn[1] else 0
+
+    def read_byte(self, fd):
+        conn = self._slot(fd)
+        self._advance()
+        if conn[0]:
+            return Tagged("Ok", conn[0].pop(0))
+        if conn[1]:
+            return Tagged("Err", EnumValue("IoError", "Eof"))
+        _shim_trap("socket_read_byte без готовых данных")
+
+    def write_span(self, fd, data):
+        self._slot(fd)
+        self.it._write_bytes("".join(chr(b) for b in data))
+        return len(data)
+
+    def close(self, fd):
+        if fd == 3:
+            self.listener_open = False
+            return
+        if fd < 4 or fd - 4 >= len(self.conns):
+            _shim_trap("socket: неверный дескриптор")
+        # идемпотентно: повторный close слота — no-op
+        self.conns[fd - 4][2] = True
+
+
+class _NetLive:
+    """Живой режим (make serve, вне гейта сверки): реальные
+    неблокирующие сокеты — зеркало живой ветки runtime.c."""
+
+    def __init__(self, it):
+        self.it = it
+        self.socks = {}  # fd ядра -> socket
+
+    def listen(self, port):
+        import socket as so
+        try:
+            s = so.socket(so.AF_INET, so.SOCK_STREAM)
+            s.setsockopt(so.SOL_SOCKET, so.SO_REUSEADDR, 1)
+            s.bind(("0.0.0.0", port))
+            s.listen(16)
+            s.setblocking(False)
+        except OSError:
+            return Tagged("Err", EnumValue("IoError", "Fail"))
+        self.socks[s.fileno()] = s
+        return Tagged("Ok", s.fileno())
+
+    def accept(self, fd):
+        sock = self.socks.get(fd)
+        if sock is None:
+            _shim_trap("socket: неверный дескриптор")
+        try:
+            conn, _ = sock.accept()
+        except (BlockingIOError, InterruptedError):
+            return NO_CONN
+        except OSError:
+            _shim_trap("socket: неверный дескриптор")
+        conn.setblocking(False)
+        self.socks[conn.fileno()] = conn
+        return conn.fileno()
+
+    def avail(self, fd):
+        import fcntl
+        import select
+        import struct
+        import termios
+        if fd not in self.socks:
+            return 0
+        try:
+            raw = fcntl.ioctl(fd, termios.FIONREAD, b"\x00" * 4)
+            n = struct.unpack("i", raw)[0]
+        except OSError:
+            n = 0
+        if n > 0:
+            return min(n, 0xFFFFFFFF)
+        r, _, _ = select.select([fd], [], [], 0)
+        return 1 if r else 0
+
+    def read_byte(self, fd):
+        import select
+        sock = self.socks.get(fd)
+        if sock is None:
+            _shim_trap("socket: неверный дескриптор")
+        while True:
+            try:
+                b = sock.recv(1)
+            except (BlockingIOError, InterruptedError):
+                # страж avail не сработал — блокирующая семантика
+                select.select([fd], [], [])
+                continue
+            except OSError:
+                return Tagged("Err", EnumValue("IoError", "Fail"))
+            if b:
+                return Tagged("Ok", b[0])
+            return Tagged("Err", EnumValue("IoError", "Eof"))
+
+    def write_span(self, fd, data):
+        sock = self.socks.get(fd)
+        if sock is None:
+            _shim_trap("socket: неверный дескриптор")
+        if not data:
+            return 0
+        try:
+            return sock.send(bytes(data))
+        except (BlockingIOError, InterruptedError):
+            return 0
+        except OSError:
+            # пир умер: байты некому слать — считаем принятыми,
+            # закрытие сервер увидит по Err(Eof) чтения
+            return len(data)
+
+    def close(self, fd):
+        sock = self.socks.pop(fd, None)
+        if sock is not None:
+            sock.close()

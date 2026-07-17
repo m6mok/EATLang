@@ -1097,7 +1097,7 @@ struct Ir {
     # 6 переполнение при касте (e1 — вид цели), 7 сдвиг ≥ ширины
     # (e1 — вид целого).
     func trap_glob(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32) -> u32
-        requires mk <= 11
+        requires mk <= 12
         ensures result < 65536
     {
         self.g_begin()
@@ -1141,8 +1141,10 @@ struct Ir {
             self.g_lit("arg_len вне границ argv")
         } elif mk == 10 {
             self.g_lit("arg_byte вне границ argv")
-        } else {
+        } elif mk == 11 {
             self.g_lit("arg_byte вне границ аргумента")
+        } else {
+            self.g_lit("socket_write_span вне границ массива")
         }
         self.g_b(0)
         return self.g_commit(0)

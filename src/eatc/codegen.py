@@ -79,6 +79,15 @@ _RUNTIME = {
     # опрос stdin и монотонные миллисекунды — без trap-границ
     "eat_in_avail": ir.FunctionType(I32L, []),
     "eat_ticks": ir.FunctionType(I64L, []),
+    # сокеты (HTTP_PLAN §5): «данных нет» — socket_avail / сентинел
+    # NO_CONN (решение H1); listen: i64 (< 0 — Err(Fail)), read_byte:
+    # i32 (-1 — Err(Eof), -2 — Err(Fail)), как eat_read_byte
+    "eat_socket_listen": ir.FunctionType(I64L, [I16L]),
+    "eat_socket_accept": ir.FunctionType(I32L, [I32L]),
+    "eat_socket_avail": ir.FunctionType(I32L, [I32L]),
+    "eat_socket_read_byte": ir.FunctionType(I32L, [I32L]),
+    "eat_socket_write_span": ir.FunctionType(I32L, [I32L, I8P, I32L]),
+    "eat_socket_close": ir.FunctionType(ir.VoidType(), [I32L]),
 }
 
 _SIGNED = {"i32", "i64"}
@@ -1146,6 +1155,25 @@ class Codegen:
             return self.b.call(self.rt["eat_in_avail"], [])
         if name == "ticks":
             return self.b.call(self.rt["eat_ticks"], [])
+        if name == "socket_listen":
+            return self.gen_socket_listen(node)
+        if name == "socket_accept":
+            return self.b.call(
+                self.rt["eat_socket_accept"], [self.expr(node.args[0])]
+            )
+        if name == "socket_avail":
+            return self.b.call(
+                self.rt["eat_socket_avail"], [self.expr(node.args[0])]
+            )
+        if name == "socket_read_byte":
+            return self.gen_socket_read_byte(node)
+        if name == "socket_write_span":
+            return self.gen_socket_write_span(node)
+        if name == "socket_close":
+            self.b.call(
+                self.rt["eat_socket_close"], [self.expr(node.args[0])]
+            )
+            return None
         if name == "len":
             return self.gen_len(node)
         if name in ("i32", "u32", "u16", "u8", "u64", "i64", "char"):
@@ -1288,6 +1316,64 @@ class Codegen:
             I32L(0), self.b.gep(res, [I32L(0), I32L(2)], inbounds=True)
         )
         return res
+
+    def gen_socket_listen(self, node: ast.Call):
+        """socket_listen(port) -> Result<u32, IoError>: сырой i64 шима
+        (>= 0 — дескриптор, < 0 — ошибка) собирается в Result по
+        лейауту gen_read_byte; ошибка одна — Err(Fail), вариант 1."""
+        raw = self.b.call(
+            self.rt["eat_socket_listen"], [self.expr(node.args[0])]
+        )
+        res = self.alloca(self.ll(node.ty), name="sl.res")
+        ok = self.b.icmp_signed(">=", raw, I64L(0))
+        tag = self.b.select(ok, I32L(0), I32L(1))
+        self.b.store(tag, self.b.gep(res, [I32L(0), I32L(0)], inbounds=True))
+        fd = self.b.select(ok, self.b.trunc(raw, I32L), I32L(0))
+        self.b.store(fd, self.b.gep(res, [I32L(0), I32L(1)], inbounds=True))
+        # Err(Fail) — индекс варианта 1
+        self.b.store(
+            I32L(1), self.b.gep(res, [I32L(0), I32L(2)], inbounds=True)
+        )
+        return res
+
+    def gen_socket_read_byte(self, node: ast.Call):
+        """socket_read_byte(fd) -> Result<u8, IoError>: сырой i32 шима
+        (0..255 — байт, 256 — Eof, 257 — Fail; сентинелы положительные,
+        без отрицательных литералов в IR) — лейаут gen_read_byte,
+        вариант ошибки выбирается по значению."""
+        raw = self.b.call(
+            self.rt["eat_socket_read_byte"], [self.expr(node.args[0])]
+        )
+        res = self.alloca(self.ll(node.ty), name="srb.res")
+        ok = self.b.icmp_unsigned("<", raw, I32L(256))
+        tag = self.b.select(ok, I32L(0), I32L(1))
+        self.b.store(tag, self.b.gep(res, [I32L(0), I32L(0)], inbounds=True))
+        byte = self.b.select(ok, self.b.trunc(raw, I8L), I8L(0))
+        self.b.store(byte, self.b.gep(res, [I32L(0), I32L(1)], inbounds=True))
+        # 256 — Err(Eof) (вариант 0), 257 — Err(Fail) (вариант 1)
+        fail = self.b.icmp_unsigned("==", raw, I32L(257))
+        err = self.b.select(fail, I32L(1), I32L(0))
+        self.b.store(err, self.b.gep(res, [I32L(0), I32L(2)], inbounds=True))
+        return res
+
+    def gen_socket_write_span(self, node: ast.Call):
+        """socket_write_span(fd, a, off, len) -> u32: границы off > N
+        или len > N - off — trap (порядок проверок как write_span);
+        обязательство верификатор не сопровождает — проверка всегда
+        в рантайме (общий путь новых аксиом)."""
+        fd = self.expr(node.args[0])
+        arr = self.expr(node.args[1])
+        off = self.expr(node.args[2])
+        ln = self.expr(node.args[3])
+        size = I32L(node.arr_size)
+        rem = self.b.sub(size, off)
+        bad = self.b.or_(
+            self.b.icmp_unsigned(">", off, size),
+            self.b.icmp_unsigned(">", ln, rem),
+        )
+        self.trap_if(bad, node, "socket_write_span вне границ массива")
+        ptr = self.b.gep(arr, [I32L(0), off], inbounds=True)
+        return self.b.call(self.rt["eat_socket_write_span"], [fd, ptr, ln])
 
     def gen_len(self, node: ast.Call):
         aty = node.args[0].ty

@@ -1,0 +1,141 @@
+# Эхо-сервер (docs/plans/HTTP_PLAN.md, этап 0): сокет-аксиомы SPEC §7
+# (socket_listen/accept/avail/read_byte/write_span/close), пул на один
+# слот, единственный loop в main — циклический исполнитель ASYNC.
+# «Данных нет» — socket_avail/сентинел NO_CONN (решение H1, прецедент
+# ASYNC D1): встроенный IoError не расширяется, Err(Eof) — пир закрыл.
+#
+# Сверка make verify детерминирована по построению (решение H2):
+# EAT_NET=<файл> — записанный транскрипт соединений (события `accept` /
+# `data <fd> <байты>` / `close <fd>` потребляются по порядку), вывод
+# socket_write_span идёт в stdout тем же потоком, что write. Живой
+# режим — только `make serve` (вне гейта): реальные неблокирующие
+# сокеты, проверка руками: printf 'привет' | nc 127.0.0.1 8080
+#
+# Порт — аргумент бинарника (решение H3): ./HttpEcho 9090; без
+# аргумента — PORT_DEFAULT. В сверке порт не участвует (транскрипт).
+
+import {
+    get,
+} from "lib/Args.eat"
+
+import {
+    parse_i32,
+} from "lib/Parse.eat"
+
+# Сентинелы: NO_CONN — «никто не ждёт» у socket_accept (SPEC §7),
+# SENT — свободный слот пула (идиома пула с курсором).
+const NO_CONN: u32 = 4294967295
+const SENT: u32 = 4294967295
+
+const PORT_DEFAULT: u32 = 8080
+# Ёмкость эхо-буфера одного витка; лишние байты витка дропаются
+# (эхо-демо; HTTP-потолки с ошибками-значениями — этапы 1..3).
+const BUF_CAP: u32 = 512
+# Досылка неблокирующей записи: потолок попыток на виток (правило 2).
+const SEND_TRIES: u32 = 8
+# Обслужив столько соединений, сервер штатно выходит: у вечного
+# сервера нет break — для сверки по транскрипту нужен детерминированный
+# останов (в живом режиме make serve лимит тот же — эхо-демо).
+const SERVE_CONNS: u32 = 2
+
+# Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
+func port_arg() -> u32
+    requires true
+    ensures result <= 65535
+{
+    match get(0) {
+        Ok(s) {
+            match parse_i32(s) {
+                Ok(v) {
+                    if v >= 1 and v <= 65535 {
+                        return u32(v)
+                    }
+                }
+                Err(_) {}
+            }
+        }
+        Err(_) {}
+    }
+    return PORT_DEFAULT
+}
+
+# Один шаг обслуживания соединения (тотальная функция — исполнитель
+# зовёт её на каждом витке): дренируем готовые байты в буфер, эхоим
+# обратно одним спаном. true — пир закрыл соединение (Err(Eof)),
+# слот возвращён пулу.
+func step_conn(fd: u32) -> bool
+    requires true
+    ensures true
+{
+    var buf: [u8; 512] = [0; 512]
+    var n: u32 = 0
+    var closed: bool = false
+    for _ in 0..512 {
+        if closed or socket_avail(fd) == 0 {
+            break
+        }
+        match socket_read_byte(fd) {
+            Ok(b) {
+                if n < 512 {
+                    buf[n] = b
+                    n = n + 1
+                }
+            }
+            Err(_) {
+                # Eof и Fail равно закрывают эхо-сессию
+                closed = true
+            }
+        }
+    }
+    # неблокирующая запись возвращает принятое ядром (правило 7:
+    # результат ведёт курсор досылки); в транскрипте всегда n целиком
+    var sent: u32 = 0
+    for _ in 0..8 {
+        if sent >= n {
+            break
+        }
+        sent = sent + socket_write_span(fd, buf, sent, n - sent)
+    }
+    if closed {
+        socket_close(fd)
+    }
+    return closed
+}
+
+func main() {
+    var lst: u32 = 0
+    var live: bool = false
+    match socket_listen(u16(port_arg())) {
+        Ok(fd) {
+            lst = fd
+            live = true
+        }
+        Err(_) {
+            # Err(Fail): порт занят/недоступен — штатная ошибка-значение
+            print("echo: не удалось открыть порт")
+        }
+    }
+    if live {
+        var conn: u32 = SENT
+        var served: u32 = 0
+        loop {
+            if conn == SENT {
+                let c: u32 = socket_accept(lst)
+                if c != NO_CONN {
+                    conn = c
+                }
+            }
+            if conn != SENT {
+                if step_conn(conn) {
+                    conn = SENT
+                    served = served + 1
+                }
+            }
+            if served >= SERVE_CONNS {
+                break
+            }
+        }
+        socket_close(lst)
+        print("echo: обслужено {served} соединений")
+    }
+}

@@ -604,6 +604,9 @@ extend Check {
         if self.xs_async_start(n, argc) {
             return
         }
+        if self.xs_socket_start(f, n, argc) {
+            return
+        }
         let fi: u32 = self.find_func(a, l)
         if fi == NONE {
             self.fail_node(n, "неизвестная функция")
@@ -716,6 +719,126 @@ extend Check {
         return false
     }
 
+    # Сокеты (HTTP_PLAN §5, решение H1): socket_listen (1 арг u16,
+    # код 118 → Result<u32, IoError>), socket_accept (119 → u32),
+    # socket_avail (120 → u32), socket_read_byte (121 → ty_rb),
+    # socket_write_span (4 арг, код 122 → u32, машина как write_span),
+    # socket_close (123 → void). «Данных нет» — socket_avail/сентинел,
+    # встроенный IoError не расширяется (прецедент ASYNC D1).
+    func xs_socket_start(var self, f: u32, n: u32, argc: u32) -> bool
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let a: u32 = self.p.nss[n / 65536][n % 65536]
+        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        if self.span_is(a, l, "socket_listen") {
+            if argc != 1 {
+                self.fail_node(n, "ожидается 1 аргумент")
+                return true
+            }
+            self.xa[f] = 118
+            self.xpush(self.p.nfc[n / 65536][n % 65536], self.u16_ty())
+            return true
+        }
+        if self.span_is(a, l, "socket_accept") or self.span_is(a, l, "socket_avail") {
+            if argc != 1 {
+                self.fail_node(n, "ожидается 1 аргумент")
+                return true
+            }
+            if self.span_is(a, l, "socket_accept") {
+                self.xa[f] = 119
+            } else {
+                self.xa[f] = 120
+            }
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+            return true
+        }
+        if self.span_is(a, l, "socket_read_byte") or self.span_is(a, l, "socket_close") {
+            if argc != 1 {
+                self.fail_node(n, "ожидается 1 аргумент")
+                return true
+            }
+            if self.span_is(a, l, "socket_read_byte") {
+                self.xa[f] = 121
+            } else {
+                self.xa[f] = 123
+            }
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+            return true
+        }
+        if self.span_is_sws(a, l) {
+            if argc != 4 {
+                self.fail_node(n, "socket_write_span(): ровно четыре аргумента")
+                return true
+            }
+            self.xa[f] = 122
+            self.xb[f] = 0
+            self.xpush(self.p.nfc[n / 65536][n % 65536], 1)
+            return true
+        }
+        return false
+    }
+
+    # Финализация сокет-аксиом: код в xa, очередной аргумент — в tres.
+    func xs_socket_next(var self, f: u32, n: u32, code: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if code == 118 {
+            if not self.compat(self.u16_ty(), self.tres) {
+                self.fail_node(n, "socket_listen() принимает u16")
+            }
+            let t_io: u32 = self.intern(9, NONE, NONE, self.bn_io, 7)
+            self.tres = self.intern(10, 1, t_io, NONE, 0)
+            self.xdone()
+            return
+        }
+        if code == 119 or code == 120 {
+            if not self.compat(1, self.tres) {
+                self.fail_node(n, "дескриптор сокета — u32")
+            }
+            self.tres = 1
+            self.xdone()
+            return
+        }
+        if code == 121 or code == 123 {
+            if not self.compat(1, self.tres) {
+                self.fail_node(n, "дескриптор сокета — u32")
+            }
+            if code == 121 {
+                self.tres = self.ty_rb
+            } else {
+                self.tres = 5
+            }
+            self.xdone()
+            return
+        }
+        # 122 — socket_write_span(fd, a, off, len)
+        let wi: u32 = self.xb[f]
+        if wi == 0 {
+            if not self.compat(1, self.tres) {
+                self.fail_node(n, "socket_write_span(): дескриптор — u32")
+            }
+        } elif wi == 1 {
+            if self.yk[self.tres] != 7 or self.ya[self.tres] != 2 {
+                self.fail_node(n, "socket_write_span() пишет из массива u8")
+            }
+        } elif not self.compat(1, self.tres) {
+            self.fail_node(n, "socket_write_span(): смещение и длина — u32")
+        }
+        if wi >= 3 {
+            self.tres = 1
+            self.xdone()
+        } else {
+            self.xb[f] = wi + 1
+            if wi == 0 {
+                self.xpush(self.nth_child(n, 1), NONE)
+            } else {
+                self.xpush(self.nth_child(n, wi + 1), 1)
+            }
+        }
+    }
+
     # write_span(a, off, len): три аргумента, машина — код 110.
     func xs_ws_start(var self, f: u32, n: u32, argc: u32)
         requires f < 64 and n < 131072
@@ -813,6 +936,8 @@ extend Check {
             self.xdone()
         } elif code == 116 or code == 117 {
             self.xs_arg_next(f, n, code)
+        } elif code >= 118 and code <= 123 {
+            self.xs_socket_next(f, n, code)
         } else {
             self.xs_user_arg(f, n, code - 4096)
         }

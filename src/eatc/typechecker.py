@@ -132,6 +132,19 @@ BUILTINS = {
     # (аргументов нет, результат — полный диапазон типа)
     "in_avail": FuncSig("in_avail", [], U32),
     "ticks": FuncSig("ticks", [], U64),
+    # сокеты (HTTP_PLAN §5, решение H1): «данных нет» — socket_avail /
+    # сентинел NO_CONN у accept, встроенный IoError не расширяется;
+    # socket_write_span — спецпуть _socket_write_span (свободный размер
+    # массива, как write_span)
+    "socket_listen": FuncSig(
+        "socket_listen", [("port", U16)], ResultType(U32, EnumType("IoError"))
+    ),
+    "socket_accept": FuncSig("socket_accept", [("fd", U32)], U32),
+    "socket_avail": FuncSig("socket_avail", [("fd", U32)], U32),
+    "socket_read_byte": FuncSig(
+        "socket_read_byte", [("fd", U32)], ResultType(U8, EnumType("IoError"))
+    ),
+    "socket_close": FuncSig("socket_close", [("fd", U32)], None),
 }
 
 _FORMATTABLE = (IntType, BoolType, CharType, StrType)
@@ -1400,6 +1413,8 @@ class TypeChecker:
             return self._len(node)
         if node.name == "write_span":
             return self._write_span(node)
+        if node.name == "socket_write_span":
+            return self._socket_write_span(node)
         if node.name == "exit":
             # завершение процесса: только из main (как loop) и один раз
             if self.current_key != "main":
@@ -1484,6 +1499,38 @@ class TypeChecker:
                 )
         node.arr_size = arr.size  # для кодогенерации: проверка границ
         return VOID
+
+    def _socket_write_span(self, node: ast.Call) -> Type:
+        """socket_write_span(fd, a, off, len) -> u32: батч-вывод в
+        соединение (HTTP_PLAN §5); размер массива — свободный параметр,
+        как у write_span; результат — сколько байт принято ядром."""
+        if len(node.args) != 4:
+            raise self.err(
+                node, "socket_write_span(): ровно четыре аргумента"
+            )
+        t0 = self.expr(node.args[0], expected=U32)
+        if t0 != U32:
+            raise self.err(
+                node,
+                f"socket_write_span(): дескриптор — u32, не {show(t0)}",
+            )
+        arr = self.expr(node.args[1])
+        if not (isinstance(arr, ArrayType) and arr.elem == U8):
+            raise self.err(
+                node,
+                "socket_write_span() пишет из массива u8, "
+                f"не из {show(arr)}",
+            )
+        for i in (2, 3):
+            t = self.expr(node.args[i], expected=U32)
+            if t != U32:
+                raise self.err(
+                    node,
+                    "socket_write_span(): смещение и длина — u32, "
+                    f"не {show(t)}",
+                )
+        node.arr_size = arr.size  # для кодогенерации: проверка границ
+        return U32
 
     def _len(self, node: ast.Call) -> Type:
         if len(node.args) != 1:

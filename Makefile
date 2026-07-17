@@ -46,6 +46,7 @@ check:
 	$(EATC) check --lib . examples/async/Async.eat
 	$(EATC) check --lib . examples/async/Pipe.eat
 	$(EATC) check --lib . examples/async/Debounce.eat
+	$(EATC) check --lib . $(HTTP_ECHO_MAIN)
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -87,6 +88,23 @@ run_async_pipe:
 
 run_async_debounce:
 	EAT_TICKS=virt $(EATC) run --lib . $(DEBOUNCE_MAIN) < examples/async/debounce_input.txt
+
+# HTTP-трек (docs/plans/HTTP_PLAN.md, этап 0): эхо-сервер на
+# сокет-аксиомах SPEC §7. Сверка — записанный транскрипт соединений
+# EAT_NET=<файл> (решение H2: события accept/data/close потребляются
+# по порядку, вывод socket_write_span — в stdout тем же потоком, что
+# write); живые сокеты — только make serve, ВНЕ гейта verify.
+HTTP_ECHO_MAIN = examples/http/Echo.eat
+
+run_http_echo:
+	EAT_NET=examples/http/echo_net.txt $(EATC) run --lib . $(HTTP_ECHO_MAIN)
+
+# Живой режим (вне гейта сверки): реальные неблокирующие сокеты.
+# Порт — аргумент (решение H3): make serve PORT=9090; дефолт 8080.
+# Проверка руками: printf 'привет' | nc 127.0.0.1 8080
+serve:
+	@$(EATC) build --lib . $(HTTP_ECHO_MAIN) -o build/HttpEcho > /dev/null
+	./build/HttpEcho $(PORT)
 
 # Проба self-host лексера: все кирпичи разом, вход — собственный исходник
 LEXER_PROBE = $(RT) lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
@@ -614,3 +632,8 @@ verify: build_all_examples
 	@EAT_TICKS=virt ./build/Debounce < examples/async/debounce_input.txt > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Debounce" || exit 1
+	@$(EATC) build --lib . $(HTTP_ECHO_MAIN) -o build/HttpEcho > /dev/null
+	@EAT_NET=examples/http/echo_net.txt $(EATC) run --lib . $(HTTP_ECHO_MAIN) > /tmp/eat_interp.txt
+	@EAT_NET=examples/http/echo_net.txt ./build/HttpEcho > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED HttpEcho" || exit 1

@@ -325,6 +325,22 @@ struct Check {
         return same(pool16(self.p.lex.sbuf, a, l), l, kw)
     }
 
+    # socket_write_span — единственное имя встроенного длиннее 16 байт
+    # (потолок span_is): первые 16 байт через span_is, хвост — прямым
+    # чтением пула (HTTP_PLAN §5).
+    func span_is_sws(var self, a: u32, l: u32) -> bool
+        requires true
+        ensures true
+    {
+        if l != 17 {
+            return false
+        }
+        if not self.span_is(a, 16, "socket_write_spa") {
+            return false
+        }
+        return self.p.lex.sb_at(a + 16) == u8('n')
+    }
+
     func write_span2(var self, a: u32, l: u32)
         requires true
         ensures true
@@ -782,6 +798,16 @@ struct Check {
         }
         # кооперативная асинхронность (ASYNC_PLAN, ярус 0)
         if self.span_is(a, l, "in_avail") or self.span_is(a, l, "ticks") {
+            return true
+        }
+        # сокеты (HTTP_PLAN §5)
+        if self.span_is(a, l, "socket_listen") or self.span_is(a, l, "socket_accept") {
+            return true
+        }
+        if self.span_is(a, l, "socket_avail") or self.span_is(a, l, "socket_read_byte") {
+            return true
+        }
+        if self.span_is_sws(a, l) or self.span_is(a, l, "socket_close") {
             return true
         }
         if self.span_is(a, l, "len") {
@@ -1978,6 +2004,16 @@ struct Check {
         }
         # кооперативная асинхронность (ASYNC_PLAN, ярус 0)
         if self.span_is(a, l, "in_avail") or self.span_is(a, l, "ticks") {
+            return true
+        }
+        # сокеты (HTTP_PLAN §5)
+        if self.span_is(a, l, "socket_listen") or self.span_is(a, l, "socket_accept") {
+            return true
+        }
+        if self.span_is(a, l, "socket_avail") or self.span_is(a, l, "socket_read_byte") {
+            return true
+        }
+        if self.span_is_sws(a, l) or self.span_is(a, l, "socket_close") {
             return true
         }
         if self.span_is(a, l, "write_byte") or self.span_is(a, l, "write_err_byte") {

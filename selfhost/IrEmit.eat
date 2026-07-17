@@ -712,6 +712,82 @@ extend Ir {
         self.line_fin()
     }
 
+    # %r = call i64 @"eat_socket_listen"(i16 v1) — сокеты (HTTP_PLAN)
+    func e_slisten(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i64 @\"eat_socket_listen\"(i16 ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # %r = call i32 @"eat_socket_accept"(i32 v1)
+    func e_saccept(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_socket_accept\"(i32 ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # %r = call i32 @"eat_socket_avail"(i32 v1)
+    func e_savail(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_socket_avail\"(i32 ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # %r = call i32 @"eat_socket_read_byte"(i32 v1)
+    func e_srbyte(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_socket_read_byte\"(i32 ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # %r = call i32 @"eat_socket_write_span"(i32 v1, i8* v2, i32 v3)
+    func e_swspan(var self)
+        requires true
+        ensures true
+    {
+        self.rpre()
+        self.lb_lit("call i32 @\"eat_socket_write_span\"(i32 ")
+        self.wr1()
+        self.lb_lit(", i8* ")
+        self.wr2()
+        self.lb_lit(", i32 ")
+        self.wr3()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
+    # call void @"eat_socket_close"(i32 v1)
+    func e_sclose(var self)
+        requires true
+        ensures true
+    {
+        self.vpre()
+        self.lb_lit("call void @\"eat_socket_close\"(i32 ")
+        self.wr1()
+        self.lb_lit(")")
+        self.line_fin()
+    }
+
     # call void @"eat_str_append_{nm}"({STR}* v1, {at} v2)
     func e_rt_si(var self, nm: str<8>, at: str<8>)
         requires true
@@ -973,7 +1049,7 @@ extend Ir {
 
     # w1 — i1: если истина, аварийная остановка.
     func trap_if(var self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32)
-        requires mk <= 11
+        requires mk <= 12
         ensures true
     {
         let bk2: u32 = self.w1k

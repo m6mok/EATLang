@@ -244,7 +244,17 @@ extend Check {
             return true
         }
         # кооперативная асинхронность (ASYNC_PLAN, ярус 0)
-        return self.span_is(a, l, "in_avail") or self.span_is(a, l, "ticks")
+        if self.span_is(a, l, "in_avail") or self.span_is(a, l, "ticks") {
+            return true
+        }
+        # сокеты (HTTP_PLAN §5)
+        if self.span_is(a, l, "socket_listen") or self.span_is(a, l, "socket_accept") {
+            return true
+        }
+        if self.span_is(a, l, "socket_avail") or self.span_is(a, l, "socket_read_byte") {
+            return true
+        }
+        return self.span_is_sws(a, l) or self.span_is(a, l, "socket_close")
     }
 
     # Спан — имя целочисленного каста?

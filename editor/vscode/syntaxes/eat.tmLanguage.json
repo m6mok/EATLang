@@ -129,7 +129,7 @@
             "patterns": [
                 {
                     "name": "support.function.builtin.eat",
-                    "match": "\\b(print|write|read_byte|write_byte|write_span|write_err_byte|exit|arg_count|arg_len|arg_byte|in_avail|ticks|len)\\b(?=\\s*\\()"
+                    "match": "\\b(print|write|read_byte|write_byte|write_span|write_err_byte|exit|arg_count|arg_len|arg_byte|in_avail|ticks|socket_listen|socket_accept|socket_avail|socket_read_byte|socket_write_span|socket_close|len)\\b(?=\\s*\\()"
                 },
                 {
                     "name": "entity.name.function.call.eat",

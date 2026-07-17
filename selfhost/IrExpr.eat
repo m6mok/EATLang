@@ -740,6 +740,8 @@ extend Ir {
             self.e_ticks()
             self.serrr(self.u64t())
             self.nx3 = self.nx3 - 1
+        } elif self.xsock_start(f, n, a, l) {
+            # сокеты (HTTP_PLAN §5) — коды 11..16 в хелпере
         } elif self.c.span_is(a, l, "len") {
             self.xcall_len(f, n)
         } elif self.c.span_is(a, l, "i32") {
@@ -861,6 +863,8 @@ extend Ir {
             } else {
                 self.xpush2(self.c.nth_child(n, self.xf3[f]))
             }
+        } elif code >= 11 and code <= 16 {
+            self.xsock_next(f, n, code)
         } elif code == 113 or code == 114 or code == 115 {
             # payload конструктора Ok/Err/Some готов: копия в слот
             var pt: u32 = self.c.ya[self.xd3[f]]
@@ -998,6 +1002,261 @@ extend Ir {
         self.set2(jk, ja, jb)
         self.e_argbyte()
         self.serrr(2)
+        self.nag = base
+        self.nx3 = self.nx3 - 1
+    }
+
+    # Сокеты (HTTP_PLAN §5): диспетч вызова — коды машины 11..16
+    # (правило 4: хелпер, чтобы не раздувать xcall_start).
+    func xsock_start(var self, f: u32, n: u32, a: u32, l: u32) -> bool
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if self.c.span_is(a, l, "socket_listen") {
+            self.xa3[f] = 11
+        } elif self.c.span_is(a, l, "socket_accept") {
+            self.xa3[f] = 12
+        } elif self.c.span_is(a, l, "socket_avail") {
+            self.xa3[f] = 13
+        } elif self.c.span_is(a, l, "socket_read_byte") {
+            self.xa3[f] = 14
+        } elif self.c.span_is_sws(a, l) {
+            self.xa3[f] = 15
+            self.xf3[f] = 0
+            self.xg3[f] = self.nag
+        } elif self.c.span_is(a, l, "socket_close") {
+            self.xa3[f] = 16
+        } else {
+            return false
+        }
+        self.xpush2(self.c.p.nfc[n / 65536][n % 65536])
+        return true
+    }
+
+    # Готов очередной аргумент сокет-аксиомы (коды 11..16).
+    func xsock_next(var self, f: u32, n: u32, code: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        if code == 11 {
+            self.xslisten(n)
+        } elif code == 12 {
+            self.set1er()
+            self.e_saccept()
+            self.serrr(1)
+            self.nx3 = self.nx3 - 1
+        } elif code == 13 {
+            self.set1er()
+            self.e_savail()
+            self.serrr(1)
+            self.nx3 = self.nx3 - 1
+        } elif code == 14 {
+            self.xsrbyte(n)
+        } elif code == 15 {
+            # socket_write_span(fd, a, off, len): все в ag[base..base+4)
+            self.ag_push(1)
+            self.xf3[f] = self.xf3[f] + 1
+            if self.xf3[f] >= 4 {
+                self.xswspan(f, n)
+            } else {
+                self.xpush2(self.c.nth_child(n, self.xf3[f]))
+            }
+        } else {
+            self.set1er()
+            self.e_sclose()
+            self.ert = 5
+            self.nx3 = self.nx3 - 1
+        }
+    }
+
+    # socket_listen(port) -> Result<u32, IoError>: сырой i64 шима
+    # (>= 0 — дескриптор, < 0 — ошибка) собирается в Result по лейауту
+    # xrbyte; ошибка одна — Err(Fail), вариант 1 (gen_socket_listen).
+    func xslisten(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
+        self.set1er()
+        self.e_slisten()
+        let wk: u32 = self.rrk
+        let wa: u32 = self.rra
+        let wb: u32 = self.rrb
+        self.nm_lit("sl.res")
+        self.e_alloca_n(t)
+        let rs2: u32 = self.rra
+        let rl2: u32 = self.rrb
+        # ok = icmp sge i64 raw, 0
+        self.set1(wk, wa, wb)
+        self.set2(2, 0, 0)
+        self.e_icmp(6, self.u64t())
+        let ok3: u32 = self.rrk
+        let oa3: u32 = self.rra
+        let ob3: u32 = self.rrb
+        # tag = select ok, 0, 1
+        self.set1(ok3, oa3, ob3)
+        self.set2(2, 0, 0)
+        self.set3(2, 0, 1)
+        self.e_sel(0)
+        let tk2: u32 = self.rrk
+        let ta2: u32 = self.rra
+        let tb2: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 0)
+        self.set2rr()
+        self.set1(tk2, ta2, tb2)
+        self.e_store(0)
+        # fd = select ok, trunc(raw), 0
+        self.set1(wk, wa, wb)
+        self.e_cvt(1, self.u64t(), 0)
+        self.set2rr()
+        self.set1(ok3, oa3, ob3)
+        self.set3(2, 0, 0)
+        self.e_sel(0)
+        let fk3: u32 = self.rrk
+        let fa3: u32 = self.rra
+        let fb3: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 1)
+        self.set2rr()
+        self.set1(fk3, fa3, fb3)
+        self.e_store(0)
+        # Err(Fail) — индекс варианта 1
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 2)
+        self.set2rr()
+        self.set1(2, 0, 1)
+        self.e_store(self.c.yb[t])
+        self.ser(1, rs2, rl2)
+        self.ert = t
+        self.nx3 = self.nx3 - 1
+    }
+
+    # socket_read_byte(fd) -> Result<u8, IoError>: сырой i32 шима
+    # (0..255 — байт, 256 — Eof, 257 — Fail; сентинелы положительные,
+    # без отрицательных литералов в IR) — лейаут xrbyte, вариант
+    # ошибки выбирается по значению (gen_socket_read_byte).
+    func xsrbyte(var self, n: u32)
+        requires n < 131072
+        ensures true
+    {
+        let t: u32 = self.c.nty[n / 65536][n % 65536]
+        self.set1er()
+        self.e_srbyte()
+        let wk: u32 = self.rrk
+        let wa: u32 = self.rra
+        let wb: u32 = self.rrb
+        self.nm_lit("srb.res")
+        self.e_alloca_n(t)
+        let rs2: u32 = self.rra
+        let rl2: u32 = self.rrb
+        # ok = icmp ult i32 raw, 256
+        self.set1(wk, wa, wb)
+        self.set2(2, 0, 256)
+        self.e_icmp(7, 0)
+        let ok3: u32 = self.rrk
+        let oa3: u32 = self.rra
+        let ob3: u32 = self.rrb
+        # tag = select ok, 0, 1
+        self.set1(ok3, oa3, ob3)
+        self.set2(2, 0, 0)
+        self.set3(2, 0, 1)
+        self.e_sel(0)
+        let tk2: u32 = self.rrk
+        let ta2: u32 = self.rra
+        let tb2: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 0)
+        self.set2rr()
+        self.set1(tk2, ta2, tb2)
+        self.e_store(0)
+        # byte = select ok, trunc(raw), 0
+        self.set1(wk, wa, wb)
+        self.e_cvt(1, 0, 2)
+        self.set2rr()
+        self.set1(ok3, oa3, ob3)
+        self.set3(2, 0, 0)
+        self.e_sel(2)
+        let bk3: u32 = self.rrk
+        let ba3: u32 = self.rra
+        let bb3: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 1)
+        self.set2rr()
+        self.set1(bk3, ba3, bb3)
+        self.e_store(2)
+        # 256 — Err(Eof) (вариант 0), 257 — Err(Fail) (вариант 1)
+        self.set1(wk, wa, wb)
+        self.set2(2, 0, 257)
+        self.e_icmp(1, 0)
+        self.set1rr()
+        self.set2(2, 0, 1)
+        self.set3(2, 0, 0)
+        self.e_sel(0)
+        let ek3: u32 = self.rrk
+        let ea3: u32 = self.rra
+        let eb3: u32 = self.rrb
+        self.set1(1, rs2, rl2)
+        self.e_gepc(t, 2)
+        self.set2rr()
+        self.set1(ek3, ea3, eb3)
+        self.e_store(self.c.yb[t])
+        self.ser(1, rs2, rl2)
+        self.ert = t
+        self.nx3 = self.nx3 - 1
+    }
+
+    # socket_write_span(fd, a, off, len) -> u32: границы off > N или
+    # len > N - off — trap (порядок как xwspan/gen_socket_write_span);
+    # обязательство верификатор не сопровождает — проверка всегда в
+    # рантайме (общий путь новых аксиом, элизии оси -O нет).
+    func xswspan(var self, f: u32, n: u32)
+        requires f < 64 and n < 131072
+        ensures true
+    {
+        let base: u32 = self.xg3[f]
+        let arg1: u32 = self.c.nth_child(n, 1)
+        let at: u32 = self.c.nty[arg1 / 65536][arg1 % 65536]
+        let sz: u32 = self.c.yb[at]
+        # rem = sub N, off
+        self.set1(2, 0, sz)
+        self.set2(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
+        self.e_bin(2, 1)
+        let mk1: u32 = self.rrk
+        let ma1: u32 = self.rra
+        let mb1: u32 = self.rrb
+        # bad1 = icmp ugt off, N
+        self.set1(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
+        self.set2(2, 0, sz)
+        self.e_icmp(9, 1)
+        let bk1: u32 = self.rrk
+        let ba1: u32 = self.rra
+        let bb1: u32 = self.rrb
+        # bad2 = icmp ugt len, rem
+        self.set1(self.agk[base + 3], self.aga[base + 3], self.agb[base + 3])
+        self.set2(mk1, ma1, mb1)
+        self.e_icmp(9, 1)
+        # bad = or bad1, bad2
+        self.set2rr()
+        self.set1(bk1, ba1, bb1)
+        self.e_bin(9, 3)
+        self.set1rr()
+        self.trap_if(
+            self.c.p.nl[n / 65536][n % 65536], self.c.p.nc[n / 65536][n % 65536], 12, 0, 0
+        )
+        # ptr = gep [N x i8] arr, 0, off
+        self.set1(self.agk[base + 1], self.aga[base + 1], self.agb[base + 1])
+        self.set2(self.agk[base + 2], self.aga[base + 2], self.agb[base + 2])
+        self.e_gepi(at)
+        let pk1: u32 = self.rrk
+        let pa1: u32 = self.rra
+        let pb1: u32 = self.rrb
+        # res = call i32 eat_socket_write_span(fd, ptr, len)
+        self.set1(self.agk[base], self.aga[base], self.agb[base])
+        self.set2(pk1, pa1, pb1)
+        self.set3(self.agk[base + 3], self.aga[base + 3], self.agb[base + 3])
+        self.e_swspan()
+        self.serrr(1)
         self.nag = base
         self.nx3 = self.nx3 - 1
     }
