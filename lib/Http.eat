@@ -106,46 +106,55 @@ struct Req {
         if b != 10 {
             return PARSE_MORE
         }
-        # строка [ls..le): перевод строки съеден, CR перед ним откусить
-        var le: u32 = self.n - 1
-        if le > self.ls and le >= 1 and self.raw[le - 1] == 13 {
+        let lb: u32 = self.ls
+        self.ls = self.n
+        return self.line_end(lb, self.n - 1)
+    }
+
+    # Завершение строки [lb..e0): e0 — позиция съеденного LF,
+    # CR перед ним откусывается; диспетч по текущему состоянию.
+    func line_end(var self, lb: u32, e0: u32) -> u32
+        requires e0 < 8192
+        ensures true
+    {
+        var le: u32 = e0
+        if le > lb and le >= 1 and self.raw[le - 1] == 13 {
             le = le - 1
         }
-        let ls2: u32 = self.ls
-        self.ls = self.n
         if self.state == 0 {
-            return self.parse_reqline(ls2, le)
+            return self.parse_reqline(lb, le)
         }
-        if le == ls2 {
+        if le == lb {
             # пустая строка — конец заголовков
             self.state = 2
             return PARSE_DONE
         }
-        return self.parse_header(ls2, le)
+        return self.parse_header(lb, le)
     }
 
-    # SP-позиция в raw[b0..e0) или HTTP_NONE.
+    # SP-позиция в raw[b0..e0) или HTTP_NONE. Скан прямо от b0
+    # (§8.1): без холостого прохода [0..b0) идиомы констант-диапазона.
     func find_sp(var self, b0: u32, e0: u32) -> u32
-        requires true
+        requires e0 <= 8192
         ensures true
     {
         var at: u32 = HTTP_NONE
-        for i in 0..8192 {
-            if u32(i) >= e0 or at != HTTP_NONE {
+        var j: u32 = b0
+        for _ in 0..8192 {
+            if j >= e0 or at != HTTP_NONE {
                 break
             }
-            if u32(i) >= b0 {
-                if self.raw[i] == 32 {
-                    at = u32(i)
-                }
+            if self.raw[j] == 32 {
+                at = j
             }
+            j = j + 1
         }
         return at
     }
 
     # METHOD SP PATH SP VERSION; пустые компоненты и лишние формы — 400.
     func parse_reqline(var self, ls2: u32, le: u32) -> u32
-        requires true
+        requires le <= 8192
         ensures true
     {
         let sp1: u32 = self.find_sp(ls2, le)
@@ -176,8 +185,9 @@ struct Req {
     }
 
     # Name: value; OWS вокруг значения срезается, имя непустое.
+    # Скан двоеточия прямо от ls2 (§8.1) — как find_sp.
     func parse_header(var self, ls2: u32, le: u32) -> u32
-        requires true
+        requires le <= 8192
         ensures true
     {
         if self.nh >= 64 {
@@ -187,15 +197,15 @@ struct Req {
             return 431
         }
         var colon: u32 = HTTP_NONE
-        for i in 0..8192 {
-            if u32(i) >= le or colon != HTTP_NONE {
+        var j: u32 = ls2
+        for _ in 0..8192 {
+            if j >= le or colon != HTTP_NONE {
                 break
             }
-            if u32(i) >= ls2 {
-                if self.raw[i] == 58 {
-                    colon = u32(i)
-                }
+            if self.raw[j] == 58 {
+                colon = j
             }
+            j = j + 1
         }
         if colon == HTTP_NONE or colon == ls2 {
             self.state = 3
@@ -387,21 +397,106 @@ struct Req {
         self.err = 0
     }
 
+    # Спан-копия строки в raw[n..n+ln) без побайтового автомата
+    # (OPTIMIZATIONS §8.1): одна полоса — копия + LF-детект
+    # or-свёрткой. Поля не трогает; LF найден -> false (вызывающий
+    # уходит на точный побайтовый путь push_byte). Вызывается
+    # только при fits: n+ln до потолка.
+    func span_copy(var self, s: str<256>, ln: u32) -> bool
+        requires true
+        ensures true
+    {
+        var w: u32 = self.n
+        var lf: bool = false
+        for i in 0..256 {
+            if u32(i) >= ln or w >= 8192 {
+                break
+            }
+            let b: u8 = u8(s[i])
+            self.raw[w] = b
+            w = w + 1
+            lf = lf or b == 10
+        }
+        return not lf
+    }
+
     # Скормить строку и CRLF (тесты и клиенты без посимвольного
-    # шума); результат — последний push_byte.
+    # шума); результат — последний обработанный байт. Быстрый путь —
+    # span_copy: n/ls обновляются раз на строку, состояние решает
+    # line_end; редкость (LF в строке, переполнение на границе 413)
+    # — точный побайтовый путь push_byte. Байты за пределом n после
+    # отката спан-копии не читаются парсером (raw[0..n) — контракт).
     func feed_line(var self, s: str<256>) -> u32
         requires true
         ensures true
     {
+        if self.state == 2 {
+            return PARSE_DONE
+        }
+        if self.state == 3 {
+            return self.err
+        }
+        let ln: u32 = len(s)
+        var fits: bool = false
+        if self.n < 8192 {
+            fits = HTTP_REQ_CAP - self.n >= ln + 2
+        }
+        if fits and self.span_copy(s, ln) {
+            var w: u32 = self.n + ln
+            if w < 8192 {
+                self.raw[w] = 13
+                w = w + 1
+            }
+            if w < 8192 {
+                self.raw[w] = 10
+                w = w + 1
+            }
+            self.n = w
+            let lb: u32 = self.ls
+            self.ls = w
+            return self.line_end(lb, w - 1)
+        }
         var st: u32 = PARSE_MORE
         for i in 0..256 {
-            if u32(i) >= len(s) {
+            if u32(i) >= ln {
                 break
             }
             st = self.push_byte(u8(s[i]))
         }
         st = self.push_byte(13)
         st = self.push_byte(10)
+        return st
+    }
+
+    # Батч-метод: байты строки без CRLF (набор запроса частями);
+    # тот же быстрый спан-путь, что feed_line. Без LF смена
+    # состояния невозможна — результат всегда PARSE_MORE.
+    func feed_str(var self, s: str<256>) -> u32
+        requires true
+        ensures true
+    {
+        if self.state == 2 {
+            return PARSE_DONE
+        }
+        if self.state == 3 {
+            return self.err
+        }
+        let ln: u32 = len(s)
+        var fits: bool = false
+        if self.n < 8192 {
+            fits = HTTP_REQ_CAP - self.n >= ln
+        }
+        if fits and self.span_copy(s, ln) {
+            self.n = self.n + ln
+            return PARSE_MORE
+        }
+        var st: u32 = PARSE_MORE
+        for i in 0..256 {
+            if u32(i) >= ln {
+                break
+            }
+            st = self.push_byte(u8(s[i]))
+        }
         return st
     }
 }
@@ -562,6 +657,17 @@ test http_header_ows_ci {
     # пустое значение допустимо, имя — нет
     assert r.find_header("x-n") == 1
     assert r.header_val_is(1, "")
+}
+
+test http_feed_str_batch {
+    var r: Req = req_new()
+    assert r.feed_str("GET /hi HT") == PARSE_MORE
+    assert r.feed_str("TP/1.1") == PARSE_MORE
+    assert r.feed_line("") == PARSE_MORE
+    assert r.feed_line("") == PARSE_DONE
+    assert r.method_is("GET")
+    assert r.path_is("/hi")
+    assert r.version_is("HTTP/1.1")
 }
 
 test http_bad_reqline_400 {
