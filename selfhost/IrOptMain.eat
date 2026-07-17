@@ -44,6 +44,7 @@ func main() {
                 v.annotate()
                 if not v.failed {
                     var ir: Ir = ir_new(v.c)
+                    ir.him = 1
                     ir.emit()
                     if ir.failed {
                         bad = true

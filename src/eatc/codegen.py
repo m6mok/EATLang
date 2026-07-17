@@ -1595,16 +1595,23 @@ def _trap_map_text(cg: Codegen) -> str:
     )
 
 
-def emit_ir(program: ast.Program, checker, trap_codes: bool = False) -> str:
+def emit_ir(program: ast.Program, checker, trap_codes: bool = False,
+            opt: bool = False) -> str:
     """Текстовый LLVM IR — канон дифф-сверки фазы 4 self-host
     (`eatc ir`, selfhost/Ir.eat). Без верификатора: все проверки
     остаются в рантайме. Имя модуля и файл в trap-сообщениях —
     «stdin», triple пуст: вывод не зависит от платформы и пути
-    файла (self-hosted эмиттер читает исходник со stdin)."""
+    файла (self-hosted эмиттер читает исходник со stdin).
+    opt: ось `-O` — инлайн-хинты малым листовым функциям в тексте
+    (`axis_inline_hints`, эталон SelfIrOpt); канон (opt=False) не
+    трогается."""
     cg = Codegen(program, checker, "stdin", trap_codes=trap_codes)
     module = cg.generate()
     module.triple = ""
-    return str(module) + _trap_map_text(cg)
+    text = str(module) + _trap_map_text(cg)
+    if opt:
+        text = axis_inline_hints(text)
+    return text
 
 
 # Инлайн-хинты build-конвейера (OPTIMIZATIONS_PLAN §7.6, кандидат 2,
@@ -1658,6 +1665,97 @@ def inline_hints(ref, limit: int = INLINE_LIMIT,
     for name in sorted(tagged):
         ref.get_function(name).add_function_attribute("alwaysinline")
     return sorted(tagged)
+
+
+def _axis_define_name(line: str):
+    """Имя функции из строки `define ... @"ИМЯ"(...`; None — не define.
+    Первое `@"` в define-строке — само имя (атрибуты до него `@` не
+    содержат, агрегатный возврат `{i32, [256 x i8]}` — тоже)."""
+    if not line.startswith("define "):
+        return None
+    at = line.find('@"')
+    if at == -1:
+        return None
+    end = line.find('"', at + 2)
+    if end == -1 or end + 1 >= len(line) or line[end + 1] != "(":
+        return None
+    return line[at + 2:end]
+
+
+def axis_inline_hints(text: str, limit: int = INLINE_LIMIT,
+                      budget: int = INLINE_BUDGET) -> str:
+    """`alwaysinline` малым листовым функциям в ТЕКСТЕ .ll оси `-O`
+    (OPTIMIZATIONS_PLAN §7.6, кандидат 2, этап 2). В отличие от
+    build-конвейера (`inline_hints`, по распарсенному llvmlite-модулю)
+    эта эвристика зеркалится в selfhost SelfIrOpt, поэтому счёт — по
+    ЭМИТИРУЕМОМУ IR: размер тела = число строк-инструкций (отступ два
+    пробела; каждая инструкция LLVM — ровно одна физическая строка,
+    включая switch), граф вызовов — по строкам `call ... @"ИМЯ"` к
+    определённым функциям. Обе стороны (здесь и Ir/IrEmit.eat) считают
+    одинаково по одному байт-идентичному тексту; замыкание снизу вверх,
+    константы T/B — те же, что у build (384/768). Канон `eatc ir` (без
+    -O) эту функцию не зовёт. Возвращает текст с ` alwaysinline` в
+    define-строках помеченных функций."""
+    lines = text.split("\n")
+    n = len(lines)
+    # спаны функций: (имя, индекс define-строки, первая строка тела,
+    # строка `}`); тело — между строкой `{` и строкой `}`
+    spans = []
+    defined = set()
+    i = 0
+    while i < n:
+        name = _axis_define_name(lines[i])
+        if name is None:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and lines[j] != "{":
+            j += 1
+        body = j + 1
+        k = body
+        while k < n and lines[k] != "}":
+            k += 1
+        spans.append((name, i, body, k))
+        defined.add(name)
+        i = k + 1
+    size, callees, sites = {}, {}, {}
+    for name, _di, bs, be in spans:
+        cnt, cs = 0, set()
+        for li in range(bs, be):
+            ln = lines[li]
+            if not ln.startswith("  "):
+                continue          # метки блоков — с нулевым отступом
+            cnt += 1
+            ci = ln.find("call ")
+            if ci == -1:
+                continue
+            at = ln.find('@"', ci)  # первый @"…" после call — вызываемое
+            if at == -1:
+                continue
+            end = ln.find('"', at + 2)
+            callee = ln[at + 2:end]
+            if callee in defined:   # аксиомы/интринзики/extern — не в defined
+                cs.add(callee)
+                sites[callee] = sites.get(callee, 0) + 1
+        size[name], callees[name] = cnt, cs
+    defined_names = [nm for nm, _d, _b, _e in spans]
+    tagged = set()
+    changed = True
+    while changed:
+        changed = False
+        for name in defined_names:
+            if (name in tagged or name == "main"
+                    or size[name] > limit
+                    or size[name] * max(0, sites.get(name, 0) - 1)
+                    > budget):
+                continue
+            if all(c in tagged for c in callees[name]):
+                tagged.add(name)
+                changed = True
+    for name, di, _bs, _be in spans:
+        if name in tagged:
+            lines[di] = lines[di] + " alwaysinline"
+    return "\n".join(lines)
 
 
 def compile_binary(

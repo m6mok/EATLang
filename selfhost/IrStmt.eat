@@ -700,6 +700,19 @@ extend Ir {
         requires fi < 1024
         ensures true
     {
+        self.gen_body(fi)
+        if not self.failed {
+            self.p_fn(fi)
+        }
+    }
+
+    # Генерация тела функции в буферы (lb/блоки) без печати — общий шаг
+    # реального и измерительного проходов (ось -O, §7.6). p_fn/учёт
+    # размера — у вызывающего.
+    func gen_body(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
         self.reset_fn()
         self.fi2 = fi
         self.rett = self.c.fret[fi]
@@ -743,7 +756,379 @@ extend Ir {
             self.set1rr()
             self.e_ret(self.rett)
         }
-        self.p_fn(fi)
+    }
+
+    # --- ось -O: инлайн-хинты малым листовым функциям (§7.6, этап 2) ------
+    # Эвристика зеркалит codegen.axis_inline_hints: счёт по эмитируемому
+    # IR, замыкание снизу вверх по DAG вызовов, T=384/B=768. Измерение —
+    # отдельным проходом gen_body без печати (генерация детерминирована,
+    # Check только читается), затем сброс модульных пулов и реальная
+    # печать с ` alwaysinline` в define-строках помеченных функций.
+    # Вызываемые — сканом строк lb на `call ... @"ИМЯ"` (как Python по
+    # тексту) с разрешением карты мангл-имя→fi: покрывает и e_ucall, и
+    # встроенные RtStr-вызовы (print/write/append/eq) одинаково.
+
+    # --- карта мангл-имя → fi (хелперы слиты в вызывающие: потолок §6) ----
+    func mq_lit(var self, s: str<16>)
+        requires true
+        ensures true
+    {
+        for i in 0..16 {
+            if i >= len(s) {
+                break
+            }
+            if self.imql < 256 {
+                self.imq[self.imql] = u8(s[i])
+                self.imql = self.imql + 1
+            }
+        }
+    }
+
+    func mq_sb(var self, a: u32, l: u32)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if i >= l {
+                break
+            }
+            if self.imql < 256 {
+                self.imq[self.imql] = self.c.p.lex.sb_at(a + i)
+                self.imql = self.imql + 1
+            }
+        }
+    }
+
+    # Мангл-имя функции fi в imq — зеркало o_mangle (eat_[Owner__]name).
+    func mn_gen(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        self.imql = 0
+        self.mq_lit("eat_")
+        let own: u32 = self.c.fown[fi]
+        if own != NONE {
+            self.mq_sb(self.c.sn_s[own], self.c.sn_l[own])
+            self.mq_lit("__")
+        }
+        self.mq_sb(self.c.fn_s[fi], self.c.fn_l[fi])
+    }
+
+    # Хеш имени в imq (тот же класс, что g_hash: 31-основание по модулю).
+    func mn_hash(self) -> u32
+        requires true
+        ensures true
+    {
+        var h: u32 = 0
+        for i in 0..256 {
+            if i >= self.imql {
+                break
+            }
+            h = (h % 131072) * 31 + u32(self.imq[i])
+        }
+        return h
+    }
+
+    # Вставить fi в карту: имя из imq копируется в imnp, слот по хешу
+    # (open addressing, линейное пробирование; ≤1 break на цикл).
+    func mn_insert(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        let base: u32 = self.imnpl
+        self.imns[fi] = base
+        self.imnc[fi] = self.imql
+        for i in 0..256 {
+            if i >= self.imql {
+                break
+            }
+            if (base + i) < 65536 {
+                self.imnp[base + i] = self.imq[i]
+            }
+        }
+        self.imnpl = base + self.imql
+        var slot: u32 = self.mn_hash() & 2047
+        var placed: bool = false
+        for _ in 0..2048 {
+            if placed {
+                break
+            }
+            if self.imh[slot] == NONE {
+                self.imh[slot] = fi
+                placed = true
+            } else {
+                slot = (slot + 1) & 2047
+            }
+        }
+    }
+
+    # Разрешить имя в imq → fi (NONE — не определённая функция). Сравнение
+    # байтов с сохранённым именем встроено (было mn_eqp); ≤1 break/цикл.
+    func mn_find(self) -> u32
+        requires true
+        ensures true
+    {
+        var slot: u32 = self.mn_hash() & 2047
+        var res: u32 = NONE
+        var done: bool = false
+        for _ in 0..2048 {
+            if done {
+                break
+            }
+            let fi: u32 = self.imh[slot]
+            if fi == NONE {
+                done = true
+            } elif fi < 1024 and self.imnc[fi] == self.imql {
+                var eq: bool = true
+                let base: u32 = self.imns[fi]
+                for i in 0..256 {
+                    if i >= self.imql or not eq {
+                        break
+                    }
+                    if (base + i) < 65536 {
+                        if self.imnp[base + i] != self.imq[i] {
+                            eq = false
+                        }
+                    }
+                }
+                if eq {
+                    res = fi
+                    done = true
+                } else {
+                    slot = (slot + 1) & 2047
+                }
+            } else {
+                slot = (slot + 1) & 2047
+            }
+        }
+        return res
+    }
+
+    # Вызываемое строки li → imq (true, если строка — `call` к @"ИМЯ").
+    # Зеркало Python: первое `@"` после `call ` — вызываемое (тип до него
+    # `@` не содержит; аргументы-глобалы идут после). "call "
+    # (99 97 108 108 32) и '@"'(64 34) — байтами; ≤1 break на цикл.
+    func line_callee(var self, li: u32) -> bool
+        requires li < 65536
+        ensures true
+    {
+        let a: u32 = self.lns[li]
+        let l: u32 = self.lnl[li]
+        var ci: u32 = NONE
+        for i in 0..65536 {
+            if i + 5 > l or ci != NONE {
+                break
+            }
+            if (a + i + 4) < 4194304 {
+                var m: bool = self.lb_at(a + i) == 99
+                m = m and self.lb_at(a + i + 1) == 97
+                m = m and self.lb_at(a + i + 2) == 108
+                m = m and self.lb_at(a + i + 3) == 108
+                m = m and self.lb_at(a + i + 4) == 32
+                if m {
+                    ci = i
+                }
+            }
+        }
+        if ci == NONE {
+            return false
+        }
+        var qi: u32 = NONE
+        for i in 0..65536 {
+            if i + 1 >= l or qi != NONE {
+                break
+            }
+            if i > ci and (a + i + 1) < 4194304 {
+                if self.lb_at(a + i) == 64 and self.lb_at(a + i + 1) == 34 {
+                    qi = i + 2
+                }
+            }
+        }
+        if qi == NONE {
+            return false
+        }
+        self.imql = 0
+        var stop: bool = false
+        for i in 0..256 {
+            if qi + i >= l or stop {
+                break
+            }
+            if (a + qi + i) < 4194304 {
+                let b: u8 = self.lb_at(a + qi + i)
+                if b == 34 {
+                    stop = true
+                } elif self.imql < 256 {
+                    self.imq[self.imql] = b
+                    self.imql = self.imql + 1
+                }
+            }
+        }
+        return true
+    }
+
+    # Записать рёбра вызовов функции fi (= self.fi2) по её строкам: для
+    # каждого разрешённого вызываемого cf — ребро fi2→cf и +сайт cf
+    # (бывший rec_edge встроен; дубли допускаются, замыкание проверяет
+    # «все помечены»).
+    func scan_calls(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        for li in 0..65536 {
+            if li >= self.nln or self.ine >= 32768 {
+                break
+            }
+            if self.line_callee(li) {
+                let cf: u32 = self.mn_find()
+                if cf != NONE and cf < 1024 and self.fi2 < 1024 {
+                    self.iec[self.ine] = cf
+                    self.ien[self.ine] = self.ihd[self.fi2]
+                    self.ihd[self.fi2] = self.ine
+                    self.ine = self.ine + 1
+                    self.ist[cf] = self.ist[cf] + 1
+                }
+            }
+        }
+    }
+
+    # Замыкание снизу вверх (граф вызовов — DAG, рекурсии в языке нет):
+    # помечаем fi, если тело ≤ T=384, рост размер×(сайтов−1) ≤ B=768 и
+    # все определённые вызываемые помечены (fi станет листом). Пригодность
+    # (бывшая im_ok) и обход списка вызываемых (бывшая im_leaf) встроены.
+    func im_closure(var self)
+        requires true
+        ensures true
+    {
+        for _ in 0..1024 {
+            var changed: bool = false
+            for q in 0..1024 {
+                if q >= self.iln {
+                    break
+                }
+                let fi: u32 = self.ils[q]
+                if fi < 1024 and self.itg[fi] == 0 and self.isz[fi] <= 384 {
+                    var gr: u32 = 0
+                    if self.ist[fi] > 1 {
+                        gr = self.isz[fi] * (self.ist[fi] - 1)
+                    }
+                    if gr <= 768 {
+                        var e: u32 = self.ihd[fi]
+                        var leaf: bool = true
+                        for _ in 0..32768 {
+                            if e == NONE or not leaf {
+                                break
+                            }
+                            if self.itg[self.iec[e]] == 0 {
+                                leaf = false
+                            }
+                            e = self.ien[e]
+                        }
+                        if leaf {
+                            self.itg[fi] = 1
+                            changed = true
+                        }
+                    }
+                }
+            }
+            if not changed {
+                break
+            }
+        }
+    }
+
+    # Измерительный проход: строит карту имён, генерирует тела всех
+    # функций (в порядке emit), записывает размер и рёбра; печати нет.
+    # Порядок деклараций — как в emit (k==6 функция, k==4 методы struct;
+    # extern k==50 — declare, не измеряется, как и у Python: не в define).
+    func measure(var self)
+        requires true
+        ensures true
+    {
+        # карта мангл-имя→fi всех определённых функций (не extern) — до
+        # измерения, чтобы вызовы вперёд по коду разрешались (был build_map)
+        for fi in 0..1024 {
+            if fi >= self.c.nfun {
+                break
+            }
+            if not self.fn_ext(fi) {
+                self.mn_gen(fi)
+                self.mn_insert(fi)
+            }
+        }
+        var d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
+        for _ in 0..131072 {
+            if d == NONE or self.failed {
+                break
+            }
+            let k: u32 = self.c.p.nk[d / 65536][d % 65536]
+            if k == 6 {
+                self.measure_fn(self.c.func_by_node(d))
+            } elif k == 4 {
+                var m: u32 = self.c.p.nfc[d / 65536][d % 65536]
+                for _ in 0..512 {
+                    if m == NONE or self.failed {
+                        break
+                    }
+                    if self.c.p.nk[m / 65536][m % 65536] == 6 {
+                        self.measure_fn(self.c.func_by_node(m))
+                    }
+                    m = self.c.p.nns[m / 65536][m % 65536]
+                }
+            }
+            d = self.c.p.nns[d / 65536][d % 65536]
+        }
+    }
+
+    func measure_fn(var self, fi: u32)
+        requires fi < 1024
+        ensures true
+    {
+        self.gen_body(fi)
+        if self.failed {
+            return
+        }
+        # размер тела = строки-инструкции (nln) + вводный br entry (1) +
+        # по строке на switch; метки не в счёт (был fn_isz)
+        var s: u32 = self.nln + 1
+        for b in 0..16384 {
+            if b >= self.nbk {
+                break
+            }
+            if self.bks[b] != NONE {
+                s = s + 1
+            }
+        }
+        self.isz[fi] = s
+        self.scan_calls(fi)
+        if self.iln < 1024 {
+            self.ils[self.iln] = fi
+            self.iln = self.iln + 1
+        }
+    }
+
+    # Сброс модульных пулов, загрязнённых измерительным проходом, перед
+    # реальной печатью: строки-глобалы, хвост declare, широкие
+    # константы, мемо типов. Нумерация @"str.N" и порядок хвоста
+    # восстанавливаются с нуля — реальный проход канонен (tyl обнуляет
+    # цикл в начале emit).
+    func reset_mod(var self)
+        requires true
+        ensures true
+    {
+        self.tpl = 0
+        self.gpl = 0
+        self.gmk = 0
+        self.ngl = 0
+        self.ntl = 0
+        self.ncw = 0
+        for i in 0..32 {
+            self.itr[i] = 0
+        }
+        for h in 0..2 {
+            for j in 0..65536 {
+                self.ghx[h][j] = NONE
+            }
+        }
     }
 
     func gen_prologue(var self, fi: u32, own: u32)
@@ -961,7 +1346,12 @@ extend Ir {
         self.o_mangle(fi)
         write("\"(")
         self.p_args(fi)
-        write(") norecurse nounwind\n{{\n")
+        write(") norecurse nounwind")
+        # ось -O: alwaysinline помеченным (§7.6, зеркало axis_inline_hints)
+        if self.him == 1 and self.itg[fi] == 1 {
+            write(" alwaysinline")
+        }
+        write("\n{{\n")
         self.p_blocks()
         write("}}\n")
     }
@@ -1375,6 +1765,14 @@ extend Ir {
         requires true
         ensures true
     {
+        # ось -O: измерить тела, замкнуть граф, сбросить пулы — до печати
+        if self.him == 1 {
+            self.measure()
+            if not self.failed {
+                self.im_closure()
+            }
+            self.reset_mod()
+        }
         for t in 0..512 {
             self.tyl[t] = NONE
         }

@@ -222,7 +222,9 @@ def cmd_ir(path: str, trap_codes: bool = False, opt: bool = False) -> int:
             from .verifier import verify
             fold_calls(program, typed.checker, path)
             verify(program, typed.checker)
-        text = emit_ir(program, typed.checker, trap_codes=trap_codes)
+        text = emit_ir(
+            program, typed.checker, trap_codes=trap_codes, opt=opt
+        )
     except (OSError, EatError) as err:
         print(err, file=sys.stderr)
         return 1
