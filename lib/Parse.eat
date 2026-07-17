@@ -1,7 +1,8 @@
-# Разбор чисел из строк. Логика — RtStr.parse_status/parse_value
-# (Rt.eat, нулевой модуль); здесь — копия строки в RtStr и упаковка
-# плоского статуса в Result (статусы: 0 Ok, 1 Empty, 2 BadChar,
-# 3 Overflow).
+# Разбор чисел из строк. Семантика — RtStr.parse_status/parse_value
+# (Rt.eat, нулевой модуль; там же — эталонные тесты), но один прямой
+# проход по str<256> без копии в RtStr: обрезка ' '/'\t', знак, цифры
+# с проверкой переполнения — статус и значение за одно сканирование
+# (статусы: Ok, Empty, BadChar, Overflow).
 
 export {
     parse_i32,
@@ -11,24 +12,75 @@ func parse_i32(s: str<256>) -> Result<i32, ParseError>
     requires true
     ensures true
 {
-    var r: RtStr = RtStr { ln: 0, buf: [0; 256] }
-    for i in 0..256 {
-        if i >= len(s) {
+    let n: u32 = len(s)
+    var lo: u32 = 0
+    for _ in 0..256 {
+        # обрезка слева: конец строки или первый значимый байт
+        if lo >= n or (u8(s[lo]) != 32 and u8(s[lo]) != 9) {
             break
         }
-        r.append_char(s[i])
+        lo = lo + 1
     }
-    let st: u32 = r.parse_status()
-    if st == 0 {
-        return Ok(r.parse_value())
+    var hi: u32 = n
+    for _ in 0..256 {
+        # обрезка справа: начало строки или значимый байт
+        if hi == 0 or (u8(s[hi - 1]) != 32 and u8(s[hi - 1]) != 9) {
+            break
+        }
+        hi = hi - 1
     }
-    if st == 1 {
+    if lo >= hi {
         return Err(ParseError.Empty)
+    }
+    var neg: bool = false
+    let c0: u8 = u8(s[lo])
+    if c0 == 43 or c0 == 45 {
+        neg = c0 == 45
+        lo = lo + 1
+        if lo >= hi {
+            return Err(ParseError.BadChar)
+        }
+    }
+    var mag: u32 = 0
+    var st: u32 = 0
+    for _ in 0..256 {
+        # один проход по цифрам: статус и магнитуда вместе
+        if lo >= hi or st != 0 {
+            break
+        }
+        let b: u8 = u8(s[lo])
+        if b < 48 or b > 57 {
+            st = 2
+        } else {
+            let d: u32 = u32(b) - 48
+            if mag > (4294967295 - d) / 10 {
+                st = 3
+            } else {
+                mag = mag * 10 + d
+                if neg {
+                    if mag > 2147483648 {
+                        st = 3
+                    }
+                } elif mag > 2147483647 {
+                    st = 3
+                }
+                lo = lo + 1
+            }
+        }
     }
     if st == 2 {
         return Err(ParseError.BadChar)
     }
-    return Err(ParseError.Overflow)
+    if st == 3 {
+        return Err(ParseError.Overflow)
+    }
+    if neg {
+        if mag == 2147483648 {
+            return Ok(-2147483648)
+        }
+        return Ok(0 - i32(mag))
+    }
+    return Ok(i32(mag))
 }
 
 test parse_i32_ok {

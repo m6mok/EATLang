@@ -183,14 +183,38 @@ struct RtStr {
         if self.ln != o.ln {
             return false
         }
+        let n: u32 = self.ln
         var i: u32 = 0
-        for _ in 0..256 {
-            if i >= self.ln or self.buf[i] != o.buf[i] {
+        var d: u8 = 0
+        for _ in 0..32 {
+            # группа из 8 байт: одна ветка (break) на группу вместо
+            # восьми — ранний выход сохранён (урок 23-й итерации:
+            # полная OR-свёртка без выхода ×4 хуже). Маска —
+            # доказательство границ, тело группы без ветвлений.
+            if d != 0 or i + 8 > n {
+                break
+            }
+            d = d | (self.buf[i & 255] ^ o.buf[i & 255])
+            d = d | (self.buf[(i + 1) & 255] ^ o.buf[(i + 1) & 255])
+            d = d | (self.buf[(i + 2) & 255] ^ o.buf[(i + 2) & 255])
+            d = d | (self.buf[(i + 3) & 255] ^ o.buf[(i + 3) & 255])
+            d = d | (self.buf[(i + 4) & 255] ^ o.buf[(i + 4) & 255])
+            d = d | (self.buf[(i + 5) & 255] ^ o.buf[(i + 5) & 255])
+            d = d | (self.buf[(i + 6) & 255] ^ o.buf[(i + 6) & 255])
+            d = d | (self.buf[(i + 7) & 255] ^ o.buf[(i + 7) & 255])
+            i = i + 8
+        }
+        if d != 0 {
+            return false
+        }
+        for _ in 0..8 {
+            # хвост короче группы — побайтно, как раньше
+            if i >= n or self.buf[i & 255] != o.buf[i & 255] {
                 break
             }
             i = i + 1
         }
-        return i >= self.ln
+        return i >= n
     }
 
     # --- ввод строки (read_byte — аксиома) ---------------------------------

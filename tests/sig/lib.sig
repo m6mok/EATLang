@@ -12,20 +12,20 @@ struct RtStr 15:1
   method append_u64 135:5 (v: u64) var_self
   method append_i64 164:5 (v: i64) var_self
   method eq 179:5 (o: RtStr) -> bool
-  method read_line 200:5 () var_self -> u32
-  method p_lo 238:5 () -> u32
-  method p_hi 254:5 () -> u32
-  method parse_status 269:5 () -> u32
-  method parse_value 316:5 () -> i32
-func eprint 351:1 (s: str<256>)
-func rt_of 365:1 (a: str<16>) -> RtStr
-test rt_append_u32 378:1
-test rt_append_i32 389:1
-test rt_append_u64 402:1
-test rt_append_i64 413:1
-test rt_append_misc 430:1
-test rt_parse 443:1
-module lib/Args.eat 459:1
+  method read_line 224:5 () var_self -> u32
+  method p_lo 262:5 () -> u32
+  method p_hi 278:5 () -> u32
+  method parse_status 293:5 () -> u32
+  method parse_value 340:5 () -> i32
+func eprint 375:1 (s: str<256>)
+func rt_of 389:1 (a: str<16>) -> RtStr
+test rt_append_u32 402:1
+test rt_append_i32 413:1
+test rt_append_u64 426:1
+test rt_append_i64 437:1
+test rt_append_misc 454:1
+test rt_parse 467:1
+module lib/Args.eat 483:1
 export get 8:5 :: get
 func get 11:1 (i: u32) -> Result<str<256>, IoError>
 test get_out_of_range 34:1
@@ -317,11 +317,11 @@ func clamp 32:1 (x: u32, lo: u32, hi: u32) -> u32
 test num_min_max 45:1
 test num_clamp 56:1
 module lib/Parse.eat 62:1
-export parse_i32 7:5 :: parse_i32
-func parse_i32 10:1 (s: str<256>) -> Result<i32, ParseError>
-test parse_i32_ok 34:1
-test parse_i32_err 53:1
-module lib/U128.eat 85:1
+export parse_i32 8:5 :: parse_i32
+func parse_i32 11:1 (s: str<256>) -> Result<i32, ParseError>
+test parse_i32_ok 86:1
+test parse_i32_err 105:1
+module lib/U128.eat 137:1
 export U128 26:5 :: U128
 export U128DivRem 27:5 :: U128DivRem
 export I128 28:5 :: I128
@@ -490,4 +490,4 @@ import min 59:5 :: lib/Num.eat min
 import parse_i32 63:5 :: lib/Parse.eat parse_i32
 import mul_64 67:5 :: lib/U128.eat mul_64
 func main 70:1 ()
-stats funcs=194 structs=16 stmts=1434
+stats funcs=194 structs=16 stmts=1483
