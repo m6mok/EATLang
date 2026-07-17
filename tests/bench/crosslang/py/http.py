@@ -22,6 +22,18 @@ class Req:
         self.nh = 0
         self.err = 0
 
+    # Зеркало Req.reset (OPTIMIZATIONS §8.2): скалярные поля в 0, raw
+    # не трогается — кадр переиспользуется; hdr здесь список (аналог
+    # nh = 0 при инварианте len(hdr) == nh — очистка).
+    def reset(self):
+        self.n = 0
+        self.state = 0
+        self.ls = 0
+        self.ms = self.ml = self.ps = self.pl = self.vs = self.vl = 0
+        del self.hdr[:]
+        self.nh = 0
+        self.err = 0
+
     def find_sp(self, b0, e0):
         for i in range(b0, e0):
             if self.raw[i] == 32:
@@ -159,8 +171,8 @@ def route_code(r):
     return 404
 
 
-def profile_a(k):
-    r = Req()
+def profile_a(r, k):
+    r.reset()
     r.feed_line(f"GET /greet/user{k} HTTP/1.1")
     r.feed_line("Host: bench.local")
     r.feed_line("User-Agent: eat-bench/1.0")
@@ -181,8 +193,8 @@ def profile_a(k):
     return acc
 
 
-def profile_b(k):
-    r = Req()
+def profile_b(r, k):
+    r.reset()
     r.feed_line("POST /api/items HTTP/1.1")
     r.feed_line("Content-Type: application/json")
     r.feed_line(f"X-Trace-Id: t-{k}")
@@ -197,13 +209,13 @@ def profile_b(k):
     return acc
 
 
-def profile_c(k):
-    r = Req()
+def profile_c(r, k):
+    r.reset()
     return r.feed_line(f"BROKEN-{k}")
 
 
-def profile_d():
-    r = Req()
+def profile_d(r):
+    r.reset()
     r.feed_line("GET /nope HTTP/1.0")
     st = r.feed_line("")
     acc = st * 7 + route_code(r)
@@ -214,12 +226,13 @@ def profile_d():
 
 def main():
     acc = 0
+    r = Req()
     for _ in range(REPEAT):
         for k in range(500):
-            acc = (acc * 31 + profile_a(k)) % 65536
-            acc = (acc * 31 + profile_b(k)) % 65536
-            acc = (acc * 31 + profile_c(k)) % 65536
-            acc = (acc * 31 + profile_d()) % 65536
+            acc = (acc * 31 + profile_a(r, k)) % 65536
+            acc = (acc * 31 + profile_b(r, k)) % 65536
+            acc = (acc * 31 + profile_c(r, k)) % 65536
+            acc = (acc * 31 + profile_d(r)) % 65536
     print(f"checksum {acc}")
 
 

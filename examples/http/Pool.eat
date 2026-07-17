@@ -77,13 +77,14 @@ struct Conn {
     served: u32
     idle: Timer
 
-    # Занять слот принятым соединением.
+    # Занять слот принятым соединением. Кадр Req переиспользуется
+    # через reset (§8.2: без обнуления raw[8192] на соединение).
     func open(var self, fd: u32)
         requires true
         ensures true
     {
         self.fd = fd
-        self.req = req_new()
+        self.req.reset()
         self.w = resp_new()
         self.sent = 0
         self.responding = false
@@ -210,7 +211,7 @@ struct Conn {
             }
             # keep-alive: тот же слот ждёт следующий запрос
             self.responding = false
-            self.req = req_new()
+            self.req.reset()
             self.idle.next = ticks() + IDLE_TICKS
         }
         return Poll.Pending

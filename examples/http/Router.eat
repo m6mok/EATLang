@@ -247,6 +247,8 @@ func main() {
     if live {
         var conn: u32 = SENT
         var served: u32 = 0
+        # кадр разбора один на сервер: между соединениями — reset
+        # (§8.2), не пересоздание с обнулением raw[8192]
         var req: Req = req_new()
         var st: u32 = PARSE_MORE
         var eof: bool = false
@@ -255,7 +257,7 @@ func main() {
                 let c: u32 = socket_accept(lst)
                 if c != NO_CONN {
                     conn = c
-                    req = req_new()
+                    req.reset()
                     st = PARSE_MORE
                     eof = false
                 }

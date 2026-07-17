@@ -26,6 +26,22 @@ static void req_new(Req *r) {
     memset(r, 0, sizeof(*r));
 }
 
+/* Зеркало Req.reset (OPTIMIZATIONS §8.2): скалярные поля в 0,
+ * raw/hdr не трогаются — кадр переиспользуется между запросами. */
+static void req_reset(Req *r) {
+    r->n = 0;
+    r->state = 0;
+    r->ls = 0;
+    r->ms = 0;
+    r->ml = 0;
+    r->ps = 0;
+    r->pl = 0;
+    r->vs = 0;
+    r->vl = 0;
+    r->nh = 0;
+    r->err = 0;
+}
+
 static uint32_t find_sp(const Req *r, uint32_t b0, uint32_t e0) {
     for (uint32_t i = b0; i < e0; i++) {
         if (r->raw[i] == 32) {
@@ -234,71 +250,67 @@ static uint32_t route_code(const Req *r) {
     return 404;
 }
 
-static uint32_t profile_a(uint32_t k) {
-    Req r;
+static uint32_t profile_a(Req *r, uint32_t k) {
     char line[64];
-    req_new(&r);
+    req_reset(r);
     snprintf(line, sizeof(line), "GET /greet/user%u HTTP/1.1", k);
-    feed_line(&r, line);
-    feed_line(&r, "Host: bench.local");
-    feed_line(&r, "User-Agent: eat-bench/1.0");
-    feed_line(&r, "Accept: */*");
-    feed_line(&r, "Connection: keep-alive");
-    uint32_t st = feed_line(&r, "");
-    uint32_t acc = st * 7 + r.nh;
-    if (method_is(&r, "GET")) {
-        acc += route_code(&r);
+    feed_line(r, line);
+    feed_line(r, "Host: bench.local");
+    feed_line(r, "User-Agent: eat-bench/1.0");
+    feed_line(r, "Accept: */*");
+    feed_line(r, "Connection: keep-alive");
+    uint32_t st = feed_line(r, "");
+    uint32_t acc = st * 7 + r->nh;
+    if (method_is(r, "GET")) {
+        acc += route_code(r);
     }
-    int32_t pl = path_param_len(&r, 7);
+    int32_t pl = path_param_len(r, 7);
     if (pl >= 0) {
         acc += (uint32_t)pl;
     }
-    if (!wants_close(&r)) {
+    if (!wants_close(r)) {
         acc += 1;
     }
-    uint32_t c = find_header(&r, "connection");
+    uint32_t c = find_header(r, "connection");
     if (c != HTTP_NONE) {
         acc += c;
     }
     return acc;
 }
 
-static uint32_t profile_b(uint32_t k) {
-    Req r;
+static uint32_t profile_b(Req *r, uint32_t k) {
     char line[64];
-    req_new(&r);
-    feed_line(&r, "POST /api/items HTTP/1.1");
-    feed_line(&r, "Content-Type: application/json");
+    req_reset(r);
+    feed_line(r, "POST /api/items HTTP/1.1");
+    feed_line(r, "Content-Type: application/json");
     snprintf(line, sizeof(line), "X-Trace-Id: t-%u", k);
-    feed_line(&r, line);
-    feed_line(&r, "Connection: close");
-    uint32_t st = feed_line(&r, "");
-    uint32_t acc = st * 7 + r.nh + route_code(&r);
-    if (wants_close(&r)) {
+    feed_line(r, line);
+    feed_line(r, "Connection: close");
+    uint32_t st = feed_line(r, "");
+    uint32_t acc = st * 7 + r->nh + route_code(r);
+    if (wants_close(r)) {
         acc += 2;
     }
-    uint32_t t = find_header(&r, "x-trace-id");
+    uint32_t t = find_header(r, "x-trace-id");
     if (t != HTTP_NONE && t < 64) {
-        acc += r.hdr[t].vl;
+        acc += r->hdr[t].vl;
     }
     return acc;
 }
 
-static uint32_t profile_c(uint32_t k) {
-    Req r;
+static uint32_t profile_c(Req *r, uint32_t k) {
     char line[64];
-    req_new(&r);
+    req_reset(r);
     snprintf(line, sizeof(line), "BROKEN-%u", k);
-    return feed_line(&r, line);
+    return feed_line(r, line);
 }
 
-static uint32_t profile_d(void) {
-    Req r;
-    req_new(&r);
-    feed_line(&r, "GET /nope HTTP/1.0");
-    uint32_t st = feed_line(&r, "");
-    uint32_t acc = st * 7 + route_code(&r);
-    if (wants_close(&r)) {
+static uint32_t profile_d(Req *r) {
+    req_reset(r);
+    feed_line(r, "GET /nope HTTP/1.0");
+    uint32_t st = feed_line(r, "");
+    uint32_t acc = st * 7 + route_code(r);
+    if (wants_close(r)) {
         acc += 3;
     }
     return acc;
@@ -306,12 +318,14 @@ static uint32_t profile_d(void) {
 
 int main(void) {
     uint32_t acc = 0;
+    Req r;
+    req_new(&r);
     for (uint32_t rep = 0; rep < REPEAT; rep++) {
         for (uint32_t k = 0; k < 500; k++) {
-            acc = (acc * 31 + profile_a(k)) % 65536;
-            acc = (acc * 31 + profile_b(k)) % 65536;
-            acc = (acc * 31 + profile_c(k)) % 65536;
-            acc = (acc * 31 + profile_d()) % 65536;
+            acc = (acc * 31 + profile_a(&r, k)) % 65536;
+            acc = (acc * 31 + profile_b(&r, k)) % 65536;
+            acc = (acc * 31 + profile_c(&r, k)) % 65536;
+            acc = (acc * 31 + profile_d(&r)) % 65536;
         }
     }
     printf("checksum %u\n", acc);

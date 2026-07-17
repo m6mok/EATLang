@@ -50,6 +50,22 @@ impl Req {
         }
     }
 
+    // Зеркало Req.reset (OPTIMIZATIONS §8.2): скалярные поля в 0,
+    // raw/hdr не трогаются — кадр переиспользуется между запросами.
+    fn reset(&mut self) {
+        self.n = 0;
+        self.state = 0;
+        self.ls = 0;
+        self.ms = 0;
+        self.ml = 0;
+        self.ps = 0;
+        self.pl = 0;
+        self.vs = 0;
+        self.vl = 0;
+        self.nh = 0;
+        self.err = 0;
+    }
+
     fn find_sp(&self, b0: u32, e0: u32) -> u32 {
         for i in b0..e0 {
             if self.raw[i as usize] == 32 {
@@ -274,8 +290,8 @@ fn route_code(r: &Req) -> u32 {
     404
 }
 
-fn profile_a(k: u32) -> u32 {
-    let mut r = Req::new();
+fn profile_a(r: &mut Req, k: u32) -> u32 {
+    r.reset();
     r.feed_line(&format!("GET /greet/user{} HTTP/1.1", k));
     r.feed_line("Host: bench.local");
     r.feed_line("User-Agent: eat-bench/1.0");
@@ -284,7 +300,7 @@ fn profile_a(k: u32) -> u32 {
     let st = r.feed_line("");
     let mut acc = st * 7 + r.nh;
     if r.method_is("GET") {
-        acc += route_code(&r);
+        acc += route_code(r);
     }
     let pl = r.path_param_len(7);
     if pl >= 0 {
@@ -300,14 +316,14 @@ fn profile_a(k: u32) -> u32 {
     acc
 }
 
-fn profile_b(k: u32) -> u32 {
-    let mut r = Req::new();
+fn profile_b(r: &mut Req, k: u32) -> u32 {
+    r.reset();
     r.feed_line("POST /api/items HTTP/1.1");
     r.feed_line("Content-Type: application/json");
     r.feed_line(&format!("X-Trace-Id: t-{}", k));
     r.feed_line("Connection: close");
     let st = r.feed_line("");
-    let mut acc = st * 7 + r.nh + route_code(&r);
+    let mut acc = st * 7 + r.nh + route_code(r);
     if r.wants_close() {
         acc += 2;
     }
@@ -318,16 +334,16 @@ fn profile_b(k: u32) -> u32 {
     acc
 }
 
-fn profile_c(k: u32) -> u32 {
-    let mut r = Req::new();
+fn profile_c(r: &mut Req, k: u32) -> u32 {
+    r.reset();
     r.feed_line(&format!("BROKEN-{}", k))
 }
 
-fn profile_d() -> u32 {
-    let mut r = Req::new();
+fn profile_d(r: &mut Req) -> u32 {
+    r.reset();
     r.feed_line("GET /nope HTTP/1.0");
     let st = r.feed_line("");
-    let mut acc = st * 7 + route_code(&r);
+    let mut acc = st * 7 + route_code(r);
     if r.wants_close() {
         acc += 3;
     }
@@ -336,12 +352,13 @@ fn profile_d() -> u32 {
 
 fn main() {
     let mut acc: u32 = 0;
+    let mut r = Req::new();
     for _ in 0..REPEAT {
         for k in 0..500u32 {
-            acc = (acc * 31 + profile_a(k)) % 65536;
-            acc = (acc * 31 + profile_b(k)) % 65536;
-            acc = (acc * 31 + profile_c(k)) % 65536;
-            acc = (acc * 31 + profile_d()) % 65536;
+            acc = (acc * 31 + profile_a(&mut r, k)) % 65536;
+            acc = (acc * 31 + profile_b(&mut r, k)) % 65536;
+            acc = (acc * 31 + profile_c(&mut r, k)) % 65536;
+            acc = (acc * 31 + profile_d(&mut r)) % 65536;
         }
     }
     println!("checksum {}", acc);

@@ -25,6 +25,17 @@ type req struct {
 	err   uint32
 }
 
+// Зеркало Req.reset (OPTIMIZATIONS §8.2): скалярные поля в 0,
+// raw/hdr не трогаются — кадр переиспользуется между запросами.
+func (r *req) reset() {
+	r.n = 0
+	r.state = 0
+	r.ls = 0
+	r.ms, r.ml, r.ps, r.pl, r.vs, r.vl = 0, 0, 0, 0, 0, 0
+	r.nh = 0
+	r.err = 0
+}
+
 func (r *req) findSp(b0, e0 uint32) uint32 {
 	for i := b0; i < e0; i++ {
 		if r.raw[i] == 32 {
@@ -222,8 +233,8 @@ func routeCode(r *req) uint32 {
 	return 404
 }
 
-func profileA(k uint32) uint32 {
-	var r req
+func profileA(r *req, k uint32) uint32 {
+	r.reset()
 	r.feedLine(fmt.Sprintf("GET /greet/user%d HTTP/1.1", k))
 	r.feedLine("Host: bench.local")
 	r.feedLine("User-Agent: eat-bench/1.0")
@@ -232,7 +243,7 @@ func profileA(k uint32) uint32 {
 	st := r.feedLine("")
 	acc := st*7 + r.nh
 	if r.methodIs("GET") {
-		acc += routeCode(&r)
+		acc += routeCode(r)
 	}
 	if pl := r.pathParamLen(7); pl >= 0 {
 		acc += uint32(pl)
@@ -246,14 +257,14 @@ func profileA(k uint32) uint32 {
 	return acc
 }
 
-func profileB(k uint32) uint32 {
-	var r req
+func profileB(r *req, k uint32) uint32 {
+	r.reset()
 	r.feedLine("POST /api/items HTTP/1.1")
 	r.feedLine("Content-Type: application/json")
 	r.feedLine(fmt.Sprintf("X-Trace-Id: t-%d", k))
 	r.feedLine("Connection: close")
 	st := r.feedLine("")
-	acc := st*7 + r.nh + routeCode(&r)
+	acc := st*7 + r.nh + routeCode(r)
 	if r.wantsClose() {
 		acc += 2
 	}
@@ -263,16 +274,16 @@ func profileB(k uint32) uint32 {
 	return acc
 }
 
-func profileC(k uint32) uint32 {
-	var r req
+func profileC(r *req, k uint32) uint32 {
+	r.reset()
 	return r.feedLine(fmt.Sprintf("BROKEN-%d", k))
 }
 
-func profileD() uint32 {
-	var r req
+func profileD(r *req) uint32 {
+	r.reset()
 	r.feedLine("GET /nope HTTP/1.0")
 	st := r.feedLine("")
-	acc := st*7 + routeCode(&r)
+	acc := st*7 + routeCode(r)
 	if r.wantsClose() {
 		acc += 3
 	}
@@ -281,12 +292,13 @@ func profileD() uint32 {
 
 func main() {
 	var acc uint32
+	var r req
 	for rep := uint32(0); rep < REPEAT; rep++ {
 		for k := uint32(0); k < 500; k++ {
-			acc = (acc*31 + profileA(k)) % 65536
-			acc = (acc*31 + profileB(k)) % 65536
-			acc = (acc*31 + profileC(k)) % 65536
-			acc = (acc*31 + profileD()) % 65536
+			acc = (acc*31 + profileA(&r, k)) % 65536
+			acc = (acc*31 + profileB(&r, k)) % 65536
+			acc = (acc*31 + profileC(&r, k)) % 65536
+			acc = (acc*31 + profileD(&r)) % 65536
 		}
 	}
 	fmt.Printf("checksum %d\n", acc)

@@ -364,6 +364,29 @@ struct Req {
         return self.version_is("HTTP/1.0")
     }
 
+    # Сброс кадра под следующий запрос БЕЗ пересоздания (обнуление
+    # raw[8192] — треть цены запроса, OPTIMIZATIONS_PLAN §8.2):
+    # скалярные поля в 0, raw/hdr не трогаются. Инвариант чистоты:
+    # парсер пишет и читает только raw[0..n) — байты, принятые ПОСЛЕ
+    # сброса; срезы Header — в пределах нового n (nh = 0); старые
+    # байты недостижимы, разбор после reset чистый.
+    func reset(var self)
+        requires true
+        ensures true
+    {
+        self.n = 0
+        self.state = 0
+        self.ls = 0
+        self.ms = 0
+        self.ml = 0
+        self.ps = 0
+        self.pl = 0
+        self.vs = 0
+        self.vl = 0
+        self.nh = 0
+        self.err = 0
+    }
+
     # Скормить строку и CRLF (тесты и клиенты без посимвольного
     # шума); результат — последний push_byte.
     func feed_line(var self, s: str<256>) -> u32
@@ -615,6 +638,30 @@ test http_wants_close {
     discard r4.feed_line("Connection: Keep-Alive")
     discard r4.feed_line("")
     assert not r4.wants_close()
+}
+
+test http_reset_reuse {
+    var r: Req = req_new()
+    discard r.feed_line("GET /greet/somebody HTTP/1.1")
+    discard r.feed_line("X-Old: secret")
+    assert r.feed_line("") == PARSE_DONE
+    r.reset()
+    # разбор после reset чистый: старые байты и заголовки недостижимы
+    assert r.feed_line("GET /hi HTTP/1.1") == PARSE_MORE
+    assert r.feed_line("Host: h") == PARSE_MORE
+    assert r.feed_line("") == PARSE_DONE
+    assert r.path_is("/hi")
+    assert not r.path_is("/greet/somebody")
+    assert r.nh == 1
+    assert r.find_header("x-old") == HTTP_NONE
+    assert r.find_header("host") == 0
+    # reset из состояния ошибки тоже возвращает чистый старт
+    r.reset()
+    assert r.feed_line("BROKEN") == 400
+    r.reset()
+    assert r.feed_line("GET / HTTP/1.1") == PARSE_MORE
+    assert r.feed_line("") == PARSE_DONE
+    assert r.path_is("/")
 }
 
 test http_resp_build {
