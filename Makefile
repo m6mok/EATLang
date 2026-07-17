@@ -51,6 +51,7 @@ check:
 	$(EATC) check --lib . $(HTTP_POOL_MAIN)
 	$(EATC) check --lib . $(HTTP_ROUTER_MAIN)
 	$(EATC) check --lib . $(HTTP_API_MAIN)
+	$(EATC) check --lib . $(HTTP_TODO_MAIN)
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -103,6 +104,7 @@ HTTP_HELLO_MAIN = examples/http/Hello.eat
 HTTP_POOL_MAIN = examples/http/Pool.eat
 HTTP_ROUTER_MAIN = examples/http/Router.eat
 HTTP_API_MAIN = examples/http/Api.eat
+HTTP_TODO_MAIN = examples/http/todo/Todo.eat
 
 run_http_echo:
 	EAT_NET=examples/http/echo_net.txt $(EATC) run --lib . $(HTTP_ECHO_MAIN)
@@ -122,6 +124,15 @@ run_http_router:
 # JSON-API (этап 4): тело Content-Length/chunked, дроби round-trip
 run_http_api:
 	EAT_NET=examples/http/api_net.txt $(EATC) run --lib . $(HTTP_API_MAIN)
+
+# RESTful TODO-list (TODO_REST_PLAN): полный CRUD + PATCH, store в кадре
+run_http_todo:
+	EAT_NET=examples/http/todo/todo_net.txt $(EATC) run --lib . $(HTTP_TODO_MAIN)
+
+# живой TODO-сервер: curl -i -d '{"title":"buy milk"}' .../todos
+serve_todo:
+	@$(EATC) build --lib . $(HTTP_TODO_MAIN) -o build/HttpTodo > /dev/null
+	./build/HttpTodo $(PORT)
 
 # живой роутер: curl http://127.0.0.1:8080/greet/мир
 serve_router:
@@ -278,6 +289,7 @@ VERIFY_PROGS = examples/if_statement/Elif.eat examples/json/Main.eat \
 	examples/async/Debounce.eat examples/http/Echo.eat \
 	examples/http/Hello.eat examples/http/Pool.eat \
 	examples/http/Router.eat examples/http/Api.eat \
+	examples/http/todo/Todo.eat \
 	examples/blinky_cli/BlinkyCli.eat \
 	$(RT),lib/Hex.eat,examples/mos6502/Cpu6502.eat,examples/mos6502/Tests.eat,examples/mos6502/Main.eat
 
@@ -715,3 +727,8 @@ verify: build_all_examples
 	@EAT_NET=examples/http/api_net.txt ./build/HttpApi > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED HttpApi" || exit 1
+	@$(EATC) build --lib . $(HTTP_TODO_MAIN) -o build/HttpTodo > /dev/null
+	@EAT_NET=examples/http/todo/todo_net.txt $(EATC) run --lib . $(HTTP_TODO_MAIN) > /tmp/eat_interp.txt
+	@EAT_NET=examples/http/todo/todo_net.txt ./build/HttpTodo > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED HttpTodo" || exit 1

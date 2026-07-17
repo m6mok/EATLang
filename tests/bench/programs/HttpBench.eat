@@ -7,8 +7,8 @@
 # вынести его из цикла. Кадр Req создаётся один раз и переиспользуется
 # через Req.reset() (OPTIMIZATIONS_PLAN §8.2: без обнуления raw[8192]
 # на каждый запрос); `var` разрешён только у self — носитель кадра
-# Bench, профили — его методы. Базовая порция — 2 000 запросов
-# (4 × 500); REPEAT масштабирует. Собирается драйвером (--lib):
+# Bench, профили — его методы. Базовая порция — 2 500 запросов
+# (5 × 500, профиль E — parse+store); REPEAT масштабирует. Драйвер (--lib):
 # lib/Http.eat импортирует lib/Fmt.eat.
 
 import {
@@ -33,9 +33,12 @@ func route_code(r: Req) -> u32
     return 404
 }
 
-# Носитель переиспользуемого кадра разбора.
+# Носитель переиспользуемого кадра разбора + пул слотов store
+# (профиль E: разбор PUT /todos/{id} + запись в bounded-пул —
+# связка parse -> store, TODO_REST_PLAN этап 4).
 struct Bench {
     r: Req
+    slots: [u32; 64]
 
     # Типовой GET: параметр пути, четыре заголовка, keep-alive.
     func profile_a(var self, k: u32) -> u32
@@ -114,17 +117,35 @@ struct Bench {
         }
         return acc
     }
+
+    # Профиль E (store): PUT /todos/{id} — разбор пути + запись id в
+    # bounded-пул слотов (пул переживает итерации, копит состояние).
+    func profile_e(var self, k: u32) -> u32
+        requires true
+        ensures true
+    {
+        self.r.reset()
+        discard self.r.feed_line("PUT /todos/{k} HTTP/1.1")
+        discard self.r.feed_line("Host: bench.local")
+        discard self.r.feed_line("Connection: close")
+        let st: u32 = self.r.feed_line("")
+        var acc: u32 = st * 7 + self.r.nh + route_code(self.r)
+        let slot: u32 = k % 64
+        self.slots[slot] = (self.slots[slot] + acc + 1) % 65536
+        return acc + self.slots[slot]
+    }
 }
 
 func main() {
     var acc: u32 = 0
-    var b: Bench = Bench { r: req_new() }
+    var b: Bench = Bench { r: req_new(), slots: [0; 64] }
     for _ in 0..REPEAT {
         for k in 0..500 {
             acc = (acc * 31 + b.profile_a(k)) % 65536
             acc = (acc * 31 + b.profile_b(k)) % 65536
             acc = (acc * 31 + b.profile_c(k)) % 65536
             acc = (acc * 31 + b.profile_d()) % 65536
+            acc = (acc * 31 + b.profile_e(k)) % 65536
         }
     }
     print("checksum {acc}")

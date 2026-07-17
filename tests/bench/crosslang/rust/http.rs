@@ -350,15 +350,29 @@ fn profile_d(r: &mut Req) -> u32 {
     acc
 }
 
+fn profile_e(r: &mut Req, slots: &mut [u32; 64], k: u32) -> u32 {
+    r.reset();
+    r.feed_line(&format!("PUT /todos/{} HTTP/1.1", k));
+    r.feed_line("Host: bench.local");
+    r.feed_line("Connection: close");
+    let st = r.feed_line("");
+    let acc = st * 7 + r.nh + route_code(r);
+    let slot = (k % 64) as usize;
+    slots[slot] = (slots[slot] + acc + 1) % 65536;
+    acc + slots[slot]
+}
+
 fn main() {
     let mut acc: u32 = 0;
     let mut r = Req::new();
+    let mut slots = [0u32; 64];
     for _ in 0..REPEAT {
         for k in 0..500u32 {
             acc = (acc * 31 + profile_a(&mut r, k)) % 65536;
             acc = (acc * 31 + profile_b(&mut r, k)) % 65536;
             acc = (acc * 31 + profile_c(&mut r, k)) % 65536;
             acc = (acc * 31 + profile_d(&mut r)) % 65536;
+            acc = (acc * 31 + profile_e(&mut r, &mut slots, k)) % 65536;
         }
     }
     println!("checksum {}", acc);

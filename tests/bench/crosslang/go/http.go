@@ -290,15 +290,29 @@ func profileD(r *req) uint32 {
 	return acc
 }
 
+func profileE(r *req, slots *[64]uint32, k uint32) uint32 {
+	r.reset()
+	r.feedLine(fmt.Sprintf("PUT /todos/%d HTTP/1.1", k))
+	r.feedLine("Host: bench.local")
+	r.feedLine("Connection: close")
+	st := r.feedLine("")
+	acc := st*7 + r.nh + routeCode(r)
+	slot := k % 64
+	slots[slot] = (slots[slot] + acc + 1) % 65536
+	return acc + slots[slot]
+}
+
 func main() {
 	var acc uint32
 	var r req
+	var slots [64]uint32
 	for rep := uint32(0); rep < REPEAT; rep++ {
 		for k := uint32(0); k < 500; k++ {
 			acc = (acc*31 + profileA(&r, k)) % 65536
 			acc = (acc*31 + profileB(&r, k)) % 65536
 			acc = (acc*31 + profileC(&r, k)) % 65536
 			acc = (acc*31 + profileD(&r)) % 65536
+			acc = (acc*31 + profileE(&r, &slots, k)) % 65536
 		}
 	}
 	fmt.Printf("checksum %d\n", acc)

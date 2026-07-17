@@ -224,15 +224,29 @@ def profile_d(r):
     return acc
 
 
+def profile_e(r, slots, k):
+    r.reset()
+    r.feed_line(f"PUT /todos/{k} HTTP/1.1")
+    r.feed_line("Host: bench.local")
+    r.feed_line("Connection: close")
+    st = r.feed_line("")
+    acc = st * 7 + r.nh + route_code(r)
+    slot = k % 64
+    slots[slot] = (slots[slot] + acc + 1) % 65536
+    return acc + slots[slot]
+
+
 def main():
     acc = 0
     r = Req()
+    slots = [0] * 64
     for _ in range(REPEAT):
         for k in range(500):
             acc = (acc * 31 + profile_a(r, k)) % 65536
             acc = (acc * 31 + profile_b(r, k)) % 65536
             acc = (acc * 31 + profile_c(r, k)) % 65536
             acc = (acc * 31 + profile_d(r)) % 65536
+            acc = (acc * 31 + profile_e(r, slots, k)) % 65536
     print(f"checksum {acc}")
 
 

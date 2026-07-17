@@ -1,0 +1,124 @@
+# Нагрузочный тест ядра RESTful TODO-list (docs/plans/TODO_REST_PLAN.md):
+# состояние-коллекция `Store` (bounded-пул из 64 слотов) под потоком
+# операций и сериализация всего пула. Три операции на «запрос»: create
+# (заполнить слот k%64: id + 16-байтный title из loop-carried acc + флаг),
+# toggle (переключить done у слота (k*3)%64), периодически serialize
+# (свернуть все живые слоты в контрольную сумму — аналог печати JSON-
+# списка) и remove (освободить слот). Title зависит от acc, поэтому LLVM
+# не может ни сфолдить сериализацию, ни вынести её из цикла. store живёт
+# в кадре main и мутируется только `var self`-методами (правило проекта).
+# Это ядро REST-нагрузки без сокет/парс-слоя — разбор запросов мерит
+# отдельный бенч `http`. Базовая порция — 2 048 операций; REPEAT
+# масштабирует. Собирается как Rt.eat + программа (без импортов lib/).
+
+const REPEAT: u32 = 1
+
+const CAP: u32 = 64      # потолок пула (правила 3/8) — не рост, а слоты
+const TLEN: u32 = 16     # длина title в байтах
+
+# Коллекция задач: плоские массивы полей + монотонный счётчик id.
+struct Store {
+    id: [u32; 64]
+    title: [u8; 1024]    # CAP * TLEN
+    done: [u8; 64]       # 0/1
+    used: [u8; 64]       # 0/1
+    next_id: u32
+
+    # Заполнить слот k%CAP новой задачей; вернуть присвоенный id.
+    func create(var self, k: u32, seed: u32) -> u32
+        requires true
+        ensures true
+    {
+        let slot: u32 = k % CAP
+        let base: u32 = slot * TLEN
+        let id: u32 = self.next_id
+        self.id[slot] = id
+        for j in 0..16 {
+            self.title[base + u32(j)] = u8(u32(65) + (seed + k + u32(j) * 7) % 26)
+        }
+        self.done[slot] = u8(k % 2)
+        self.used[slot] = 1
+        self.next_id = self.next_id + 1
+        return id
+    }
+
+    func toggle(var self, idx: u32)
+        requires idx < 64
+        ensures true
+    {
+        if self.done[idx] == 0 {
+            self.done[idx] = 1
+        } else {
+            self.done[idx] = 0
+        }
+    }
+
+    func remove(var self, idx: u32)
+        requires idx < 64
+        ensures true
+    {
+        self.used[idx] = 0
+    }
+
+    # Свернуть все живые слоты (id + title + done) в контрольную сумму —
+    # аналог печати JSON-списка (десятичный id, байты title, флаг).
+    func serialize(self) -> u32
+        requires true
+        ensures true
+    {
+        var sum: u32 = 0
+        for slot in 0..64 {
+            if self.used[slot] == 1 {
+                var m: u32 = self.id[slot]
+                for _ in 0..10 {
+                    if m == 0 {
+                        break
+                    }
+                    sum = (sum * 31 + m % 10) % 65536
+                    m = m / 10
+                }
+                let base: u32 = u32(slot) * TLEN
+                for j in 0..16 {
+                    sum = (sum * 31 + u32(self.title[base + u32(j)])) % 65536
+                }
+                sum = (sum * 31 + u32(self.done[slot])) % 65536
+            }
+        }
+        return sum
+    }
+}
+
+func store_new() -> Store
+    requires true
+    ensures true
+{
+    return Store {
+        id: [0; 64],
+        title: [0; 1024],
+        done: [0; 64],
+        used: [0; 64],
+        next_id: 1,
+    }
+}
+
+func main() {
+    var s: Store = store_new()
+    var acc: u32 = 0
+    for _ in 0..REPEAT {
+        for k in 0..2048 {
+            let seed: u32 = acc
+            let id: u32 = s.create(u32(k), seed)
+            acc = (acc * 31 + id) % 65536
+            let t: u32 = (u32(k) * 3) % CAP
+            s.toggle(t)
+            if u32(k) % 8 == 0 {
+                acc = (acc * 31 + s.serialize()) % 65536
+            }
+            if u32(k) % 16 == 0 {
+                let r: u32 = (u32(k) * 5) % CAP
+                s.remove(r)
+            }
+        }
+    }
+    print("checksum {acc}")
+}

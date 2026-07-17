@@ -1,0 +1,35 @@
+# Транскрипт сверки RESTful TODO-list (docs/plans/TODO_REST_PLAN.md):
+# полный жизненный цикл ресурса /todos через одно состояние store,
+# переживающее соединения. 8 соединений (SERVE_CONNS=8).
+# POST создать -> 201 {"id":1,...}
+accept
+data 4 POST /todos HTTP/1.1\r\nHost: a\r\nContent-Length: 20\r\n\r\n{"title":"buy milk"}
+close 4
+# POST вторую -> 201 {"id":2,...}
+accept
+data 5 POST /todos HTTP/1.1\r\nHost: a\r\nContent-Length: 33\r\n\r\n{"title":"walk dog","done":false}
+close 5
+# GET список -> 200 [оба]
+accept
+data 6 GET /todos HTTP/1.1\r\nHost: a\r\n\r\n
+close 6
+# GET одну по id -> 200 {"id":1,...}
+accept
+data 7 GET /todos/1 HTTP/1.1\r\nHost: a\r\n\r\n
+close 7
+# PATCH переключить done у первой -> 200 {"id":1,...,"done":true}
+accept
+data 8 PATCH /todos/1 HTTP/1.1\r\nHost: a\r\n\r\n
+close 8
+# PUT полная замена второй -> 200 {"id":2,"title":"walk the dog","done":true}
+accept
+data 9 PUT /todos/2 HTTP/1.1\r\nHost: a\r\nContent-Length: 36\r\n\r\n{"title":"walk the dog","done":true}
+close 9
+# DELETE первую -> 204 без тела
+accept
+data 10 DELETE /todos/1 HTTP/1.1\r\nHost: a\r\n\r\n
+close 10
+# GET удалённую -> 404
+accept
+data 11 GET /todos/1 HTTP/1.1\r\nHost: a\r\n\r\n
+close 11

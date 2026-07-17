@@ -60,7 +60,11 @@ BENCHES = {
     # HTTP-парсер lib/Http.eat (HTTP_PLAN): 2 000 запросов на REPEAT=1
     # (4 профиля × 500) — request-line, заголовки, роутер, keep-alive;
     # драйвер: HttpBench → lib/Http.eat → lib/Fmt.eat
-    "http": ("HttpBench", 2_000, 256, 32, 4, "driver"),
+    "http": ("HttpBench", 2_500, 256, 32, 4, "driver"),
+    # ядро RESTful TODO-list lib/-free (TODO_REST_PLAN): пул из 64 слотов
+    # под потоком create/toggle/serialize/remove — 2 048 операций на
+    # REPEAT=1; store+сериализация (разбор запросов мерит `http`)
+    "todo": ("TodoBench", 2_048, 256, 32, 4, []),
 }
 
 REP_VERIFY = 2          # сверочный REPEAT: одинаковый у всех языков

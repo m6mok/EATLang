@@ -316,16 +316,32 @@ static uint32_t profile_d(Req *r) {
     return acc;
 }
 
+static uint32_t profile_e(Req *r, uint32_t *slots, uint32_t k) {
+    char line[64];
+    req_reset(r);
+    snprintf(line, sizeof(line), "PUT /todos/%u HTTP/1.1", k);
+    feed_line(r, line);
+    feed_line(r, "Host: bench.local");
+    feed_line(r, "Connection: close");
+    uint32_t st = feed_line(r, "");
+    uint32_t acc = st * 7 + r->nh + route_code(r);
+    uint32_t slot = k % 64;
+    slots[slot] = (slots[slot] + acc + 1) % 65536;
+    return acc + slots[slot];
+}
+
 int main(void) {
     uint32_t acc = 0;
     Req r;
     req_new(&r);
+    uint32_t slots[64] = {0};
     for (uint32_t rep = 0; rep < REPEAT; rep++) {
         for (uint32_t k = 0; k < 500; k++) {
             acc = (acc * 31 + profile_a(&r, k)) % 65536;
             acc = (acc * 31 + profile_b(&r, k)) % 65536;
             acc = (acc * 31 + profile_c(&r, k)) % 65536;
             acc = (acc * 31 + profile_d(&r)) % 65536;
+            acc = (acc * 31 + profile_e(&r, slots, k)) % 65536;
         }
     }
     printf("checksum %u\n", acc);
