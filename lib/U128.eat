@@ -321,10 +321,113 @@ struct U128DivRem {
     r: U128
 }
 
+# Частное и остаток шага деления в u64 (внутреннее, не экспортируется).
+struct Qr64 {
+    q: u64
+    r: u64
+}
+
+# Ведущие нули u64 (x > 0): бинарный спуск, 6 шагов без цикла.
+# Сдвиги не теряют бит: перед каждым `<< k` доказано v < 2^(64-k).
+func clz64(x: u64) -> u64
+    requires x > 0
+    ensures result <= 63
+{
+    var s: u64 = 0
+    var v: u64 = x
+    if v <= 4294967295 {
+        s = s + 32
+        v = v << 32
+    }
+    if v <= 281474976710655 {
+        s = s + 16
+        v = v << 16
+    }
+    if v <= 72057594037927935 {
+        s = s + 8
+        v = v << 8
+    }
+    if v <= 1152921504606846975 {
+        s = s + 4
+        v = v << 4
+    }
+    if v <= 4611686018427387903 {
+        s = s + 2
+        v = v << 2
+    }
+    if v <= 9223372036854775807 {
+        s = s + 1
+    }
+    return s
+}
+
+# Шаг деления Кнута (D) по базе 2^32: префикс остатка pre (2 лимба в
+# u64, pre < dn) и следующий 32-битный лимб nxt против
+# нормализованного делителя dn (старший бит взведён). Оценка цифры по
+# старшему лимбу, коррекция <= 2 (циклы развёрнуты, теорема Кнута для
+# нормализованного делителя); qh <= 2^32 всегда (pre < dn), поэтому
+# qh*dn0 не переполняется. Вычитание qh*dn — по лимбам с headroom
+# (идиома sub): промежуточных trap нет по построению.
+func div_step(pre: u64, nxt: u64, dn: u64) -> Qr64
+    requires dn >= 9223372036854775808 and pre < dn and nxt <= 4294967295
+    ensures result.q <= 4294967296 and result.r < dn
+{
+    let dn1: u64 = dn >> 32
+    let dn0: u64 = dn & 4294967295
+    var qh: u64 = pre / dn1
+    var rh: u64 = pre % dn1
+    for _ in 0..2 {
+        var over: bool = qh > 4294967295
+        if not over and rh <= 4294967295 {
+            over = qh * dn0 > ((rh << 32) | nxt)
+        }
+        if over {
+            qh = qh - 1
+            rh = rh + dn1
+        }
+    }
+    let p: u64 = qh * dn0
+    let t: u64 = qh * dn1
+    let p1: u64 = (p >> 32) + (t & 4294967295)
+    let p2: u64 = (t >> 32) + (p1 >> 32)
+    let d0: u64 = nxt + 4294967296 - (p & 4294967295)
+    let b0: u64 = 1 - (d0 >> 32)
+    let d1: u64 = (pre & 4294967295) + 4294967296 - (p1 & 4294967295) - b0
+    let b1: u64 = 1 - (d1 >> 32)
+    let d2: u64 = (pre >> 32) + 4294967296 - p2 - b1
+    assert (d2 >> 32) == 1 and (d2 & 4294967295) == 0
+    return Qr64 { q: qh, r: ((d1 & 4294967295) << 32) | (d0 & 4294967295) }
+}
+
+# 128/64 -> 64: частное и остаток (u1*2^64 + u0) / d при u1 < d
+# (иначе частное не влезает в u64). Нормализация + две цифры div_step
+# (Hacker's Delight divlu). Хвост u0, не вошедший в un64, маскируется
+# ДО сдвига — языковой << трапит потерю бит.
+func divlu(u1: u64, u0: u64, d: u64) -> Qr64
+    requires d > 0 and u1 < d
+    ensures result.r < d
+{
+    let s: u64 = clz64(d)
+    let dn: u64 = d << s
+    var un64: u64 = u1 << s
+    if s > 0 {
+        un64 = un64 | (u0 >> (64 - s))
+    }
+    let un10: u64 = (u0 & (18446744073709551615 >> s)) << s
+    let st1: Qr64 = div_step(un64, un10 >> 32, dn)
+    let st0: Qr64 = div_step(st1.r, un10 & 4294967295, dn)
+    assert st1.q <= 4294967295
+    return Qr64 { q: (st1.q << 32) | st0.q, r: st0.r >> s }
+}
+
 extend U128 {
-    # Произведение; выход за 128 бит — trap. Разложение по половинам:
-    # a*b = ll + (lh + hl)*2^64 + hh*2^128; ненулевой hh или старшая
-    # половина lh/hl — переполнение, остальное ловят add.
+    # Произведение; выход за 128 бит — trap. Прямая школьная свёртка
+    # по лимбам (замер §7.1: вдвое меньше работы, чем композиция из
+    # трёх mul_64 и add): каждый шаг — MAC из леммы в шапке, trap
+    # промежутков невозможен. Переполнение точно: произведение
+    # >= 2^128 <=> ненулевой хотя бы один вклад в лимбы 4..7 —
+    # выпавшие переносы колонки 3 и произведения с i+j >= 4
+    # (все слагаемые неотрицательны, копятся в hi через |).
     func mul(self, o: U128) -> U128
         requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
             and self.w2 <= 4294967295 and self.w3 <= 4294967295
@@ -333,23 +436,43 @@ extend U128 {
         ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
             and result.w2 <= 4294967295 and result.w3 <= 4294967295)
     {
-        let al: u64 = self.lo64()
-        let ah: u64 = self.hi64()
-        let bl: u64 = o.lo64()
-        let bh: u64 = o.hi64()
-        assert ah == 0 or bh == 0
-        let pll: U128 = mul_64(al, bl)
-        let plh: U128 = mul_64(al, bh)
-        let phl: U128 = mul_64(ah, bl)
-        assert plh.w2 == 0 and plh.w3 == 0
-        assert phl.w2 == 0 and phl.w3 == 0
-        let t1: U128 = U128 { w0: 0, w1: 0, w2: plh.w0, w3: plh.w1 }
-        let t2: U128 = U128 { w0: 0, w1: 0, w2: phl.w0, w3: phl.w1 }
-        return pll.add(t1).add(t2)
+        var t: u64 = self.w0 * o.w0
+        let r0: u64 = t & 4294967295
+        var c: u64 = t >> 32
+        t = self.w0 * o.w1 + c
+        var r1: u64 = t & 4294967295
+        c = t >> 32
+        t = self.w0 * o.w2 + c
+        var r2: u64 = t & 4294967295
+        c = t >> 32
+        t = self.w0 * o.w3 + c
+        var r3: u64 = t & 4294967295
+        var hi: u64 = t >> 32
+        t = self.w1 * o.w0 + r1
+        r1 = t & 4294967295
+        c = t >> 32
+        t = self.w1 * o.w1 + r2 + c
+        r2 = t & 4294967295
+        c = t >> 32
+        t = self.w1 * o.w2 + r3 + c
+        r3 = t & 4294967295
+        hi = hi | (t >> 32) | (self.w1 * o.w3)
+        t = self.w2 * o.w0 + r2
+        r2 = t & 4294967295
+        c = t >> 32
+        t = self.w2 * o.w1 + r3 + c
+        r3 = t & 4294967295
+        hi = hi | (t >> 32) | (self.w2 * o.w2) | (self.w2 * o.w3)
+        t = self.w3 * o.w0 + r3
+        r3 = t & 4294967295
+        hi = hi | (t >> 32) | (self.w3 * o.w1) | (self.w3 * o.w2)
+        hi = hi | (self.w3 * o.w3)
+        assert hi == 0
+        return U128 { w0: r0, w1: r1, w2: r2, w3: r3 }
     }
 
-    # Произведение mod 2^128: hh*2^128 и старшие половины lh/hl
-    # пропадают по модулю, суммы заворачивают add_wrap.
+    # Произведение mod 2^128: та же школьная свёртка, вклады в лимбы
+    # 4..7 отбрасываются по модулю; MAC-шаги без trap (лемма в шапке).
     func mul_wrap(self, o: U128) -> U128
         requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
             and self.w2 <= 4294967295 and self.w3 <= 4294967295
@@ -358,24 +481,85 @@ extend U128 {
         ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
             and result.w2 <= 4294967295 and result.w3 <= 4294967295)
     {
-        let al: u64 = self.lo64()
-        let ah: u64 = self.hi64()
-        let bl: u64 = o.lo64()
-        let bh: u64 = o.hi64()
-        let pll: U128 = mul_64(al, bl)
-        let plh: U128 = mul_64(al, bh)
-        let phl: U128 = mul_64(ah, bl)
-        let t1: U128 = U128 { w0: 0, w1: 0, w2: plh.w0, w3: plh.w1 }
-        let t2: U128 = U128 { w0: 0, w1: 0, w2: phl.w0, w3: phl.w1 }
-        return pll.add_wrap(t1).add_wrap(t2)
+        var t: u64 = self.w0 * o.w0
+        let r0: u64 = t & 4294967295
+        var c: u64 = t >> 32
+        t = self.w0 * o.w1 + c
+        var r1: u64 = t & 4294967295
+        c = t >> 32
+        t = self.w0 * o.w2 + c
+        var r2: u64 = t & 4294967295
+        c = t >> 32
+        t = self.w0 * o.w3 + c
+        var r3: u64 = t & 4294967295
+        t = self.w1 * o.w0 + r1
+        r1 = t & 4294967295
+        c = t >> 32
+        t = self.w1 * o.w1 + r2 + c
+        r2 = t & 4294967295
+        c = t >> 32
+        t = self.w1 * o.w2 + r3 + c
+        r3 = t & 4294967295
+        t = self.w2 * o.w0 + r2
+        r2 = t & 4294967295
+        c = t >> 32
+        t = self.w2 * o.w1 + r3 + c
+        r3 = t & 4294967295
+        t = self.w3 * o.w0 + r3
+        r3 = t & 4294967295
+        return U128 { w0: r0, w1: r1, w2: r2, w3: r3 }
     }
 
-    # Полное деление 128/128: сдвиговое (restoring), ровно 128
-    # итераций с константной границей. c — бит остатка, вышедший в
-    # 2^128 при сдвиге: тогда остаток заведомо >= делителя, а
+    # Полное деление 128/128 — диспетчер по ширине делителя
+    # (замер §7.1 U128_PLAN): 1 лимб — divrem_32 (4 шага, ~4 нс),
+    # 2 лимба — divrem_64 (Кнут, 2 цифры), шире — честный сдвиговый
+    # divrem_wide (128 итераций). Результат по всем путям одинаков.
+    func divrem(self, o: U128) -> U128DivRem
+        requires ((o.w0 > 0 or o.w1 > 0 or o.w2 > 0 or o.w3 > 0)
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295
+            and o.w0 <= 4294967295 and o.w1 <= 4294967295
+            and o.w2 <= 4294967295 and o.w3 <= 4294967295)
+        ensures (result.q.w0 <= 4294967295 and result.q.w1 <= 4294967295
+            and result.q.w2 <= 4294967295 and result.q.w3 <= 4294967295
+            and result.r.w0 <= 4294967295 and result.r.w1 <= 4294967295
+            and result.r.w2 <= 4294967295 and result.r.w3 <= 4294967295)
+    {
+        if o.w3 == 0 and o.w2 == 0 {
+            if o.w1 == 0 {
+                return self.divrem_32(o.w0)
+            }
+            return self.divrem_64(o.lo64())
+        }
+        return self.divrem_wide(o)
+    }
+
+    # Быстрое деление на 2-лимбовый делитель (2^32 <= d... точнее
+    # d > 0, любые 64 бита): старшая половина — u64-делением, младшая
+    # — divlu (Кнут по базе 2^32, ~25 нс против ~490 нс сдвигового).
+    func divrem_64(self, d: u64) -> U128DivRem
+        requires (d > 0
+            and self.w0 <= 4294967295 and self.w1 <= 4294967295
+            and self.w2 <= 4294967295 and self.w3 <= 4294967295)
+        ensures (result.q.w0 <= 4294967295 and result.q.w1 <= 4294967295
+            and result.q.w2 <= 4294967295 and result.q.w3 <= 4294967295
+            and result.r.w0 <= 4294967295 and result.r.w1 <= 4294967295
+            and result.r.w2 <= 4294967295 and result.r.w3 <= 4294967295)
+    {
+        let hi: u64 = self.hi64()
+        let lo: u64 = self.lo64()
+        let q1: u64 = hi / d
+        let r1: u64 = hi % d
+        let qr: Qr64 = divlu(r1, lo, d)
+        return U128DivRem { q: u128_hi_lo(q1, qr.q), r: u128(qr.r) }
+    }
+
+    # Сдвиговый путь (restoring), ровно 128 итераций с константной
+    # границей — для делителей шире 64 бит. c — бит остатка, вышедший
+    # в 2^128 при сдвиге: тогда остаток заведомо >= делителя, а
     # sub_wrap возвращает его в 128 бит корректно (v - o < 2^128,
     # т.к. v < 2*o).
-    func divrem(self, o: U128) -> U128DivRem
+    func divrem_wide(self, o: U128) -> U128DivRem
         requires ((o.w0 > 0 or o.w1 > 0 or o.w2 > 0 or o.w3 > 0)
             and self.w0 <= 4294967295 and self.w1 <= 4294967295
             and self.w2 <= 4294967295 and self.w3 <= 4294967295
@@ -803,6 +987,9 @@ test u128_mul_edges {
     assert mx.mul(u128(1)).eq(mx)
     assert mx.mul_wrap(mx).eq(u128(1))
     assert u128(0).mul(mx).is_zero()
+    # кросс прямолимбовой свёртки против mul_64: (2^64-1)^2 влезает
+    assert u128(m64).mul(u128(m64)).eq(mul_64(m64, m64))
+    assert u128(m64).mul_wrap(u128(m64)).eq(mul_64(m64, m64))
 }
 
 test u128_shifts {
@@ -838,7 +1025,57 @@ test u128_divrem {
     assert dr.r.lt(d)
     let dr32: U128DivRem = x.divrem_32(4294967291)
     assert dr32.q.eq(dr.q) and dr32.r.eq(dr.r)
+    let drw: U128DivRem = x.divrem_wide(d)
+    assert drw.q.eq(dr.q) and drw.r.eq(dr.r)
     assert x.div(d).eq(dr.q) and x.rem(d).eq(dr.r)
+}
+
+test u128_divrem_64 {
+    let m64: u64 = 18446744073709551615
+    let mx: U128 = u128_hi_lo(m64, m64)
+    # (2^128-1) / (2^64-1) = 2^64 + 1, остаток 0
+    let a: U128DivRem = mx.divrem_64(m64)
+    assert a.q.eq(u128_hi_lo(1, 1)) and a.r.is_zero()
+    # делитель ровно 2^32 — граница путей диспетчера
+    let b: U128DivRem = mx.divrem(u128_hi_lo(0, 4294967296))
+    assert b.q.eq(u128_hi_lo(4294967295, 18446744073709551615))
+    assert b.r.eq(u128(4294967295))
+    # делитель у края нормализации (2^63 + 1): коррекции Кнута
+    let dd: u64 = 9223372036854775809
+    let n1: U128 = u128_hi_lo(9223372036854775807, 12297829382473034410)
+    let c: U128DivRem = n1.divrem_64(dd)
+    assert c.q.mul(u128(dd)).add(c.r).eq(n1)
+    assert c.r.lt(u128(dd))
+    let w: U128DivRem = n1.divrem_wide(u128(dd))
+    assert w.q.eq(c.q) and w.r.eq(c.r)
+    # делимое меньше делителя и деление на 1
+    assert u128(5).divrem_64(4294967297).q.is_zero()
+    assert u128(5).divrem_64(4294967297).r.eq(u128(5))
+    assert mx.divrem_64(1).q.eq(mx)
+}
+
+# Сверка путей диспетчера на псевдослучайной сетке (LCG < 2^48 —
+# u64-арифметика без trap) + реконструкция q*d + r == a.
+test u128_div_paths {
+    var x: u64 = 12345
+    for _ in 0..16 {
+        x = (x * 31 + 7) % 281474976710656
+        let hi: u64 = x
+        x = (x * 31 + 7) % 281474976710656
+        let lo: u64 = x
+        x = (x * 31 + 7) % 281474976710656
+        let a: U128 = u128_hi_lo(hi, lo)
+        let d64: u64 = (x | 1) + 4294967296
+        let dr: U128DivRem = a.divrem(u128(d64))
+        let dw: U128DivRem = a.divrem_wide(u128(d64))
+        assert dr.q.eq(dw.q) and dr.r.eq(dw.r)
+        assert dr.q.mul(u128(d64)).add(dr.r).eq(a)
+        assert dr.r.lt(u128(d64))
+        let dwide: U128 = u128_hi_lo(x | 1, lo)
+        let d2: U128DivRem = a.divrem(dwide)
+        let d2w: U128DivRem = a.divrem_wide(dwide)
+        assert d2.q.eq(d2w.q) and d2.r.eq(d2w.r)
+    }
 }
 
 test u128_repr {

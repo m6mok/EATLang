@@ -350,56 +350,66 @@ struct U128 41:1
   method shl 191:5 (k: u32) -> U128
   method shl_wrap 220:5 (k: u32) -> U128
   method shr 247:5 (k: u32) -> U128
-  method mul 328:5 (o: U128) -> U128
-  method mul_wrap 353:5 (o: U128) -> U128
-  method divrem 378:5 (o: U128) -> U128DivRem
-  method divrem_32 421:5 (d: u64) -> U128DivRem
-  method div 447:5 (o: U128) -> U128
-  method rem 459:5 (o: U128) -> U128
-  method repr_hex 474:5 () -> str<32>
-  method repr_dec 503:5 () -> str<40>
+  method mul 431:5 (o: U128) -> U128
+  method mul_wrap 476:5 (o: U128) -> U128
+  method divrem 517:5 (o: U128) -> U128DivRem
+  method divrem_64 540:5 (d: u64) -> U128DivRem
+  method divrem_wide 562:5 (o: U128) -> U128DivRem
+  method divrem_32 605:5 (d: u64) -> U128DivRem
+  method div 631:5 (o: U128) -> U128
+  method rem 643:5 (o: U128) -> U128
+  method repr_hex 658:5 () -> str<32>
+  method repr_dec 687:5 () -> str<40>
 func u128 275:1 (lo: u64) -> U128
 func u128_hi_lo 284:1 (hi: u64, lo: u64) -> U128
 func mul_64 296:1 (a: u64, b: u64) -> U128
 struct U128DivRem 319:1
   field q :: U128
   field r :: U128
-struct I128 534:1
+struct Qr64 325:1
+  field q :: u64
+  field r :: u64
+func clz64 332:1 (x: u64) -> u64
+func div_step 371:1 (pre: u64, nxt: u64, dn: u64) -> Qr64
+func divlu 406:1 (u1: u64, u0: u64, d: u64) -> Qr64
+struct I128 718:1
   field sgn :: bool
   field mag :: U128
-  method is_zero 567:5 () -> bool
-  method eq 574:5 (o: I128) -> bool
-  method lt 581:5 (o: I128) -> bool
-  method le 597:5 (o: I128) -> bool
-  method neg 604:5 () -> I128
-  method abs 613:5 () -> I128
-  method add 623:5 (o: I128) -> I128
-  method sub 640:5 (o: I128) -> I128
-  method mul 652:5 (o: I128) -> I128
-  method to_i64 664:5 () -> i64
-  method repr_dec 677:5 () -> str<40>
-  method divrem 699:5 (o: I128) -> I128DivRem
-  method div 716:5 (o: I128) -> I128
-  method rem 728:5 (o: I128) -> I128
-func i128_make 540:1 (sgn: bool, mag: U128) -> I128
-func i128 554:1 (v: i64) -> I128
-struct I128DivRem 690:1
+  method is_zero 751:5 () -> bool
+  method eq 758:5 (o: I128) -> bool
+  method lt 765:5 (o: I128) -> bool
+  method le 781:5 (o: I128) -> bool
+  method neg 788:5 () -> I128
+  method abs 797:5 () -> I128
+  method add 807:5 (o: I128) -> I128
+  method sub 824:5 (o: I128) -> I128
+  method mul 836:5 (o: I128) -> I128
+  method to_i64 848:5 () -> i64
+  method repr_dec 861:5 () -> str<40>
+  method divrem 883:5 (o: I128) -> I128DivRem
+  method div 900:5 (o: I128) -> I128
+  method rem 912:5 (o: I128) -> I128
+func i128_make 724:1 (sgn: bool, mag: U128) -> I128
+func i128 738:1 (v: i64) -> I128
+struct I128DivRem 874:1
   field q :: I128
   field r :: I128
-test u128_ctor_edges 741:1
-test u128_add_sub_edges 756:1
-test u128_cmp 771:1
-test u128_mul64_edges 786:1
-test u128_mul_edges 796:1
-test u128_shifts 808:1
-test u128_divrem 824:1
-test u128_repr 844:1
-test i128_basics 858:1
-test i128_arith 875:1
-test i128_cmp 890:1
-test i128_divrem 902:1
-test i128_repr 914:1
-module lib/Fixed.eat 921:1
+test u128_ctor_edges 925:1
+test u128_add_sub_edges 940:1
+test u128_cmp 955:1
+test u128_mul64_edges 970:1
+test u128_mul_edges 980:1
+test u128_shifts 995:1
+test u128_divrem 1011:1
+test u128_divrem_64 1033:1
+test u128_div_paths 1059:1
+test u128_repr 1081:1
+test i128_basics 1095:1
+test i128_arith 1112:1
+test i128_cmp 1127:1
+test i128_divrem 1139:1
+test i128_repr 1151:1
+module lib/Fixed.eat 1158:1
 export Q16 26:5 :: Q16
 export Q16_SCALE 27:5 :: Q16_SCALE
 export q16 28:5 :: q16
@@ -490,4 +500,4 @@ import min 59:5 :: lib/Num.eat min
 import parse_i32 63:5 :: lib/Parse.eat parse_i32
 import mul_64 67:5 :: lib/U128.eat mul_64
 func main 70:1 ()
-stats funcs=194 structs=16 stmts=1483
+stats funcs=199 structs=17 stmts=1583
