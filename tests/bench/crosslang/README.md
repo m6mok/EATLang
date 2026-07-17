@@ -23,6 +23,10 @@ uv run python tests/bench/crosslang/run.py --quick --only arith,mos6502
 - `gen6502.py` — генератор нагрузочного ROM макробенча (эмулятор
   `examples/mos6502/`): вложенные счётчики 6502 с бегущей контрольной
   суммой, размер — параметрами `--top/--outer/--middle`.
+- `backends.py` — эксперимент §7.2 OPTIMIZATIONS_PLAN: llvmlite
+  против clang на байт-идентичном .ll build-пути (+ `--decompose` —
+  гибриды мид-энд × кодоген, `-flto`); вердикт — FINDINGS, 39-я
+  итерация.
 
 ## Варианты (оси «налог на безопасность»)
 
