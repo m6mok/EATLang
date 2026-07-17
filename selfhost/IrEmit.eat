@@ -794,19 +794,6 @@ extend Ir {
         self.line_fin()
     }
 
-    # v1 — i1: call void @"llvm.assume"(i1 v1) — возврат факта диапазона
-    # доказанного requires оптимизатору (ось -O, эталон codegen.py:589).
-    func e_assume(var self)
-        requires true
-        ensures true
-    {
-        self.vpre()
-        self.lb_lit("call void @\"llvm.assume\"(i1 ")
-        self.wr1()
-        self.lb_lit(")")
-        self.line_fin()
-    }
-
     # v1 — i8* сообщение.
     func e_trapc(var self)
         requires true

@@ -278,7 +278,8 @@ verify_trapcodes:
 
 # Ось -O (SELFHOST_OPT_PLAN §11, SELFHOST_VERIFIER_PLAN этап 5):
 # конвейер проходов fold → verify в self-hosted компиляторе — элизия
-# доказанных проверок, nsw/nuw, llvm.assume. SelfIrOpt == эталон
+# доказанных проверок, nsw/nuw (llvm.assume снят по замеру
+# OPTIMIZATIONS_PLAN §7.1). SelfIrOpt == эталон
 # `eatc ir -O` байт-в-байт на входах со сворачиваемыми вызовами
 # (D6: tests/fold + примеры), на кейсах верификатора (tests/verify —
 # концентрат доказуемых обязательств) и на самоприменении (годность

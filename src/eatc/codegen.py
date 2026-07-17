@@ -302,36 +302,6 @@ class Codegen:
         self.b.unreachable()
         self.b.position_at_end(ok_bb)
 
-    def assume_fn(self) -> ir.Function:
-        fn = self.rt.get("llvm.assume")
-        if fn is None:
-            fn = ir.Function(
-                self.module,
-                ir.FunctionType(ir.VoidType(), [ir.IntType(1)]),
-                name="llvm.assume",
-            )
-            self.rt["llvm.assume"] = fn
-        return fn
-
-    def assume_safe(self, e: ast.Expr) -> bool:
-        """Выражение, чьё вычисление заведомо не trap'ает и дёшево:
-        сравнения имён/полей/литералов и их and-конъюнкции. Арифметика
-        внутри assume недопустима: без trap-проверок переполнение дало
-        бы poison в самом assume."""
-        if isinstance(e, ast.BinOp):
-            if e.op == "and":
-                return self.assume_safe(e.left) and self.assume_safe(e.right)
-            if e.op in ("<", "<=", ">", ">=", "==", "!="):
-                return self._assume_leaf(e.left) and self._assume_leaf(e.right)
-        return False
-
-    def _assume_leaf(self, e: ast.Expr) -> bool:
-        if isinstance(e, (ast.IntLit, ast.BoolLit, ast.Name, ast.SelfExpr)):
-            return True
-        if isinstance(e, ast.FieldAccess):
-            return self._assume_leaf(e.obj)
-        return False
-
     def push(self) -> None:
         self.env.append({})
 
@@ -573,20 +543,19 @@ class Codegen:
                 self.bind(pname, pty, slot)
 
         self.exit_block = fn.append_basic_block("exit")
-        if func.requires is not None:
-            if not getattr(func, "requires_proven", False):
-                cond = self.expr(func.requires)
-                self.trap_if(
-                    self.b.not_(cond),
-                    func,
-                    f"нарушен requires функции {func.name}",
-                )
-            elif self.assume_safe(func.requires):
-                # слой 1а: доказанный requires не эмитится веткой, и
-                # LLVM теряет факт диапазона — возвращаем его как
-                # llvm.assume. Build-only: requires_proven ставит только
-                # верификатор (cmd_build), канон `eatc ir` не меняется.
-                self.b.call(self.assume_fn(), [self.expr(func.requires)])
+        # доказанный requires не эмитится вовсе: llvm.assume-возврат
+        # факта диапазона (слой 1а) снят по замеру crosslang §7.1 —
+        # assume-вычисления в прологах горячих функций дороже, чем
+        # выигрыш оптимизатора от факта (mos6502 4,00 → 3,68 нс/шаг)
+        if func.requires is not None and not getattr(
+            func, "requires_proven", False
+        ):
+            cond = self.expr(func.requires)
+            self.trap_if(
+                self.b.not_(cond),
+                func,
+                f"нарушен requires функции {func.name}",
+            )
         self.gen_block(func.body)
         self.ensure_br(self.exit_block)
 

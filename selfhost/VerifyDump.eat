@@ -383,7 +383,7 @@ extend Verify {
     # в маску Check.nvm по id узла — бит доказанного вида = 1 << ck_k
     # (requires/ensures лежат на узле декларации функции, эталон
     # func.requires_proven/ensures_proven). Ir читает маску зеркально
-    # codegen.py: элизия trap-блоков, nsw/nuw, llvm.assume.
+    # codegen.py: элизия trap-блоков, nsw/nuw.
     func annotate(var self)
         requires true
         ensures true

@@ -19,7 +19,7 @@ python -m eatc ir <файл>          — эталонный текстовый 
                                     эмиттером, selfhost/Ir.eat);
                                     `-O` — оптимизированная ось
                                     (конвейер проходов fold → verify:
-                                    элизия проверок, nsw/nuw, assume;
+                                    элизия проверок, nsw/nuw;
                                     сверка с SelfIrOpt,
                                     SELFHOST_OPT_PLAN)
 
@@ -215,8 +215,9 @@ def cmd_ir(path: str, trap_codes: bool = False, opt: bool = False) -> int:
             # канон + конвейер проходов [fold, verify] — порядок как в
             # cmd_build (точки [v,v] свёртки снимают проверки ниже).
             # verify ставит аннотации на узлы AST; кодоген (общий с
-            # build) читает их: элизия trap-блоков, nsw/nuw, llvm.assume
-            # (SELFHOST_VERIFIER_PLAN этап 5, решение Э1). Эталон SelfIrOpt
+            # build) читает их: элизия trap-блоков, nsw/nuw
+            # (SELFHOST_VERIFIER_PLAN этап 5, решение Э1; llvm.assume
+            # снят по замеру §7.1 OPTIMIZATIONS_PLAN). Эталон SelfIrOpt
             from .comptime import fold_calls
             from .verifier import verify
             fold_calls(program, typed.checker, path)

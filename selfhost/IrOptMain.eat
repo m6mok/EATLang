@@ -4,7 +4,8 @@
 # вызовов), затем верификатор (SELFHOST_VERIFIER_PLAN этап 5, решение
 # Э1): analyze ставит обязательства, annotate переносит доказанные в
 # маску Check.nvm, эмиссия читает её зеркально codegen.py (элизия
-# trap-блоков, nsw/nuw, llvm.assume). Порядок fold → verify фиксирован
+# trap-блоков, nsw/nuw; llvm.assume снят по замеру OPTIMIZATIONS_PLAN
+# §7.1). Порядок fold → verify фиксирован
 # (как в cmd_build: точки [v,v] свёртки снимают проверки ниже). Фильтр
 # stdin → stdout: текстовый модуль LLVM, байт-в-байт совпадающий с
 # эталоном `eatc ir -O` (сверка в make verify_selfhost_opt).

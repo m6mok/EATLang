@@ -395,7 +395,8 @@ llvmlite:
 Элизия доказанных проверок доставлена (2026-07-17) проходом №2 оси
 `-O` [SELFHOST_OPT_PLAN](SELFHOST_OPT_PLAN.md): `SelfIrOpt` ==
 `eatc ir -O` с конвейером fold → verify (маска аннотаций `Check.nvm`,
-элизия trap-блоков, `nsw`/`nuw`, `llvm.assume`); гейт
+элизия trap-блоков, `nsw`/`nuw`; `llvm.assume` снят по замеру
+OPTIMIZATIONS_PLAN §7.1); гейт
 `verify_selfhost_opt`, входы + `tests/verify/` + самоприменение.
 
 ## Ограничения фазы 5 (осознанные)
