@@ -30,6 +30,7 @@ uv run python tests/bench/crosslang/run.py --quick --only arith,mos6502
 | --- | --- |
 | EATLang build | штатный `eatc build`: доказанные верификатором проверки сняты |
 | EATLang все-trap | канонический IR (`eatc ir`, все trap'ы) + `clang -O2` + runtime.c |
+| EATLang selfhost -O | `build/SelfIrOpt` (компилятор на EATLang, ось `-O`) + `clang -O2`; пропускается, если бинарник не собран |
 | C -O2 / UBSan | без проверок / `-fsanitize=undefined,bounds` |
 | Rust safe / unchecked | обычная индексация / `get_unchecked` (файл `*_unchecked.rs`, только где есть массивы) |
 | Go / -gcflags=-B | проверки границ / снятые bounds-check |

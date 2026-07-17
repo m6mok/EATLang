@@ -41,6 +41,7 @@ ENV = {**os.environ, "PYTHONPATH": "src"}
 CLANG = shutil.which("clang")
 RUSTC = shutil.which("rustc") or str(Path.home() / ".cargo/bin/rustc")
 GO = shutil.which("go")
+SELFIROPT = ROOT / "build" / "SelfIrOpt"     # самохост-эмиссия оси -O
 
 # имя → (файл EATLang, базовых операций на REPEAT=1, REPEAT нативный,
 #        REPEAT quick, REPEAT python, модули lib/ между Rt и программой)
@@ -183,20 +184,49 @@ def build_eat(name, stem, libs, rep):
     return [bin_], bin_, secs
 
 
-def build_eat_traps(name, stem, libs, rep):
-    """Канонический IR (`eatc ir`, все trap'ы) + clang -O2 + runtime.c —
-    точка «все проверки в рантайме» оси налога на безопасность."""
+def eat_cat(name, stem, libs, rep):
+    """Конкатенация Rt + lib + программа — вход одно-файловых команд."""
     src = scaled("eat", PROGRAMS / f"{name}.eat", rep)
     cat = OUT / f"{stem}_eatcat_r{rep}.eat"
     parts = [RT.read_text(encoding="utf-8")]
     parts += [(ROOT / lib).read_text(encoding="utf-8") for lib in libs]
     parts.append(src.read_text(encoding="utf-8"))
     cat.write_text("\n".join(parts), encoding="utf-8")
+    return cat
+
+
+def build_eat_traps(name, stem, libs, rep):
+    """Канонический IR (`eatc ir`, все trap'ы) + clang -O2 + runtime.c —
+    точка «все проверки в рантайме» оси налога на безопасность."""
+    cat = eat_cat(name, stem, libs, rep)
     ll = OUT / f"{stem}_eatcat_r{rep}.ll"
     bin_ = OUT / f"{stem}_eattraps_r{rep}"
     t0 = time.perf_counter()
     p = sh(eatc("ir", cat), capture=True)
     ll.write_bytes(p.stdout)
+    sh([CLANG, "-O2", ll, RUNTIME_C, "-o", bin_])
+    return [bin_], bin_, time.perf_counter() - t0
+
+
+def selfiropt_ll(cat: Path, ll: Path):
+    """SelfIrOpt (самохост, ось -O: fold + элизия) < cat > ll.
+    Ошибка самохоста уходит в stdout с rc 0 (F2) — ловим по контенту."""
+    p = sh([SELFIROPT], stdin_path=cat, capture=True)
+    if p.stdout.startswith(b"err") or not p.stdout:
+        raise RuntimeError(f"SelfIrOpt: {p.stdout[:200]!r}")
+    ll.write_bytes(p.stdout)
+
+
+def build_eat_self(name, stem, libs, rep):
+    """Селфхост-цепочка: SelfIrOpt (`ir -O`) + clang -O2 + runtime.c —
+    компилятор, написанный на самом EATLang."""
+    if not SELFIROPT.exists():
+        return None
+    cat = eat_cat(name, stem, libs, rep)
+    ll = OUT / f"{stem}_eatself_r{rep}.ll"
+    bin_ = OUT / f"{stem}_eatself_r{rep}"
+    t0 = time.perf_counter()
+    selfiropt_ll(cat, ll)
     sh([CLANG, "-O2", ll, RUNTIME_C, "-o", bin_])
     return [bin_], bin_, time.perf_counter() - t0
 
@@ -246,6 +276,8 @@ def variants(name, stem, libs):
          lambda r: build_eat(name, stem, libs, r), "native"),
         ("EATLang все-trap",
          lambda r: build_eat_traps(name, stem, libs, r), "native"),
+        ("EATLang selfhost -O",
+         lambda r: build_eat_self(name, stem, libs, r), "native"),
         ("C -O2", lambda r: build_c(stem, r), "native"),
         ("C -O2 UBSan",
          lambda r: build_c(stem, r, sanitize=True), "native"),
@@ -354,14 +386,28 @@ def mos_builders():
         secs = timed_build(eatc("build", RT, *eat_srcs, "-o", bin_))
         return [bin_], bin_, secs
 
-    def b_eat_traps():
+    def mos_cat():
         cat = OUT / "mos_cat.eat"
         cat.write_text("\n".join(
             p.read_text(encoding="utf-8") for p in [RT] + eat_srcs),
             encoding="utf-8")
+        return cat
+
+    def b_eat_traps():
+        cat = mos_cat()
         ll, bin_ = OUT / "mos_cat.ll", OUT / "mos_eattraps"
         t0 = time.perf_counter()
         ll.write_bytes(sh(eatc("ir", cat), capture=True).stdout)
+        sh([CLANG, "-O2", ll, RUNTIME_C, "-o", bin_])
+        return [bin_], bin_, time.perf_counter() - t0
+
+    def b_eat_self():
+        if not SELFIROPT.exists():
+            return None
+        cat = mos_cat()
+        ll, bin_ = OUT / "mos_self.ll", OUT / "mos_eatself"
+        t0 = time.perf_counter()
+        selfiropt_ll(cat, ll)
         sh([CLANG, "-O2", ll, RUNTIME_C, "-o", bin_])
         return [bin_], bin_, time.perf_counter() - t0
 
@@ -393,6 +439,7 @@ def mos_builders():
     return [
         ("EATLang build", b_eat, "native", None),
         ("EATLang все-trap", b_eat_traps, "native", None),
+        ("EATLang selfhost -O", b_eat_self, "native", None),
         ("C -O2", b_c, "native", HERE / "c" / "mos6502.c"),
         ("C -O2 UBSan", lambda: b_c(True), "native",
          HERE / "c" / "mos6502.c"),
@@ -421,7 +468,11 @@ def bench_mos(quick, results):
         if src is not None and not src.exists():
             print(f"  {label}: порт {src.name} ещё не создан — пропуск")
             continue
-        cmd, bin_, secs = builder()
+        made = builder()
+        if made is None:
+            print(f"  {label}: вариант недоступен — пропуск")
+            continue
+        cmd, bin_, secs = made
         ok = True
         for rom in (mul, roms["verify"]):
             out = sh(cmd, stdin_path=rom, capture=True).stdout
