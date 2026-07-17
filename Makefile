@@ -122,6 +122,12 @@ bench:
 bench_quick:
 	uv run python tests/bench/bench.py --quick
 
+# Кросс-языковое сравнение (tests/bench/crosslang/, план
+# CROSSLANG_BENCH_PLAN): EATLang против C/Rust/Go/Python. Ручная цель,
+# не гейт — требует clang, rustc и go на машине.
+bench_crosslang:
+	uv run python tests/bench/crosslang/run.py
+
 # Self-hosted компилятор (selfhost/, docs/SELFHOST.md): дифференциальная
 # сверка с эталоном на каждом .eat репозитория + интерпретатор == бинарник.
 # Фаза 1 — лексер (`eatc lex`), фаза 2 — парсер (`eatc parse`),

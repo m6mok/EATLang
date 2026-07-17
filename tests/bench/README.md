@@ -96,6 +96,16 @@ typed − parse, ir − typed). Устаревший относительно `s
 пересобирает его, быстрый — пропускает с подсказкой. Любая оптимизация
 selfhost сверяется по этой секции «до/после».
 
+## Кросс-языковое сравнение (crosslang/)
+
+Отдельный контур `make bench_crosslang` — EATLang против C, Rust, Go
+и Python на портах шести микробенчей и эмулятора mos6502: скорость,
+инструкции/IPC, компиляция, размер, RSS, «налог на безопасность».
+Устройство — [crosslang/README.md](crosslang/README.md), результаты —
+[CROSSLANG.md](CROSSLANG.md), план —
+[docs/plans/CROSSLANG_BENCH_PLAN.md](../../docs/plans/CROSSLANG_BENCH_PLAN.md).
+Ручная цель, не гейт: требует чужих тулчейнов.
+
 ## Калибровка
 
 Шаблон синтетической функции (`genprog.gen_func`) — ~757 токенов,
