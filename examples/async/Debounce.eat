@@ -1,0 +1,121 @@
+# Третий пример кооперативной асинхронности (docs/plans/ASYNC_PLAN.md
+# §10, ярус 1) — витрина словаря lib/Async.eat: enum Poll, конвенция
+# step(var self) -> Poll для завершаемых задач, Timer и Debounce.
+#
+# «Кнопка» приходит со stdin сырыми выборками уровня: байты 0/1 с
+# дребезгом (остальные байты — не выборки, пропускаются; q — конец).
+# Задача Button снимает одну выборку за виток и через Debounce
+# подтверждает смену уровня за HOLD выборок подряд; фронт 0 -> 1 —
+# нажатие. Вечная задача Pulse печатает пульс по дедлайну Timer.
+#
+# Сверка make verify детерминирована: stdin — файл, EAT_TICKS=virt —
+# виртуальные часы (+1 на вызов ticks(); зовёт только Pulse, раз в
+# виток — тик совпадает с витком суперцикла).
+
+import {
+    Poll,
+    ready,
+    Timer,
+    Debounce,
+} from "lib/Async.eat"
+
+# выборок подряд для подтверждения уровня (дребезг короче — шум)
+const HOLD: u32 = 3
+# период пульса в тиках
+const PULSE: u64 = 6
+
+# Завершаемая задача: кнопка. Кадр — состояние дебаунса и счётчик;
+# «ждать нечего» — Pending, конец входа — Ready (дальше идемпотентно).
+struct Button {
+    db: Debounce
+    presses: u32
+    done: bool
+
+    func step(var self) -> Poll
+        requires true
+        ensures true
+    {
+        if self.done {
+            return Poll.Ready
+        }
+        if in_avail() == 0 {
+            # выборки ещё не пришли — уступаем виток
+            return Poll.Pending
+        }
+        match read_byte() {
+            Ok(b) {
+                if b == u8('q') {
+                    self.done = true
+                    print("btn: стоп по q")
+                    return Poll.Ready
+                }
+                # только 0/1 — выборка уровня; прочее (переводы строк,
+                # пробелы форматирования входа) — не выборка
+                var lvl: u8 = 2
+                if b == u8('0') {
+                    lvl = 0
+                }
+                if b == u8('1') {
+                    lvl = 1
+                }
+                if lvl <= 1 {
+                    if self.db.sample(lvl, HOLD) {
+                        if self.db.stable == 1 {
+                            self.presses = self.presses + 1
+                            print("btn: нажатие №{self.presses}")
+                        } else {
+                            print("btn: отпускание")
+                        }
+                    }
+                }
+            }
+            Err(_) {
+                self.done = true
+                print("btn: стоп по EOF")
+                return Poll.Ready
+            }
+        }
+        return Poll.Pending
+    }
+}
+
+# Вечная задача: пульс. Возвращать ей нечего — step без результата
+# (конвенция lib/Async.eat: Poll только у завершаемых задач).
+struct Pulse {
+    t: Timer
+    n: u32
+
+    func step(var self)
+        requires true
+        ensures true
+    {
+        match self.t.fire(PULSE) {
+            Some(now) {
+                self.n = self.n + 1
+                print("pulse: №{self.n} на тике {now}")
+            }
+            None {}
+        }
+    }
+}
+
+func main()
+    requires true
+    ensures true
+{
+    var btn: Button = Button {
+        db: Debounce { stable: 0, cand: 0, held: 0 },
+        presses: 0,
+        done: false,
+    }
+    var pulse: Pulse = Pulse { t: Timer { next: 0 }, n: 0 }
+    print("debounce: кнопка 0/1 со stdin, подтверждение за {HOLD} выборки")
+    # единственный вечный loop в main; расход Poll — одним выражением
+    loop {
+        if ready(btn.step()) {
+            break
+        }
+        pulse.step()
+    }
+    print("debounce: итог — нажатий {btn.presses}, пульсов {pulse.n}")
+}

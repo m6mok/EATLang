@@ -42,7 +42,26 @@ test ascii_is_digit 46:1
 test ascii_is_alpha 54:1
 test ascii_is_space 65:1
 test ascii_digit_value 76:1
-module lib/Buf.eat 81:1
+module lib/Async.eat 81:1
+export Poll 18:5 :: Poll
+export ready 19:5 :: ready
+export Timer 20:5 :: Timer
+export Debounce 21:5 :: Debounce
+enum Poll 26:1
+  variant Ready
+  variant Pending
+func ready 33:1 (p: Poll) -> bool
+struct Timer 47:1
+  field next :: u64
+  method fire 52:5 (period: u64) var_self -> Option<u64>
+struct Debounce 67:1
+  field stable :: u8
+  field cand :: u8
+  field held :: u32
+  method sample 74:5 (raw: u8, hold: u32) var_self -> bool
+test async_ready 99:1
+test async_debounce 110:1
+module lib/Buf.eat 130:1
 export same 10:5 :: same
 export pool16 11:5 :: pool16
 func same 15:1 (a: [u8; 16], n: u32, kw: str<16>) -> bool
@@ -229,16 +248,20 @@ test parse_i32_err 53:1
 module tests/sig/SigProbe.eat 85:1
 import is_digit 8:5 :: lib/Ascii.eat is_digit
 import get 12:5 :: lib/Args.eat get
-import same 16:5 :: lib/Buf.eat same
-import NONE 20:5 :: lib/Const.eat NONE
-import U32_MAX 21:5 :: lib/Const.eat U32_MAX
-import Dec 25:5 :: lib/Fmt.eat Dec
-import fmt_u32 26:5 :: lib/Fmt.eat fmt_u32
-import hex_digit 30:5 :: lib/Hex.eat hex_digit
-import read_line 34:5 :: lib/Io.eat read_line
-import JDoc 38:5 :: lib/Json.eat JDoc
-import json_doc 39:5 :: lib/Json.eat json_doc
-import min 43:5 :: lib/Num.eat min
-import parse_i32 47:5 :: lib/Parse.eat parse_i32
-func main 50:1 ()
-stats funcs=88 structs=5 stmts=842
+import Poll 16:5 :: lib/Async.eat Poll
+import ready 17:5 :: lib/Async.eat ready
+import Timer 18:5 :: lib/Async.eat Timer
+import Debounce 19:5 :: lib/Async.eat Debounce
+import same 23:5 :: lib/Buf.eat same
+import NONE 27:5 :: lib/Const.eat NONE
+import U32_MAX 28:5 :: lib/Const.eat U32_MAX
+import Dec 32:5 :: lib/Fmt.eat Dec
+import fmt_u32 33:5 :: lib/Fmt.eat fmt_u32
+import hex_digit 37:5 :: lib/Hex.eat hex_digit
+import read_line 41:5 :: lib/Io.eat read_line
+import JDoc 45:5 :: lib/Json.eat JDoc
+import json_doc 46:5 :: lib/Json.eat json_doc
+import min 50:5 :: lib/Num.eat min
+import parse_i32 54:5 :: lib/Parse.eat parse_i32
+func main 57:1 ()
+stats funcs=91 structs=7 stmts=871

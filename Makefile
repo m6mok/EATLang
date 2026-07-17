@@ -38,8 +38,9 @@ check:
 	$(EATC) check --lib . $(ELIF_MAIN)
 	$(EATC) check --lib . $(JSON_MAIN)
 	$(EATC) check --lib . examples/blinky_cli/BlinkyCli.eat
-	$(EATC) check examples/async/Async.eat
-	$(EATC) check examples/async/Pipe.eat
+	$(EATC) check --lib . examples/async/Async.eat
+	$(EATC) check --lib . examples/async/Pipe.eat
+	$(EATC) check --lib . examples/async/Debounce.eat
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -61,21 +62,26 @@ MOS6502_EXAMPLE = $(RT) lib/Hex.eat examples/mos6502/Cpu6502.eat \
 run_mos6502:
 	cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE)
 
-# Кооперативная асинхронность (docs/plans/ASYNC_PLAN.md, ярус 0):
-# суперцикл в main на аксиомах in_avail()/ticks(). Сверка
-# детерминирована: stdin — файл (in_avail = остаток до EOF),
-# EAT_TICKS=virt — виртуальные часы (+1 на вызов ticks())
-ASYNC_EXAMPLE = $(RT) examples/async/Async.eat
+# Кооперативная асинхронность (docs/plans/ASYNC_PLAN.md): суперцикл
+# в main на аксиомах in_avail()/ticks(); словарь идиомы — lib/Async.eat
+# (ярус 1: Poll/Timer/Debounce), примеры собирает драйвер (--lib .).
+# Async — две независимые задачи; Pipe — конвейер фильтров stdin с
+# бюджетом на виток (кольца, backpressure); Debounce — витрина lib
+# (кнопка с дребезгом + пульс). Сверка детерминирована: stdin — файл
+# (in_avail = остаток до EOF), EAT_TICKS=virt — виртуальные часы
+# (+1 на вызов ticks())
+ASYNC_MAIN = examples/async/Async.eat
+PIPE_MAIN = examples/async/Pipe.eat
+DEBOUNCE_MAIN = examples/async/Debounce.eat
 
 run_async:
-	EAT_TICKS=virt $(EATC) run $(ASYNC_EXAMPLE) < examples/async/input.txt
-
-# Второй пример асинхронности (ASYNC_PLAN §10): конвейер фильтров
-# stdin с бюджетом на виток — связанные задачи, кольца, backpressure
-PIPE_EXAMPLE = $(RT) examples/async/Pipe.eat
+	EAT_TICKS=virt $(EATC) run --lib . $(ASYNC_MAIN) < examples/async/input.txt
 
 run_async_pipe:
-	EAT_TICKS=virt $(EATC) run $(PIPE_EXAMPLE) < examples/async/pipe_input.txt
+	EAT_TICKS=virt $(EATC) run --lib . $(PIPE_MAIN) < examples/async/pipe_input.txt
+
+run_async_debounce:
+	EAT_TICKS=virt $(EATC) run --lib . $(DEBOUNCE_MAIN) < examples/async/debounce_input.txt
 
 # Проба self-host лексера: все кирпичи разом, вход — собственный исходник
 LEXER_PROBE = $(RT) lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
@@ -579,13 +585,18 @@ verify: build_all_examples
 	@cat examples/lexer/LexMain.eat | ./build/Lexer > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED LexerProbe" || exit 1
-	@$(EATC) build $(ASYNC_EXAMPLE) -o build/Async > /dev/null
-	@EAT_TICKS=virt $(EATC) run $(ASYNC_EXAMPLE) < examples/async/input.txt > /tmp/eat_interp.txt
+	@$(EATC) build --lib . $(ASYNC_MAIN) -o build/Async > /dev/null
+	@EAT_TICKS=virt $(EATC) run --lib . $(ASYNC_MAIN) < examples/async/input.txt > /tmp/eat_interp.txt
 	@EAT_TICKS=virt ./build/Async < examples/async/input.txt > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Async" || exit 1
-	@$(EATC) build $(PIPE_EXAMPLE) -o build/Pipe > /dev/null
-	@EAT_TICKS=virt $(EATC) run $(PIPE_EXAMPLE) < examples/async/pipe_input.txt > /tmp/eat_interp.txt
+	@$(EATC) build --lib . $(PIPE_MAIN) -o build/Pipe > /dev/null
+	@EAT_TICKS=virt $(EATC) run --lib . $(PIPE_MAIN) < examples/async/pipe_input.txt > /tmp/eat_interp.txt
 	@EAT_TICKS=virt ./build/Pipe < examples/async/pipe_input.txt > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Pipe" || exit 1
+	@$(EATC) build --lib . $(DEBOUNCE_MAIN) -o build/Debounce > /dev/null
+	@EAT_TICKS=virt $(EATC) run --lib . $(DEBOUNCE_MAIN) < examples/async/debounce_input.txt > /tmp/eat_interp.txt
+	@EAT_TICKS=virt ./build/Debounce < examples/async/debounce_input.txt > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED Debounce" || exit 1

@@ -19,6 +19,17 @@
 # Сверка make verify детерминирована: stdin — файл (in_avail — остаток
 # до EOF), EAT_TICKS=virt — виртуальные часы (+1 на вызов ticks());
 # Snk печатает только целые строки, поэтому отчёты Stat не рвут текст.
+#
+# Словарь идиомы — lib/Async.eat (ярус 1): Src завершаемая (Poll),
+# Caps/Snk/Stat вечные, дедлайн Stat — Timer. Кольцо остаётся в
+# примере: без дженериков общий Ring не выразить (ёмкость и тип
+# элемента фиксируются объявлением) — это деталь конвейера, не словарь.
+
+import {
+    Poll,
+    ready,
+    Timer,
+} from "lib/Async.eat"
 
 # ёмкость колец конвейера (тип массива требует литерала — там 8)
 const RCAP: u32 = 8
@@ -69,34 +80,35 @@ struct Ring {
     }
 }
 
-# Задача-источник: дренирует stdin в своё кольцо, не блокируясь —
-# read_byte зовётся только при in_avail() > 0; байт q — конец потока.
+# Задача-источник — завершаемая: дренирует stdin в своё кольцо, не
+# блокируясь — read_byte зовётся при in_avail() > 0; q/EOF — Ready
+# (в кольце может оставаться хвост — конвейер дожимает его после).
 struct Src {
     q: Ring
     got: u32
     done: bool
 
-    func step(var self)
+    func step(var self) -> Poll
         requires true
         ensures true
     {
         if self.done {
-            return
+            return Poll.Ready
         }
         for _ in 0..SRC_BUDGET {
             if self.q.len >= RCAP {
                 # Pending: кольцо полно — backpressure дошёл до stdin
-                return
+                return Poll.Pending
             }
             if in_avail() == 0 {
                 # Pending: ждать нечего — уступаем виток
-                return
+                return Poll.Pending
             }
             match read_byte() {
                 Ok(b) {
                     if b == u8('q') {
                         self.done = true
-                        return
+                        return Poll.Ready
                     }
                     self.q.push(b)
                     self.got = self.got + 1
@@ -104,10 +116,11 @@ struct Src {
                 Err(_) {
                     # конец потока без q — тоже штатная остановка
                     self.done = true
-                    return
+                    return Poll.Ready
                 }
             }
         }
+        return Poll.Pending
     }
 }
 
@@ -206,24 +219,23 @@ struct Snk {
     }
 }
 
-# Задача-отчёт: по дедлайну монотонных часов печатает прогресс —
+# Задача-отчёт — вечная: по дедлайну Timer печатает прогресс —
 # счётчики чужих кадров приходят аргументами (у step нет var-чужих).
 struct Stat {
-    next: u64
+    t: Timer
     n: u32
 
     func step(var self, got: u32, put: u32)
         requires true
         ensures true
     {
-        let now: u64 = ticks()
-        if now < self.next {
-            # Pending: дедлайн не наступил
-            return
+        match self.t.fire(STAT_PERIOD) {
+            Some(now) {
+                self.n = self.n + 1
+                print("stat: отчёт №{self.n} на тике {now}: прочитано {got}, напечатано {put}")
+            }
+            None {}
         }
-        self.n = self.n + 1
-        print("stat: отчёт №{self.n} на тике {now}: прочитано {got}, напечатано {put}")
-        self.next = now + STAT_PERIOD
     }
 }
 
@@ -248,12 +260,12 @@ func main()
         lines: 0,
         put: 0,
     }
-    var stat: Stat = Stat { next: 0, n: 0 }
+    var stat: Stat = Stat { t: Timer { next: 0 }, n: 0 }
     print("pipe: конвейер stdin → ВЕРХНИЙ регистр → строки, бюджет на виток")
     # реактивная модель: единственный бесконечный loop в main; виток —
     # конечная композиция тотальных шагов и ограниченных перекладок
     loop {
-        src.step()
+        let src_done: bool = ready(src.step())
         # шина src → caps: вынимаем, только когда у фильтра есть место
         for _ in 0..BUS_BUDGET {
             if caps.inq.len < RCAP {
@@ -279,7 +291,7 @@ func main()
         }
         snk.step()
         stat.step(src.got, snk.put)
-        if src.done and src.q.empty() and caps.drained() and snk.q.empty() {
+        if src_done and src.q.empty() and caps.drained() and snk.q.empty() {
             break
         }
     }

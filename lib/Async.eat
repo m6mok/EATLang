@@ -1,0 +1,129 @@
+# lib/Async.eat — словарь кооперативной асинхронности (ярус 1,
+# docs/plans/ASYNC_PLAN.md §4): именует идиому задач-автоматов,
+# обкатанную examples/async (Async.eat, Pipe.eat, Debounce.eat).
+#
+# Конвенция задач:
+#   - кадр задачи — struct (всё, что живёт через точку ожидания);
+#   - завершаемая задача — `func step(var self) -> Poll`: Pending —
+#     «ждёт или работает», Ready — «завершилась»; после Ready шаг
+#     идемпотентен (возвращает Ready, ничего не делая);
+#   - вечная задача — `func step(var self)` без результата: ей нечего
+#     сообщить, вечный Pending не разбавляет правило 7.
+#
+# Executor обобщённым не бывает (нет указателей на функции, правило
+# 9): суперцикл в main зовёт step() задач по именам. Библиотека даёт
+# словарь и кирпичи (таймер, дебаунс), не планировщик.
+
+export {
+    Poll,
+    ready,
+    Timer,
+    Debounce,
+}
+
+# Результат шага завершаемой задачи. Payload нет (fire-and-forget):
+# дженериков в языке нет, результат задача кладёт в поля кадра.
+enum Poll {
+    Ready,
+    Pending
+}
+
+# Завершилась ли задача — расход Poll одним выражением:
+# `if ready(t.step()) { break }`.
+func ready(p: Poll) -> bool
+    requires true
+    ensures true
+{
+    match p {
+        Ready { return true }
+        Pending { return false }
+    }
+}
+
+# Перезаряжающийся дедлайн поверх монотонных часов ticks().
+# Timer { next: 0 } срабатывает на первом же опросе, дальше — раз в
+# period тиков. Один вызов ticks() на опрос: на виртуальных часах
+# (EAT_TICKS=virt, +1 на вызов) поведение полностью детерминировано.
+struct Timer {
+    next: u64
+
+    # Наступил ли дедлайн: Some(момент срабатывания) — да, и таймер
+    # перезаряжен на period вперёд; None — ещё рано.
+    func fire(var self, period: u64) -> Option<u64>
+        requires true
+        ensures true
+    {
+        let now: u64 = ticks()
+        if now < self.next {
+            return None
+        }
+        self.next = now + period
+        return Some(now)
+    }
+}
+
+# Дебаунс двоичного уровня: смена подтверждается, когда новый уровень
+# держится hold выборок подряд; дребезг короче hold отфильтровывается.
+struct Debounce {
+    stable: u8
+    cand: u8
+    held: u32
+
+    # Очередная сырая выборка. true — подтверждена смена уровня
+    # (self.stable уже обновлён), false — уровень прежний.
+    func sample(var self, raw: u8, hold: u32) -> bool
+        requires hold >= 1
+        ensures true
+    {
+        if raw == self.stable {
+            # вернулись к подтверждённому — кандидат сброшен
+            self.cand = raw
+            self.held = 0
+            return false
+        }
+        if raw == self.cand {
+            self.held = self.held + 1
+        } else {
+            self.cand = raw
+            self.held = 1
+        }
+        if self.held >= hold {
+            self.stable = raw
+            self.held = 0
+            return true
+        }
+        return false
+    }
+}
+
+test async_ready {
+    assert ready(Poll.Ready)
+    assert not ready(Poll.Pending)
+}
+
+# У Timer теста нет намеренно: fire() зовёт аксиому ticks(), а тесты
+# исполняются интерпретатором перед main — на виртуальных часах
+# (EAT_TICKS=virt) это сдвинуло бы счётчик тиков программы и сломало
+# паритет с бинарником (тесты в него не компилируются). Поведение
+# Timer доказывают примеры examples/async в make verify.
+
+test async_debounce {
+    var d: Debounce = Debounce { stable: 0, cand: 0, held: 0 }
+    # дребезг короче hold=3 не подтверждается
+    assert not d.sample(1, 3)
+    assert not d.sample(1, 3)
+    assert not d.sample(0, 3)
+    assert d.stable == 0
+    # устойчивые три выборки — фронт подтверждён
+    assert not d.sample(1, 3)
+    assert not d.sample(1, 3)
+    assert d.sample(1, 3)
+    assert d.stable == 1
+    # прежний уровень — молчит
+    assert not d.sample(1, 3)
+    # спад: три устойчивых нуля
+    assert not d.sample(0, 3)
+    assert not d.sample(0, 3)
+    assert d.sample(0, 3)
+    assert d.stable == 0
+}

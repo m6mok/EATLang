@@ -13,6 +13,13 @@ import {
 } from "lib/Args.eat"
 
 import {
+    Poll,
+    ready,
+    Timer,
+    Debounce,
+} from "lib/Async.eat"
+
+import {
     same,
 } from "lib/Buf.eat"
 
@@ -62,7 +69,17 @@ func main() {
         Ok(_) { a = true }
         Err(_) { a = false }
     }
+    let p: bool = ready(Poll.Pending)
+    var tm: Timer = Timer { next: 0 }
+    var fired: bool = false
+    match tm.fire(1) {
+        Some(_) { fired = true }
+        None {}
+    }
+    var db: Debounce = Debounce { stable: 0, cand: 0, held: 0 }
+    let edge: bool = db.sample(1, 1)
     print("digit={g} hex={h} ln={d.ln} same={s} x={x} j={jn} a={a}")
+    print("p={p} fired={fired} edge={edge}")
     match read_line() {
         Ok(line) {
             match parse_i32(line) {
