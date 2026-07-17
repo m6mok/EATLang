@@ -1,0 +1,316 @@
+# lib/Fixed.eat — дроби с фиксированной точкой Q16.16
+# (docs/plans/FIXED_POINT_PLAN.md). Float'ов в языке нет: число — целое
+# raw `v`, реальное значение = v / 65536. Диапазон ±32768, шаг 1/65536.
+# Вся арифметика целочисленная, выход за диапазон — trap с координатами
+# (детерминизм вместо NaN/inf); mul/div — через широкий i64-промежуток,
+# он не переполняется никогда (|v| < 2^31 → произведение < 2^62).
+#
+# Пин семантики (план §7.3): языковые `/` и `%` усекают к нулю, знак
+# остатка — по делимому. Отсюда to_int — усечение даром, floor/ceil —
+# поправка по знаку остатка, round — половина от нуля (у самого края
+# диапазона v ± 32768 переполняется → trap, штатная граница).
+#
+# repr(digits) печатает с усечением дробной части (решение §11.6):
+# двоичная сетка не совпадает с десятичной, поэтому 1/3 → "0.333328",
+# а q16_ratio(1999, 100) — это 19.9899…, не 19.99. Целая часть — через
+# lib/Fmt.eat (первый lib→lib импорт, решение §11.4).
+
+export {
+    Q16,
+    Q16_SCALE,
+    q16,
+    q16_ratio,
+}
+
+import {
+    Dec,
+    fmt_u32,
+} from "lib/Fmt.eat"
+
+const Q16_SCALE: i32 = 65536
+
+struct Q16 {
+    v: i32
+
+    func add(self, o: Q16) -> Q16
+        requires true
+        ensures true
+    {
+        return Q16 { v: self.v + o.v }
+    }
+
+    func sub(self, o: Q16) -> Q16
+        requires true
+        ensures true
+    {
+        return Q16 { v: self.v - o.v }
+    }
+
+    func neg(self) -> Q16
+        requires true
+        ensures true
+    {
+        return Q16 { v: 0 - self.v }
+    }
+
+    func mul(self, o: Q16) -> Q16
+        requires true
+        ensures true
+    {
+        return Q16 { v: i32(i64(self.v) * i64(o.v) / 65536) }
+    }
+
+    func div(self, o: Q16) -> Q16
+        requires o.v != 0
+        ensures true
+    {
+        return Q16 { v: i32(i64(self.v) * 65536 / i64(o.v)) }
+    }
+
+    func eq(self, o: Q16) -> bool
+        requires true
+        ensures true
+    {
+        return self.v == o.v
+    }
+
+    func lt(self, o: Q16) -> bool
+        requires true
+        ensures true
+    {
+        return self.v < o.v
+    }
+
+    func le(self, o: Q16) -> bool
+        requires true
+        ensures true
+    {
+        return self.v <= o.v
+    }
+
+    func abs(self) -> Q16
+        requires true
+        ensures result.v >= 0
+    {
+        if self.v < 0 {
+            return Q16 { v: 0 - self.v }
+        }
+        return Q16 { v: self.v }
+    }
+
+    func min(self, o: Q16) -> Q16
+        requires true
+        ensures result.v <= self.v and result.v <= o.v
+    {
+        if self.v < o.v {
+            return Q16 { v: self.v }
+        }
+        return Q16 { v: o.v }
+    }
+
+    func max(self, o: Q16) -> Q16
+        requires true
+        ensures result.v >= self.v and result.v >= o.v
+    {
+        if self.v > o.v {
+            return Q16 { v: self.v }
+        }
+        return Q16 { v: o.v }
+    }
+
+    func clamp(self, lo: Q16, hi: Q16) -> Q16
+        requires lo.v <= hi.v
+        ensures result.v >= lo.v and result.v <= hi.v
+    {
+        if self.v < lo.v {
+            return Q16 { v: lo.v }
+        }
+        if self.v > hi.v {
+            return Q16 { v: hi.v }
+        }
+        return Q16 { v: self.v }
+    }
+
+    # Целая часть с усечением к нулю (пин §7.3: -1.5 → -1).
+    func to_int(self) -> i32
+        requires true
+        ensures result >= -32768 and result <= 32767
+    {
+        return self.v / 65536
+    }
+
+    # К ближайшему целому, половина — от нуля (-1.5 → -2, 1.5 → 2).
+    func round(self) -> i32
+        requires true
+        ensures true
+    {
+        if self.v >= 0 {
+            return (self.v + 32768) / 65536
+        }
+        return (self.v - 32768) / 65536
+    }
+
+    # К −∞: остаток отрицателен (знак по делимому) — целое на 1 вниз.
+    func floor(self) -> Q16
+        requires true
+        ensures true
+    {
+        var q: i32 = self.v / 65536
+        if self.v % 65536 < 0 {
+            q = q - 1
+        }
+        return Q16 { v: q * 65536 }
+    }
+
+    # К +∞: остаток положителен — целое на 1 вверх.
+    func ceil(self) -> Q16
+        requires true
+        ensures true
+    {
+        var q: i32 = self.v / 65536
+        if self.v % 65536 > 0 {
+            q = q + 1
+        }
+        return Q16 { v: q * 65536 }
+    }
+
+    # "-3.14159…": знак, целая часть (lib/Fmt), точка, digits дробных
+    # цифр усечением; digits == 0 — без точки (−0.25 → "-0", знак
+    # хранимого значения не теряется). Сборка интерполяцией за O(n^2)
+    # при n <= 32 — та же оговорка, что у read_line (MODULES_PLAN §11).
+    func repr(self, digits: u32) -> str<32>
+        requires digits <= 6
+        ensures true
+    {
+        var out: str<32> = ""
+        if self.v < 0 {
+            out = "-"
+        }
+        let w: i64 = i64(self.v)
+        var m: i64 = w
+        if w < 0 {
+            m = 0 - w
+        }
+        let d: Dec = fmt_u32(u32(m / 65536))
+        for i in 0..10 {
+            if i >= d.ln {
+                break
+            }
+            out = "{out}{char(d.d[i])}"
+        }
+        if digits == 0 {
+            return out
+        }
+        out = "{out}."
+        var fr: i64 = m % 65536
+        var k: u32 = 0
+        for _ in 0..6 {
+            if k >= digits {
+                break
+            }
+            fr = fr * 10
+            out = "{out}{char(u8(fr / 65536 + 48))}"
+            fr = fr % 65536
+            k = k + 1
+        }
+        return out
+    }
+}
+
+# Из целого: q16(2) — это 2.0 (raw 2 * 65536). Граница requires
+# доказывает верификатору отсутствие переполнения.
+func q16(n: i32) -> Q16
+    requires n >= -32768 and n <= 32767
+    ensures true
+{
+    return Q16 { v: n * 65536 }
+}
+
+# Из дроби: q16_ratio(3, 2) — это 1.5. Частное усекается к нулю в
+# сетке 1/65536; результат вне ±32768 — trap на финальном касте.
+func q16_ratio(num: i32, den: i32) -> Q16
+    requires den != 0
+    ensures true
+{
+    return Q16 { v: i32(i64(num) * 65536 / i64(den)) }
+}
+
+test q16_ctor {
+    assert q16(0).v == 0
+    assert q16(1).v == 65536
+    assert q16(-1).v == -65536
+    assert q16(32767).v == 2147418112
+    assert q16(-32768).v == -2147483648
+    assert q16_ratio(3, 2).v == 98304
+    assert q16_ratio(-3, 2).v == -98304
+    assert q16_ratio(3, -2).v == -98304
+    assert q16_ratio(1, 3).v == 21845
+    assert q16_ratio(-1, 3).v == -21845
+}
+
+test q16_arith {
+    let a: Q16 = q16_ratio(3, 2)  # 1.5
+    let b: Q16 = q16_ratio(1, 4)  # 0.25
+    assert a.add(b).v == 114688   # 1.75
+    assert a.sub(b).v == 81920    # 1.25
+    assert a.neg().v == -98304
+    assert q16(0).neg().v == 0
+    assert a.mul(q16(2)).v == 196608       # 3.0
+    assert a.mul(b).v == 24576             # 0.375
+    assert a.neg().mul(b).v == -24576      # -0.375
+    assert q16(3).div(q16(2)).v == 98304   # 1.5
+    assert q16(-3).div(q16(2)).v == -98304
+    assert q16(1).div(q16(3)).v == 21845
+    assert q16(-1).div(q16(3)).v == -21845
+}
+
+test q16_cmp_util {
+    let a: Q16 = q16(1)
+    let b: Q16 = q16(2)
+    assert a.eq(a)
+    assert not a.eq(b)
+    assert a.lt(b)
+    assert not b.lt(a)
+    assert a.le(a)
+    assert a.le(b)
+    assert not b.le(a)
+    assert q16(-1).abs().v == 65536
+    assert q16(1).abs().v == 65536
+    assert a.min(b).v == 65536
+    assert a.max(b).v == 131072
+    assert q16(5).clamp(q16(0), q16(2)).v == 131072
+    assert q16(-5).clamp(q16(0), q16(2)).v == 0
+    assert a.clamp(q16(0), q16(2)).v == 65536
+}
+
+# Округления — обеими сторонами нуля (пин §7.3).
+test q16_round {
+    let p: Q16 = q16_ratio(3, 2)   # 1.5
+    let n: Q16 = q16_ratio(-3, 2)  # -1.5
+    assert p.to_int() == 1
+    assert n.to_int() == -1
+    assert p.round() == 2
+    assert n.round() == -2
+    assert q16_ratio(1, 4).round() == 0
+    assert q16_ratio(-1, 4).round() == 0
+    assert p.floor().v == 65536     # 1.0
+    assert n.floor().v == -131072   # -2.0
+    assert p.ceil().v == 131072     # 2.0
+    assert n.ceil().v == -65536     # -1.0
+    assert q16(2).floor().v == 131072
+    assert q16(2).ceil().v == 131072
+    assert q16(-2).floor().v == -131072
+    assert q16(-2).ceil().v == -131072
+}
+
+test q16_repr {
+    assert q16_ratio(3, 2).repr(2) == "1.50"
+    assert q16_ratio(-1, 4).repr(2) == "-0.25"
+    assert q16(42).repr(0) == "42"
+    assert q16(-1).repr(3) == "-1.000"
+    assert q16(0).repr(1) == "0.0"
+    assert q16_ratio(1, 3).repr(6) == "0.333328"
+    assert q16_ratio(-1, 4).repr(0) == "-0"
+    assert q16(32767).repr(0) == "32767"
+    assert q16(-32768).repr(0) == "-32768"
+}

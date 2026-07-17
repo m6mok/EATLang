@@ -42,7 +42,8 @@ make run    SRC="examples/math/Math.eat"   # запустить build/Math
 make compile SRC="Mod.eat Main.eat"    # → build/Main.ll
 make link    SRC="Mod.eat Main.eat"    # → build/Main
 # рантайм-модуль selfhost/Rt.eat подставляется первым автоматически
-# библиотека lib/ (Args, Ascii, Buf, Const, Fmt, Hex, Io, Json, Num, Parse)
+# библиотека lib/ (Args, Ascii, Async, Buf, Const, Fixed, Fmt, Hex, Io,
+# Json, Num, Parse)
 # подключается тем же списком:
 make run SRC="lib/Ascii.eat lib/Num.eat examples/modules/Main.eat"
 
@@ -624,6 +625,22 @@ Power of 10 — **циклический исполнитель** (superloop) в
 (+1 на каждый вызов `ticks()`, одинаково в интерпретаторе и
 бинарнике).
 
+### Дроби без float: Q16.16 из lib/Fixed.eat
+
+Float'ов в языке нет — дроби считает fixed-point
+([FIXED_POINT_PLAN](plans/FIXED_POINT_PLAN.md)): число хранится целым
+raw `v`, реальное значение = `v / 65536` (`struct Q16`, диапазон
+±32768, шаг 1/65536). Арифметика целочисленная: переполнение и деление
+на ноль — trap с координатами, а не NaN/inf. Конструкторы `q16(n)` и
+`q16_ratio(num, den)`; методы `add`/`sub`/`neg`/`mul`/`div` (mul/div —
+через широкий `i64`-промежуток), `eq`/`lt`/`le`,
+`abs`/`min`/`max`/`clamp`; округления по пину семантики языкового `/`
+(усечение к нулю, знак `%` по делимому): `to_int` — усечение, `round`
+— половина от нуля, `floor`/`ceil` — поправка по знаку остатка.
+Печать `repr(digits)` усекает дробную часть: двоичная сетка не
+совпадает с десятичной (`1/3` → `"0.333328"`). Витрина —
+`examples/fixed/` (`make run_fixed`).
+
 ## 8. Модули и импорты
 
 Программа — это упорядоченный список файлов-модулей. Есть два способа
@@ -688,9 +705,11 @@ export {
 Происхождение имени на месте вызова (`fmt_u32(...)`) не видно — Вирт
 требовал `M.x`. Компенсируют это import-шапка как единственное
 grep-место и `eatc sig`, печатающий источник каждого имени. Библиотека
-`lib/` (Args, Ascii, Buf, Const, Fmt, Hex, Io, Json, Num, Parse) — обычные
-модули на этом же механизме; `read_line`/`parse_i32` живут в ней
-(`lib/Io.eat`, `lib/Parse.eat`), а не среди встроенных.
+`lib/` (Args, Ascii, Async, Buf, Const, Fixed, Fmt, Hex, Io, Json, Num,
+Parse) — обычные модули на этом же механизме; `read_line`/`parse_i32`
+живут в ней (`lib/Io.eat`, `lib/Parse.eat`), а не среди встроенных.
+Модуль `lib/` может импортировать другой модуль `lib/` (`Fixed` → `Fmt`)
+— DAG общий на всех.
 
 ## 9. Тесты — часть языка
 

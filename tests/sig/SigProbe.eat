@@ -29,6 +29,10 @@ import {
 } from "lib/Const.eat"
 
 import {
+    q16,
+} from "lib/Fixed.eat"
+
+import {
     Dec,
     fmt_u32,
 } from "lib/Fmt.eat"
@@ -69,6 +73,7 @@ func main() {
         Ok(_) { a = true }
         Err(_) { a = false }
     }
+    let fv: i32 = q16(1).v
     let p: bool = ready(Poll.Pending)
     var tm: Timer = Timer { next: 0 }
     var fired: bool = false
@@ -79,7 +84,7 @@ func main() {
     var db: Debounce = Debounce { stable: 0, cand: 0, held: 0 }
     let edge: bool = db.sample(1, 1)
     print("digit={g} hex={h} ln={d.ln} same={s} x={x} j={jn} a={a}")
-    print("p={p} fired={fired} edge={edge}")
+    print("p={p} fired={fired} edge={edge} fv={fv}")
     match read_line() {
         Ok(line) {
             match parse_i32(line) {

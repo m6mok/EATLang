@@ -30,6 +30,10 @@ ELIF_MAIN = examples/if_statement/Elif.eat
 # без рекурсии/кучи/while; check исполняет и тесты самого модуля
 JSON_MAIN = examples/json/Main.eat
 
+# Fixed — витрина lib/Fixed.eat (docs/plans/FIXED_POINT_PLAN.md):
+# дроби Q16.16 без float; первый lib→lib импорт (Fixed → Fmt)
+FIXED_MAIN = examples/fixed/Main.eat
+
 # Компиляция всех примеров: парсинг, проверки Power of 10, типы,
 # исполнение test-блоков
 check:
@@ -37,6 +41,7 @@ check:
 	$(EATC) check $(EXAMPLES)
 	$(EATC) check --lib . $(ELIF_MAIN)
 	$(EATC) check --lib . $(JSON_MAIN)
+	$(EATC) check --lib . $(FIXED_MAIN)
 	$(EATC) check --lib . examples/blinky_cli/BlinkyCli.eat
 	$(EATC) check --lib . examples/async/Async.eat
 	$(EATC) check --lib . examples/async/Pipe.eat
@@ -539,6 +544,9 @@ run_elif:
 run_json:
 	$(EATC) run --lib . $(JSON_MAIN)
 
+run_fixed:
+	$(EATC) run --lib . $(FIXED_MAIN)
+
 run_iterator:
 	$(EATC) run examples/iterator/Iterator.eat
 
@@ -575,6 +583,11 @@ verify: build_all_examples
 	@./build/Json > /tmp/eat_native.txt
 	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
 		&& echo "VERIFIED Json" || exit 1
+	@$(EATC) build --lib . $(FIXED_MAIN) -o build/Fixed > /dev/null
+	@$(EATC) run --lib . $(FIXED_MAIN) > /tmp/eat_interp.txt
+	@./build/Fixed > /tmp/eat_native.txt
+	@diff /tmp/eat_interp.txt /tmp/eat_native.txt \
+		&& echo "VERIFIED Fixed" || exit 1
 	@$(EATC) build $(MOS6502_EXAMPLE) -o build/Mos6502 > /dev/null
 	@cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE) > /tmp/eat_interp.txt
 	@cat examples/mos6502/mul13x11.rom | ./build/Mos6502 > /tmp/eat_native.txt

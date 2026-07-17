@@ -89,7 +89,41 @@ func fmt_is 94:1 (t: Dec, kw: str<32>) -> bool
 test fmt_u32_digits 113:1
 test fmt_u64_digits 120:1
 test fmt_i32_digits 126:1
-module lib/Hex.eat 133:1
+module lib/Fixed.eat 133:1
+export Q16 19:5 :: Q16
+export Q16_SCALE 20:5 :: Q16_SCALE
+export q16 21:5 :: q16
+export q16_ratio 22:5 :: q16_ratio
+import Dec 26:5 :: lib/Fmt.eat Dec
+import fmt_u32 27:5 :: lib/Fmt.eat fmt_u32
+const Q16_SCALE 30:1 :: i32 = 65536
+struct Q16 32:1
+  field v :: i32
+  method add 35:5 (o: Q16) -> Q16
+  method sub 42:5 (o: Q16) -> Q16
+  method neg 49:5 () -> Q16
+  method mul 56:5 (o: Q16) -> Q16
+  method div 63:5 (o: Q16) -> Q16
+  method eq 70:5 (o: Q16) -> bool
+  method lt 77:5 (o: Q16) -> bool
+  method le 84:5 (o: Q16) -> bool
+  method abs 91:5 () -> Q16
+  method min 101:5 (o: Q16) -> Q16
+  method max 111:5 (o: Q16) -> Q16
+  method clamp 121:5 (lo: Q16, hi: Q16) -> Q16
+  method to_int 135:5 () -> i32
+  method round 143:5 () -> i32
+  method floor 154:5 () -> Q16
+  method ceil 166:5 () -> Q16
+  method repr 181:5 (digits: u32) -> str<32>
+func q16 222:1 (n: i32) -> Q16
+func q16_ratio 231:1 (num: i32, den: i32) -> Q16
+test q16_ctor 238:1
+test q16_arith 251:1
+test q16_cmp_util 267:1
+test q16_round 287:1
+test q16_repr 306:1
+module lib/Hex.eat 317:1
 export hex_digit 6:5 :: hex_digit
 export write_hex8 7:5 :: write_hex8
 export write_hex16 8:5 :: write_hex16
@@ -255,13 +289,14 @@ import Debounce 19:5 :: lib/Async.eat Debounce
 import same 23:5 :: lib/Buf.eat same
 import NONE 27:5 :: lib/Const.eat NONE
 import U32_MAX 28:5 :: lib/Const.eat U32_MAX
-import Dec 32:5 :: lib/Fmt.eat Dec
-import fmt_u32 33:5 :: lib/Fmt.eat fmt_u32
-import hex_digit 37:5 :: lib/Hex.eat hex_digit
-import read_line 41:5 :: lib/Io.eat read_line
-import JDoc 45:5 :: lib/Json.eat JDoc
-import json_doc 46:5 :: lib/Json.eat json_doc
-import min 50:5 :: lib/Num.eat min
-import parse_i32 54:5 :: lib/Parse.eat parse_i32
-func main 57:1 ()
-stats funcs=91 structs=7 stmts=871
+import q16 32:5 :: lib/Fixed.eat q16
+import Dec 36:5 :: lib/Fmt.eat Dec
+import fmt_u32 37:5 :: lib/Fmt.eat fmt_u32
+import hex_digit 41:5 :: lib/Hex.eat hex_digit
+import read_line 45:5 :: lib/Io.eat read_line
+import JDoc 49:5 :: lib/Json.eat JDoc
+import json_doc 50:5 :: lib/Json.eat json_doc
+import min 54:5 :: lib/Num.eat min
+import parse_i32 58:5 :: lib/Parse.eat parse_i32
+func main 61:1 ()
+stats funcs=110 structs=8 stmts=933
