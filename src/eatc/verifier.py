@@ -1024,7 +1024,64 @@ class Verifier:
                 body_env.ivs[stmt.target] = (
                     (_inter(inv, eiv) or eiv) if inv is not None else eiv
                 )
+        # модульный инвариант накопителя: путь, все определения которого в
+        # теле — `p = _ % K`, несёт [0,K-1] на входе витка (см. _mod_carry)
+        for p, iv in self._mod_carry(stmt, env).items():
+            body_env.ivs[p] = iv
         return body_env, after
+
+    def _mod_const(self, value) -> int | None:
+        """K, если value — `<выр> % K` с целым литералом K ≥ 1 справа:
+        интервал `_ % K` = [0,K-1] не зависит от входного значения. Именно
+        литерал, не произвольная константа-путь: изменяемый по витку
+        делитель дал бы незвуковой [0,K-1] (мог бы вырасти)."""
+        if (
+            isinstance(value, ast.BinOp)
+            and value.op == "%"
+            and isinstance(value.right, ast.IntLit)
+            and value.right.value >= 1
+        ):
+            return value.right.value
+        return None
+
+    def _collect_mod_defs(self, block, defs: dict) -> None:
+        """defs[p]: макс. модуль K, если ВСЕ определения простого имени p
+        в блоке (рекурсивно, включая вложенные циклы) — вида `p = _ % K`;
+        None — дисквалифицировано (нашлось определение иного вида)."""
+        for stmt in block.stmts:
+            if isinstance(stmt, ast.AssignStmt) and isinstance(
+                stmt.target, ast.Name
+            ):
+                p = stmt.target.ident
+                k = self._mod_const(stmt.value)
+                if p not in defs:
+                    defs[p] = k
+                elif defs[p] is None or k is None:
+                    defs[p] = None
+                else:
+                    defs[p] = max(defs[p], k)
+            for blk in _sub_blocks(stmt):
+                self._collect_mod_defs(blk, defs)
+
+    def _mod_carry(self, stmt, env: State) -> dict:
+        """Модульный инвариант накопителя (минимальная звуковая форма).
+        Путь p, у которого ВСЕ определения в теле цикла — `p = _ % K`
+        (K — литерал ≥ 1, интервал [0,K-1] не зависит от входного p), а
+        предцикловое значение ⊆ [0,K-1], несёт [0,K-1] на входе витка.
+        Звучно по индукции без фикспойнта: клэмп % безусловен, значит в
+        любой точке тела p ∈ [0,K-1] (предцикл ⊆ [0,K-1], каждая запись
+        ⊆ [0,K-1]). Обе ноги обязательны — пропуск любой снял бы
+        настоящую проверку переполнения (см. парный негативный кейс)."""
+        defs: dict[str, int | None] = {}
+        self._collect_mod_defs(stmt.body, defs)
+        out: dict[str, Iv] = {}
+        for p, k in defs.items():
+            if k is None or p == stmt.target:
+                continue
+            v0 = env.ivs.get(p)
+            if v0 is not None and v0[0] >= 0 and v0[1] <= k - 1:
+                out[p] = (0, k - 1)
+        return out
 
     def _flow_for(self, stmt: ast.ForStmt, env: State) -> State:
         if stmt.bounds is not None:

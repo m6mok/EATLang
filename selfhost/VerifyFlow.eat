@@ -1273,6 +1273,7 @@ extend Verify {
         } else {
             self.seed_array_iter_var(node)
         }
+        self.mod_carry(node)
     }
 
     # for x in массив: переменная цикла — элемент, интервал = тип элемента ∩
@@ -2285,6 +2286,125 @@ extend Verify {
                 st[sp] = c
                 sp = sp + 1
                 c = self.nns(c)
+            }
+        }
+    }
+
+    # K, если value — `<выр> % K` с целым литералом K ≥ 1 справа (эталон
+    # _mod_const): интервал `_ % K` = [0,K-1] не зависит от входного
+    # значения. Именно литерал, не константа-путь: изменяемый по витку
+    # делитель дал бы незвуковой [0,K-1]. 0 — «не такой вид определения».
+    func mod_k(var self, value: u32) -> u64
+        requires value < 131072
+        ensures true
+    {
+        if self.nk(value) == 39 and self.nx(value) == 14 {
+            let r: u32 = self.nns(self.nfc(value))
+            if self.nk(r) == 32 and self.ny(r) == 0 {
+                let m: u64 = self.c.p.mag(r)
+                if m >= 1 {
+                    return m
+                }
+            }
+        }
+        return 0
+    }
+
+    # применить модульный инвариант к пути pid: если предцикл (ein) известен
+    # и ⊆ [0,K-1], нести [0,K-1] на входе витка (эталон _mod_carry, apply)
+    func mod_apply(var self, pid: u32, k: u64, bad: u32, lvpid: u32)
+        requires pid < 512
+        ensures true
+    {
+        if bad == 1 or pid == lvpid {
+            return
+        }
+        if (self.ein.kn[pid] == 1 and self.ein.ls[pid] == 0
+                and self.ein.hs[pid] == 0 and self.ein.hm[pid] <= k - 1) {
+            self.env.kn[pid] = 1
+            self.env.nz[pid] = 0
+            self.env.ls[pid] = 0
+            self.env.lm[pid] = 0
+            self.env.hs[pid] = 0
+            self.env.hm[pid] = k - 1
+        }
+    }
+
+    # Модульный инвариант накопителя (эталон _mod_carry, минимальная
+    # звуковая форма). Путь-простое-имя, у которого ВСЕ определения в теле
+    # цикла — `p = _ % K` (K — литерал ≥ 1, интервал [0,K-1] не зависит от
+    # входного p), а предцикловое значение (ein) ⊆ [0,K-1], несёт [0,K-1]
+    # на входе витка. Звучно по индукции без фикспойнта: клэмп % безусловен,
+    # значит p ∈ [0,K-1] в любой точке тела (предцикл ⊆ [0,K-1], каждая
+    # запись ⊆ [0,K-1]). Обе ноги обязательны — пропуск любой снял бы
+    # настоящую проверку переполнения (парный негатив tests/verify/57).
+    func mod_carry(var self, node: u32)
+        requires node < 131072
+        ensures true
+    {
+        var mpid: [u32; 256] = [0; 256]
+        var mk: [u64; 256] = [0; 256]
+        var mbad: [u32; 256] = [0; 256]
+        var mn: u32 = 0
+        var st: [u32; 128] = [0; 128]
+        var sp: u32 = 1
+        st[0] = self.nns(self.nfc(node))
+        for _ in 0..4096 {
+            if sp == 0 {
+                break
+            }
+            sp = sp - 1
+            let n: u32 = st[sp]
+            # только присваивания простому имени (эталон: target — ast.Name);
+            # локал мутируется лишь такими — все определения видны сканом
+            if self.nk(n) == 14 and self.nk(self.nfc(n)) == 37 {
+                let tgt: u32 = self.nfc(n)
+                let pid: u32 = self.path_intern(self.nss(tgt), self.nsl(tgt))
+                let kk: u64 = self.mod_k(self.nns(tgt))
+                if pid < 512 {
+                    var slot: u32 = NONE
+                    for s in 0..256 {
+                        if s >= mn or slot != NONE {
+                            break
+                        }
+                        if mpid[s] == pid {
+                            slot = s
+                        }
+                    }
+                    if slot == NONE and mn < 256 {
+                        mpid[mn] = pid
+                        mk[mn] = kk
+                        mbad[mn] = 0
+                        if kk == 0 {
+                            mbad[mn] = 1
+                        }
+                        mn = mn + 1
+                    } elif slot != NONE {
+                        if kk == 0 {
+                            mbad[slot] = 1
+                        } elif mbad[slot] == 0 and kk > mk[slot] {
+                            mk[slot] = kk
+                        }
+                    }
+                }
+            }
+            var c: u32 = self.nfc(n)
+            for _ in 0..64 {
+                if c == NONE or sp >= 127 {
+                    break
+                }
+                st[sp] = c
+                sp = sp + 1
+                c = self.nns(c)
+            }
+        }
+        let lvpid: u32 = self.path_intern(self.nss(node), self.nsl(node))
+        for s in 0..256 {
+            if s >= mn {
+                break
+            }
+            if mpid[s] < 512 {
+                self.mod_apply(mpid[s], mk[s], mbad[s], lvpid)
             }
         }
     }
