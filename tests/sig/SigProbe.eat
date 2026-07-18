@@ -64,6 +64,10 @@ import {
 } from "lib/Parse.eat"
 
 import {
+    server_listen,
+} from "lib/Server.eat"
+
+import {
     mul_64,
 } from "lib/U128.eat"
 
@@ -95,9 +99,14 @@ func main() {
     const edge: bool = db.sample(1, 1)
     let hr: Req = req_new()
     const hst: u32 = hr.feed_line("GET / HTTP/1.1")
+    let srv: bool = false
+    match server_listen(u16(0)) {
+        Ok(_) { srv = true }
+        Err(_) { srv = false }
+    }
     print("digit={g} hex={h} ln={d.ln} same={s} x={x} j={jn} a={a}")
     print("p={p} fired={fired} edge={edge} fv={fv} uv={uv}")
-    print("hst={hst}")
+    print("hst={hst} srv={srv}")
     match read_line() {
         Ok(line) {
             match parse_i32(line) {

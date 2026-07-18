@@ -372,7 +372,68 @@ export parse_i32 8:5 :: parse_i32
 func parse_i32 11:1 (s: str<256>) -> Result<i32, ParseError>
 test parse_i32_ok 86:1
 test parse_i32_err 105:1
-module lib/U128.eat 137:1
+module lib/Server.eat 137:1
+export Server 23:5 :: Server
+export server_listen 24:5 :: server_listen
+export Bytes 25:5 :: Bytes
+export bytes_new 26:5 :: bytes_new
+export port_arg 27:5 :: port_arg
+export not_found 28:5 :: not_found
+export bad_request 29:5 :: bad_request
+export too_large 30:5 :: too_large
+export too_many_headers 31:5 :: too_many_headers
+export method_not_allowed 32:5 :: method_not_allowed
+export err_resp 33:5 :: err_resp
+export PORT_DEFAULT 34:5 :: PORT_DEFAULT
+import Req 38:5 :: lib/Http.eat Req
+import req_new 39:5 :: lib/Http.eat req_new
+import Resp 40:5 :: lib/Http.eat Resp
+import resp_new 41:5 :: lib/Http.eat resp_new
+import PARSE_MORE 42:5 :: lib/Http.eat PARSE_MORE
+import get 46:5 :: lib/Args.eat get
+import parse_i32 50:5 :: lib/Parse.eat parse_i32
+const PORT_DEFAULT 54:1 :: u32 = 8080
+const SRV_NO_CONN 56:1 :: u32 = 4294967295
+const SRV_SENT 58:1 :: u32 = 4294967295
+const DRAIN_BUDGET 60:1 :: u32 = 8900
+const HEAD_BUDGET 63:1 :: u32 = 64
+const BODY_BUDGET 64:1 :: u32 = 70000
+struct Bytes 69:1
+  field buf :: [u8; 65536]
+  field n :: u32
+  field over :: bool
+  method put_byte 76:5 (b: u8) var_self
+  method put_str 88:5 (s: str<256>) var_self
+  method clear 102:5 () var_self
+  method at 111:5 (i: u32) -> u8
+func bytes_new 119:1 () -> Bytes
+struct Server 130:1
+  field lst :: u32
+  field live :: bool
+  field conn :: u32
+  field served :: u32
+  field req :: Req
+  field st :: u32
+  field eof :: bool
+  field wc :: u32
+  method tick 146:5 () var_self -> u32
+  method reply 187:5 (w: Resp) var_self
+  method reply_bytes 206:5 (head: Resp, b: Bytes) var_self
+  method drop_conn 232:5 () var_self
+  method stop 243:5 () var_self
+func server_listen 254:1 (port: u16) -> Result<Server, IoError>
+func port_arg 273:1 () -> u32
+func simple 295:1 (code: u32, text: str<64>, msg: str<256>) -> Resp
+func not_found 307:1 () -> Resp
+func bad_request 314:1 () -> Resp
+func too_large 321:1 () -> Resp
+func too_many_headers 328:1 () -> Resp
+func method_not_allowed 335:1 () -> Resp
+func err_resp 343:1 (st: u32) -> Resp
+test server_port_default 356:1
+test server_bytes_carrier 363:1
+test server_err_resp_codes 376:1
+module lib/U128.eat 390:1
 export U128 26:5 :: U128
 export U128DivRem 27:5 :: U128DivRem
 export I128 28:5 :: I128
@@ -549,6 +610,7 @@ import JDoc 54:5 :: lib/Json.eat JDoc
 import json_doc 55:5 :: lib/Json.eat json_doc
 import min 59:5 :: lib/Num.eat min
 import parse_i32 63:5 :: lib/Parse.eat parse_i32
-import mul_64 67:5 :: lib/U128.eat mul_64
-func main 70:1 ()
-stats funcs=224 structs=18 stmts=1827
+import server_listen 67:5 :: lib/Server.eat server_listen
+import mul_64 71:5 :: lib/U128.eat mul_64
+func main 74:1 ()
+stats funcs=243 structs=20 stmts=1915

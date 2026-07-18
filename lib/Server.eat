@@ -1,0 +1,389 @@
+# lib/Server.eat — драйвер HTTP-соединения (docs/plans/DX_PLAN.md,
+# этап L1a): вся сетевая механика, которую примеры переписывали в main
+# дословно (событийный виток accept→дренаж→диспетч→close, запись
+# курсором, разбор порта, ответы-хелперы). Выносится в lib/ как чистое
+# переиспользование — правил Power of 10 не трогает (§11 плана): ни
+# кучи, ни рекурсии, ни глобалов; все внутренние циклы — `for` со
+# статической границей.
+#
+# ЖЁСТКАЯ РАМКА (SPEC §209, правило 9 — не ограничение, а данность):
+#   * единственный `loop` обязан жить в main пользователя. Библиотека
+#     НЕ владеет циклом — даёт .tick()/.reply(), цикл пишет пользователь;
+#   * указателей на функции нет — диспетч по маршрутам остаётся
+#     статическим `match` в коде пользователя (роутер-как-таблица-
+#     колбэков невозможен и не проектируется, §7 плана).
+#
+# Носитель длинного тела (открытый узел §10 L1-a — РЕШЕНО вариантом ii):
+# канонический `Bytes` ([u8; 65536] + n) в самой lib/Server.eat, в
+# который пишут и JSON, и текст, — .reply_bytes(head, b). Так Server не
+# тянет зависимость Server→Json (не всякий сервер JSON-ный), а буфер
+# один для любого тела произвольной длины.
+
+export {
+    Server,
+    server_listen,
+    Bytes,
+    bytes_new,
+    port_arg,
+    not_found,
+    bad_request,
+    too_large,
+    too_many_headers,
+    method_not_allowed,
+    err_resp,
+    PORT_DEFAULT,
+}
+
+import {
+    Req,
+    req_new,
+    Resp,
+    resp_new,
+    PARSE_MORE,
+} from "lib/Http.eat"
+
+import {
+    get,
+} from "lib/Args.eat"
+
+import {
+    parse_i32,
+} from "lib/Parse.eat"
+
+# Порт по умолчанию, если argv пуст или значение кривое.
+constexpr PORT_DEFAULT: u32 = 8080
+# accept без ждущего пира отдаёт этот сентинел (SPEC §7, решение H1).
+constexpr SRV_NO_CONN: u32 = 4294967295
+# слот соединения свободен (ответ послан / ещё не принято).
+constexpr SRV_SENT: u32 = 4294967295
+# бюджет дренажа одного витка: REQ_CAP 8192 + заголовочный запас.
+constexpr DRAIN_BUDGET: u32 = 8900
+# досылка курсором (правило 7): сколько раз повторить write_span на
+# заголовки (RESP_CAP 16384 уходит крупными спанами) и на тело.
+constexpr HEAD_BUDGET: u32 = 64
+constexpr BODY_BUDGET: u32 = 70000
+
+# Буфер-носитель тела произвольной длины (до HTTP_MAX_BODY). Общий для
+# текста и JSON — Server отдаёт его через .reply_bytes, не завися от
+# lib/Json.eat. Переполнение — флаг over (ошибка-значение, не усечение).
+struct Bytes {
+    buf: [u8; 65536]
+    n: u32
+    over: bool
+
+    # Байт в буфер; за потолком — взводит over и молчит (тело такой
+    # длины отправлять нельзя, как Resp.of).
+    func put_byte(let self, b: u8)
+        requires true
+        ensures true
+    {
+        if self.n < 65536 {
+            self.buf[self.n] = b
+            self.n = self.n + 1
+        } else {
+            self.over = true
+        }
+    }
+
+    func put_str(let self, s: str<256>)
+        requires true
+        ensures true
+    {
+        for i in 0..256 {
+            if u32(i) >= len(s) {
+                break
+            }
+            self.put_byte(u8(s[i]))
+        }
+    }
+
+    # Сброс под следующее тело без пересоздания (буфер не обнуляем —
+    # читается только [0..n), как raw в Req).
+    func clear(let self)
+        requires true
+        ensures true
+    {
+        self.n = 0
+        self.over = false
+    }
+
+    # i-й байт (для тестов и мостов).
+    func at(self, i: u32) -> u8
+        requires i < 65536
+        ensures true
+    {
+        return self.buf[i]
+    }
+}
+
+func bytes_new() -> Bytes
+    requires true
+    ensures true
+{
+    return Bytes { buf: [0; 65536], n: 0, over: false }
+}
+
+# Драйвер одного сервера: состояние, которое примеры руками
+# раскладывали по main. Кадр — `let` в main пользователя (как Store в
+# Todo), НЕ глобал (правило 3). req.reset между соединениями (§8.2
+# Http): raw[8192] не пересоздаётся.
+struct Server {
+    lst: u32          # дескриптор слушателя
+    live: bool        # слушатель открыт (false после .stop)
+    conn: u32         # активное соединение или SRV_SENT
+    served: u32       # обслужено соединений (детерминированный останов
+                      # SERVE_CONNS — у пользователя, это его цикл)
+    req: Req          # кадр разбора запроса, общий на сервер
+    st: u32           # последний статус парсера
+    eof: bool         # пир оборвал соединение
+    wc: u32           # курсор досылки ответа (правило 7)
+
+    # Один виток событийного цикла: accept-or-drain. Возвращает
+    #   PARSE_MORE — соединения нет / запрос ещё собирается / пир
+    #     оборвал (внутренний close+advance, наружу idle);
+    #   PARSE_DONE — запрос собран, читай self.req, ответь .reply;
+    #   400|413|431 — ошибка парсера, ответь .reply(err_resp(k)).
+    func tick(let self) -> u32
+        requires true
+        ensures true
+    {
+        if not self.live {
+            return PARSE_MORE
+        }
+        if self.conn == SRV_SENT {
+            const c: u32 = socket_accept(self.lst)
+            if c != SRV_NO_CONN {
+                self.conn = c
+                self.req.reset()
+                self.st = PARSE_MORE
+                self.eof = false
+            }
+        }
+        if self.conn == SRV_SENT {
+            return PARSE_MORE
+        }
+        for _ in 0..DRAIN_BUDGET {
+            if self.st != PARSE_MORE or self.eof or socket_avail(self.conn) == 0 {
+                break
+            }
+            match socket_read_byte(self.conn) {
+                Ok(b) { self.st = self.req.push_byte(b) }
+                Err(_) { self.eof = true }
+            }
+        }
+        if self.st != PARSE_MORE {
+            return self.st
+        }
+        if self.eof {
+            self.drop_conn()
+            return PARSE_MORE
+        }
+        return PARSE_MORE
+    }
+
+    # Отправить ответ и завершить соединение: send_resp курсором +
+    # close + served++ + слот свободен. Переполненный Resp (of) не
+    # отправляется вовсе, но соединение всё равно закрывается.
+    func reply(let self, w: Resp)
+        requires true
+        ensures true
+    {
+        if not w.of {
+            self.wc = 0
+            for _ in 0..HEAD_BUDGET {
+                if self.wc >= w.n {
+                    break
+                }
+                self.wc = self.wc + socket_write_span(self.conn, w.buf, self.wc, w.n - self.wc)
+            }
+        }
+        self.drop_conn()
+    }
+
+    # Ответ с телом произвольной длины: заголовки (head, до end_headers
+    # с Content-Length) + тело из буфера-носителя b. head.of или b.over
+    # — не отправляем ничего, но соединение закрываем.
+    func reply_bytes(let self, head: Resp, b: Bytes)
+        requires true
+        ensures true
+    {
+        if not head.of and not b.over {
+            self.wc = 0
+            for _ in 0..HEAD_BUDGET {
+                if self.wc >= head.n {
+                    break
+                }
+                const r: u32 = head.n - self.wc
+                self.wc = self.wc + socket_write_span(self.conn, head.buf, self.wc, r)
+            }
+            let sent: u32 = 0
+            for _ in 0..BODY_BUDGET {
+                if sent >= b.n {
+                    break
+                }
+                sent = sent + socket_write_span(self.conn, b.buf, sent, b.n - sent)
+            }
+        }
+        self.drop_conn()
+    }
+
+    # Закрыть текущее соединение и освободить слот (served++). Общий
+    # хвост reply/reply_bytes и обрыва пира в tick.
+    func drop_conn(let self)
+        requires true
+        ensures true
+    {
+        socket_close(self.conn)
+        self.conn = SRV_SENT
+        self.served = self.served + 1
+    }
+
+    # Закрыть слушатель по завершении обслуживания (замена концевого
+    # socket_close(lst) в main). После — tick инертен.
+    func stop(let self)
+        requires true
+        ensures true
+    {
+        socket_close(self.lst)
+        self.live = false
+    }
+}
+
+# bind+listen. Ok — готовый к циклу Server; Err — порт занят (проброс
+# IoError слушателя без потери причины).
+func server_listen(port: u16) -> Result<Server, IoError>
+    requires true
+    ensures true
+{
+    match socket_listen(port) {
+        Ok(fd) {
+            return Ok(Server {
+                lst: fd, live: true, conn: SRV_SENT, served: 0,
+                req: req_new(), st: PARSE_MORE, eof: false, wc: 0,
+            })
+        }
+        Err(e) {
+            return Err(e)
+        }
+    }
+}
+
+# Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
+# (Переезд из каждого примера — §3.1 плана, ×6 дословных копий.)
+func port_arg() -> u32
+    requires true
+    ensures result <= 65535
+{
+    match get(0) {
+        Ok(s) {
+            match parse_i32(s) {
+                Ok(v) {
+                    if v >= 1 and v <= 65535 {
+                        return u32(v)
+                    }
+                }
+                Err(_) {}
+            }
+        }
+        Err(_) {}
+    }
+    return PORT_DEFAULT
+}
+
+# Готовый текстовый ответ: статус + Content-Type + Connection: close +
+# тело (автоматический Content-Length). Кирпич ответов-хелперов.
+func simple(code: u32, text: str<64>, msg: str<256>) -> Resp
+    requires true
+    ensures true
+{
+    let w: Resp = resp_new()
+    w.status_line(code, text)
+    w.header_line("Content-Type", "text/plain; charset=utf-8")
+    w.header_line("Connection", "close")
+    w.body(msg)
+    return w
+}
+
+func not_found() -> Resp
+    requires true
+    ensures true
+{
+    return simple(404, "Not Found", "not found\n")
+}
+
+func bad_request() -> Resp
+    requires true
+    ensures true
+{
+    return simple(400, "Bad Request", "bad request\n")
+}
+
+func too_large() -> Resp
+    requires true
+    ensures true
+{
+    return simple(413, "Payload Too Large", "payload too large\n")
+}
+
+func too_many_headers() -> Resp
+    requires true
+    ensures true
+{
+    return simple(431, "Request Header Fields Too Large", "headers too large\n")
+}
+
+func method_not_allowed() -> Resp
+    requires true
+    ensures true
+{
+    return simple(405, "Method Not Allowed", "method not allowed\n")
+}
+
+# Ответ по коду ошибки парсера (несёт .tick при k != PARSE_MORE/DONE).
+func err_resp(st: u32) -> Resp
+    requires true
+    ensures true
+{
+    if st == 413 {
+        return too_large()
+    }
+    if st == 431 {
+        return too_many_headers()
+    }
+    return bad_request()
+}
+
+test server_port_default {
+    # argv в тестовой среде пуст → дефолт (аксиом с состоянием тест не
+    # трогает: get(0) читает argv, часы не сдвигает).
+    assert port_arg() == PORT_DEFAULT
+    assert PORT_DEFAULT == 8080
+}
+
+test server_bytes_carrier {
+    let b: Bytes = bytes_new()
+    b.put_str("hello")
+    b.put_byte(33)
+    assert b.n == 6
+    assert not b.over
+    assert b.at(0) == 104
+    assert b.at(5) == 33
+    b.clear()
+    assert b.n == 0
+    assert not b.over
+}
+
+test server_err_resp_codes {
+    # 413/431/400 дают правильные статус-строки; тело непусто.
+    const a: Resp = err_resp(413)
+    assert not a.of
+    assert a.buf[9] == 52    # '4' в "413"
+    const b: Resp = err_resp(431)
+    assert b.buf[9] == 52
+    const c: Resp = err_resp(400)
+    assert c.buf[9] == 52
+    const nf: Resp = not_found()
+    assert nf.buf[9] == 52   # "404"
+    const m: Resp = method_not_allowed()
+    assert m.buf[9] == 52    # "405"
+}
