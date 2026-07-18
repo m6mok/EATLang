@@ -135,7 +135,7 @@ build/JsonFlat.eat: lib/json/Json.eat tools/json_flat.py
 # замыкание модулей ~35 с на правку (лексер+парсер+чекер по всему потоку
 # исполняются интерпретируемо), нативный бинарник — ~0,01 с. serve.sh
 # собирает его один раз; make пересобирает при правке источников сервера.
-build/eat-lsp: $(LSP_FILES)
+build/eat-lsp: $(LSP_FILES) src/eatc/runtime.c
 	@$(EATC) build $(LSP_FILES) -o $@ > /dev/null
 
 run_http_echo:

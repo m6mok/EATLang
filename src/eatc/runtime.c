@@ -81,13 +81,19 @@ eat_stack_provision(int argc, char **argv, char **envp) {
 #endif
 
 /* Байт из stdin: 0..255, при конце потока -1 (Err(Eof)).
- * fflush перед чтением нужен только диалогу с терминалом (приглашение
- * обязано дойти до пользователя); в батч-режиме (фильтр stdin -> stdout)
- * он стоил бы по вызову libc на каждый входной байт. */
+ * fflush перед чтением нужен только диалогу (ответ обязан дойти до
+ * собеседника прежде, чем мы заблокируемся на чтении); в батч-режиме
+ * (фильтр stdin -> stdout) он стоил бы по вызову libc на каждый
+ * входной байт. Диалог по ПАЙПАМ tty-эвристика не видит (LSP-сервер
+ * под VS Code: оба конца — пайпы, ответ initialize навсегда застревал
+ * в буфере libc) — такой запускатель объявляет себя явно:
+ * EAT_INTERACTIVE=1 в окружении (ставит editor/lsp/serve.sh). */
 int32_t eat_read_byte(void) {
     static int interactive = -1;
     if (interactive < 0) {
-        interactive = isatty(STDIN_FILENO) || isatty(STDOUT_FILENO);
+        const char *e = getenv("EAT_INTERACTIVE");
+        interactive = isatty(STDIN_FILENO) || isatty(STDOUT_FILENO) ||
+                      (e != NULL && e[0] == '1');
     }
     if (interactive) {
         fflush(stdout);

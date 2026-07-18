@@ -34,4 +34,9 @@ make build/eat-lsp >> build/lsp.log 2>&1 || {
 # eat/order — шум, не провал) уводим в build/lsp.log, чтобы не засорять
 # панель Output. Настоящие подчёркивания идут по JSON-RPC (stdout).
 # Отладка сервера: tail -f build/lsp.log.
+#
+# EAT_INTERACTIVE=1 — диалог по пайпам: аксиома read_byte (runtime.c)
+# сбрасывает stdout перед блокирующим чтением, иначе ответ initialize
+# застревает в буфере libc и VS Code рестартует сервер по кругу.
+export EAT_INTERACTIVE=1
 exec ./build/eat-lsp 2>> build/lsp.log
