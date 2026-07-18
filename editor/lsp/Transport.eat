@@ -1,0 +1,421 @@
+# editor/lsp/Transport.eat — транспорт LSP (docs/plans/LSP_PLAN.md,
+# этап 0): JSON-RPC поверх stdio с обрамлением Content-Length.
+#
+# Сервер на самом EATLang: реактивная модель SPEC §5.1 — один корневой
+# `loop` в main (LspMain.eat) зовёт Lsp.step() на каждом сообщении, как
+# Server.tick() зовётся на каждом витке HTTP. Источник байтов — аксиома
+# read_byte() (stdin), а не socket_read_byte. Тело сообщения копится в
+# JDoc (lib/json), ответ строится JOut-билдером; фаз компилятора этап 0
+# не линкует (только рукопожатие).
+#
+# Транспорт самодостаточен: мини-парсер заголовков (без request-line,
+# в отличие от lib/http/Http.eat) читает строки до пустой и достаёт
+# Content-Length. Диспетч (dispatch) на этапе 0 живёт здесь; при росте
+# (этап 1+) переедет в Rpc.eat/Handlers.eat.
+#
+# Инварианты (§11 плана): ни кучи, ни рекурсии, ни глобалов. Буферы —
+# фиксированного размера в кадре main; циклы — for со статической
+# границей; единственный loop — в main пользователя.
+
+export {
+    Lsp,
+    lsp_new,
+}
+
+import {
+    JDoc,
+    json_doc,
+    JOut,
+    json_out,
+} from "lib/json/Json.eat"
+
+import {
+    to_lower,
+} from "lib/fmt/Ascii.eat"
+
+# «нет значения» для Content-Length и позиции двоеточия (идиома SENT).
+constexpr LSP_NONE: u32 = 4294967295
+# потолок тела сообщения = потолок входа JDoc (§4 плана).
+constexpr LSP_MSG_CAP: u32 = 65536
+# потолок строки заголовка: имена/значения LSP короткие.
+constexpr LSP_LINE_CAP: u32 = 1024
+
+# Кадр сервера: буфер строки заголовка + разобранный Content-Length +
+# документ входящего сообщения. Живёт `let`-значением в кадре main
+# (как Store в Todo, Server в HTTP), НЕ глобал (правило 3).
+struct Lsp {
+    line: [u8; 1024]   # LSP_LINE_CAP — текущая строка заголовка
+    ln: u32
+    clen: u32          # Content-Length текущего сообщения или LSP_NONE
+    d: JDoc            # весь «heap» JSON-дерева — пул в кадре владельца
+
+    # --- транспорт: чтение сообщения -------------------------------
+
+    # Очередная строка заголовка в self.line (без CRLF). 0 — строка
+    # прочитана (возможно пустая), 1 — EOF до единого байта. Перебор
+    # байтов stdin аксиомой read_byte, CR перед LF откусывается.
+    func next_line(let self) -> u32
+    {
+        self.ln = 0
+        let st: u32 = 2
+        for _ in 0..8193 {
+            if st != 2 {
+                break
+            }
+            match read_byte() {
+                Ok(b) {
+                    if b == 10 {
+                        st = 0
+                    } elif self.ln < 1024 {
+                        self.line[self.ln] = b
+                        self.ln = self.ln + 1
+                    }
+                }
+                Err(_) {
+                    if self.ln == 0 {
+                        st = 1
+                    } else {
+                        st = 0
+                    }
+                }
+            }
+        }
+        if self.ln > 0 and self.line[self.ln - 1] == 13 {
+            self.ln = self.ln - 1
+        }
+        return st
+    }
+
+    # Content-Length из self.line или LSP_NONE (нет заголовка / не тот
+    # заголовок / кривое значение). Имя сверяется без регистра.
+    func scan_clen(self) -> u32
+    {
+        let p: u32 = LSP_NONE
+        for i in 0..1024 {
+            if u32(i) >= self.ln or p != LSP_NONE {
+                break
+            }
+            if self.line[u32(i)] == 58 {
+                p = u32(i)
+            }
+        }
+        if p == LSP_NONE {
+            return LSP_NONE
+        }
+        const nm: str<32> = "content-length"
+        if p != len(nm) {
+            return LSP_NONE
+        }
+        let ok: bool = true
+        for i in 0..32 {
+            if u32(i) >= p or not ok {
+                break
+            }
+            if to_lower(self.line[u32(i)]) != to_lower(u8(nm[i])) {
+                ok = false
+            }
+        }
+        if not ok {
+            return LSP_NONE
+        }
+        let j: u32 = p + 1
+        for _ in 0..1024 {
+            if j >= self.ln or (self.line[j] != 32 and self.line[j] != 9) {
+                break
+            }
+            j = j + 1
+        }
+        let v: u32 = 0
+        let seen: bool = false
+        let stop: bool = false
+        for _ in 0..20 {
+            if j >= self.ln or stop {
+                break
+            }
+            const b: u8 = self.line[j]
+            if b < 48 or b > 57 {
+                stop = true
+            } else {
+                if v > 65536 {
+                    v = 65537
+                } else {
+                    v = v * 10 + (u32(b) - 48)
+                }
+                seen = true
+                j = j + 1
+            }
+        }
+        if not seen {
+            return LSP_NONE
+        }
+        return v
+    }
+
+    # Прочитать заголовки до пустой строки; выставить self.clen. 0 —
+    # готово, 1 — EOF (чистый конец потока), 2 — нет Content-Length.
+    func read_headers(let self) -> u32
+    {
+        self.clen = LSP_NONE
+        let eof: bool = false
+        let done: bool = false
+        for _ in 0..128 {
+            if done or eof {
+                break
+            }
+            const st: u32 = self.next_line()
+            if st == 1 {
+                eof = true
+            } elif self.ln == 0 {
+                done = true
+            } else {
+                const c: u32 = self.scan_clen()
+                if c != LSP_NONE {
+                    self.clen = c
+                }
+            }
+        }
+        if eof {
+            return 1
+        }
+        if self.clen == LSP_NONE {
+            return 2
+        }
+        return 0
+    }
+
+    # Прочитать ровно self.clen байт тела в self.d (JDoc.put). true —
+    # тело принято целиком, false — EOF раньше срока или потолок.
+    func read_body(let self) -> bool
+    {
+        if self.clen == LSP_NONE or self.clen > 65536 {
+            return false
+        }
+        let got: u32 = 0
+        let eof: bool = false
+        for _ in 0..65537 {
+            if got >= self.clen or eof {
+                break
+            }
+            match read_byte() {
+                Ok(b) {
+                    self.d.put(b)
+                    got = got + 1
+                }
+                Err(_) {
+                    eof = true
+                }
+            }
+        }
+        return got >= self.clen
+    }
+
+    # --- диспетч ----------------------------------------------------
+
+    # Разобрать тело и обслужить одно сообщение. true — запрошен выход
+    # (уведомление `exit`). Кривой JSON молча игнорируется (POC).
+    func handle(let self) -> bool
+    {
+        let quit: bool = false
+        match self.d.parse() {
+            Ok(root) {
+                if root < 4096 {
+                    quit = self.dispatch(root)
+                }
+            }
+            Err(_) {
+            }
+        }
+        return quit
+    }
+
+    # Метод + id сообщения (корень root) → ответ. true — выход.
+    func dispatch(self, root: u32) -> bool
+        requires root < 4096
+    {
+        let m: str<256> = ""
+        match self.d.get(root, "method") {
+            Some(mi) {
+                if mi < 4096 {
+                    match self.d.as_str(mi) {
+                        Some(s) { m = s }
+                        None {}
+                    }
+                }
+            }
+            None {}
+        }
+        let has_id: bool = false
+        let id: i64 = 0
+        match self.d.get(root, "id") {
+            Some(ii) {
+                has_id = true
+                if ii < 4096 {
+                    match self.d.as_i64(ii) {
+                        Some(v) { id = v }
+                        None {}
+                    }
+                }
+            }
+            None {}
+        }
+        if m == "initialize" {
+            reply_initialize(id)
+            return false
+        }
+        if m == "shutdown" {
+            reply_shutdown(id)
+            return false
+        }
+        if m == "exit" {
+            return true
+        }
+        if m == "initialized" {
+            return false
+        }
+        # прочие запросы (есть id) — method not found; уведомления молчим
+        if has_id {
+            reply_error(id)
+        }
+        return false
+    }
+
+    # Один шаг обслуживания для корневого loop в main: прочитать
+    # сообщение и обслужить. 0 — продолжать, 1 — остановиться
+    # (EOF / кривой кадр / уведомление `exit`).
+    func step(let self) -> u32
+    {
+        const hs: u32 = self.read_headers()
+        if hs != 0 {
+            return 1
+        }
+        self.d.clear()
+        if not self.read_body() {
+            return 1
+        }
+        if self.handle() {
+            return 1
+        }
+        return 0
+    }
+
+    # --- тестовый помощник (без аксиом; урок FAULTS 2026-07-17) -----
+
+    # Заполнить self.line строкой напрямую — для юнит-тестов scan_clen
+    # без чтения stdin (аксиома read_byte сдвинула бы состояние).
+    func set_line(let self, s: str<64>)
+    {
+        self.ln = 0
+        for i in 0..64 {
+            if u32(i) >= len(s) {
+                break
+            }
+            self.line[u32(i)] = u8(s[i])
+            self.ln = self.ln + 1
+        }
+    }
+}
+
+func lsp_new() -> Lsp
+{
+    return Lsp {
+        line: [0; 1024],
+        ln: 0,
+        clen: LSP_NONE,
+        d: json_doc(),
+    }
+}
+
+# --- отправка ответа ----------------------------------------------------
+
+# Кадр ответа: заголовок Content-Length + пустая строка + тело JOut.
+# '\r' в строковых литералах языка нет — CRLF байтами (как Resp.crlf).
+func send(o: JOut)
+{
+    write("Content-Length: {o.n}")
+    write_byte(13)
+    write_byte(10)
+    write_byte(13)
+    write_byte(10)
+    write_span(o.buf, 0, o.n)
+}
+
+# Ответ на initialize: capabilities (этап 0 — только textDocumentSync
+# полной синхронизацией) + serverInfo. id эхом (numeric, VSCode).
+func reply_initialize(id: i64)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("result")
+    o.begin_obj()
+    o.field("capabilities")
+    o.begin_obj()
+    o.field("textDocumentSync")
+    o.ival(1)
+    o.end_obj()
+    o.field("serverInfo")
+    o.begin_obj()
+    o.field("name")
+    o.qval("eat-lsp")
+    o.field("version")
+    o.qval("0.0.1")
+    o.end_obj()
+    o.end_obj()
+    o.end_obj()
+    send(o)
+}
+
+# Ответ на shutdown: result null (билдер null-значения нет — word).
+func reply_shutdown(id: i64)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("result")
+    o.word("null")
+    o.end_obj()
+    send(o)
+}
+
+# Ответ-ошибка на неизвестный запрос: JSON-RPC code -32601.
+func reply_error(id: i64)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("error")
+    o.begin_obj()
+    o.field("code")
+    o.ival(-32601)
+    o.field("message")
+    o.qval("method not found")
+    o.end_obj()
+    o.end_obj()
+    send(o)
+}
+
+# scan_clen: разбор заголовка без чтения stdin (чистый, детерминирован).
+test lsp_scan_clen {
+    let x: Lsp = lsp_new()
+    x.set_line("Content-Length: 42")
+    assert x.scan_clen() == 42
+    x.set_line("content-length:7")
+    assert x.scan_clen() == 7
+    x.set_line("Content-Type: application/json")
+    assert x.scan_clen() == LSP_NONE
+    x.set_line("Content-Length: ")
+    assert x.scan_clen() == LSP_NONE
+    x.set_line("")
+    assert x.scan_clen() == LSP_NONE
+    x.set_line("Content-Length: 100")
+    assert x.scan_clen() == 100
+}

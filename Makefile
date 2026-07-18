@@ -52,6 +52,7 @@ check:
 	$(EATC) check --lib . $(HTTP_ROUTER_MAIN)
 	$(EATC) check --lib . $(HTTP_API_MAIN)
 	$(EATC) check --lib . $(HTTP_TODO_MAIN)
+	$(EATC) check --lib . $(LSP_MAIN)
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -105,6 +106,11 @@ HTTP_POOL_MAIN = examples/http/Pool.eat
 HTTP_ROUTER_MAIN = examples/http/Router.eat
 HTTP_API_MAIN = examples/http/Api.eat
 HTTP_TODO_MAIN = examples/http/todo/Todo.eat
+
+# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md): JSON-RPC поверх stdio,
+# переиспользует lib/json (тело/ответ) и lib/fmt (Ascii). Клиент VSCode —
+# editor/vscode (запускает этот бинарник/интерпретатор по stdio).
+LSP_MAIN = editor/lsp/LspMain.eat
 
 run_http_echo:
 	EAT_NET=examples/http/echo_net.txt $(EATC) run --lib . $(HTTP_ECHO_MAIN)
@@ -165,6 +171,13 @@ run_lexer_probe:
 # Регрессионный набор верификатора (tests/verify/, docs/VERIFICATION_PLAN.md)
 verify_suite:
 	uv run python tests/verify_suite.py
+
+# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md, этап 0): сверка
+# рукопожатия initialize/shutdown/exit транскриптом JSON-RPC по stdio
+# (аналог EAT_NET для HTTP). Вход строит скрипт (CRLF-обрамление),
+# выход нормализуется и diff'ается с tests/lsp/handshake.golden.
+verify_lsp:
+	@bash tests/lsp/verify.sh
 
 # Ярус B comptime (§11 COMPTIME_PLAN): свёртка вызовов `build --fold`.
 # Юнит — три исхода свёртки + паритет значения; e2e — бинарник с флагом

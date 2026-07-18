@@ -1,0 +1,26 @@
+# editor/lsp/LspMain.eat — точка входа LSP-сервера (docs/plans/LSP_PLAN.md,
+# этап 0). Единственный корневой `loop` в main (SPEC §5.1, правило 1):
+# на каждой итерации обслуживается одно JSON-RPC сообщение. Выход —
+# `break` по EOF stdin, кривому кадру или уведомлению `exit`; затем
+# единственный exit(0) (правило: exit только в main).
+#
+# Вся механика — в Lsp.step() (editor/lsp/Transport.eat): чтение
+# заголовков, тела в JDoc, разбор и ответ. main не трогает поля Lsp
+# напрямую — только step(), чтобы состояние JSON-документа не текло
+# через границу модуля.
+
+import {
+    Lsp,
+    lsp_new,
+} from "editor/lsp/Transport.eat"
+
+func main()
+{
+    let server: Lsp = lsp_new()
+    loop {
+        if server.step() == 1 {
+            break
+        }
+    }
+    exit(0)
+}

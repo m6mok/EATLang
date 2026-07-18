@@ -1,8 +1,8 @@
 {
     "name": "eatlang",
     "displayName": "EATLang",
-    "description": "Syntax highlighting for the EAT language (EATLang)",
-    "version": "0.0.1",
+    "description": "Syntax highlighting and language server for the EAT language (EATLang)",
+    "version": "0.1.0",
     "publisher": "eatlang",
     "license": "MIT",
     "engines": {
@@ -11,6 +11,7 @@
     "categories": [
         "Programming Languages"
     ],
+    "main": "./extension.js",
     "contributes": {
         "languages": [
             {
@@ -35,6 +36,36 @@
                 "scopeName": "source.eat",
                 "path": "./syntaxes/eat.tmLanguage.json"
             }
-        ]
+        ],
+        "configuration": {
+            "title": "EATLang",
+            "properties": {
+                "eatlang.server.command": {
+                    "type": "string",
+                    "default": "uv",
+                    "description": "Команда запуска LSP-сервера (по умолчанию интерпретатор eatc через uv)."
+                },
+                "eatlang.server.args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "run",
+                        "python",
+                        "-m",
+                        "eatc",
+                        "run",
+                        "--lib",
+                        ".",
+                        "editor/lsp/LspMain.eat"
+                    ],
+                    "description": "Аргументы запуска сервера. По умолчанию гоняет editor/lsp/LspMain.eat в корне репозитория EATLang."
+                }
+            }
+        }
+    },
+    "dependencies": {
+        "vscode-languageclient": "^8.1.0"
     }
 }
