@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Регенерация инициализатора `Verify { ... }` в selfhost/VerifyMain.eat.
+"""Регенерация инициализатора `Verify { ... }` в selfhost/verify/VerifyMain.eat.
 
 Гигантский литерал состояния верификатора (сотни полей struct St,
 Check, Verify) — нуль-инициализация, кроме `Check.p: p` (уже собранный
@@ -21,10 +21,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FILES = [
-    ROOT / "selfhost" / "Verify.eat",
-    ROOT / "selfhost" / "Check.eat",
+    ROOT / "selfhost" / "verify" / "Verify.eat",
+    ROOT / "selfhost" / "check" / "Check.eat",
 ]
-TARGET = ROOT / "selfhost" / "VerifyMain.eat"
+TARGET = ROOT / "selfhost" / "verify" / "VerifyMain.eat"
 
 # Поля, инициализируемые сентинелом NONE (а не нулём).
 NONE_FIELDS = {"fhx", "cnd", "cca_bs", "res_expr"}

@@ -216,46 +216,46 @@ bench_crosslang:
 # сверка с эталоном на каждом .eat репозитория + интерпретатор == бинарник.
 # Фаза 1 — лексер (`eatc lex`), фаза 2 — парсер (`eatc parse`),
 # фаза 4 — эмиссия LLVM IR (`eatc ir`).
-SELFHOST_LEXER = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/LexMain.eat
-SELFHOST_PARSER = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/ParseMain.eat
-SELFHOST_SIG = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
-	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
-	selfhost/SigMain.eat
-SELFHOST_TYPED = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
-	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
-	selfhost/TypedMain.eat
-SELFHOST_IR = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
-	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
-	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
-	selfhost/IrMain.eat
-SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
-	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
-	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
-	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
-	selfhost/IrCodesMain.eat
-SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/Tok.eat \
-	selfhost/Lexer.eat selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
-	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
-	selfhost/CheckFold.eat \
-	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \
-	selfhost/VerifyFlow.eat selfhost/VerifyClamp.eat selfhost/VerifyDump.eat \
-	selfhost/Ir.eat selfhost/IrEmit.eat selfhost/IrExpr.eat selfhost/IrStmt.eat \
-	selfhost/IrOptMain.eat
+SELFHOST_LEXER = $(RT) $(LIB_FRONT) selfhost/lex/Tok.eat selfhost/lex/Lexer.eat \
+	selfhost/lex/LexMain.eat
+SELFHOST_PARSER = $(RT) $(LIB_FRONT) selfhost/lex/Tok.eat selfhost/lex/Lexer.eat \
+	selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/parse/ParseMain.eat
+SELFHOST_SIG = $(RT) $(LIB_FRONT) selfhost/lex/Tok.eat selfhost/lex/Lexer.eat \
+	selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
+	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
+	selfhost/check/SigMain.eat
+SELFHOST_TYPED = $(RT) $(LIB_FRONT) selfhost/lex/Tok.eat selfhost/lex/Lexer.eat \
+	selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
+	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
+	selfhost/check/TypedMain.eat
+SELFHOST_IR = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/lex/Tok.eat selfhost/lex/Lexer.eat \
+	selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
+	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
+	selfhost/ir/Ir.eat selfhost/ir/IrEmit.eat selfhost/ir/IrExpr.eat selfhost/ir/IrStmt.eat \
+	selfhost/ir/IrMain.eat
+SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/lex/Tok.eat \
+	selfhost/lex/Lexer.eat selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
+	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
+	selfhost/ir/Ir.eat selfhost/ir/IrEmit.eat selfhost/ir/IrExpr.eat selfhost/ir/IrStmt.eat \
+	selfhost/ir/IrCodesMain.eat
+SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/lex/Tok.eat \
+	selfhost/lex/Lexer.eat selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
+	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
+	selfhost/check/CheckFold.eat \
+	selfhost/verify/Verify.eat selfhost/verify/VerifyExpr.eat selfhost/verify/VerifyRel.eat \
+	selfhost/verify/VerifyFlow.eat selfhost/verify/VerifyClamp.eat selfhost/verify/VerifyDump.eat \
+	selfhost/ir/Ir.eat selfhost/ir/IrEmit.eat selfhost/ir/IrExpr.eat selfhost/ir/IrStmt.eat \
+	selfhost/ir/IrOptMain.eat
 # Фаза 7 — статический верификатор (docs/SELFHOST_VERIFIER_PLAN.md).
 # Зеркало verifier.py; вход как у `eatc verify` — одиночный .eat со stdin
 # (без Rt/lib). Этап 1: интервальное ядро на курируемом списке кейсов.
 # CheckFold — для `-O` (этап 5): ct_fold_pass перед verify по argv-флагу.
-SELFHOST_VERIFY = $(RT) $(LIB_FRONT) selfhost/Tok.eat selfhost/Lexer.eat \
-	selfhost/Ast.eat selfhost/Parser.eat selfhost/ParserExpr.eat selfhost/Check.eat \
-	selfhost/CheckConst.eat selfhost/CheckBody.eat selfhost/CheckDump.eat \
-	selfhost/CheckFold.eat \
-	selfhost/Verify.eat selfhost/VerifyExpr.eat selfhost/VerifyRel.eat \
-	selfhost/VerifyFlow.eat selfhost/VerifyClamp.eat selfhost/VerifyDump.eat selfhost/VerifyMain.eat
+SELFHOST_VERIFY = $(RT) $(LIB_FRONT) selfhost/lex/Tok.eat selfhost/lex/Lexer.eat \
+	selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
+	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
+	selfhost/check/CheckFold.eat \
+	selfhost/verify/Verify.eat selfhost/verify/VerifyExpr.eat selfhost/verify/VerifyRel.eat \
+	selfhost/verify/VerifyFlow.eat selfhost/verify/VerifyClamp.eat selfhost/verify/VerifyDump.eat selfhost/verify/VerifyMain.eat
 # Курируемый список кейсов (растёт по мере покрытия, как verify_suite):
 # этап 1 — bounds/overflow/div/cast/requires/ensures/assert.
 VERIFY_GATE = 01_bounds_const_index 02_bounds_loop_var 03_bounds_requires \

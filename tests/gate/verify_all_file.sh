@@ -5,7 +5,7 @@
 # коды возврата эталона/SelfVerify намеренно игнорируются (|| true).
 set -eu
 f="$1"
-case "$f" in selfhost/Verify.eat|selfhost/VerifyMain.eat) exit 0;; esac
+case "$f" in selfhost/verify/Verify.eat|selfhost/verify/VerifyMain.eat) exit 0;; esac
 d=$(mktemp -d "${TMPDIR:-/tmp}/eat_vfa.XXXXXX")
 trap 'rm -rf "$d"' EXIT INT TERM
 cat $RT "$f" > "$d/in.eat"

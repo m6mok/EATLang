@@ -1,11 +1,10 @@
 # План: раскладка selfhost по папкам + аксессоры пула + дедуп lib
 
-- **Статус:** 📋 ЗАПЛАНИРОВАН
+- **Статус:** 🚧 В ПРОЦЕССЕ (этап 1 ✅ раскладка папок; этапы 2–4 впереди)
 - **Роль:** активный план — читаемость и структура репозитория
   (продолжение [REFACTOR_SELFHOST_PLAN](REFACTOR_SELFHOST_PLAN.md))
-- **Рабочие поверхности:** этап 1 — `Makefile`, `tests/gate/verify_all_file.sh`,
-  `tests/bench/bench.py`, `tools/gen_verifymain.py`, все `selfhost/*.eat`
-  (перенос), доккарты; этап 2 — `selfhost/Check*.eat`, `selfhost/Ir*.eat`;
+- **Рабочие поверхности:** этап 1 — **✅ свободны** (перенос закоммичен);
+  этап 2 — `selfhost/check/Check*.eat`, `selfhost/ir/Ir*.eat`;
   этапы 3–4 — `lib/Http.eat`, `lib/Json.eat` (**заняты**: незакоммиченные
   правки в дереве на 2026-07-17 — ждут освобождения)
 - **Правки языка/грамматики:** нет — только перенос файлов, добавление
@@ -89,9 +88,13 @@ selfhost/
   check/   Check  CheckConst  CheckBody  CheckDump  CheckFold
            SigMain  TypedMain
   ir/      Ir  IrEmit  IrExpr  IrStmt  IrMain  IrCodesMain  IrOptMain
-  verify/  Verify  VerifyExpr  VerifyRel  VerifyFlow  VerifyDump
-           VerifyMain
+  verify/  Verify  VerifyExpr  VerifyRel  VerifyFlow  VerifyClamp
+           VerifyDump  VerifyMain
 ```
+
+Факт (2026-07-18): в `verify/` семь файлов — `VerifyClamp.eat`
+появился в фазе Verify после написания плана; итого **28** файлов в
+папках + `Rt.eat` в корне (не 27, как в раннем черновике §1).
 
 `SigMain`/`TypedMain` — точки входа фазы Check (эмитят sig/typed из
 Check), поэтому в `check/`. Перенос — `git mv` (сохраняет историю).
@@ -191,11 +194,19 @@ func nk(var self, n: u32) -> u32
 
 Порядок — по возрастанию риска и по свободе поверхностей.
 
-- **Этап 1 — папки.** `git mv` по §6.1, правка Makefile (4 группы),
-  `verify_all_file.sh`, `bench.py`, `gen_verifymain.py`, доккарты.
-  Готовность: полный гейт готовности (AGENTS.md §3, 10 целей) зелёный +
-  `make bench` без регрессии + `make bench_crosslang` без сдвига.
-  Поверхности свободны (Makefile и цели чистые в дереве).
+- **Этап 1 — папки. ✅ (2026-07-18).** `git mv` 28 файлов по §6.1
+  (`Rt.eat` в корне), правка путей: `Makefile` (переменные
+  `SELFHOST_*`), `tests/gate/verify_all_file.sh` (жёсткий фильтр
+  `verify/`), `tests/bench/bench.py`, `tools/gen_verifymain.py`,
+  доккарты (`SELFHOST.md`, `AGENTS.md`, `README.md`, `MODIFYING.md`,
+  `POWER_OF_10.md`, `GUIDE.md`). Полный гейт готовности (10 целей) и
+  `make bench` — зелёные (проверено в чистом worktree мимо живого
+  соседа: `src/eatc/` был занят параллельной работой). Попутно
+  устранён **предсуществующий дрейф** `bench.py`: списки-зеркала
+  Makefile не содержали `ParserExpr.eat` (появился в REFACTOR_SELFHOST,
+  Makefile обновили — зеркало bench нет), из-за чего секции
+  `compiler`/`size` падали на `step_expr`; добавлен во все три списка,
+  вход `compiler` вырос 19→20 модулей, дампы байт-в-байт с эталоном.
 - **Этап 2 — аксессоры пула Check+Ir.** ~806 обращений → вызовы;
   ~11 методов на `Check`, подмножество на `Ir` (по образцу Verify).
   Перенос — скриптовой заменой с машинной сверкой (как этап 1

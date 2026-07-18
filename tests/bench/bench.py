@@ -457,11 +457,12 @@ def bench_stress(quick: bool):
 LIB_FRONT = ["lib/Const.eat", "lib/Ascii.eat", "lib/Buf.eat", "lib/Hex.eat"]
 
 SELF_BINARIES = {
-    "SelfLex": LIB_FRONT + ["selfhost/Tok.eat", "selfhost/Lexer.eat",
-                            "selfhost/LexMain.eat"],
-    "SelfParse": LIB_FRONT + ["selfhost/Tok.eat", "selfhost/Lexer.eat",
-                              "selfhost/Ast.eat", "selfhost/Parser.eat",
-                              "selfhost/ParseMain.eat"],
+    "SelfLex": LIB_FRONT + ["selfhost/lex/Tok.eat", "selfhost/lex/Lexer.eat",
+                            "selfhost/lex/LexMain.eat"],
+    "SelfParse": LIB_FRONT + ["selfhost/lex/Tok.eat", "selfhost/lex/Lexer.eat",
+                              "selfhost/parse/Ast.eat", "selfhost/parse/Parser.eat",
+                              "selfhost/parse/ParserExpr.eat",
+                              "selfhost/parse/ParseMain.eat"],
 }
 
 
@@ -544,21 +545,23 @@ def bench_selfhost(quick: bool, inputs):
 
 # Фазовые бинарники self-hosted компилятора (зеркало списков Makefile);
 # вход всех замеров — конкатенация модулей SelfIr (вход verify_bootstrap)
-SELF_FRONT = ["selfhost/Tok.eat", "selfhost/Lexer.eat"]
-SELF_MID = SELF_FRONT + ["selfhost/Ast.eat", "selfhost/Parser.eat",
-                         "selfhost/Check.eat", "selfhost/CheckConst.eat",
-                         "selfhost/CheckBody.eat", "selfhost/CheckDump.eat"]
+SELF_FRONT = ["selfhost/lex/Tok.eat", "selfhost/lex/Lexer.eat"]
+SELF_MID = SELF_FRONT + ["selfhost/parse/Ast.eat", "selfhost/parse/Parser.eat",
+                         "selfhost/parse/ParserExpr.eat",
+                         "selfhost/check/Check.eat", "selfhost/check/CheckConst.eat",
+                         "selfhost/check/CheckBody.eat", "selfhost/check/CheckDump.eat"]
 SELF_STAGES = [
-    ("SelfLex", "lex", LIB_FRONT + SELF_FRONT + ["selfhost/LexMain.eat"]),
+    ("SelfLex", "lex", LIB_FRONT + SELF_FRONT + ["selfhost/lex/LexMain.eat"]),
     ("SelfParse", "parse",
-     LIB_FRONT + SELF_FRONT + ["selfhost/Ast.eat", "selfhost/Parser.eat",
-                               "selfhost/ParseMain.eat"]),
-    ("SelfSig", "sig", LIB_FRONT + SELF_MID + ["selfhost/SigMain.eat"]),
-    ("SelfTyped", "typed", LIB_FRONT + SELF_MID + ["selfhost/TypedMain.eat"]),
+     LIB_FRONT + SELF_FRONT + ["selfhost/parse/Ast.eat", "selfhost/parse/Parser.eat",
+                               "selfhost/parse/ParserExpr.eat",
+                               "selfhost/parse/ParseMain.eat"]),
+    ("SelfSig", "sig", LIB_FRONT + SELF_MID + ["selfhost/check/SigMain.eat"]),
+    ("SelfTyped", "typed", LIB_FRONT + SELF_MID + ["selfhost/check/TypedMain.eat"]),
     ("SelfIr", "ir",
      LIB_FRONT + ["lib/Fmt.eat"] + SELF_MID +
-     ["selfhost/Ir.eat", "selfhost/IrEmit.eat", "selfhost/IrExpr.eat",
-      "selfhost/IrStmt.eat", "selfhost/IrMain.eat"]),
+     ["selfhost/ir/Ir.eat", "selfhost/ir/IrEmit.eat", "selfhost/ir/IrExpr.eat",
+      "selfhost/ir/IrStmt.eat", "selfhost/ir/IrMain.eat"]),
 ]
 
 
