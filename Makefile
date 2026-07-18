@@ -431,6 +431,21 @@ verify_selfhost_verify_all:
 # на коде программы (−32 % флеша): биткодный шим lld выбрасывает
 # __aeabi_* на разрешении символов. Тулчейн: brew install lld qemu.
 
+# --- контейнер-на-задачу (CONTAINERS_PLAN этап 1, docs/CONTAINERS.md §4)
+# Хаб — bare-репозиторий, задача — ветка task/<имя> в своём worktree и
+# контейнере; перенос — merge-commit в master хаба после зелёного полного
+# гейта в контейнере. Вся механика — containers/task.sh.
+#   make task-up NAME=имя / task-shell / task-gate / task-merge /
+#   task-down / task-sync
+
+.PHONY: task-up task-shell task-gate task-merge task-down task-sync
+
+task-up task-shell task-gate task-merge task-down:
+	@containers/task.sh $(patsubst task-%,%,$@) $(NAME)
+
+task-sync:
+	@containers/task.sh sync
+
 .PHONY: mcu mcu_run mcu_flash verify_mcu verify_mcu_blinky \
 	verify_mcu_cli verify_arm
 

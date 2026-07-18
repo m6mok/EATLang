@@ -125,6 +125,14 @@ trap и аргументы командной строки (`arg_count`/`arg_len
 | `make verify_mcu` | МК-порты (`mcu/`, трек 2): mos6502, Blinky и blinky_cli на 4 QEMU-платах байт-в-байт с эталоном; 4 прошивочных порта — сборка флагмана + автосверка §8 против RAM платы |
 | `make bench` / `bench_quick` | нагрузочное тестирование (`tests/bench/`): синтетика, стресс пределов SPEC §6, интерпретатор против бинарника |
 
+Полный гейт воспроизводим и **в контейнере** на пиннутом Linux-образе
+([docs/CONTAINERS.md](CONTAINERS.md)): разовый прогон —
+`containers/run-gate.sh <дерево>`; процесс «контейнер-на-задачу»
+(изолированная задача: ветка в bare-хабе + worktree + контейнер,
+перенос merge-commit'ом только после зелёного гейта) —
+`make task-up|task-shell|task-gate|task-merge|task-down NAME=имя`
+(CONTAINERS.md §4). Перф-эталон (`make bench*`) остаётся нативным.
+
 ## 6. Сборка языка и программ self-hosted компилятором
 
 ```sh
@@ -142,6 +150,11 @@ make run     SRC="Mod.eat Main.eat"    # запустить build/Main
 
 Бинарникам, собираемым из self-hosted IR, нужен стек 256 МБ
 (`STACK_FLAGS` в Makefile): пулы компилятора живут в кадре `main`.
+На macOS его гарантирует mach-O `-stack_size`; на Linux glibc **не**
+применяет `PT_GNU_STACK` к главному потоку, поэтому `runtime.c` сам
+поднимает мягкий `RLIMIT_STACK` до того же потолка (конструктор до
+`main`: setrlimit + ровно один re-exec, FAULTS 2026-07-18) — под
+дефолтным `ulimit -s` 8 МБ бинарники работают без ручных действий.
 
 ## 7. Структура репозитория
 

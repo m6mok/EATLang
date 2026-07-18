@@ -73,6 +73,12 @@ make verify_selfhost_verify_all # self-hosted верификатор: весь
 
 Требуются [uv](https://docs.astral.sh/uv/) и clang (для линковки бинарников).
 
+Тот же полный гейт воспроизводим в контейнере на пиннутом
+Linux-тулчейне (Podman, [docs/CONTAINERS.md](docs/CONTAINERS.md)):
+`containers/run-gate.sh <дерево>` — разовый прогон; `make task-up
+NAME=имя` → `task-merge` — изолированная задача с переносом в master
+только после зелёного гейта.
+
 ## Статус
 
 - [x] Спецификация: синтаксис, семантика, пределы ([SPEC.md](SPEC.md))
