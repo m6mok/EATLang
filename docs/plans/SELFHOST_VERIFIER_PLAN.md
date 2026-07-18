@@ -62,7 +62,7 @@
 рекурсии; всё — фиксированные пулы):
 
 - `State` (verifier.py:211) = **словари по строковым путям** (`ivs`,
-  `rels`, `nz`, `holes`; ключи `имя` / `self.поле` / `var.поле`).
+  `rels`, `nz`, `holes`; ключи `имя` / `self.поле` / `let.поле`).
   Хеш-мап нет → **интернированный пул путей** + параллельные массивы,
   `copy`/`join`/`kill` над индексами.
 - **Замыкание разностных ограничений** (`State.closure`, verifier.py:272,
@@ -111,7 +111,7 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
   join'ится `meet`. `Iv` — знаковая пара (sign, mag u64), как `ces/cem`
   в Check (единый диапазон i32…u64 без переполнения i64).
 - Пул интернированных путей (этап 1 — только простые имена; `self.поле`
-  и `var.поле` — этап 2). **Замер под пул** (риск §5): максимум
+  и `let.поле` — этап 2). **Замер под пул** (риск §5): максимум
   различимых путей в одном `State` на bootstrap-входе — **64** (кадр
   `main`), суммарно интернированных за функцию — **146**; предел пула
   на `State` выставлен 64 (курируемые кейсы — единицы путей), при
@@ -156,14 +156,14 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
   verifier.py:1587–1665), `decompose` (p ± c). Подключены в `cmp_rel`
   (резерв сравнения после интервального `cmp`) и `sub_floor`
   (floor_zero вычитания: `a − b` при `b ≤ a` не уходит ниже нуля).
-  Эмиссия рёбер — в `refine_rel` (хвост `_refine`), на `let`/`=`
+  Эмиссия рёбер — в `refine_rel` (хвост `_refine`), на `const`/`=`
   (`x = y + 1 → x == y+1`) и на `return` (`result ==` выражение).
 - Структурное равенство `expr_equal` — **явный стек `eq_a/eq_b`**
   (рекурсии нет), раскрытие `result` в выражение return (`res_expr`).
   *Упрощение:* коммутативность `+`/`*` не раскрывается (под-сравнение
   перестановки замкнуло бы граф `eq_one→…→eq_one`, правило 1) —
   расхождение только при переставленных операндах.
-- **Дотовые пути** `self.поле`/`var.поле` — пул расширен `pp_par/pp_sf`
+- **Дотовые пути** `self.поле`/`let.поле` — пул расширен `pp_par/pp_sf`
   (цепочка компонент: имя | `self` | поле-от-родителя; `result` —
   отдельный вид sf=2), `node_path` собирает цепочку явным стеком,
   `rels_kill` снимает рёбра пути. `uncast` — прозрачные касты char/u8.
@@ -181,7 +181,7 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
   2093) — конъюнкт ensures в терминах вызывающего: `map_side` — явный
   стек пост-обхода `+/-` (без рекурсии), `result→bind`, `параметр→arg`,
   `self.поле→получатель`; ветви off-off/off-iv/iv-off дают разностный
-  факт + подрезку (`refine_path_iv`). Подключено на `let x = f(...)`.
+  факт + подрезку (`refine_path_iv`). Подключено на `const x = f(...)`.
 - `contract_iv` (SPARK-граница, verifier.py:2114) в `call_user` для
   вызова через границу модуля: диапазон типа, обрезанный ensures во
   временном `$result` (кейс 33 — `a[mask(7)]` в позиции выражения).
@@ -206,15 +206,15 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
   kind 42): разрешение по типу получателя (`resolve_method`→struct.method),
   сайт requires через отложенный список (как plain-call), `contract_iv`
   cross-module с obj_path получателя. `iv_field` (kind 43): чтение
-  дотового пути `self.поле`/`var.поле` из состояния.
+  дотового пути `self.поле`/`let.поле` из состояния.
 - **Call-env метода** (`build_method_env`, эталон `_call_env` с obj_path):
   параметры ← дети 1.., `self`/`self.поле` ← снимок путей получателя
   (`snapshot_self`/`restore_self`) до сброса env.
-- **Мутирующий `var self`-метод:** kill получателя (и поддерева `p.*`,
+- **Мутирующий `let self`-метод:** kill получателя (и поддерева `p.*`,
   `kill_subtree`) ОТЛОЖЕН до `flush_requires` — иначе факты о получателе
   затрутся до счёта сайта (тот же порядок, что r-регистры в flow_let).
-- **StructLit-поля** в `flow_let` (`seed_structlit`): `let c = S{f:e}` →
-  факт `c.f = iv(e)` (до numeric-возврата — тип var'а нечисловой).
+- **StructLit-поля** в `flow_let` (`seed_structlit`): `const c = S{f:e}` →
+  факт `c.f = iv(e)` (до numeric-возврата — тип let'а нечисловой).
 - **Lockstep-счётчики** (`lockstep`, эталон `_lockstep`): безусловный
   `p = p+1` в ногу с переменной цикла — `p <= i + (v0_hi−start)` и
   `p >= i + (v0_lo−start)`; условный — только верх (кейс 20).
@@ -335,7 +335,7 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
   accel выключен при неизвестном `n` (эталон `_flow_for`) — All.eat
   `assert stats.count == LIMIT` через accel-after `v0 + n·d`.
 - **Тождество параметру (tag 2)** — `apply_param_summary` ограниченным
-  путём (const → env-путь → диапазон типа аргумента); полный `iv_eval`
+  путём (constexpr → env-путь → диапазон типа аргумента); полный `iv_eval`
   замкнул бы граф (правило 1). Эквивалентность полному `_iv` эталона
   проверена патчем эталона: 124 файла байт-в-байт. Закрыл div-safe
   через user-каст (`total / cast_i32(count)` при `requires count > 0`).
@@ -354,9 +354,9 @@ bounds/overflow/div/cast/requires/ensures/assert). Паритет и на
   регистр `ho_*` (эталон снимает `_hole` внутри `_iv`).
 - **Эффекты оценки условия ветви текут в neg-путь** (`fif_branch`
   переснимает `fsa[f]` после `eval_bool`+flush; эталон `_eval_bool(cond,
-  neg_env)` мутирует neg_env — kill var-self получателя в условии).
+  neg_env)` мутирует neg_env — kill let-self получателя в условии).
 - **`flow_assign`: значение раньше цели** (эталон `_flow_stmt`
-  AssignStmt), flush между — kill var-self из значения виден отметкам
+  AssignStmt), flush между — kill let-self из значения виден отметкам
   цели. `kill_assigned` снимает и дырку (`hk`).
 
 **Замеры пиков пулов** (максимальный вход — самоприменение) и новые

@@ -131,7 +131,7 @@ SELFHOST_VERIFIER, VERIFICATION, OPTIMIZATIONS и др.) — устареваю�
 Образец — `selfhost/Verify.eat:561-622`:
 
 ```eat
-func nk(var self, n: u32) -> u32
+func nk(let self, n: u32) -> u32
     requires n < 131072
     ensures true
 { return self.c.p.nk[n / 65536][n % 65536] }

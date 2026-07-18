@@ -142,9 +142,9 @@ write_span/close`.
 ```
 match server_listen(port_arg()) {   # port_arg тоже уезжает в lib
     Ok(s0) {
-        var s: Server = s0
+        let s: Server = s0
         loop {
-            let k: u32 = s.tick()          # accept-or-drain, один виток
+            const k: u32 = s.tick()          # accept-or-drain, один виток
             if k == PARSE_DONE {
                 s.reply(handle(s.req))      # диспетч — у пользователя
             } elif k != PARSE_MORE {
@@ -158,12 +158,12 @@ match server_listen(port_arg()) {   # port_arg тоже уезжает в lib
 ```
 
 - `func server_listen(port: u16) -> Result<Server, IoError>` — bind+listen.
-- `.tick(var self) -> u32` — один виток: если нет соединения — `accept`;
+- `.tick(let self) -> u32` — один виток: если нет соединения — `accept`;
   иначе дренаж готовых байт сквозь `req.push_byte`. Возвращает
   `PARSE_MORE` (ещё не готово / idle), `PARSE_DONE` (запрос собран,
   читай `s.req`), либо код ошибки парсера (`400/413/431`). Обрыв пира —
   внутренний `close`+advance, наружу `PARSE_MORE`.
-- `.reply(var self, w: Resp)` — `send_resp` + `close` + `served++` +
+- `.reply(let self, w: Resp)` — `send_resp` + `close` + `served++` +
   `conn=SENT`. Курсор записи внутри.
 - Хелперы-ответы (`not_found/bad_request/too_large/store_full/
   method_not_allowed/err_resp`) и `port_arg` — сюда же.
@@ -252,10 +252,10 @@ C — `requires _` вместо `requires true`: строка остаётся, 
 ### 6.6 L2c — прочий сахар (по спросу, отдельные решения)
 
 Кандидаты, каждый — свой микро-решение пользователя (§10):
-- **Вывод типа для `let`** от литерала/RHS (`let a = 10`). Касты между
+- **Вывод типа для `const`** от литерала/RHS (`const a = 10`). Касты между
   ширинами остаются явными — вывод только для очевидного RHS.
 - **`else`-форма распаковки** для «дефолт вместо проброски»
-  (`let v = parse_i32(s) else { PORT_DEFAULT }`) — закрывает `port_arg`,
+  (`const v = parse_i32(s) else { PORT_DEFAULT }`) — закрывает `port_arg`,
   где `?` не подходит (нужен дефолт, а не возврат ошибки).
 - Именованные sentinel-константы вместо `4294967295` в примерах
   (`lib/Const.NONE` уже есть — это дисциплина примеров, не язык).
@@ -348,7 +348,7 @@ C — `requires _` вместо `requires true`: строка остаётся, 
   SPEC §2/§7 (это и есть акт языкового решения). Альтернатива-компромисс:
   дефолт только для `requires true` (частый случай), `ensures` писать
   всегда, — обсудить.
-- **L2-c:** нужен ли вывод типа `let` и `else`-форма, или ограничиться
+- **L2-c:** нужен ли вывод типа `const` и `else`-форма, или ограничиться
   `?` + дефолтными контрактами.
 
 ## 11. Инварианты (какие обходы Power of 10 план НЕ открывает)
@@ -358,7 +358,7 @@ C — `requires _` вместо `requires true`: строка остаётся, 
   `match`, граф вызовов остаётся DAG.
 - **Цикла без границы нет.** Единственный `loop` — по-прежнему в `main`
   пользователя; все библиотечные циклы — `for` со статическим потолком.
-- **Глобалов нет.** `Server` — `var` в кадре `main`, как `Store` в Todo.
+- **Глобалов нет.** `Server` — `let` в кадре `main`, как `Store` в Todo.
 - **Молча отброшенного результата нет.** `?` пробрасывает `Err/None`
   явно; `unwrap` без ветки отвергнут (§7); дефолтный контракт — это
   `true`, а не отсутствие проверки.

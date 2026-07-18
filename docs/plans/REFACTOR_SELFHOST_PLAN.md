@@ -105,7 +105,7 @@ func verify_new(c: Check) -> Verify
 
 ```eat
 extend Verify {
-    func join(var self, ...) -> u32
+    func join(let self, ...) -> u32
         requires ...
         ensures ...
     { ... }
