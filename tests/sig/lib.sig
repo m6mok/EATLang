@@ -42,15 +42,18 @@ export is_digit 7:5 :: is_digit
 export is_alpha 8:5 :: is_alpha
 export is_space 9:5 :: is_space
 export digit_value 10:5 :: digit_value
-func is_digit 13:1 (b: u8) -> bool
-func is_alpha 20:1 (b: u8) -> bool
-func is_space 29:1 (b: u8) -> bool
-func digit_value 34:1 (b: u8) -> u8
-test ascii_is_digit 41:1
-test ascii_is_alpha 49:1
-test ascii_is_space 60:1
-test ascii_digit_value 71:1
-module lib/fmt/Fmt.eat 76:1
+export to_lower 11:5 :: to_lower
+func is_digit 14:1 (b: u8) -> bool
+func is_alpha 21:1 (b: u8) -> bool
+func is_space 30:1 (b: u8) -> bool
+func digit_value 35:1 (b: u8) -> u8
+func to_lower 44:1 (b: u8) -> u8
+test ascii_is_digit 52:1
+test ascii_is_alpha 60:1
+test ascii_is_space 71:1
+test ascii_digit_value 82:1
+test ascii_to_lower 88:1
+module lib/fmt/Fmt.eat 95:1
 export Dec 10:5 :: Dec
 export fmt_u32 11:5 :: fmt_u32
 export fmt_u64 12:5 :: fmt_u64
@@ -660,4 +663,4 @@ import parse_i32 63:5 :: lib/fmt/Parse.eat parse_i32
 import server_listen 67:5 :: lib/http/Server.eat server_listen
 import mul_64 71:5 :: lib/core/U128.eat mul_64
 func main 74:1 ()
-stats funcs=252 structs=20 stmts=1960
+stats funcs=253 structs=20 stmts=1963

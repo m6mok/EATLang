@@ -8,6 +8,7 @@ export {
     is_alpha,
     is_space,
     digit_value,
+    to_lower,
 }
 
 func is_digit(b: u8) -> bool
@@ -36,6 +37,16 @@ func digit_value(b: u8) -> u8
     ensures result <= 9
 {
     return b - 48
+}
+
+# ASCII в нижний регистр: 'A'..'Z' → 'a'..'z', прочие байты как есть
+# (регистронезависимое сравнение имён — HTTP-заголовки, LSP-заголовки).
+func to_lower(b: u8) -> u8
+{
+    if b >= 65 and b <= 90 {
+        return b + 32
+    }
+    return b
 }
 
 test ascii_is_digit {
@@ -72,4 +83,12 @@ test ascii_digit_value {
     assert digit_value(48) == 0
     assert digit_value(57) == 9
     assert digit_value(53) == 5
+}
+
+test ascii_to_lower {
+    assert to_lower(65) == 97
+    assert to_lower(90) == 122
+    assert to_lower(97) == 97
+    assert to_lower(58) == 58
+    assert to_lower(48) == 48
 }
