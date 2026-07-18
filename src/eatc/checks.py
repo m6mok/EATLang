@@ -1,8 +1,8 @@
 """Структурные проверки Power of 10, возможные сразу после парсинга.
 
 Правило 4  — функция не длиннее 60 statements.
-Правило 5  — обязательные контракты: у функции с параметрами requires,
-             с возвращаемым значением ensures.
+Правило 5  — контракты опциональны: отсутствие клаузы ≡ `true`
+             (содержательный контракт пишется явно; SPEC §5.2).
 Пределы    — число функций в программе.
 
 Проверки, требующие типов и графа вызовов (правила 1, 2, 6, 7, 10),
@@ -112,25 +112,12 @@ def check_program(program: ast.Program, filename: str) -> dict:
                 f"функция {func.name}: {n} statements — длиннее "
                 f"{MAX_STMTS_PER_FUNC} (правило 4)",
             )
-        has_params = (
-            any(p.name != "self" for p in func.params) or func.is_method
-        )
-        if has_params and func.requires is None:
-            raise EatError(
-                getattr(func, "src_file", None) or filename,
-                func.line,
-                func.col,
-                f"функция {func.name} с параметрами обязана иметь requires; "
-                "осознанный отказ — `requires true` (правило 5)",
-            )
-        if func.ret is not None and func.ensures is None:
-            raise EatError(
-                getattr(func, "src_file", None) or filename,
-                func.line,
-                func.col,
-                f"функция {func.name} с возвращаемым значением обязана иметь "
-                "ensures; осознанный отказ — `ensures true` (правило 5)",
-            )
+        # Правило 5 (форма): контракт опционален — отсутствие клаузы ≡
+        # `requires true` / `ensures true`. Содержательный контракт
+        # пишется явно, тривиальный опускается (DX_PLAN §6.5, SPEC §5.2).
+        # Отсутствующий узел уже трактуется как `true` во всех бэкендах
+        # (codegen/interpreter guard `is not None`), поэтому здесь —
+        # ничего не требуем.
 
     structs = sum(isinstance(d, ast.StructDecl) for d in program.decls)
     tests = sum(isinstance(d, ast.TestBlock) for d in program.decls)

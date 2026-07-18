@@ -1750,36 +1750,10 @@ struct Check {
             self.fail_node(d, "функция длиннее 60 statements (правило 4)")
             return
         }
-        # правило 5: params (или метод) → requires; возврат → ensures
-        var has_req: bool = false
-        var has_ens: bool = false
-        var has_ret: bool = false
-        var has_par: bool = false
-        if self.fpc[i] > 0 or self.fown[i] != NONE {
-            has_par = true
-        }
-        var c: u32 = self.p.nfc[d / 65536][d % 65536]
-        for _ in 0..64 {
-            if c == NONE {
-                break
-            }
-            let ck: u32 = self.p.nk[c / 65536][c % 65536]
-            if ck == 8 {
-                has_ret = true
-            } elif ck == 9 {
-                has_req = true
-            } elif ck == 10 {
-                has_ens = true
-            }
-            c = self.p.nns[c / 65536][c % 65536]
-        }
-        if has_par and not has_req {
-            self.fail_node(d, "функция с параметрами обязана иметь requires (правило 5)")
-            return
-        }
-        if has_ret and not has_ens {
-            self.fail_node(d, "функция с возвращаемым значением обязана иметь ensures (правило 5)")
-        }
+        # правило 5 (форма): контракт опционален — отсутствие клаузы ≡
+        # `true` (содержательный пишется явно; SPEC §5.2, DX_PLAN §6.5).
+        # Отсутствующий узел эмиссия уже трактует как `true` — здесь
+        # ничего не требуем (зеркало src/eatc/checks.py).
     }
 
     # Число statements в поддереве функции (вид узла — инструкция).
