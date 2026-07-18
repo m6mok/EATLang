@@ -26,10 +26,18 @@ GATE='make check verify verify_suite verify_selfhost verify_bootstrap \
 # venv — В КОНТЕЙНЕРЕ, не в смонтированном дереве: у хостового `.venv`
 # llvmlite под macOS, в linux-контейнере он бы не импортировался. Makefile
 # зовёт `uv run` — та же переменная направит его на linux-venv.
+#
+# ulimit -s 262144 (256 МиБ — тот же потолок, что линковочный
+# `-Wl,-z,stacksize=268435456`): на Linux glibc НЕ применяет PT_GNU_STACK
+# к главному потоку, а пулы self-hosted компилятора живут в кадре main
+# (~85 МБ, фаза 5) — под дефолтными 8 МБ бинарники сегфолтят
+# (FAULTS 2026-07-18). runtime.c сам поднимает лимит (re-exec), но гейту
+# ставим явный ограниченный потолок: без unlimited и без лишнего
+# перезапуска каждого бинарника. Наследуется всеми потомками.
 exec podman run --rm \
     -v "$REPO":/work \
     -w /work \
     -e UV_FROZEN=1 \
     -e UV_PROJECT_ENVIRONMENT=/root/eat-venv \
     "$IMAGE" \
-    bash -c "uv sync --frozen && $GATE"
+    bash -c "ulimit -s 262144 && uv sync --frozen && $GATE"

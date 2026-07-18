@@ -23,6 +23,63 @@
 #include <time.h>
 #include <unistd.h>
 
+/* --- стек главного потока (Linux) ----------------------------------
+ * Пулы программ EATLang живут в кадре main (кучи нет — Power of 10);
+ * у self-hosted компилятора кадр ~85 МБ. Линковочный
+ * `-Wl,-z,stacksize=` (STACK_FLAGS Makefile, codegen.py) задаёт лишь
+ * сегмент PT_GNU_STACK, который glibc НЕ применяет к главному потоку
+ * (в отличие от mach-O `-stack_size`), поэтому под дефолтным
+ * `ulimit -s` 8 МБ бинарник падал SIGSEGV на входе в main
+ * (FAULTS 2026-07-18). Self-provision: конструктор до main поднимает
+ * мягкий RLIMIT_STACK до потолка 256 МиБ (= значению линковочного
+ * флага) и РОВНО ОДИН раз перезапускает процесс — лишь execve даёт
+ * ядру заложить раскладку адресного пространства (mmap-базу) под
+ * новый лимит; setrlimit без перезапуска места росту стека не
+ * гарантирует. Ограничено: один re-exec (страж EAT_STACK_REEXEC),
+ * явный потолок; при недоступности (урезан жёсткий лимит, exec
+ * провалился) тихо продолжаем с тем, что подняли. glibc зовёт
+ * функции .init_array с (argc, argv, envp) — отсюда argv для execv;
+ * до main ни ввода, ни вывода ещё не было, перезапуск невидим для
+ * семантики программы. macOS не касается (#ifdef __linux__). */
+#ifdef __linux__
+#include <sys/resource.h>
+
+#define EAT_STACK_BYTES ((rlim_t)268435456) /* 256 МиБ = stacksize линковки */
+
+__attribute__((constructor)) static void
+eat_stack_provision(int argc, char **argv, char **envp) {
+    (void)argc;
+    (void)envp;
+    struct rlimit rl;
+    if (getrlimit(RLIMIT_STACK, &rl) != 0) {
+        return;
+    }
+    if (rl.rlim_cur == RLIM_INFINITY || rl.rlim_cur >= EAT_STACK_BYTES) {
+        return;
+    }
+    if (getenv("EAT_STACK_REEXEC") != 0) {
+        return; /* уже перезапускались — второго раза не будет */
+    }
+    rlim_t want = EAT_STACK_BYTES;
+    if (rl.rlim_max != RLIM_INFINITY && rl.rlim_max < want) {
+        want = rl.rlim_max;
+    }
+    if (want <= rl.rlim_cur) {
+        return;
+    }
+    rl.rlim_cur = want;
+    if (setrlimit(RLIMIT_STACK, &rl) != 0) {
+        return;
+    }
+    if (argv == 0 || argv[0] == 0) {
+        return; /* не-glibc не передал argv — остаёмся без re-exec */
+    }
+    setenv("EAT_STACK_REEXEC", "1", 1);
+    execv("/proc/self/exe", argv);
+    /* exec не удался: живём с поднятым лимитом без гарантий раскладки */
+}
+#endif
+
 /* Байт из stdin: 0..255, при конце потока -1 (Err(Eof)).
  * fflush перед чтением нужен только диалогу с терминалом (приглашение
  * обязано дойти до пользователя); в батч-режиме (фильтр stdin -> stdout)
