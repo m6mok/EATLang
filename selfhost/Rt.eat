@@ -35,20 +35,20 @@ struct RtStr {
 
     # --- построение строки (интерполяция) ---------------------------------
 
-    func init(var self)
+    func init(let self)
         requires true
         ensures self.ln == 0
     {
         self.ln = 0
     }
 
-    func append_str(var self, o: RtStr)
+    func append_str(let self, o: RtStr)
         requires true
         ensures true
     {
         assert self.ln + o.ln <= 256
-        let base: u32 = self.ln
-        let ol: u32 = o.ln
+        const base: u32 = self.ln
+        const ol: u32 = o.ln
         for i in 0..256 {
             # единственный break: конец источника или край буфера.
             # Маска — доказательство: (base & 255) + i не переполняется,
@@ -64,7 +64,7 @@ struct RtStr {
         self.ln = base + ol
     }
 
-    func append_char(var self, c: char)
+    func append_char(let self, c: char)
         requires true
         ensures true
     {
@@ -73,7 +73,7 @@ struct RtStr {
         self.ln = self.ln + 1
     }
 
-    func append_bool(var self, b: bool)
+    func append_bool(let self, b: bool)
         requires true
         ensures true
     {
@@ -91,13 +91,13 @@ struct RtStr {
         }
     }
 
-    func append_u32(var self, v: u32)
+    func append_u32(let self, v: u32)
         requires true
         ensures true
     {
-        var tmp: [u8; 10] = [0; 10]
-        var n: u32 = 0
-        var x: u32 = v
+        let tmp: [u8; 10] = [0; 10]
+        let n: u32 = 0
+        let x: u32 = v
         for _ in 0..10 {
             if n > 0 and x == 0 {
                 break
@@ -107,7 +107,7 @@ struct RtStr {
             n = n + 1
         }
         assert self.ln + n <= 256
-        let base: u32 = self.ln
+        const base: u32 = self.ln
         for i in 0..10 {
             # маска — доказательство границ, guard в break — тело
             # без ветвлений (как в append_str)
@@ -120,7 +120,7 @@ struct RtStr {
     }
 
     # Магнитуда через (v + 1): -2147483648 выразим без переполнения.
-    func append_i32(var self, v: i32)
+    func append_i32(let self, v: i32)
         requires true
         ensures true
     {
@@ -132,13 +132,13 @@ struct RtStr {
         }
     }
 
-    func append_u64(var self, v: u64)
+    func append_u64(let self, v: u64)
         requires true
         ensures true
     {
-        var tmp: [u8; 20] = [0; 20]
-        var n: u32 = 0
-        var x: u64 = v
+        let tmp: [u8; 20] = [0; 20]
+        let n: u32 = 0
+        let x: u64 = v
         for _ in 0..20 {
             if n > 0 and x == 0 {
                 break
@@ -148,7 +148,7 @@ struct RtStr {
             n = n + 1
         }
         assert self.ln + n <= 256
-        let base: u32 = self.ln
+        const base: u32 = self.ln
         for i in 0..20 {
             # маска — доказательство границ, guard в break — тело
             # без ветвлений (как в append_u32)
@@ -161,13 +161,13 @@ struct RtStr {
     }
 
     # Магнитуда через (v + 1): -9223372036854775808 выразим без переполнения.
-    func append_i64(var self, v: i64)
+    func append_i64(let self, v: i64)
         requires true
         ensures true
     {
         if v < 0 {
             self.append_char('-')
-            let mag: i64 = 0 - (v + 1)
+            const mag: i64 = 0 - (v + 1)
             self.append_u64(u64(mag) + 1)
         } else {
             self.append_u64(u64(v))
@@ -183,9 +183,9 @@ struct RtStr {
         if self.ln != o.ln {
             return false
         }
-        let n: u32 = self.ln
-        var i: u32 = 0
-        var d: u8 = 0
+        const n: u32 = self.ln
+        let i: u32 = 0
+        let d: u8 = 0
         for _ in 0..32 {
             # группа из 8 байт: одна ветка (break) на группу вместо
             # восьми — ранний выход сохранён (урок 23-й итерации:
@@ -221,12 +221,12 @@ struct RtStr {
     # 0 — Ok (строка в self), 1 — Eof. Как fgets: EOF после прочитанных
     # байтов — обычная строка; строка длиннее 256 байт — trap.
 
-    func read_line(var self) -> u32
+    func read_line(let self) -> u32
         requires true
         ensures result <= 1
     {
         self.ln = 0
-        var st: u32 = 2
+        let st: u32 = 2
         for _ in 0..257 {
             if st != 2 {
                 break
@@ -263,7 +263,7 @@ struct RtStr {
         requires true
         ensures result <= 256
     {
-        var i: u32 = 0
+        let i: u32 = 0
         for _ in 0..256 {
             # ранний выход: конец строки или первый значимый байт
             if i >= self.ln or (self.buf[i] != 32 and self.buf[i] != 9) {
@@ -279,7 +279,7 @@ struct RtStr {
         requires true
         ensures result <= 256
     {
-        var h: u32 = self.ln
+        let h: u32 = self.ln
         for _ in 0..256 {
             # ранний выход: начало строки или значимый байт справа
             if h == 0 or (self.buf[h - 1] != 32 and self.buf[h - 1] != 9) {
@@ -294,12 +294,12 @@ struct RtStr {
         requires true
         ensures result <= 3
     {
-        var lo: u32 = self.p_lo()
-        let hi: u32 = self.p_hi()
+        let lo: u32 = self.p_lo()
+        const hi: u32 = self.p_hi()
         if lo >= hi {
             return 1
         }
-        var neg: bool = false
+        let neg: bool = false
         if self.buf[lo] == 43 or self.buf[lo] == 45 {
             neg = self.buf[lo] == 45
             lo = lo + 1
@@ -307,17 +307,17 @@ struct RtStr {
                 return 2
             }
         }
-        var mag: u32 = 0
-        var st: u32 = 0
+        let mag: u32 = 0
+        let st: u32 = 0
         for _ in 0..256 {
             if lo >= hi or st != 0 {
                 break
             }
-            let b: u8 = self.buf[lo]
+            const b: u8 = self.buf[lo]
             if b < 48 or b > 57 {
                 st = 2
             } else {
-                let d: u32 = u32(b) - 48
+                const d: u32 = u32(b) - 48
                 if mag > (4294967295 - d) / 10 {
                     st = 3
                 } else {
@@ -344,14 +344,14 @@ struct RtStr {
         if self.parse_status() != 0 {
             return 0
         }
-        var lo: u32 = self.p_lo()
-        let hi: u32 = self.p_hi()
-        var neg: bool = false
+        let lo: u32 = self.p_lo()
+        const hi: u32 = self.p_hi()
+        let neg: bool = false
         if self.buf[lo] == 43 or self.buf[lo] == 45 {
             neg = self.buf[lo] == 45
             lo = lo + 1
         }
-        var mag: u32 = 0
+        let mag: u32 = 0
         for _ in 0..256 {
             if lo >= hi {
                 break
@@ -390,7 +390,7 @@ func rt_of(a: str<16>) -> RtStr
     requires true
     ensures true
 {
-    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    let s: RtStr = RtStr { ln: 0, buf: [0; 256] }
     for i in 0..16 {
         if i < len(a) {
             s.append_char(a[i])
@@ -400,7 +400,7 @@ func rt_of(a: str<16>) -> RtStr
 }
 
 test rt_append_u32 {
-    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    let s: RtStr = RtStr { ln: 0, buf: [0; 256] }
     s.append_u32(0)
     assert s.ln == 1
     assert u32(s.buf[0]) == 48
@@ -411,7 +411,7 @@ test rt_append_u32 {
 }
 
 test rt_append_i32 {
-    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    let s: RtStr = RtStr { ln: 0, buf: [0; 256] }
     s.append_i32(-2147483648)
     assert s.eq(rt_of("-2147483648"))
     s.init()
@@ -424,7 +424,7 @@ test rt_append_i32 {
 }
 
 test rt_append_u64 {
-    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    let s: RtStr = RtStr { ln: 0, buf: [0; 256] }
     s.append_u64(0)
     assert s.ln == 1
     assert u32(s.buf[0]) == 48
@@ -435,7 +435,7 @@ test rt_append_u64 {
 }
 
 test rt_append_i64 {
-    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    let s: RtStr = RtStr { ln: 0, buf: [0; 256] }
     s.append_i64(-9223372036854775808)
     assert s.ln == 20
     assert u32(s.buf[0]) == 45
@@ -452,12 +452,12 @@ test rt_append_i64 {
 }
 
 test rt_append_misc {
-    var s: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    let s: RtStr = RtStr { ln: 0, buf: [0; 256] }
     s.append_bool(true)
     s.append_char(',')
     s.append_bool(false)
     assert s.eq(rt_of("true,false"))
-    var t: RtStr = rt_of("ab")
+    let t: RtStr = rt_of("ab")
     t.append_str(rt_of("cd"))
     assert t.eq(rt_of("abcd"))
     assert not t.eq(rt_of("abce"))

@@ -4,18 +4,18 @@
 # «плотное ∪ {NONE}» разрушается, границы dat[f] у вызывающего остаются
 # в рантайме. Доказанной остаётся только запись hx[slot] под guard'ом.
 
-const NONE: u32 = 4294967295
+constexpr NONE: u32 = 4294967295
 
 struct T {
     hx: [u32; 2048]
     dat: [u32; 1024]
     n: u32
 
-    func seed(var self, key: u32)
+    func seed(let self, key: u32)
         requires true
         ensures true
     {
-        let slot: u32 = key & 2047
+        const slot: u32 = key & 2047
         if self.n < 1024 {
             self.hx[slot] = self.n
             self.n = self.n + 1
@@ -26,14 +26,14 @@ struct T {
         requires true
         ensures true
     {
-        var f: u32 = NONE
-        var slot: u32 = key & 2047
-        var stop: bool = false
+        let f: u32 = NONE
+        let slot: u32 = key & 2047
+        let stop: bool = false
         for _ in 0..2048 {
             if stop {
                 break
             }
-            let fi: u32 = self.hx[slot]
+            const fi: u32 = self.hx[slot]
             if fi == NONE {
                 f = raw
                 stop = true
@@ -49,7 +49,7 @@ struct T {
         requires true
         ensures true
     {
-        let fi: u32 = self.lookup(key, raw)
+        const fi: u32 = self.lookup(key, raw)
         if fi != NONE {
             return self.dat[fi]
         }
@@ -58,7 +58,7 @@ struct T {
 }
 
 func main() {
-    var t: T = T { hx: [NONE; 2048], dat: [0; 1024], n: 0 }
+    let t: T = T { hx: [NONE; 2048], dat: [0; 1024], n: 0 }
     t.seed(5)
     print("{t.get(5, 7)}")
 }

@@ -86,9 +86,9 @@ class T(Enum):
 
 KEYWORDS = {
     "func": T.FUNC,
-    "let": T.LET,
-    "var": T.VAR,
-    "const": T.CONST,
+    "const": T.LET,
+    "let": T.VAR,
+    "constexpr": T.CONST,
     "struct": T.STRUCT,
     "enum": T.ENUM,
     "test": T.TEST,

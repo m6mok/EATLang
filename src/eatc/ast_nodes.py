@@ -165,11 +165,11 @@ class Block(Node):
 
 
 @dataclass
-class LetStmt(Stmt):
+class LocalDecl(Stmt):
     name: str
     type: Node
     value: Expr
-    mutable: bool  # let → False, var → True
+    mutable: bool  # const → False, let → True
 
 
 @dataclass
@@ -243,7 +243,7 @@ class DiscardStmt(Stmt):
 class Param(Node):
     name: str  # "self" у методов
     type: Node | None  # None только у self
-    mutable: bool = False  # var self — мутирующий метод
+    mutable: bool = False  # let self — мутирующий метод
 
 
 @dataclass
@@ -286,7 +286,7 @@ class EnumDecl(Node):
 
 
 @dataclass
-class ConstDecl(Node):
+class ConstexprDecl(Node):
     name: str
     type: Node
     value: Expr

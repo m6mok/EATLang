@@ -68,33 +68,33 @@ import {
 } from "lib/U128.eat"
 
 func main() {
-    let d: Dec = fmt_u32(min(42, 99))
-    let w: [u8; 16] = [0; 16]
-    let s: bool = same(w, 0, "")
-    let g: bool = is_digit(u8(48))
-    let h: char = hex_digit(10)
-    let x: bool = NONE == U32_MAX
-    var jd: JDoc = json_doc()
+    const d: Dec = fmt_u32(min(42, 99))
+    const w: [u8; 16] = [0; 16]
+    const s: bool = same(w, 0, "")
+    const g: bool = is_digit(u8(48))
+    const h: char = hex_digit(10)
+    const x: bool = NONE == U32_MAX
+    let jd: JDoc = json_doc()
     jd.load("[]")
-    let jn: u32 = jd.kind_of(0)
-    let a: bool = false
+    const jn: u32 = jd.kind_of(0)
+    const a: bool = false
     match get(0) {
         Ok(_) { a = true }
         Err(_) { a = false }
     }
-    let fv: i32 = q16(1).v
-    let uv: u64 = mul_64(6, 7).lo64()
-    let p: bool = ready(Poll.Pending)
-    var tm: Timer = Timer { next: 0 }
-    var fired: bool = false
+    const fv: i32 = q16(1).v
+    const uv: u64 = mul_64(6, 7).lo64()
+    const p: bool = ready(Poll.Pending)
+    let tm: Timer = Timer { next: 0 }
+    let fired: bool = false
     match tm.fire(1) {
         Some(_) { fired = true }
         None {}
     }
-    var db: Debounce = Debounce { stable: 0, cand: 0, held: 0 }
-    let edge: bool = db.sample(1, 1)
-    var hr: Req = req_new()
-    let hst: u32 = hr.feed_line("GET / HTTP/1.1")
+    let db: Debounce = Debounce { stable: 0, cand: 0, held: 0 }
+    const edge: bool = db.sample(1, 1)
+    let hr: Req = req_new()
+    const hst: u32 = hr.feed_line("GET / HTTP/1.1")
     print("digit={g} hex={h} ln={d.ln} same={s} x={x} j={jn} a={a}")
     print("p={p} fired={fired} edge={edge} fv={fv} uv={uv}")
     print("hst={hst}")

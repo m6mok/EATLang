@@ -1,5 +1,5 @@
 #! expect: bounds=2/2 overflow=1/1 requires=1/1 ensures=1/1
-# var self: метод мутирует получателя (пул + курсор). Внутри метода
+# let self: метод мутирует получателя (пул + курсор). Внутри метода
 # requires — факт; охрана на месте вызова доказывает requires,
 # факты о получателе после вызова сбрасываются (kill).
 
@@ -7,7 +7,7 @@ struct Pool {
     items: [u8; 8]
     count: u32
 
-    func push(var self, b: u8)
+    func push(let self, b: u8)
         requires self.count < 8
         ensures self.count <= 8
     {
@@ -17,7 +17,7 @@ struct Pool {
 }
 
 func main() {
-    var p: Pool = Pool { items: [0, 0, 0, 0, 0, 0, 0, 0], count: 0 }
+    let p: Pool = Pool { items: [0, 0, 0, 0, 0, 0, 0, 0], count: 0 }
     for i in 0..12 {
         if p.count < 8 {
             p.push(u8(i))

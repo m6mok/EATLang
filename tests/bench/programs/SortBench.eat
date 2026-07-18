@@ -7,7 +7,7 @@
 # честной сортировки). Базовая порция — 500 сортировок
 # (~250 000 сравнений/сдвигов); REPEAT масштабирует.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func fill(seed: u32, k: u32) -> u32
     requires seed < 65536
@@ -17,8 +17,8 @@ func fill(seed: u32, k: u32) -> u32
 }
 
 func main() {
-    var a: [u32; 32] = [0; 32]
-    var acc: u32 = 7
+    let a: [u32; 32] = [0; 32]
+    let acc: u32 = 7
     for _ in 0..REPEAT {
         for _ in 0..500 {
             for i in 0..32 {
@@ -26,10 +26,10 @@ func main() {
                 a[i] = acc
             }
             for i in 1..32 {
-                let v: u32 = a[i]
-                var j: u32 = i
+                const v: u32 = a[i]
+                let j: u32 = i
                 for _ in 0..32 {
-                    var move: bool = false
+                    let move: bool = false
                     if j > 0 {
                         if a[j - 1] > v {
                             move = true

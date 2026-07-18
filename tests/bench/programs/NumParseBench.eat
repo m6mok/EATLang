@@ -3,13 +3,13 @@
 # parse_value (parse_i32). Базовая порция — 200 000 кругов
 # «число → строка → число»; REPEAT масштабирует.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func main() {
-    var acc: u32 = 0
+    let acc: u32 = 0
     for _ in 0..REPEAT {
         for i in 0..200000 {
-            let s: str<256> = " {i} "
+            const s: str<256> = " {i} "
             match parse_i32(s) {
                 Ok(v) { acc = (acc + u32(v)) % 65536 }
                 Err(_) { acc = (acc + 1) % 65536 }

@@ -2,10 +2,10 @@
 # Базовая порция — 127 проходов по [u32; 4096] (520 192 операции);
 # REPEAT масштабирует. 127, а не 128: m^128 ≡ 1 (mod 2^16) обнуляет пул.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func main() {
-    var pool: [u32; 4096] = [0; 4096]
+    let pool: [u32; 4096] = [0; 4096]
     for _ in 0..REPEAT {
         for _ in 0..127 {
             for i in 0..4096 {
@@ -13,7 +13,7 @@ func main() {
             }
         }
     }
-    var acc: u32 = 0
+    let acc: u32 = 0
     for x in pool {
         acc = (acc * 3 + x) % 65536
     }

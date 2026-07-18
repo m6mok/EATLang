@@ -8,7 +8,7 @@ func scan(a: [u32; 8], x: u32) -> u32
     requires true
     ensures true
 {
-    var s: u32 = 0
+    let s: u32 = 0
     for i in 0..8 {
         if a[i] > x {
             break
@@ -19,6 +19,6 @@ func scan(a: [u32; 8], x: u32) -> u32
 }
 
 func main() {
-    let a: [u32; 8] = [3, 1, 4, 1, 5, 9, 2, 6]
+    const a: [u32; 8] = [3, 1, 4, 1, 5, 9, 2, 6]
     print("{scan(a, 4)}")
 }

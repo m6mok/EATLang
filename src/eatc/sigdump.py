@@ -1,12 +1,12 @@
 """Дамп деклараций и сигнатур — эталон для self-hosted фазы 3a
-(selfhost/Check.eat): таблицы collect_decls + const_eval + resolve.
+(selfhost/Check.eat): таблицы collect_decls + constexpr_eval + resolve.
 
 Формат (порядок исходника):
 
     module {путь} {l}:{c}
     import {локальное} {l}:{c} :: {путь} {публичное}
     export {публичное} {l}:{c} :: {внутреннее}
-    const {имя} {l}:{c} :: {тип} = {значение}
+    constexpr {имя} {l}:{c} :: {тип} = {значение}
     func {имя} {l}:{c} (имя: тип, ...) [-> тип]
     struct {имя} {l}:{c}
       field {имя} :: {тип}
@@ -53,18 +53,18 @@ def dump_signatures(
         raise tc.err(
             main.node, "main не принимает параметров и ничего не возвращает"
         )
-    if tc._deferred_consts:
+    if tc._deferred_constexprs:
         # comptime-константы (§5): их значения печатаются в дампе —
         # догоняем типизацию тел и фазу 3.5 (COMPTIME_PLAN §9.5);
         # программы без comptime идут прежним лёгким путём
         tc.check_bodies()
-        tc._eval_deferred_consts()
+        tc._eval_deferred_constexprs()
 
     lines: list[str] = []
     for decl in program.decls:
         pos = f"{decl.line}:{decl.col}"
-        if isinstance(decl, ast.ConstDecl):
-            ctype, value = tc.consts[decl.name]
+        if isinstance(decl, ast.ConstexprDecl):
+            ctype, value = tc.constexprs[decl.name]
             lines.append(f"const {decl.name} {pos} :: {show(ctype)} = {value}")
         elif isinstance(decl, ast.FuncDecl):
             kw = "extern" if decl.is_extern else "func"

@@ -19,16 +19,16 @@ import {
     poll_byte,
 } from "mcu/Mcu.eat"
 
-const BLINK_MS: u64 = 500
+constexpr BLINK_MS: u64 = 500
 
 func main() {
-    var blink: bool = false
-    var phase: bool = false
-    var last: u64 = systick_ms()
-    var cmds: u32 = 0
-    var quit: bool = false
+    let blink: bool = false
+    let phase: bool = false
+    let last: u64 = systick_ms()
+    let cmds: u32 = 0
+    let quit: bool = false
     # такты суперцикла: u64 — не завернётся за время жизни устройства
-    var iters: u64 = 0
+    let iters: u64 = 0
     print("blinky-cli: o/f вкл/выкл, b мигание, s статус, t мс, i такт, q выход")
     # реактивная модель (SPEC §5.1): единственный бесконечный loop
     # в main, каждая итерация тотальна, break — единственный выход
@@ -38,7 +38,7 @@ func main() {
         }
         iters = iters + 1
         # мигание — деталь платы: таймер шима, в канал не печатается
-        let now: u64 = systick_ms()
+        const now: u64 = systick_ms()
         if blink {
             if now - last >= BLINK_MS {
                 last = now

@@ -1,7 +1,7 @@
 #! expect: bounds=2/2 ensures=1/1 requires=1/1
 # SPARK-граница модулей (MODULES_PLAN §6): клиент доказывает bounds
 # только по объявленному ensures экспортированной функции — и через
-# let-связывание, и в позиции выражения (индекс). Парный негатив —
+# const-связывание, и в позиции выражения (индекс). Парный негатив —
 # 34_neg_module_mask_hidden.eat.
 #module "m.eat"
 export { mask }
@@ -16,9 +16,9 @@ func mask(x: u32) -> u32
 import { mask } from "m.eat"
 
 func main() {
-    let a: [u8; 16] = [0; 16]
-    let i: u32 = mask(4070)
-    let b: u8 = a[i]
-    let c: u8 = a[mask(7)]
+    const a: [u8; 16] = [0; 16]
+    const i: u32 = mask(4070)
+    const b: u8 = a[i]
+    const c: u8 = a[mask(7)]
     print("{b} {c}")
 }

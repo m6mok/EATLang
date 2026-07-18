@@ -4,7 +4,7 @@
 func take(s: str<8>)
     requires true
 {
-    let n: u32 = len(s)
+    const n: u32 = len(s)
     assert n <= 8
 }
 

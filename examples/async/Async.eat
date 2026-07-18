@@ -4,7 +4,7 @@
 # задачи живут на extern-шиме МК mcu/Mcu.eat).
 #
 # Идиома задачи: кадр — struct (что живёт через точку ожидания),
-# шаг — метод step(var self), «ждать нечего» — ранний return.
+# шаг — метод step(let self), «ждать нечего» — ранний return.
 # Каждый шаг тотален; вечен только сам loop в main (SPEC §5.1).
 # Словарь идиомы — lib/Async.eat (ярус 1): завершаемая задача
 # возвращает Poll, вечная молчит; дедлайны — Timer.
@@ -20,7 +20,7 @@ import {
 } from "lib/Async.eat"
 
 # период мигания в тиках: на виртуальных часах тик = виток суперцикла
-const BLINK_PERIOD: u64 = 2
+constexpr BLINK_PERIOD: u64 = 2
 
 # Задача «эхо» — завершаемая: дренирует stdin без блокировки —
 # read_byte зовётся только когда in_avail() > 0; команда q или EOF —
@@ -29,7 +29,7 @@ struct Echo {
     seen: u32
     done: bool
 
-    func step(var self) -> Poll
+    func step(let self) -> Poll
         requires true
         ensures true
     {
@@ -68,7 +68,7 @@ struct Blink {
     t: Timer
     n: u32
 
-    func step(var self)
+    func step(let self)
         requires true
         ensures true
     {
@@ -86,14 +86,14 @@ func main()
     requires true
     ensures true
 {
-    var e: Echo = Echo { seen: 0, done: false }
-    var b: Blink = Blink { t: Timer { next: 0 }, n: 0 }
+    let e: Echo = Echo { seen: 0, done: false }
+    let b: Blink = Blink { t: Timer { next: 0 }, n: 0 }
     print("async: суперцикл, задачи echo + blink")
     # реактивная модель: единственный бесконечный loop в main,
     # каждый виток — конечная композиция тотальных шагов задач;
     # порядок шагов сохранён: blink делает шаг и на витке остановки
     loop {
-        let stop: bool = ready(e.step())
+        const stop: bool = ready(e.step())
         b.step()
         if stop {
             break

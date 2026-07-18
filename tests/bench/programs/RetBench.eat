@@ -1,10 +1,10 @@
 # Нагрузочный тест: возврат агрегата из функции (слой кодогена).
 # Каждый вызов make возвращает struct через скрытый указатель во
 # временную alloca вызывающего, затем copy_into копирует её в слот
-# let-связывания (memcpy). Кандидат оптимизации — sret прямо в слот
+# const-связывания (memcpy). Кандидат оптимизации — sret прямо в слот
 # назначения без временной копии. Базовая порция — 100 000 вызовов.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 struct Pack {
     tag: u32
@@ -15,23 +15,23 @@ func make(k: u32) -> Pack
     requires true
     ensures true
 {
-    var p: Pack = Pack { tag: k & 255, buf: [0; 60] }
+    let p: Pack = Pack { tag: k & 255, buf: [0; 60] }
     p.buf[k % 60] = u8(k & 255)
     return p
 }
 
 test ret_make {
-    let p: Pack = make(7)
+    const p: Pack = make(7)
     assert p.tag == 7
     assert u32(p.buf[7]) == 7
 }
 
 func main() {
-    var acc: u32 = 0
+    let acc: u32 = 0
     for _ in 0..REPEAT {
         for k in 0..100 {
             for i in 0..1000 {
-                let p: Pack = make(i + k)
+                const p: Pack = make(i + k)
                 acc = (acc + p.tag + u32(p.buf[i % 60])) % 65536
             }
         }

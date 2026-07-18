@@ -1,9 +1,9 @@
 # Self-hosted парсер: виды узлов AST и печать их имён.
 # Коды и формат дампа совпадают с эталоном `eatc parse` (src/eatc/astdump.py).
 #
-#  0 program    1 const      2 enum       3 variant    4 struct
+#  0 program    1 constexpr      2 enum       3 variant    4 struct
 #  5 field      6 func       7 param      8 ret        9 requires
-# 10 ensures   11 test      12 block     13 let       14 assign
+# 10 ensures   11 test      12 block     13 const       14 assign
 # 15 if        16 elif      17 else      18 for       19 loop
 # 20 match     21 arm       22 return    23 break     24 assert
 # 25 exprstmt  26 discard   27 typename  28 arraytype 29 strtype
@@ -116,7 +116,7 @@ func has_pos(k: u32) -> bool
     return true
 }
 
-# Узлы с полем name= (кроме обрабатываемых особо: func, param, let, arm).
+# Узлы с полем name= (кроме обрабатываемых особо: func, param, const, arm).
 func has_name(k: u32) -> bool
     requires true
     ensures true

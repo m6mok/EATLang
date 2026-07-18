@@ -15,15 +15,15 @@ struct Str1ngs {
 }
 
 func strs() {
-    let s2: str<32> = "escape: \n \t \\ \" \' \0 конец"
-    let s3: str<8> = ""
-    let s4: str<64> = "скобки {{ не интерполяция"
-    let s5: str<32> = "число {x} и {y.z} рядом"
-    let c1: char = 'a'
-    let c2: char = '\n'
-    let c3: char = '\''
-    let c4: char = '\\'
-    let c5: char = ' '
+    const s2: str<32> = "escape: \n \t \\ \" \' \0 конец"
+    const s3: str<8> = ""
+    const s4: str<64> = "скобки {{ не интерполяция"
+    const s5: str<32> = "число {x} и {y.z} рядом"
+    const c1: char = 'a'
+    const c2: char = '\n'
+    const c3: char = '\''
+    const c4: char = '\\'
+    const c5: char = ' '
     print("кириллица в строке") # комментарий после: -> .. == != <= >=
 }
 
@@ -32,7 +32,7 @@ func multi(
     aaa: u32,
     bbb: [u32; 4]
 ) -> u32 {
-    let z: [u32; 3] = [
+    const z: [u32; 3] = [
         1,
         2,
         3
@@ -41,7 +41,7 @@ func multi(
 }
 
 func кир_идент(число: u32) { # не-ASCII идентификаторы, как у эталона
-    let итог: u32 = число + 1
+    const итог: u32 = число + 1
 }
 
 test смешанное {

@@ -1,17 +1,17 @@
-# Нагрузочный тест: конечный автомат — struct-машина с var self.
+# Нагрузочный тест: конечный автомат — struct-машина с let self.
 # Идиома selfhost (лексер/парсер — машины с явным состоянием); каждый
-# var self-вызов сегодня убивает интервальные факты получателя у
+# let self-вызов сегодня убивает интервальные факты получателя у
 # верификатора (класс «интервалы через поля struct», трек 3). Байты
 # питаются LCG от loop-carried acc. Базовая порция — 500 000 шагов.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 struct Machine {
     st: u32
     num: u32
     toks: u32
 
-    func step(var self, b: u32)
+    func step(let self, b: u32)
         requires b < 256
         ensures true
     {
@@ -32,7 +32,7 @@ struct Machine {
 }
 
 test machine_step {
-    var m: Machine = Machine { st: 0, num: 0, toks: 0 }
+    let m: Machine = Machine { st: 0, num: 0, toks: 0 }
     m.step(53)
     assert m.st == 1 and m.num == 5
     m.step(32)
@@ -40,8 +40,8 @@ test machine_step {
 }
 
 func main() {
-    var m: Machine = Machine { st: 0, num: 0, toks: 0 }
-    var acc: u32 = 7
+    let m: Machine = Machine { st: 0, num: 0, toks: 0 }
+    let acc: u32 = 7
     for _ in 0..REPEAT {
         for _ in 0..500 {
             for i in 0..1000 {

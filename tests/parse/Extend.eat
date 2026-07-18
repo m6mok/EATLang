@@ -15,9 +15,9 @@ struct Counter {
     }
 }
 
-# первый extend: var self, вызов метода из блока struct
+# первый extend: let self, вызов метода из блока struct
 extend Counter {
-    func bump(var self)
+    func bump(let self)
         requires self.n < 1000
         ensures true
     {
@@ -37,7 +37,7 @@ extend Counter {
 
 # второй extend того же struct: методы дописываются по порядку
 extend Counter {
-    func reset(var self)
+    func reset(let self)
         requires true
         ensures true
     {
@@ -62,7 +62,7 @@ extend Pair {
 }
 
 test extend_methods {
-    var c: Counter = Counter { n: 0, hi: 0 }
+    let c: Counter = Counter { n: 0, hi: 0 }
     c.bump()
     c.bump()
     assert c.get() == 2
@@ -73,8 +73,8 @@ test extend_methods {
 }
 
 func main() {
-    var c: Counter = Counter { n: 41, hi: 41 }
+    let c: Counter = Counter { n: 41, hi: 41 }
     c.bump()
-    let p: Pair = Pair { a: c.get(), b: c.doubled() / 2 }
+    const p: Pair = Pair { a: c.get(), b: c.doubled() / 2 }
     print("n={c.get()} hi={c.hi} sum={p.sum()}")
 }

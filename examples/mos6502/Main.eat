@@ -4,14 +4,14 @@
 # Отчёт: регистры, флаги NV-BDIZC и первые 16 байт страницы $0200 —
 # соглашение тест-программ: результаты пишутся в $0200.
 
-const LOAD: u32 = 1536
+constexpr LOAD: u32 = 1536
 
 # write_hex8/write_hex16 — lib/Hex.eat (модуль в списке файлов сборки)
 
 func main() {
-    var cpu: Cpu = cpu_new()
-    var nb: u32 = 0
-    var eof: bool = false
+    let cpu: Cpu = cpu_new()
+    let nb: u32 = 0
+    let eof: bool = false
     for _ in 0..63488 {
         if not eof {
             match read_byte() {

@@ -12,13 +12,13 @@ extend Verify {
     # отметки проверок: проба гипотетична, карту не трогает. Результат — в
     # rk/rls/rlm/rhs/rhm (как у iv_eval). hasp=0 ⇒ p при ⊤ (kill_assigned
     # обнуляет и его); hasp=1 ⇒ p закреплён на [pls..phm].
-    func clamp_probe(var self, rhsn: u32, body: u32, pid: u32, hasp: u32)
+    func clamp_probe(let self, rhsn: u32, body: u32, pid: u32, hasp: u32)
         requires rhsn < 131072 and body < 131072 and pid < 512
         ensures true
     {
-        var saved: St = self.env
-        let srec: u32 = self.rec_off
-        let sfail: bool = self.failed
+        let saved: St = self.env
+        const srec: u32 = self.rec_off
+        const sfail: bool = self.failed
         self.env = self.ein
         self.rec_off = 1
         self.kill_assigned(body)
@@ -52,19 +52,19 @@ extend Verify {
     # tests/verify/59). Несём лишь пути, записи которых скрыты во вложенных
     # циклах (nst): наблюдаемые линейные индукции точнее ведёт accel —
     # перекрыть их клэмпом-надмножеством было бы регрессией.
-    func clamp_carry(var self, node: u32)
+    func clamp_carry(let self, node: u32)
         requires node < 131072
         ensures true
     {
-        let body: u32 = self.nns(self.nfc(node))
+        const body: u32 = self.nns(self.nfc(node))
         self.clamp_collect(body)
-        let lvpid: u32 = self.path_intern(self.nss(node), self.nsl(node))
+        const lvpid: u32 = self.path_intern(self.nss(node), self.nsl(node))
         for i in 0..512 {
             if i >= self.cc_nd {
                 break
             }
-            let pid: u32 = self.cc_dp[i]
-            var proc: u32 = 1
+            const pid: u32 = self.cc_dp[i]
+            let proc: u32 = 1
             if pid == lvpid {
                 proc = 0
             }
@@ -76,7 +76,7 @@ extend Verify {
                     proc = 0
                 }
             }
-            var innst: u32 = 0
+            let innst: u32 = 0
             for a in 0..256 {
                 if a >= self.cc_nn or innst == 1 {
                     break
@@ -100,15 +100,15 @@ extend Verify {
     # цикла — эталон _nested_loop_paths). sd[] — флаг «внутри цикла» на
     # стеке: дети loop-узла и всё под ними несут d=1. Порядок cc_dp совпадает
     # с раздельным сбором (тот же обход), cc_nst используется по членству.
-    func clamp_collect(var self, body: u32)
+    func clamp_collect(let self, body: u32)
         requires body < 131072
         ensures true
     {
         self.cc_nd = 0
         self.cc_nn = 0
-        var st: [u32; 128] = [0; 128]
-        var sd: [u32; 128] = [0; 128]
-        var sp: u32 = 1
+        let st: [u32; 128] = [0; 128]
+        let sd: [u32; 128] = [0; 128]
+        let sp: u32 = 1
         st[0] = body
         sd[0] = 0
         for _ in 0..4096 {
@@ -116,15 +116,15 @@ extend Verify {
                 break
             }
             sp = sp - 1
-            let n: u32 = st[sp]
-            let d: u32 = sd[sp]
-            let k: u32 = self.nk(n)
+            const n: u32 = st[sp]
+            const d: u32 = sd[sp]
+            const k: u32 = self.nk(n)
             if k == 14 {
-                let tgt: u32 = self.nfc(n)
+                const tgt: u32 = self.nfc(n)
                 if d == 1 {
-                    let tp: u32 = self.target_pid(tgt)
+                    const tp: u32 = self.target_pid(tgt)
                     if tp != NONE and tp < 512 {
-                        var have: u32 = 0
+                        let have: u32 = 0
                         for a in 0..256 {
                             if a >= self.cc_nn or have == 1 {
                                 break
@@ -140,7 +140,7 @@ extend Verify {
                     }
                 }
                 if self.nk(tgt) == 37 {
-                    let pid: u32 = self.target_pid(tgt)
+                    const pid: u32 = self.target_pid(tgt)
                     if pid != NONE and pid < 512 and self.cc_nd < 512 {
                         self.cc_dp[self.cc_nd] = pid
                         self.cc_dr[self.cc_nd] = self.nns(tgt)
@@ -148,11 +148,11 @@ extend Verify {
                     }
                 }
             }
-            var cd: u32 = d
+            let cd: u32 = d
             if k == 18 or k == 19 {
                 cd = 1
             }
-            var c: u32 = self.nfc(n)
+            let c: u32 = self.nfc(n)
             for _ in 0..64 {
                 if c == NONE or sp >= 127 {
                     break
@@ -168,17 +168,17 @@ extend Verify {
     # обработать один путь-кандидат pid (эталон _clamp_carry, тело цикла по
     # p): кандидат C = объединение ⊤-проб, две ноги, применение. Определения
     # читаются из cc_dp/cc_dr (буферы за полями).
-    func clamp_one(var self, pid: u32, body: u32)
+    func clamp_one(let self, pid: u32, body: u32)
         requires pid < 512 and body < 131072
         ensures true
     {
-        var disq: u32 = 0
-        var hinit: u32 = 0
-        var frn: u32 = 0
-        var hls: u32 = 0
-        var hlm: u64 = 0
-        var hhs: u32 = 0
-        var hhm: u64 = 0
+        let disq: u32 = 0
+        let hinit: u32 = 0
+        let frn: u32 = 0
+        let hls: u32 = 0
+        let hlm: u64 = 0
+        let hhs: u32 = 0
+        let hhm: u64 = 0
         for j in 0..512 {
             if j >= self.cc_nd or disq == 1 {
                 break
@@ -230,7 +230,7 @@ extend Verify {
         self.cp_lm = hlm
         self.cp_hs = hhs
         self.cp_hm = hhm
-        var bad: u32 = 0
+        let bad: u32 = 0
         for j in 0..512 {
             if j >= self.cc_nd or bad == 1 {
                 break

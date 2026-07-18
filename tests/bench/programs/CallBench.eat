@@ -1,7 +1,7 @@
 # Нагрузочный тест: накладные расходы вызова функции.
 # Базовая порция — 500 000 вызовов листовой функции; REPEAT масштабирует.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func leaf(x: u32, i: u32) -> u32
     requires true
@@ -11,7 +11,7 @@ func leaf(x: u32, i: u32) -> u32
 }
 
 func main() {
-    var acc: u32 = 0
+    let acc: u32 = 0
     for _ in 0..REPEAT {
         for _ in 0..500 {
             for i in 0..1000 {

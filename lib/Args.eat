@@ -15,11 +15,11 @@ func get(i: u32) -> Result<str<256>, IoError>
     if i >= arg_count() {
         return Err(IoError.Eof)
     }
-    let n: u32 = arg_len(i)
+    const n: u32 = arg_len(i)
     if n > 256 {
         return Err(IoError.Fail)
     }
-    var out: str<256> = ""
+    let out: str<256> = ""
     for j in 0..256 {
         if j >= n {
             break

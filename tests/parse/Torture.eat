@@ -1,9 +1,9 @@
 # Стресс-тест парсера: краевые случаи грамматики. Файл обязан
 # парситься (сверка дампа AST), типы не проверяются.
 
-const BIG: u32 = 4294967295
-const NEG: i32 = -2147483648
-const CALC: u32 = (2 + 3) * 4 - 1 / 5 % 6
+constexpr BIG: u32 = 4294967295
+constexpr NEG: i32 = -2147483648
+constexpr CALC: u32 = (2 + 3) * 4 - 1 / 5 % 6
 
 enum Node {
     Leaf,
@@ -24,7 +24,7 @@ struct Deep {
         return self.grid[i][j]
     }
 
-    func put(var self, i: u32)
+    func put(let self, i: u32)
         requires i < 4
     {
         self.grid[i][i] = i * 2
@@ -40,12 +40,12 @@ func bit_exprs(a: u32, b: u32) -> u32
     requires a & 128 != 0 or a | b >= 1
     ensures true
 {
-    let m1: u32 = a & b | 3 ^ b & 1
-    let m2: u32 = 1 << 4 + 1
-    let m3: u32 = a << 2 >> 1
-    let m4: bool = a & 15 == b >> 2
-    let m5: u32 = (a | b) & (a ^ b)
-    var acc: u32 = m1 | m2 ^ m3
+    const m1: u32 = a & b | 3 ^ b & 1
+    const m2: u32 = 1 << 4 + 1
+    const m3: u32 = a << 2 >> 1
+    const m4: bool = a & 15 == b >> 2
+    const m5: u32 = (a | b) & (a ^ b)
+    let acc: u32 = m1 | m2 ^ m3
     if m4 {
         acc = acc & 4095
     }
@@ -56,14 +56,14 @@ func edge_exprs(a: i32, b: i32) -> i32
     requires not (a < 0) and (b > 1 or a == 0)
     ensures true
 {
-    let m1: i32 = - -5
-    let m2: i32 = -(-7)
-    let m3: i32 = -a * b
-    let m4: i32 = a + -b
-    let m5: i32 = -a.abs() - -b
-    let chain: i32 = a - b - 1 - 2
-    let logic: bool = not a < b and b <= a or a != 0
-    var acc: i32 = 0
+    const m1: i32 = - -5
+    const m2: i32 = -(-7)
+    const m3: i32 = -a * b
+    const m4: i32 = a + -b
+    const m5: i32 = -a.abs() - -b
+    const chain: i32 = a - b - 1 - 2
+    const logic: bool = not a < b and b <= a or a != 0
+    let acc: i32 = 0
     acc = m1 + m2 * m3 - m4 / (m5 % 3) + chain
     if logic {
         acc = acc + 1
@@ -72,18 +72,18 @@ func edge_exprs(a: i32, b: i32) -> i32
 }
 
 func literals() {
-    let s1: str<64> = "escape: \n\t\\\"\'\0 и {BIG} рядом {1 + 2 * 3}"
-    let s2: str<32> = "{{не интерполяция}} {CALC}"
-    let s3: str<8> = ""
-    let arr1: [u32; 3] = [1, 2, 3]
-    let arr2: [u32; 5] = [0; 5]
-    let arr3: [i32; 2] = [-1, -2]
-    let nested: [[u32; 2]; 2] = [[1, 2], [3, 4]]
-    let trail: [u32; 2] = [7, 8]
-    let ch1: char = '\''
-    let ch2: char = '\\'
-    let d: Deep = Deep { grid: [[0; 4]; 4], label: "имя", res: Ok(5), opt: None }
-    let multi: Deep = Deep {
+    const s1: str<64> = "escape: \n\t\\\"\'\0 и {BIG} рядом {1 + 2 * 3}"
+    const s2: str<32> = "{{не интерполяция}} {CALC}"
+    const s3: str<8> = ""
+    const arr1: [u32; 3] = [1, 2, 3]
+    const arr2: [u32; 5] = [0; 5]
+    const arr3: [i32; 2] = [-1, -2]
+    const nested: [[u32; 2]; 2] = [[1, 2], [3, 4]]
+    const trail: [u32; 2] = [7, 8]
+    const ch1: char = '\''
+    const ch2: char = '\\'
+    const d: Deep = Deep { grid: [[0; 4]; 4], label: "имя", res: Ok(5), opt: None }
+    const multi: Deep = Deep {
         grid: [[9; 4]; 4],
         label: "поля с переводами строк"
         res: Err("x"),
@@ -97,14 +97,14 @@ func postfix_chains(d: Deep) -> u32
     requires true
     ensures true
 {
-    let v1: u32 = d.grid[1][2] + d.get(1, 2)
-    let v2: u32 = d.get(0, 0).abs().wrapping()
-    let v3: u32 = f(g(h(1), 2), [3, 4][0], "arg {v1}")
+    const v1: u32 = d.grid[1][2] + d.get(1, 2)
+    const v2: u32 = d.get(0, 0).abs().wrapping()
+    const v3: u32 = f(g(h(1), 2), [3, 4][0], "arg {v1}")
     return v1 + v2 + v3
 }
 
 func main() {
-    var total: u32 = 0
+    let total: u32 = 0
     for i in 0..4 {
         for x in [10, 20, 30] {
             total = total + x + i
@@ -143,9 +143,9 @@ test выражения_и_границы {
 
 # 64-битные литералы: десятичный максимум, hex по 16 цифр, INT64_MIN
 func границы64(t: u64, s: i64) -> u64 {
-    let a: u64 = 18446744073709551615
-    let b: i64 = -9223372036854775808
-    let c: u64 = 0xFFFFFFFFFFFFFFFF & t | u64(s) ^ (1 << 63)
-    let arr: [u64; 2] = [0, 9223372036854775807]
+    const a: u64 = 18446744073709551615
+    const b: i64 = -9223372036854775808
+    const c: u64 = 0xFFFFFFFFFFFFFFFF & t | u64(s) ^ (1 << 63)
+    const arr: [u64; 2] = [0, 9223372036854775807]
     return a / c + arr[t % 2] - u64(b / -1)
 }

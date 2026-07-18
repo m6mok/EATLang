@@ -1,6 +1,6 @@
 # Третий пример кооперативной асинхронности (docs/plans/ASYNC_PLAN.md
 # §10, ярус 1) — витрина словаря lib/Async.eat: enum Poll, конвенция
-# step(var self) -> Poll для завершаемых задач, Timer и Debounce.
+# step(let self) -> Poll для завершаемых задач, Timer и Debounce.
 #
 # «Кнопка» приходит со stdin сырыми выборками уровня: байты 0/1 с
 # дребезгом (остальные байты — не выборки, пропускаются; q — конец).
@@ -20,9 +20,9 @@ import {
 } from "lib/Async.eat"
 
 # выборок подряд для подтверждения уровня (дребезг короче — шум)
-const HOLD: u32 = 3
+constexpr HOLD: u32 = 3
 # период пульса в тиках
-const PULSE: u64 = 6
+constexpr PULSE: u64 = 6
 
 # Завершаемая задача: кнопка. Кадр — состояние дебаунса и счётчик;
 # «ждать нечего» — Pending, конец входа — Ready (дальше идемпотентно).
@@ -31,7 +31,7 @@ struct Button {
     presses: u32
     done: bool
 
-    func step(var self) -> Poll
+    func step(let self) -> Poll
         requires true
         ensures true
     {
@@ -51,7 +51,7 @@ struct Button {
                 }
                 # только 0/1 — выборка уровня; прочее (переводы строк,
                 # пробелы форматирования входа) — не выборка
-                var lvl: u8 = 2
+                let lvl: u8 = 2
                 if b == u8('0') {
                     lvl = 0
                 }
@@ -85,7 +85,7 @@ struct Pulse {
     t: Timer
     n: u32
 
-    func step(var self)
+    func step(let self)
         requires true
         ensures true
     {
@@ -103,12 +103,12 @@ func main()
     requires true
     ensures true
 {
-    var btn: Button = Button {
+    let btn: Button = Button {
         db: Debounce { stable: 0, cand: 0, held: 0 },
         presses: 0,
         done: false,
     }
-    var pulse: Pulse = Pulse { t: Timer { next: 0 }, n: 0 }
+    let pulse: Pulse = Pulse { t: Timer { next: 0 }, n: 0 }
     print("debounce: кнопка 0/1 со stdin, подтверждение за {HOLD} выборки")
     # единственный вечный loop в main; расход Poll — одним выражением
     loop {

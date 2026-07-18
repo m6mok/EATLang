@@ -1,8 +1,8 @@
 #! expect: error=цикл в comptime-константе
-# Негатив: const -> функция -> та же const — цикл резолюции
+# Негатив: constexpr -> функция -> та же constexpr — цикл резолюции
 # (правило 1 покрывает только func -> func).
 
-const A: u32 = viaA(1)
+constexpr A: u32 = viaA(1)
 
 func viaA(x: u32) -> u32
     requires true

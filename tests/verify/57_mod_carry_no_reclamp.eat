@@ -9,7 +9,7 @@
 # `_ % K`» ложно доказал бы отсутствие переполнения.
 
 func main() {
-    var sum: u32 = 0
+    let sum: u32 = 0
     for _ in 0..8 {
         for j in 0..1000 {
             sum = sum + j

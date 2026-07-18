@@ -6,7 +6,7 @@
 # счётчика (интерполяция) — LLVM не может ни сфолдить разбор, ни
 # вынести его из цикла. Кадр Req создаётся один раз и переиспользуется
 # через Req.reset() (OPTIMIZATIONS_PLAN §8.2: без обнуления raw[8192]
-# на каждый запрос); `var` разрешён только у self — носитель кадра
+# на каждый запрос); `let` разрешён только у self — носитель кадра
 # Bench, профили — его методы. Базовая порция — 2 500 запросов
 # (5 × 500, профиль E — parse+store); REPEAT масштабирует. Драйвер (--lib):
 # lib/Http.eat импортирует lib/Fmt.eat.
@@ -17,7 +17,7 @@ import {
     HTTP_NONE,
 } from "lib/Http.eat"
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 # Мини-роутер: / -> 200, /greet/* -> 201, иначе 404.
 func route_code(r: Req) -> u32
@@ -41,7 +41,7 @@ struct Bench {
     slots: [u32; 64]
 
     # Типовой GET: параметр пути, четыре заголовка, keep-alive.
-    func profile_a(var self, k: u32) -> u32
+    func profile_a(let self, k: u32) -> u32
         requires true
         ensures true
     {
@@ -51,8 +51,8 @@ struct Bench {
         discard self.r.feed_line("User-Agent: eat-bench/1.0")
         discard self.r.feed_line("Accept: */*")
         discard self.r.feed_line("Connection: keep-alive")
-        let st: u32 = self.r.feed_line("")
-        var acc: u32 = st * 7 + self.r.nh
+        const st: u32 = self.r.feed_line("")
+        let acc: u32 = st * 7 + self.r.nh
         if self.r.method_is("GET") {
             acc = acc + route_code(self.r)
         }
@@ -65,7 +65,7 @@ struct Bench {
         if not self.r.wants_close() {
             acc = acc + 1
         }
-        let c: u32 = self.r.find_header("connection")
+        const c: u32 = self.r.find_header("connection")
         if c != HTTP_NONE {
             acc = acc + c
         }
@@ -73,7 +73,7 @@ struct Bench {
     }
 
     # POST с trace-заголовком и явным close.
-    func profile_b(var self, k: u32) -> u32
+    func profile_b(let self, k: u32) -> u32
         requires true
         ensures true
     {
@@ -82,12 +82,12 @@ struct Bench {
         discard self.r.feed_line("Content-Type: application/json")
         discard self.r.feed_line("X-Trace-Id: t-{k}")
         discard self.r.feed_line("Connection: close")
-        let st: u32 = self.r.feed_line("")
-        var acc: u32 = st * 7 + self.r.nh + route_code(self.r)
+        const st: u32 = self.r.feed_line("")
+        let acc: u32 = st * 7 + self.r.nh + route_code(self.r)
         if self.r.wants_close() {
             acc = acc + 2
         }
-        let t: u32 = self.r.find_header("x-trace-id")
+        const t: u32 = self.r.find_header("x-trace-id")
         if t != HTTP_NONE and t < 64 {
             acc = acc + self.r.hdr[t].vl
         }
@@ -95,7 +95,7 @@ struct Bench {
     }
 
     # Кривая request-line (без пробелов) — 400 от парсера.
-    func profile_c(var self, k: u32) -> u32
+    func profile_c(let self, k: u32) -> u32
         requires true
         ensures true
     {
@@ -104,14 +104,14 @@ struct Bench {
     }
 
     # HTTP/1.0 мимо маршрутов: 404 + wants_close по версии.
-    func profile_d(var self) -> u32
+    func profile_d(let self) -> u32
         requires true
         ensures true
     {
         self.r.reset()
         discard self.r.feed_line("GET /nope HTTP/1.0")
-        let st: u32 = self.r.feed_line("")
-        var acc: u32 = st * 7 + route_code(self.r)
+        const st: u32 = self.r.feed_line("")
+        let acc: u32 = st * 7 + route_code(self.r)
         if self.r.wants_close() {
             acc = acc + 3
         }
@@ -120,7 +120,7 @@ struct Bench {
 
     # Профиль E (store): PUT /todos/{id} — разбор пути + запись id в
     # bounded-пул слотов (пул переживает итерации, копит состояние).
-    func profile_e(var self, k: u32) -> u32
+    func profile_e(let self, k: u32) -> u32
         requires true
         ensures true
     {
@@ -128,17 +128,17 @@ struct Bench {
         discard self.r.feed_line("PUT /todos/{k} HTTP/1.1")
         discard self.r.feed_line("Host: bench.local")
         discard self.r.feed_line("Connection: close")
-        let st: u32 = self.r.feed_line("")
-        var acc: u32 = st * 7 + self.r.nh + route_code(self.r)
-        let slot: u32 = k % 64
+        const st: u32 = self.r.feed_line("")
+        let acc: u32 = st * 7 + self.r.nh + route_code(self.r)
+        const slot: u32 = k % 64
         self.slots[slot] = (self.slots[slot] + acc + 1) % 65536
         return acc + self.slots[slot]
     }
 }
 
 func main() {
-    var acc: u32 = 0
-    var b: Bench = Bench { r: req_new(), slots: [0; 64] }
+    let acc: u32 = 0
+    let b: Bench = Bench { r: req_new(), slots: [0; 64] }
     for _ in 0..REPEAT {
         for k in 0..500 {
             acc = (acc * 31 + b.profile_a(k)) % 65536

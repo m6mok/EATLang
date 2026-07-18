@@ -10,7 +10,7 @@ func f(a: [u8; 8], i: u32) -> Result<u8, ParseError>
 }
 
 func main() {
-    let a: [u8; 8] = [7; 8]
+    const a: [u8; 8] = [7; 8]
     match f(a, 3) {
         Ok(v) { print("{v}") }
         Err(_) { print("err") }

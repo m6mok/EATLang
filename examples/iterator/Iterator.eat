@@ -4,7 +4,7 @@
 # времени компиляции, число итераций известно до запуска.
 
 func main() {
-    var count: u32 = 3
+    let count: u32 = 3
     for _ in 0..3 {
         print("Countdown: {count}")
         count = count - 1

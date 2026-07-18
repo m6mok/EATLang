@@ -40,22 +40,22 @@ func dist_sq(p: Point, q: Point) -> i32
     requires true
     ensures result >= 0
 {
-    let dx: i32 = p.x - q.x
-    let dy: i32 = p.y - q.y
+    const dx: i32 = p.x - q.x
+    const dy: i32 = p.y - q.y
     return dx * dx + dy * dy
 }
 
 test dist_sq {
-    let a: Point = Point { x: 0, y: 0 }
-    let b: Point = Point { x: 3, y: 4 }
+    const a: Point = Point { x: 0, y: 0 }
+    const b: Point = Point { x: 3, y: 4 }
     assert dist_sq(a, b) == 25
     assert dist_sq(a, a) == 0
 }
 
 func main() {
-    let p: Point = Point { x: 1, y: 2 }
-    let q: Point = Point { x: 3, y: 4 }
-    let s: Point = p.add(q)
+    const p: Point = Point { x: 1, y: 2 }
+    const q: Point = Point { x: 3, y: 4 }
+    const s: Point = p.add(q)
     print("Sum: {s.repr()}")
     print("Distance squared: {dist_sq(p, q)}")
 }

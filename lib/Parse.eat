@@ -12,8 +12,8 @@ func parse_i32(s: str<256>) -> Result<i32, ParseError>
     requires true
     ensures true
 {
-    let n: u32 = len(s)
-    var lo: u32 = 0
+    const n: u32 = len(s)
+    let lo: u32 = 0
     for _ in 0..256 {
         # обрезка слева: конец строки или первый значимый байт
         if lo >= n or (u8(s[lo]) != 32 and u8(s[lo]) != 9) {
@@ -21,7 +21,7 @@ func parse_i32(s: str<256>) -> Result<i32, ParseError>
         }
         lo = lo + 1
     }
-    var hi: u32 = n
+    let hi: u32 = n
     for _ in 0..256 {
         # обрезка справа: начало строки или значимый байт
         if hi == 0 or (u8(s[hi - 1]) != 32 and u8(s[hi - 1]) != 9) {
@@ -32,8 +32,8 @@ func parse_i32(s: str<256>) -> Result<i32, ParseError>
     if lo >= hi {
         return Err(ParseError.Empty)
     }
-    var neg: bool = false
-    let c0: u8 = u8(s[lo])
+    let neg: bool = false
+    const c0: u8 = u8(s[lo])
     if c0 == 43 or c0 == 45 {
         neg = c0 == 45
         lo = lo + 1
@@ -41,18 +41,18 @@ func parse_i32(s: str<256>) -> Result<i32, ParseError>
             return Err(ParseError.BadChar)
         }
     }
-    var mag: u32 = 0
-    var st: u32 = 0
+    let mag: u32 = 0
+    let st: u32 = 0
     for _ in 0..256 {
         # один проход по цифрам: статус и магнитуда вместе
         if lo >= hi or st != 0 {
             break
         }
-        let b: u8 = u8(s[lo])
+        const b: u8 = u8(s[lo])
         if b < 48 or b > 57 {
             st = 2
         } else {
-            let d: u32 = u32(b) - 48
+            const d: u32 = u32(b) - 48
             if mag > (4294967295 - d) / 10 {
                 st = 3
             } else {

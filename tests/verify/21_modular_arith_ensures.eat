@@ -15,7 +15,7 @@ func caller(p: u32) -> u32
     requires p <= 900
     ensures true
 {
-    let next: u32 = advance(p, 5)
+    const next: u32 = advance(p, 5)
     assert next <= p + 5
     assert next <= 905
     assert next >= p + 5

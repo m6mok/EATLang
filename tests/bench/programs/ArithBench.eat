@@ -2,13 +2,13 @@
 # Базовая порция — 1 000 000 итераций; REPEAT масштабирует нагрузку
 # (раннер tests/bench/bench.py подменяет константу для нативного замера).
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func work(seed: u32) -> u32
     requires seed < 65536
     ensures true
 {
-    var acc: u32 = seed
+    let acc: u32 = seed
     for _ in 0..1000 {
         for i in 0..1000 {
             acc = (acc * 31 + i) % 65536
@@ -18,7 +18,7 @@ func work(seed: u32) -> u32
 }
 
 func main() {
-    var acc: u32 = 7
+    let acc: u32 = 7
     for _ in 0..REPEAT {
         acc = work(acc) % 65536
     }

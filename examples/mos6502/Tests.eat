@@ -4,9 +4,9 @@
 # Ожидаемые значения посчитаны вручную по спецификации 6502.
 
 test загрузки_и_флаги {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # LDA #200; LDX #5; LDY #0; BRK
-    let prog: [u32; 7] = [169, 200, 162, 5, 160, 0, 0]
+    const prog: [u32; 7] = [169, 200, 162, 5, 160, 0, 0]
     for i in 0..7 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -19,10 +19,10 @@ test загрузки_и_флаги {
 }
 
 test сохранения_адресации {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # LDA #42; STA $10; LDX #7; STX $0200; LDY #9; STY $0201;
     # STA $20,X; STA $0210,X; BRK
-    let prog: [u32; 20] = [
+    const prog: [u32; 20] = [
         169, 42, 133, 16, 162, 7, 142, 0, 2, 160, 9, 140, 1, 2, 149, 32, 157, 16, 2, 0
     ]
     for i in 0..20 { cpu.wr(1536 + u32(i), prog[i]) }
@@ -36,9 +36,9 @@ test сохранения_адресации {
 }
 
 test adc_перенос_и_переполнение {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # CLC; LDA #80; ADC #80 -> 160: V=1 N=1 C=0; BRK
-    let prog: [u32; 6] = [24, 169, 80, 105, 80, 0]
+    const prog: [u32; 6] = [24, 169, 80, 105, 80, 0]
     for i in 0..6 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -49,9 +49,9 @@ test adc_перенос_и_переполнение {
 }
 
 test adc_цепочка_переноса {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # LDA #255; SEC; ADC #0 -> 0: C=1 Z=1 V=0; BRK
-    let prog: [u32; 6] = [169, 255, 56, 105, 0, 0]
+    const prog: [u32; 6] = [169, 255, 56, 105, 0, 0]
     for i in 0..6 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -62,10 +62,10 @@ test adc_цепочка_переноса {
 }
 
 test adc_десятичный {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # SED; CLC; LDA #$15; ADC #$27 -> $42; STA $0200;
     # CLC; LDA #$99; ADC #$01 -> $00, C=1; BRK
-    let prog: [u32; 15] = [248, 24, 169, 21, 105, 39, 141, 0, 2, 24, 169, 153, 105, 1, 0]
+    const prog: [u32; 15] = [248, 24, 169, 21, 105, 39, 141, 0, 2, 24, 169, 153, 105, 1, 0]
     for i in 0..15 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -75,10 +75,10 @@ test adc_десятичный {
 }
 
 test sbc_двоичный_и_десятичный {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # SEC; LDA #$50; SBC #$30 -> $20 C=1; STA $0200;
     # SED; SEC; LDA #$42; SBC #$15 -> $27; BRK
-    let prog: [u32; 15] = [56, 169, 80, 233, 48, 141, 0, 2, 248, 56, 169, 66, 233, 21, 0]
+    const prog: [u32; 15] = [56, 169, 80, 233, 48, 141, 0, 2, 248, 56, 169, 66, 233, 21, 0]
     for i in 0..15 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -88,10 +88,10 @@ test sbc_двоичный_и_десятичный {
 }
 
 test ветвления_сумма_1_до_10 {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # LDA #0; LDX #10; loop: STX $10; CLC; ADC $10; DEX; BNE loop;
     # STA $0200; BRK  — сумма 10+9+...+1 = 55
-    let prog: [u32; 16] = [169, 0, 162, 10, 134, 16, 24, 101, 16, 202, 208, 248, 141, 0, 2, 0]
+    const prog: [u32; 16] = [169, 0, 162, 10, 134, 16, 24, 101, 16, 202, 208, 248, 141, 0, 2, 0]
     for i in 0..16 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -101,11 +101,11 @@ test ветвления_сумма_1_до_10 {
 }
 
 test сдвиги_и_rmw {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # LDA #$81; ASL A -> 2 C=1; ROL A -> 5 C=0; STA $0200;
     # LDA #3; STA $10; LSR $10 -> 1 C=1; ROR $10 -> $80 C=1;
     # INC $10 -> $81; DEC $10 -> $80; BRK
-    let prog: [u32; 20] = [
+    const prog: [u32; 20] = [
         169, 129, 10, 42, 141, 0, 2, 169, 3, 133, 16, 70, 16, 102, 16, 230, 16, 198, 16, 0
     ]
     for i in 0..20 { cpu.wr(1536 + u32(i), prog[i]) }
@@ -117,10 +117,10 @@ test сдвиги_и_rmw {
 }
 
 test подпрограмма_и_стек {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # JSR $0609; STA $0200; BRK; NOP; NOP;
     # $0609: LDA #$77; PHA; PLA; RTS
-    let prog: [u32; 14] = [32, 9, 6, 141, 0, 2, 0, 234, 234, 169, 119, 72, 104, 96]
+    const prog: [u32; 14] = [32, 9, 6, 141, 0, 2, 0, 234, 234, 169, 119, 72, 104, 96]
     for i in 0..14 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -129,10 +129,10 @@ test подпрограмма_и_стек {
 }
 
 test косвенная_адресация {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # LDX #4; LDA #$00; STA $24; LDA #$02; STA $25;  указатель $24 -> $0200
     # LDA #$5A; STA ($20,X) -> $0200; LDY #3; LDA #$11; STA ($24),Y -> $0203; BRK
-    let prog: [u32; 21] = [
+    const prog: [u32; 21] = [
         162, 4, 169, 0, 133, 36, 169, 2, 133, 37, 169, 90, 129, 32, 160, 3, 169, 17, 145, 36, 0
     ]
     for i in 0..21 { cpu.wr(1536 + u32(i), prog[i]) }
@@ -143,10 +143,10 @@ test косвенная_адресация {
 }
 
 test bit_и_сравнения {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # LDA #$C0; STA $0200; LDA #3; BIT $0200 -> N=1 V=1 Z=1;
     # LDX #5; CPX #5 -> Z=1 C=1; CPY #1 -> C=0 N=1; CLV; BRK
-    let prog: [u32; 18] = [169, 192, 141, 0, 2, 169, 3, 44, 0, 2, 162, 5, 224, 5, 192, 1, 184, 0]
+    const prog: [u32; 18] = [169, 192, 141, 0, 2, 169, 3, 44, 0, 2, 162, 5, 224, 5, 192, 1, 184, 0]
     for i in 0..18 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -157,9 +157,9 @@ test bit_и_сравнения {
 }
 
 test флаги_через_стек {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # SEC; SED; LDA #$80; PHP; CLC; CLD; LDA #1; PLP; BRK
-    let prog: [u32; 11] = [56, 248, 169, 128, 8, 24, 216, 169, 1, 40, 0]
+    const prog: [u32; 11] = [56, 248, 169, 128, 8, 24, 216, 169, 1, 40, 0]
     for i in 0..11 { cpu.wr(1536 + u32(i), prog[i]) }
     cpu.pc = 1536
     for _ in 0..400 { cpu.step() }
@@ -169,11 +169,11 @@ test флаги_через_стек {
 }
 
 test jmp_косвенный_баг_страницы {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # Вектор на границе: lo в $02FF, hi читается из $0200 (не $0300).
     # LDA #$10; STA $02FF; LDA #$06; STA $0200; JMP ($02FF) -> $0610;
     # $0610: LDA #$55; STA $0201; BRK
-    let prog: [u32; 22] = [
+    const prog: [u32; 22] = [
         169, 16, 141, 255, 2, 169, 6, 141, 0, 2, 108, 255, 2, 0, 234, 234, 169, 85, 141, 1, 2, 0
     ]
     for i in 0..22 { cpu.wr(1536 + u32(i), prog[i]) }
@@ -184,10 +184,10 @@ test jmp_косвенный_баг_страницы {
 }
 
 test умножение_сдвигами_13_на_11 {
-    var cpu: Cpu = cpu_new()
+    let cpu: Cpu = cpu_new()
     # Классика: 8x8 -> 16 бит сдвигом произведения вправо.
     # $10 = 13, $11 = 11; результат: $0200 = lo, $0201 = hi. 13*11 = 143.
-    let prog: [u32; 36] = [
+    const prog: [u32; 36] = [
         169, 13, 133, 16, 169, 11, 133, 17, 169, 0, 133, 18, 162, 8, 70, 16, 144, 3,
         24, 101, 17, 106, 102, 18, 202, 208, 243, 141, 1, 2, 165, 18, 141, 0, 2, 0
     ]

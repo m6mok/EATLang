@@ -16,8 +16,8 @@ export {
     poll_byte,
 }
 
-const LINE_LED: u32 = 0
-const LINE_BUTTON: u32 = 1
+constexpr LINE_LED: u32 = 0
+constexpr LINE_BUTTON: u32 = 1
 
 extern func gpio_set(line: u32, on: bool)
     requires line <= 1
@@ -39,7 +39,7 @@ func poll_byte() -> Option<u8>
     requires true
     ensures true
 {
-    let r: u32 = uart_poll()
+    const r: u32 = uart_poll()
     if r >= 256 {
         return None
     }

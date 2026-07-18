@@ -32,18 +32,18 @@ import {
     parse_i32,
 } from "lib/Parse.eat"
 
-const NO_CONN: u32 = 4294967295
-const SENT: u32 = 4294967295
-const PORT_DEFAULT: u32 = 8080
+constexpr NO_CONN: u32 = 4294967295
+constexpr SENT: u32 = 4294967295
+constexpr PORT_DEFAULT: u32 = 8080
 # запросов на keep-alive-соединение до принудительного close
 # (демонстрационный потолок; боевое значение — план §4: 100)
-const MAX_REQ_PER_CONN: u32 = 2
+constexpr MAX_REQ_PER_CONN: u32 = 2
 # тишина в виртуальных тиках до закрытия по idle-таймауту
-const IDLE_TICKS: u64 = 40
+constexpr IDLE_TICKS: u64 = 40
 # детерминированный останов сверки: столько закрытий — и сервер выходит
-const STOP_CONNS: u32 = 3
+constexpr STOP_CONNS: u32 = 3
 # бюджет дренажа одного шага: REQ_CAP + заголовочный запас
-const DRAIN_BUDGET: u32 = 8900
+constexpr DRAIN_BUDGET: u32 = 8900
 
 # Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
 func port_arg() -> u32
@@ -79,7 +79,7 @@ struct Conn {
 
     # Занять слот принятым соединением. Кадр Req переиспользуется
     # через reset (§8.2: без обнуления raw[8192] на соединение).
-    func open(var self, fd: u32)
+    func open(let self, fd: u32)
         requires true
         ensures true
     {
@@ -94,7 +94,7 @@ struct Conn {
     }
 
     # Закрыть соединение и вернуть слот пулу.
-    func shut(var self) -> Poll
+    func shut(let self) -> Poll
         requires true
         ensures true
     {
@@ -105,12 +105,12 @@ struct Conn {
 
     # Ответ по итогу разбора; keep-alive решают заголовки запроса и
     # потолок MAX_REQ_PER_CONN (крышка keep-alive — Connection: close).
-    func build(var self, st: u32)
+    func build(let self, st: u32)
         requires true
         ensures true
     {
         self.served = self.served + 1
-        var keep: bool = false
+        let keep: bool = false
         self.w = resp_new()
         self.sent = 0
         if st == PARSE_DONE {
@@ -134,7 +134,7 @@ struct Conn {
             self.w.header_line("Connection", "close")
         }
         if st == PARSE_DONE {
-            let t: str<64> = "req {self.served} on conn\n"
+            const t: str<64> = "req {self.served} on conn\n"
             self.w.body(t)
         } else {
             self.w.body("")
@@ -145,13 +145,13 @@ struct Conn {
 
     # Фаза чтения: дренаж готовых байтов сквозь автомат парсера;
     # тишина дольше IDLE_TICKS — закрытие по таймеру.
-    func step_read(var self) -> Poll
+    func step_read(let self) -> Poll
         requires true
         ensures true
     {
-        var st: u32 = PARSE_MORE
-        var eof: bool = false
-        var got: bool = false
+        let st: u32 = PARSE_MORE
+        let eof: bool = false
+        let got: bool = false
         for _ in 0..8900 {
             if st != PARSE_MORE or eof or socket_avail(self.fd) == 0 {
                 break
@@ -189,7 +189,7 @@ struct Conn {
 
     # Фаза отправки: неблокирующая досылка курсором (правило 7);
     # после полного ответа — либо close, либо следующий запрос.
-    func step_send(var self) -> Poll
+    func step_send(let self) -> Poll
         requires true
         ensures true
     {
@@ -201,7 +201,7 @@ struct Conn {
             if self.sent >= self.w.n {
                 break
             }
-            let took: u32 = socket_write_span(
+            const took: u32 = socket_write_span(
                 self.fd, self.w.buf, self.sent, self.w.n - self.sent)
             self.sent = self.sent + took
         }
@@ -218,7 +218,7 @@ struct Conn {
     }
 
     # Один шаг автомата соединения; после Ready шаг идемпотентен.
-    func step(var self) -> Poll
+    func step(let self) -> Poll
         requires true
         ensures true
     {
@@ -245,8 +245,8 @@ func conn_blank() -> Conn
 }
 
 func main() {
-    var lst: u32 = 0
-    var live: bool = false
+    let lst: u32 = 0
+    let live: bool = false
     match socket_listen(u16(port_arg())) {
         Ok(fd) {
             lst = fd
@@ -258,13 +258,13 @@ func main() {
     }
     if live {
         # пул — весь «heap» сервера: [Conn; MAX_CONN] в кадре main
-        var pool: [Conn; 16] = [conn_blank(); 16]
-        var closed: u32 = 0
+        let pool: [Conn; 16] = [conn_blank(); 16]
+        let closed: u32 = 0
         loop {
             # 1) принять готовое соединение в свободный слот
-            let c: u32 = socket_accept(lst)
+            const c: u32 = socket_accept(lst)
             if c != NO_CONN {
-                var placed: bool = false
+                let placed: bool = false
                 for i in 0..16 {
                     if not placed and pool[i].fd == SENT {
                         pool[i].open(c)

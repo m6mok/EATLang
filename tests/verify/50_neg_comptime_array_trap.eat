@@ -3,14 +3,14 @@
 # переполняется) — ошибка компиляции (строгая по-операционная
 # семантика = семантика бинарника, §9.1).
 
-const BAD: [u8; 4] = fill_bad()
+constexpr BAD: [u8; 4] = fill_bad()
 
 func fill_bad() -> [u8; 4]
     requires true
     ensures true
 {
-    var t: [u8; 4] = [0; 4]
-    var x: u8 = 200
+    let t: [u8; 4] = [0; 4]
+    let x: u8 = 200
     t[0] = x + 100
     return t
 }

@@ -7,34 +7,34 @@ extend Check {
     # --- константные выражения (итеративно) ---------------------------------
     # Результат — в self.ces (знак) / self.cem (величина).
 
-    func const_eval(var self, root: u32)
+    func constexpr_eval(let self, root: u32)
         requires root < 131072
         ensures true
     {
-        var s1: [u32; 32] = [0; 32]
-        var s2: [u32; 32] = [0; 32]
-        var sp: u32 = 1
+        let s1: [u32; 32] = [0; 32]
+        let s2: [u32; 32] = [0; 32]
+        let sp: u32 = 1
         s1[0] = root
         s2[0] = 0
         # стек значений
-        var vs: [u32; 32] = [0; 32]
-        var vm: [u64; 32] = [0; 32]
-        var nv: u32 = 0
+        let vs: [u32; 32] = [0; 32]
+        let vm: [u64; 32] = [0; 32]
+        let nv: u32 = 0
         for _ in 0..256 {
             if sp == 0 or self.failed {
                 break
             }
-            let f: u32 = sp - 1
-            let n: u32 = s1[f]
-            let ph: u32 = s2[f]
-            let k: u32 = self.p.nk[n / 65536][n % 65536]
+            const f: u32 = sp - 1
+            const n: u32 = s1[f]
+            const ph: u32 = s2[f]
+            const k: u32 = self.p.nk[n / 65536][n % 65536]
             if k == 32 {
                 vs[nv] = self.p.ny[n / 65536][n % 65536]
                 vm[nv] = self.p.mag(n)
                 nv = nv + 1
                 sp = f
             } elif k == 37 {
-                let ci: u32 = self.find_const(
+                const ci: u32 = self.find_constexpr(
                     self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]
                 )
                 if ci == NONE {
@@ -72,7 +72,7 @@ extend Check {
                     sp = sp + 1
                 } else {
                     nv = nv - 1
-                    self.const_binop(n, vs[nv - 1], vm[nv - 1], vs[nv], vm[nv])
+                    self.constexpr_binop(n, vs[nv - 1], vm[nv - 1], vs[nv], vm[nv])
                     vs[nv - 1] = self.ces
                     vm[nv - 1] = self.cem
                     sp = f
@@ -90,11 +90,11 @@ extend Check {
 
     # Знаковая арифметика (sign, mag); / и % — семантика floor (эталон
     # считает константы средствами Python). Результат в ces/cem.
-    func const_binop(var self, n: u32, s1: u32, m1: u64, s2: u32, m2: u64)
+    func constexpr_binop(let self, n: u32, s1: u32, m1: u64, s2: u32, m2: u64)
         requires n < 131072
         ensures true
     {
-        let op: u32 = self.p.nx[n / 65536][n % 65536]
+        const op: u32 = self.p.nx[n / 65536][n % 65536]
         if op == 10 {
             self.sadd(n, s1, m1, s2, m2)
         } elif op == 11 {
@@ -108,7 +108,7 @@ extend Check {
                 self.fail_node(n, "константа вне диапазона self-host (2^64)")
                 return
             }
-            let m: u64 = m1 * m2
+            const m: u64 = m1 * m2
             self.cem = m
             if m == 0 or s1 == s2 {
                 self.ces = 0
@@ -118,7 +118,7 @@ extend Check {
         } elif m2 == 0 {
             self.fail_node(n, "деление на ноль в константе")
         } elif op == 13 {
-            var q: u64 = m1 / m2
+            let q: u64 = m1 / m2
             if s1 != s2 and m1 % m2 != 0 {
                 q = q + 1
             }
@@ -129,7 +129,7 @@ extend Check {
                 self.ces = 1
             }
         } else {
-            let r: u64 = m1 % m2
+            const r: u64 = m1 % m2
             if r == 0 {
                 self.ces = 0
                 self.cem = 0
@@ -143,7 +143,7 @@ extend Check {
         }
     }
 
-    func sadd(var self, n: u32, s1: u32, m1: u64, s2: u32, m2: u64)
+    func sadd(let self, n: u32, s1: u32, m1: u64, s2: u32, m2: u64)
         requires n < 131072
         ensures true
     {
@@ -172,11 +172,11 @@ extend Check {
     }
 
     # Значение (sign, mag) помещается в целевой целочисленный тип?
-    func int_fits(var self, ty: u32, s: u32, m: u64) -> bool
+    func int_fits(let self, ty: u32, s: u32, m: u64) -> bool
         requires ty < 512
         ensures true
     {
-        let k: u32 = self.yk[ty]
+        const k: u32 = self.yk[ty]
         if k == 0 {
             if s == 1 {
                 return m <= 2147483648
@@ -205,11 +205,11 @@ extend Check {
     }
 
     # ==== фаза 3.5: comptime-константы (COMPTIME_PLAN §9) ================
-    # Значения const-из-вызовов вычисляются после типизации тел (nty и
-    # граф вызовов готовы). Ошибки — с координатами узла const-декларации
+    # Значения constexpr-из-вызовов вычисляются после типизации тел (nty и
+    # граф вызовов готовы). Ошибки — с координатами узла constexpr-декларации
     # (cnd[ct_ci]), тексты «comptime: …» зеркалят классы эталона.
 
-    func ct_fail(var self, m: str<128>)
+    func ct_fail(let self, m: str<128>)
         requires true
         ensures true
     {
@@ -224,7 +224,7 @@ extend Check {
     }
 
     # Спан — имя нечистого встроенного (аксиомы ОС и обёртки вывода)?
-    func ct_axiom_span(var self, a: u32, l: u32) -> bool
+    func ct_axiom_span(let self, a: u32, l: u32) -> bool
         requires true
         ensures true
     {
@@ -258,7 +258,7 @@ extend Check {
     }
 
     # Спан — имя целочисленного каста?
-    func ct_cast_span(var self, a: u32, l: u32) -> bool
+    func ct_cast_span(let self, a: u32, l: u32) -> bool
         requires true
         ensures true
     {
@@ -269,11 +269,11 @@ extend Check {
     }
 
     # Вид узла разрешён в скалярном подмножестве A1 (§9.3)?
-    func ct_scalar_nk(var self, n: u32) -> bool
+    func ct_scalar_nk(let self, n: u32) -> bool
         requires n < 131072
         ensures true
     {
-        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        const k: u32 = self.p.nk[n / 65536][n % 65536]
         if k >= 12 and k <= 18 and k != 13 {
             return true
         }
@@ -304,7 +304,7 @@ extend Check {
         if k == 28 {
             # A2: тип-массив [скаляр; N] — элемент обязан быть скалярным
             # именем типа (вложенные массивы 2D — вне яруса A)
-            let e: u32 = self.p.nfc[n / 65536][n % 65536]
+            const e: u32 = self.p.nfc[n / 65536][n % 65536]
             if self.p.nk[e / 65536][e % 65536] != 27 {
                 return false
             }
@@ -323,11 +323,11 @@ extend Check {
     # Прямые свойства функции fi: нечистые вызовы (cimp) и нескалярные
     # конструкции (cnsc) — обход всего func-узла (параметры, контракты,
     # тело). extern и методы — негодны сразу.
-    func ct_scan_func(var self, fi: u32)
+    func ct_scan_func(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        let d: u32 = self.fnd[fi]
+        const d: u32 = self.fnd[fi]
         if self.p.nk[d / 65536][d % 65536] == 50 {
             self.cimp = 1
             return
@@ -336,16 +336,16 @@ extend Check {
             self.cnsc = 1
             return
         }
-        var st: [u32; 128] = [0; 128]
-        var sp: u32 = 1
+        let st: [u32; 128] = [0; 128]
+        let sp: u32 = 1
         st[0] = d
         for _ in 0..131072 {
             if sp == 0 {
                 break
             }
             sp = sp - 1
-            let n: u32 = st[sp]
-            let k: u32 = self.p.nk[n / 65536][n % 65536]
+            const n: u32 = st[sp]
+            const k: u32 = self.p.nk[n / 65536][n % 65536]
             if k != 6 and not self.ct_scalar_nk(n) {
                 self.cnsc = 1
             } elif k == 41 and self.ct_axiom_span(
@@ -353,7 +353,7 @@ extend Check {
             ) {
                 self.cimp = 1
             } else {
-                var c: u32 = self.p.nfc[n / 65536][n % 65536]
+                let c: u32 = self.p.nfc[n / 65536][n % 65536]
                 for _ in 0..131072 {
                     if c == NONE or sp >= 128 {
                         break
@@ -370,19 +370,19 @@ extend Check {
     # Причина негодности подграфа вызовов от fi: DFS по рёбрам eg_*,
     # агрегация в cimp/cnsc (приоритет impure > nonscalar — независим
     # от порядка обхода, §9.3). cgen — поколение пометок cseen.
-    func ct_reason(var self, fi: u32)
+    func ct_reason(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        var st: [u32; 1024] = [0; 1024]
-        var sp: u32 = 1
+        let st: [u32; 1024] = [0; 1024]
+        let sp: u32 = 1
         st[0] = fi
         for _ in 0..1048576 {
             if sp == 0 {
                 break
             }
             sp = sp - 1
-            let f: u32 = st[sp]
+            const f: u32 = st[sp]
             if self.cseen[f] != self.cgen {
                 self.cseen[f] = self.cgen
                 self.ct_scan_func(f)
@@ -399,16 +399,16 @@ extend Check {
         }
     }
 
-    # Годность значения const ci: каждое имя-вызов в значении обязано
+    # Годность значения constexpr ci: каждое имя-вызов в значении обязано
     # быть годным (касты и неизвестные имена пропускаются — их судьбу
     # решает вычислитель теми же ошибками, что эталон).
-    func ct_check_elig(var self, ci: u32)
+    func ct_check_elig(let self, ci: u32)
         requires ci < 128
         ensures true
     {
-        var st: [u32; 64] = [0; 64]
-        var sp: u32 = 1
-        let d: u32 = self.cnd[ci]
+        let st: [u32; 64] = [0; 64]
+        let sp: u32 = 1
+        const d: u32 = self.cnd[ci]
         assert d != NONE
         st[0] = self.second_child(d)
         for _ in 0..131072 {
@@ -416,12 +416,12 @@ extend Check {
                 break
             }
             sp = sp - 1
-            let n: u32 = st[sp]
-            let k: u32 = self.p.nk[n / 65536][n % 65536]
+            const n: u32 = st[sp]
+            const k: u32 = self.p.nk[n / 65536][n % 65536]
             if k == 41 and not self.ct_cast_span(
                 self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]
             ) {
-                let fi: u32 = self.find_func(
+                const fi: u32 = self.find_func(
                     self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]
                 )
                 if fi != NONE {
@@ -438,7 +438,7 @@ extend Check {
                     }
                 }
             }
-            var c: u32 = self.p.nfc[n / 65536][n % 65536]
+            let c: u32 = self.p.nfc[n / 65536][n % 65536]
             for _ in 0..64 {
                 if c == NONE or sp >= 64 {
                     break
@@ -453,7 +453,7 @@ extend Check {
 
     # Драйвер фазы 3.5: годность всех отложенных (в порядке таблицы),
     # затем вычисление каждой (ленивые зависимости — инлайн машиной).
-    func comptime_pass(var self)
+    func comptime_pass(let self)
         requires true
         ensures true
     {
@@ -472,17 +472,17 @@ extend Check {
             }
             if self.cnd[ci] != NONE {
                 self.ct_ci = ci
-                self.ct_eval_const(ci)
+                self.ct_eval_constexpr(ci)
             }
         }
     }
 
     # --- машина вычислителя (§9.6): задачи work-стека ---------------------
-    # Типы задач: 0 CEXPR (const-выражение, без шагов, значения (s,m)),
+    # Типы задач: 0 CEXPR (constexpr-выражение, без шагов, значения (s,m)),
     # 1 EXPR (+1 шаг, kind-значения), 2 STMT (+1 шаг), 3 BLOCK,
-    # 4 CALLX (финиш кадра/ensures), 5 CRES (запись const), 6 REQX.
+    # 4 CALLX (финиш кадра/ensures), 5 CRES (запись constexpr), 6 REQX.
 
-    func ct_wpush(var self, t: u32, n: u32, x: u64)
+    func ct_wpush(let self, t: u32, n: u32, x: u64)
         requires true
         ensures true
     {
@@ -497,7 +497,7 @@ extend Check {
         self.ncw = self.ncw + 1
     }
 
-    func ct_vpush(var self, k: u32, u: u64, v: i64)
+    func ct_vpush(let self, k: u32, u: u64, v: i64)
         requires true
         ensures true
     {
@@ -512,7 +512,7 @@ extend Check {
     }
 
     # +1 шаг вычисления; за пределом бюджета — ошибка (§9.2).
-    func ct_step_tick(var self)
+    func ct_step_tick(let self)
         requires true
         ensures true
     {
@@ -523,7 +523,7 @@ extend Check {
     }
 
     # Магнитуда минимума знакового вида (для edge-проверок MIN/(-1)).
-    func ct_magmin(var self, ky: u32) -> u64
+    func ct_magmin(let self, ky: u32) -> u64
         requires true
         ensures true
     {
@@ -537,7 +537,7 @@ extend Check {
     }
 
     # Максимум беззнакового вида.
-    func ct_maxu(var self, ky: u32) -> u64
+    func ct_maxu(let self, ky: u32) -> u64
         requires true
         ensures true
     {
@@ -554,7 +554,7 @@ extend Check {
     }
 
     # trap «переполнение {kind}» (тексты кодогена, §9.1).
-    func ct_tovf(var self, ky: u32)
+    func ct_tovf(let self, ky: u32)
         requires true
         ensures true
     {
@@ -574,7 +574,7 @@ extend Check {
     }
 
     # trap «сдвиг ≥ ширины {kind}» (только беззнаковые).
-    func ct_tshf(var self, ky: u32)
+    func ct_tshf(let self, ky: u32)
         requires true
         ensures true
     {
@@ -590,7 +590,7 @@ extend Check {
     }
 
     # trap «переполнение при {target}()» (касты).
-    func ct_tcast(var self, ky: u32)
+    func ct_tcast(let self, ky: u32)
         requires true
         ensures true
     {
@@ -610,8 +610,8 @@ extend Check {
     }
 
     # trap точки связывания «переполнение: {v} вне {kind} [{lo}, {hi}]»
-    # (интерп-текст эталона: параметры вызова и запись const).
-    func ct_tfit(var self, s: u32, m: u64, ky: u32)
+    # (интерп-текст эталона: параметры вызова и запись constexpr).
+    func ct_tfit(let self, s: u32, m: u64, ky: u32)
         requires true
         ensures true
     {
@@ -642,8 +642,8 @@ extend Check {
                 self.ct_fail("comptime: trap: переполнение: {m} вне i32 [-2147483648, 2147483647]")
             }
         } else {
-            let lo: i64 = -9223372036854775808
-            let hi: i64 = 9223372036854775807
+            const lo: i64 = -9223372036854775808
+            const hi: i64 = 9223372036854775807
             if s == 1 {
                 self.ct_fail("comptime: trap: переполнение: -{m} вне i64 [{lo}, {hi}]")
             } else {
@@ -653,9 +653,9 @@ extend Check {
     }
 
     # D4 (SELFHOST_OPT_PLAN): общий вход машины — сброс состояния перед
-    # верхнеуровневым вычислением; используют ярус A (ct_eval_const,
+    # верхнеуровневым вычислением; используют ярус A (ct_eval_constexpr,
     # ошибка-при-fail) и свёртка -O (skip-при-fail, csoft = 1).
-    func ct_reset(var self)
+    func ct_reset(let self)
         requires true
         ensures true
     {
@@ -671,7 +671,7 @@ extend Check {
 
     # D4: общий драйвер — один ограниченный цикл; бюджет шагов
     # срабатывает раньше границы (машинных переходов ≤ 16 на шаг).
-    func ct_run(var self)
+    func ct_run(let self)
         requires true
         ensures true
     {
@@ -686,28 +686,28 @@ extend Check {
         }
     }
 
-    # Запуск машины для const ci: CRES снизу, CEXPR значения сверху.
-    func ct_eval_const(var self, ci: u32)
+    # Запуск машины для constexpr ci: CRES снизу, CEXPR значения сверху.
+    func ct_eval_constexpr(let self, ci: u32)
         requires ci < 128
         ensures true
     {
         self.ct_reset()
-        let d: u32 = self.cnd[ci] & 131071
+        const d: u32 = self.cnd[ci] & 131071
         self.crs2[ci] = 1
         self.ct_wpush(5, ci, 0)
-        let v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
+        const v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
             self.p.nfc[d / 65536][d % 65536] % 65536
         ]
         self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
         self.ct_run()
     }
 
-    func ct_step(var self)
+    func ct_step(let self)
         requires true
         ensures true
     {
-        let i: u32 = (self.ncw - 1) & 4095
-        let t: u32 = self.cw_t[i]
+        const i: u32 = (self.ncw - 1) & 4095
+        const t: u32 = self.cw_t[i]
         if t == 0 {
             self.ct_cexpr(i)
         } elif t == 1 {
@@ -725,17 +725,17 @@ extend Check {
         }
     }
 
-    # CEXPR: const-выражение (Python _const_eval_ct): значения в виде
+    # CEXPR: constexpr-выражение (Python _constexpr_eval_ct): значения в виде
     # (sign, mag) [cv_k = 99], операции фитятся к типу константы (ky в
     # cw_x), деление trunc, шаги не считаются.
-    func ct_cexpr(var self, i: u32)
+    func ct_cexpr(let self, i: u32)
         requires i < 4096
         ensures true
     {
-        let n: u32 = self.cw_n[i] & 131071
-        let ph: u32 = self.cw_p[i]
-        let ky: u32 = u32(self.cw_x[i] % 4294967296)
-        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        const n: u32 = self.cw_n[i] & 131071
+        const ph: u32 = self.cw_p[i]
+        const ky: u32 = u32(self.cw_x[i] % 4294967296)
+        const k: u32 = self.p.nk[n / 65536][n % 65536]
         if k == 32 {
             self.ct_vpush(99, self.p.mag(n), i64(self.p.ny[n / 65536][n % 65536]))
             self.ncw = i
@@ -752,11 +752,11 @@ extend Check {
         }
     }
 
-    func ct_cx_name(var self, i: u32, n: u32, ph: u32)
+    func ct_cx_name(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let ci: u32 = self.find_const(
+        const ci: u32 = self.find_constexpr(
             self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]
         )
         if ci == NONE {
@@ -771,9 +771,9 @@ extend Check {
             # ленивая резолюция: CRES + CEXPR значения, повтор фазой 1
             self.cw_p[i] = 1
             self.crs2[ci] = 1
-            let d: u32 = self.cnd[ci] & 131071
+            const d: u32 = self.cnd[ci] & 131071
             self.ct_wpush(5, ci, 0)
-            let v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
+            const v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
                 self.p.nfc[d / 65536][d % 65536] % 65536
             ]
             self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
@@ -783,7 +783,7 @@ extend Check {
         self.ncw = i
     }
 
-    func ct_cx_un(var self, i: u32, n: u32, ph: u32, ky: u32)
+    func ct_cx_un(let self, i: u32, n: u32, ph: u32, ky: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
@@ -796,7 +796,7 @@ extend Check {
             self.ct_wpush(0, self.p.nfc[n / 65536][n % 65536], u64(ky))
             return
         }
-        let j: u32 = (self.ncv - 1) & 2047
+        const j: u32 = (self.ncv - 1) & 2047
         if self.cv_u[j] != 0 {
             self.cv_i[j] = 1 - self.cv_i[j]
         }
@@ -807,11 +807,11 @@ extend Check {
         self.ncw = i
     }
 
-    func ct_cx_bin(var self, i: u32, n: u32, ph: u32, ky: u32)
+    func ct_cx_bin(let self, i: u32, n: u32, ph: u32, ky: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let op: u32 = self.p.nx[n / 65536][n % 65536]
+        const op: u32 = self.p.nx[n / 65536][n % 65536]
         if op < 10 or op > 14 {
             self.ct_fail("comptime: trap: не константа")
             return
@@ -823,16 +823,16 @@ extend Check {
         }
         if ph == 1 {
             self.cw_p[i] = 2
-            let c: u32 = self.p.nfc[n / 65536][n % 65536]
+            const c: u32 = self.p.nfc[n / 65536][n % 65536]
             self.ct_wpush(0, self.p.nns[c / 65536][c % 65536], u64(ky))
             return
         }
         self.ncv = self.ncv - 1
-        let j: u32 = (self.ncv - 1) & 2047
-        let s1: u32 = u32(self.cv_i[j])
-        let m1: u64 = self.cv_u[j]
-        let s2: u32 = u32(self.cv_i[self.ncv & 2047])
-        let m2: u64 = self.cv_u[self.ncv & 2047]
+        const j: u32 = (self.ncv - 1) & 2047
+        const s1: u32 = u32(self.cv_i[j])
+        const m1: u64 = self.cv_u[j]
+        const s2: u32 = u32(self.cv_i[self.ncv & 2047])
+        const m2: u64 = self.cv_u[self.ncv & 2047]
         self.ct_cx_arith(op, s1, m1, s2, m2)
         if not self.failed {
             self.cv_i[j] = i64(self.ces)
@@ -841,16 +841,16 @@ extend Check {
         }
     }
 
-    # Арифметика const-выражений в (sign, mag): +,-,* фитятся к типу
+    # Арифметика constexpr-выражений в (sign, mag): +,-,* фитятся к типу
     # константы (ярус A, §9.2), /,% — trunc без фита (финал — CRES);
-    # результат в ces/cem. ky берётся из типа текущей const.
-    func ct_cx_arith(var self, op: u32, s1: u32, m1: u64, s2: u32, m2: u64)
+    # результат в ces/cem. ky берётся из типа текущей constexpr.
+    func ct_cx_arith(let self, op: u32, s1: u32, m1: u64, s2: u32, m2: u64)
         requires op >= 10 and op <= 14
         ensures true
     {
-        let ky: u32 = self.yk[self.cty[self.ct_ci & 127]]
+        const ky: u32 = self.yk[self.cty[self.ct_ci & 127]]
         if op == 10 or op == 11 {
-            var t2: u32 = s2
+            let t2: u32 = s2
             if op == 11 and m2 != 0 {
                 t2 = 1 - s2
             }
@@ -874,14 +874,14 @@ extend Check {
                 and s1 == 1 and m1 == self.ct_magmin(ky) and s2 == 1 and m2 == 1) {
             self.ct_tovf(ky)
         } elif op == 13 {
-            let q: u64 = m1 / m2
+            const q: u64 = m1 / m2
             self.cem = q
             self.ces = 0
             if q != 0 and s1 != s2 {
                 self.ces = 1
             }
         } else {
-            let r: u64 = m1 % m2
+            const r: u64 = m1 % m2
             self.cem = r
             self.ces = 0
             if r != 0 {
@@ -890,7 +890,7 @@ extend Check {
         }
     }
 
-    func ct_cx_add(var self, ky: u32, s1: u32, m1: u64, s2: u32, m2: u64)
+    func ct_cx_add(let self, ky: u32, s1: u32, m1: u64, s2: u32, m2: u64)
         requires true
         ensures true
     {
@@ -918,12 +918,12 @@ extend Check {
 
     # CEXPR-вызов: каст (фаза 10) или пользовательская функция —
     # аргументы CEXPR'ами, кадр, конверсия результата в (s, m) (фаза 90).
-    func ct_cx_call(var self, i: u32, n: u32, ph: u32, ky: u32)
+    func ct_cx_call(let self, i: u32, n: u32, ph: u32, ky: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let a: u32 = self.p.nss[n / 65536][n % 65536]
-        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        const a: u32 = self.p.nss[n / 65536][n % 65536]
+        const l: u32 = self.p.nsl[n / 65536][n % 65536]
         if ph == 0 {
             if self.ct_cast_span(a, l) {
                 self.cw_p[i] = 10
@@ -939,7 +939,7 @@ extend Check {
             return
         }
         if ph == 1 {
-            let cur: u32 = u32(self.cw_x[i] % 4294967296)
+            const cur: u32 = u32(self.cw_x[i] % 4294967296)
             if cur != NONE {
                 self.cw_x[i] = (u64(ky) * 4294967296) + u64(self.p.nns[cur / 65536][cur % 65536])
                 self.ct_wpush(0, cur, u64(ky))
@@ -951,8 +951,8 @@ extend Check {
         }
         if ph == 10 {
             # каст: значение (s, m) сверяется с диапазоном типа-имени
-            let j: u32 = (self.ncv - 1) & 2047
-            let tk: u32 = self.ct_span_kind(a, l)
+            const j: u32 = (self.ncv - 1) & 2047
+            const tk: u32 = self.ct_span_kind(a, l)
             if not self.int_fits(
                 self.intern(tk, NONE, NONE, NONE, 0), u32(self.cv_i[j]), self.cv_u[j]
             ) {
@@ -963,13 +963,13 @@ extend Check {
             return
         }
         # фаза 90: результат кадра (kind-вид) -> (sign, mag)
-        let j2: u32 = (self.ncv - 1) & 2047
+        const j2: u32 = (self.ncv - 1) & 2047
         self.ct_k2sm(j2)
         self.ncw = i
     }
 
     # yk-код по спану имени скалярного типа.
-    func ct_span_kind(var self, a: u32, l: u32) -> u32
+    func ct_span_kind(let self, a: u32, l: u32) -> u32
         requires true
         ensures true
     {
@@ -992,15 +992,15 @@ extend Check {
     }
 
     # kind-значение слота j -> (sign, mag) [cv_k 99].
-    func ct_k2sm(var self, j: u32)
+    func ct_k2sm(let self, j: u32)
         requires j < 2048
         ensures true
     {
-        let k: u32 = self.cv_k[j]
+        const k: u32 = self.cv_k[j]
         if k == 0 or k == 14 {
             if self.cv_i[j] < 0 {
                 # магнитуда MIN без переполнения: -(v + 1) + 1
-                let t: i64 = 0 - (self.cv_i[j] + 1)
+                const t: i64 = 0 - (self.cv_i[j] + 1)
                 self.cv_u[j] = u64(t) + 1
                 self.cv_i[j] = 1
             } else {
@@ -1014,16 +1014,16 @@ extend Check {
     }
 
     # (sign, mag) слота j -> kind-вид ky с фитом точки связывания
-    # (интерп-текст) — параметры вызова из const-выражений.
-    func ct_sm2k(var self, j: u32, ky: u32)
+    # (интерп-текст) — параметры вызова из constexpr-выражений.
+    func ct_sm2k(let self, j: u32, ky: u32)
         requires j < 2048
         ensures true
     {
         if self.cv_k[j] != 99 {
             return
         }
-        let s: u32 = u32(self.cv_i[j])
-        let m: u64 = self.cv_u[j]
+        const s: u32 = u32(self.cv_i[j])
+        const m: u64 = self.cv_u[j]
         if not self.int_fits(self.intern(ky, NONE, NONE, NONE, 0), s, m) {
             self.ct_tfit(s, m, ky)
             return
@@ -1031,7 +1031,7 @@ extend Check {
         self.cv_k[j] = ky
         if ky == 0 or ky == 14 {
             if s == 1 {
-                let t: i64 = 0 - i64(m - 1)
+                const t: i64 = 0 - i64(m - 1)
                 self.cv_i[j] = t - 1
             } else {
                 self.cv_i[j] = i64(m)
@@ -1041,7 +1041,7 @@ extend Check {
 
     # Вход в кадр вызова fi: биндинг аргументов в локали, requires,
     # тело; fresh-бюджет на верхнеуровневом вызове (§9.2).
-    func ct_enter_frame(var self, fi: u32, from_cx: u32)
+    func ct_enter_frame(let self, fi: u32, from_cx: u32)
         requires fi < 1024
         ensures true
     {
@@ -1056,8 +1056,8 @@ extend Check {
         if self.ncg == 0 {
             self.csteps = 0
         }
-        let argc: u32 = self.fpc[fi]
-        let g: u32 = self.ncg
+        const argc: u32 = self.fpc[fi]
+        const g: u32 = self.ncg
         self.cg_f[g] = fi
         self.cg_vb[g] = self.ncv - argc
         self.cg_lb[g] = self.ncl
@@ -1068,8 +1068,8 @@ extend Check {
             if j >= argc or self.failed {
                 break
             }
-            let pj: u32 = (self.fps[fi] + j) & 1023
-            let vj: u32 = (self.cg_vb[g] + j) & 2047
+            const pj: u32 = (self.fps[fi] + j) & 1023
+            const vj: u32 = (self.cg_vb[g] + j) & 2047
             self.ct_sm2k(vj, self.yk[self.pty[pj]])
             if not self.failed {
                 self.ct_lpush(self.pn_s[pj], self.pn_l[pj], vj)
@@ -1080,17 +1080,17 @@ extend Check {
         }
         self.ncv = self.cg_vb[g]
         self.ncg = g + 1
-        let d: u32 = self.fnd[fi] & 131071
+        const d: u32 = self.fnd[fi] & 131071
         self.cg_wb[g] = self.ncw
         self.ct_wpush(4, fi, 0)
-        var c: u32 = self.p.nfc[d / 65536][d % 65536]
-        var req: u32 = NONE
-        var body: u32 = NONE
+        let c: u32 = self.p.nfc[d / 65536][d % 65536]
+        let req: u32 = NONE
+        let body: u32 = NONE
         for _ in 0..64 {
             if c == NONE {
                 break
             }
-            let ck: u32 = self.p.nk[c / 65536][c % 65536]
+            const ck: u32 = self.p.nk[c / 65536][c % 65536]
             if ck == 9 {
                 req = self.p.nfc[c / 65536][c % 65536]
             } elif ck == 12 {
@@ -1108,7 +1108,7 @@ extend Check {
     }
 
     # requires true / ensures true — тривиальный контракт (0 шагов).
-    func ct_trivial_true(var self, n: u32) -> bool
+    func ct_trivial_true(let self, n: u32) -> bool
         requires n < 131072
         ensures true
     {
@@ -1119,7 +1119,7 @@ extend Check {
     }
 
     # Локаль кадра из значения-слота vj.
-    func ct_lpush(var self, a: u32, l: u32, vj: u32)
+    func ct_lpush(let self, a: u32, l: u32, vj: u32)
         requires vj < 2048
         ensures true
     {
@@ -1127,10 +1127,10 @@ extend Check {
             self.ct_fail("comptime: превышена глубина вызовов (предел 64)")
             return
         }
-        var uu: u64 = self.cv_u[vj]
+        let uu: u64 = self.cv_u[vj]
         if self.cv_k[vj] == 7 {
-            # значение-массив на связывании (let/параметр) — глубокая копия
-            let nid: u32 = self.ct_arr_copy(u32(uu))
+            # значение-массив на связывании (const/параметр) — глубокая копия
+            const nid: u32 = self.ct_arr_copy(u32(uu))
             if self.failed {
                 return
             }
@@ -1145,7 +1145,7 @@ extend Check {
     }
 
     # REQX: значение requires вычислено — false намертво.
-    func ct_reqx(var self, i: u32)
+    func ct_reqx(let self, i: u32)
         requires i < 4096
         ensures true
     {
@@ -1159,16 +1159,16 @@ extend Check {
 
     # CALLX: финиш кадра — ensures (с локалью result), результат на
     # v-стек вызывающего, снятие кадра.
-    func ct_callx(var self, i: u32)
+    func ct_callx(let self, i: u32)
         requires i < 4096
         ensures true
     {
-        let fi: u32 = self.cw_n[i] & 1023
-        let g: u32 = (self.ncg - 1) & 63
+        const fi: u32 = self.cw_n[i] & 1023
+        const g: u32 = (self.ncg - 1) & 63
         if self.cw_p[i] == 0 {
-            let d: u32 = self.fnd[fi] & 131071
-            var ens: u32 = NONE
-            var c: u32 = self.p.nfc[d / 65536][d % 65536]
+            const d: u32 = self.fnd[fi] & 131071
+            let ens: u32 = NONE
+            let c: u32 = self.p.nfc[d / 65536][d % 65536]
             for _ in 0..64 {
                 if c == NONE {
                     break
@@ -1211,25 +1211,25 @@ extend Check {
         self.ncw = i
     }
 
-    # CRES: запись вычисленного значения в const ci (финальный фит —
+    # CRES: запись вычисленного значения в constexpr ci (финальный фит —
     # интерп-текст точки связывания).
-    func ct_cres(var self, i: u32)
+    func ct_cres(let self, i: u32)
         requires i < 4096
         ensures true
     {
-        let ci: u32 = self.cw_n[i] & 127
+        const ci: u32 = self.cw_n[i] & 127
         self.ncv = self.ncv - 1
-        let j: u32 = self.ncv & 2047
+        const j: u32 = self.ncv & 2047
         if self.yk[self.cty[ci]] == 7 {
             # A2: значение-массив -> постоянное хранилище (для Ir)
-            self.ct_store_arr_const(ci, u32(self.cv_u[j]))
+            self.ct_store_arr_constexpr(ci, u32(self.cv_u[j]))
             self.cnd[ci] = NONE
             self.crs2[ci] = 0
             self.ncw = i
             return
         }
-        let s: u32 = u32(self.cv_i[j])
-        let m: u64 = self.cv_u[j]
+        const s: u32 = u32(self.cv_i[j])
+        const m: u64 = self.cv_u[j]
         if not self.int_fits(self.cty[ci], s, m) {
             self.ct_tfit(s, m, self.yk[self.cty[ci]])
             return
@@ -1243,17 +1243,17 @@ extend Check {
 
     # A2: скопировать итоговый массив aid из транзитивной кучи в
     # постоянное хранилище констант (cca), база -> cca_bs[ci].
-    func ct_store_arr_const(var self, ci: u32, aid: u32)
+    func ct_store_arr_constexpr(let self, ci: u32, aid: u32)
         requires ci < 128
         ensures true
     {
-        let ln: u32 = self.ca_ln[aid & 511]
+        const ln: u32 = self.ca_ln[aid & 511]
         if self.ncca + ln > 4096 {
             self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
             return
         }
-        let sb: u32 = self.ca_bs[aid & 511]
-        let db: u32 = self.ncca
+        const sb: u32 = self.ca_bs[aid & 511]
+        const db: u32 = self.ncca
         self.cca_bs[ci] = db
         for q in 0..4096 {
             if q >= ln {
@@ -1267,17 +1267,17 @@ extend Check {
 
     # BLOCK: последовательность инструкций со своей базой локалей
     # (cw_x: base * 2^32 + курсор-узел).
-    func ct_block(var self, i: u32)
+    func ct_block(let self, i: u32)
         requires i < 4096
         ensures true
     {
-        let n: u32 = self.cw_n[i] & 131071
+        const n: u32 = self.cw_n[i] & 131071
         if self.cw_p[i] == 0 {
             self.cw_p[i] = 1
             self.cw_x[i] = (u64(self.ncl) * 4294967296) + u64(self.p.nfc[n / 65536][n % 65536])
             return
         }
-        let cur: u32 = u32(self.cw_x[i] % 4294967296)
+        const cur: u32 = u32(self.cw_x[i] % 4294967296)
         if cur != NONE {
             self.cw_x[i] = (self.cw_x[i] / 4294967296) * 4294967296 + u64(
                 self.p.nns[cur / 65536][cur % 65536]
@@ -1290,13 +1290,13 @@ extend Check {
     }
 
     # Поиск локали кадра по спану (сверху вниз — шэдоуинг).
-    func ct_lfind(var self, a: u32, l: u32) -> u32
+    func ct_lfind(let self, a: u32, l: u32) -> u32
         requires true
         ensures true
     {
-        let base: u32 = self.cg_lb[(self.ncg - 1) & 63]
-        var j: u32 = self.ncl
-        var found: u32 = NONE
+        const base: u32 = self.cg_lb[(self.ncg - 1) & 63]
+        let j: u32 = self.ncl
+        let found: u32 = NONE
         for _ in 0..4480 {
             if j == base or found != NONE {
                 break
@@ -1310,13 +1310,13 @@ extend Check {
     }
 
     # EXPR: выражение в теле (+1 шаг на входе, kind-значения).
-    func ct_expr(var self, i: u32)
+    func ct_expr(let self, i: u32)
         requires i < 4096
         ensures true
     {
-        let n: u32 = self.cw_n[i] & 131071
-        let ph: u32 = self.cw_p[i]
-        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        const n: u32 = self.cw_n[i] & 131071
+        const ph: u32 = self.cw_p[i]
+        const k: u32 = self.p.nk[n / 65536][n % 65536]
         if ph == 0 {
             self.ct_step_tick()
             if self.failed {
@@ -1324,15 +1324,15 @@ extend Check {
             }
         }
         if k == 32 {
-            let ky: u32 = self.yk[self.nty[n / 65536][n % 65536]]
-            let m: u64 = self.p.mag(n)
+            const ky: u32 = self.yk[self.nty[n / 65536][n % 65536]]
+            const m: u64 = self.p.mag(n)
             if ky == 0 or ky == 14 {
                 # знак литерала — в ny (парсер сворачивает минус)
                 if self.p.ny[n / 65536][n % 65536] == 1 {
                     if m == 0 {
                         self.ct_vpush(ky, 0, 0)
                     } else {
-                        let t: i64 = 0 - i64(m - 1)
+                        const t: i64 = 0 - i64(m - 1)
                         self.ct_vpush(ky, 0, t - 1)
                     }
                 } elif m > 9223372036854775807 {
@@ -1367,19 +1367,19 @@ extend Check {
         }
     }
 
-    func ct_e_name(var self, i: u32, n: u32, ph: u32)
+    func ct_e_name(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let a: u32 = self.p.nss[n / 65536][n % 65536]
-        let l: u32 = self.p.nsl[n / 65536][n % 65536]
-        let sl: u32 = self.ct_lfind(a, l)
+        const a: u32 = self.p.nss[n / 65536][n % 65536]
+        const l: u32 = self.p.nsl[n / 65536][n % 65536]
+        const sl: u32 = self.ct_lfind(a, l)
         if sl != NONE {
             self.ct_vpush(self.cl_k[sl & 4479], self.cl_u[sl & 4479], self.cl_i[sl & 4479])
             self.ncw = i
             return
         }
-        let ci: u32 = self.find_const(a, l)
+        const ci: u32 = self.find_constexpr(a, l)
         if ci == NONE {
             self.ct_fail("comptime: trap: не константа")
             return
@@ -1391,9 +1391,9 @@ extend Check {
             }
             self.cw_p[i] = 1
             self.crs2[ci] = 1
-            let d: u32 = self.cnd[ci] & 131071
+            const d: u32 = self.cnd[ci] & 131071
             self.ct_wpush(5, ci, 0)
-            let v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
+            const v: u32 = self.p.nns[self.p.nfc[d / 65536][d % 65536] / 65536][
                 self.p.nfc[d / 65536][d % 65536] % 65536
             ]
             self.ct_wpush(0, v, u64(self.yk[self.cty[ci]]))
@@ -1401,7 +1401,7 @@ extend Check {
         }
         if self.yk[self.cty[ci]] == 7 {
             # A2: массив-константа -> копия в транзитивную кучу, ref
-            let id: u32 = self.ct_arr_from_const(ci)
+            const id: u32 = self.ct_arr_from_constexpr(ci)
             if self.failed {
                 return
             }
@@ -1409,7 +1409,7 @@ extend Check {
             self.ncw = i
             return
         }
-        # значение const -> kind-вид (в диапазоне своего типа)
+        # значение constexpr -> kind-вид (в диапазоне своего типа)
         self.ct_vpush(99, self.cvm[ci], i64(self.cvs[ci]))
         self.ct_sm2k((self.ncv - 1) & 2047, self.yk[self.cty[ci]])
         self.ncw = i
@@ -1417,18 +1417,18 @@ extend Check {
 
     # A2: развернуть массив-константу ci из постоянного хранилища в
     # транзитивную кучу вычислителя -> id (ссылка на копию).
-    func ct_arr_from_const(var self, ci: u32) -> u32
+    func ct_arr_from_constexpr(let self, ci: u32) -> u32
         requires ci < 128
         ensures true
     {
-        let ty: u32 = self.cty[ci]
-        let ln: u32 = self.yb[ty]
-        let id: u32 = self.ct_arr_alloc(self.yk[self.ya[ty]], ln)
+        const ty: u32 = self.cty[ci]
+        const ln: u32 = self.yb[ty]
+        const id: u32 = self.ct_arr_alloc(self.yk[self.ya[ty]], ln)
         if id == NONE {
             return NONE
         }
-        let sb: u32 = self.cca_bs[ci & 127]
-        let db: u32 = self.ca_bs[id & 511]
+        const sb: u32 = self.cca_bs[ci & 127]
+        const db: u32 = self.ca_bs[id & 511]
         for q in 0..4096 {
             if q >= ln {
                 break
@@ -1439,12 +1439,12 @@ extend Check {
         return id
     }
 
-    func ct_e_bin(var self, i: u32, n: u32, ph: u32)
+    func ct_e_bin(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let op: u32 = self.p.nx[n / 65536][n % 65536]
-        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        const op: u32 = self.p.nx[n / 65536][n % 65536]
+        const c: u32 = self.p.nfc[n / 65536][n % 65536]
         if op == 1 or op == 2 {
             # ленивые or/and: правый — только при необходимости
             if ph == 0 {
@@ -1453,7 +1453,7 @@ extend Check {
                 return
             }
             if ph == 1 {
-                let b: u64 = self.cv_u[(self.ncv - 1) & 2047]
+                const b: u64 = self.cv_u[(self.ncv - 1) & 2047]
                 if (op == 2 and b == 0) or (op == 1 and b != 0) {
                     self.ncw = i
                     return
@@ -1484,14 +1484,14 @@ extend Check {
 
     # Бинарная операция тел над kind-значениями: [ncv-2] op [ncv-1] ->
     # [ncv-2]; сравнения дают bool.
-    func ct_e_arith(var self, op: u32)
+    func ct_e_arith(let self, op: u32)
         requires true
         ensures true
     {
         self.ncv = self.ncv - 1
-        let j: u32 = (self.ncv - 1) & 2047
-        let jr: u32 = self.ncv & 2047
-        let ky: u32 = self.cv_k[j]
+        const j: u32 = (self.ncv - 1) & 2047
+        const jr: u32 = self.ncv & 2047
+        const ky: u32 = self.cv_k[j]
         if op >= 4 and op <= 9 {
             self.ct_acmp(op, j, jr)
             return
@@ -1507,7 +1507,7 @@ extend Check {
             return
         }
         if op == 19 or op == 20 {
-            var w: u64 = 32
+            let w: u64 = 32
             if ky == 2 {
                 w = 8
             } elif ky == 12 {
@@ -1515,7 +1515,7 @@ extend Check {
             } elif ky == 13 {
                 w = 64
             }
-            let r: u64 = self.cv_u[jr]
+            const r: u64 = self.cv_u[jr]
             if r >= w {
                 self.ct_tshf(ky)
                 return
@@ -1535,15 +1535,15 @@ extend Check {
         }
     }
 
-    func ct_acmp(var self, op: u32, j: u32, jr: u32)
+    func ct_acmp(let self, op: u32, j: u32, jr: u32)
         requires j < 2048 and jr < 2048
         ensures true
     {
-        let ky: u32 = self.cv_k[j]
-        var r: bool = false
+        const ky: u32 = self.cv_k[j]
+        let r: bool = false
         if ky == 0 or ky == 14 {
-            let a: i64 = self.cv_i[j]
-            let b: i64 = self.cv_i[jr]
+            const a: i64 = self.cv_i[j]
+            const b: i64 = self.cv_i[jr]
             if op == 4 { r = a == b
             } elif op == 5 { r = a != b
             } elif op == 6 { r = a < b
@@ -1551,8 +1551,8 @@ extend Check {
             } elif op == 8 { r = a > b
             } else { r = a >= b }
         } else {
-            let c: u64 = self.cv_u[j]
-            let d: u64 = self.cv_u[jr]
+            const c: u64 = self.cv_u[j]
+            const d: u64 = self.cv_u[jr]
             if op == 4 { r = c == d
             } elif op == 5 { r = c != d
             } elif op == 6 { r = c < d
@@ -1569,13 +1569,13 @@ extend Check {
     }
 
     # Беззнаковая арифметика с пре-проверками переполнения (§9.1).
-    func ct_au(var self, op: u32, ky: u32, j: u32, jr: u32)
+    func ct_au(let self, op: u32, ky: u32, j: u32, jr: u32)
         requires j < 2048 and jr < 2048
         ensures true
     {
-        let a: u64 = self.cv_u[j]
-        let b: u64 = self.cv_u[jr]
-        let mx: u64 = self.ct_maxu(ky)
+        const a: u64 = self.cv_u[j]
+        const b: u64 = self.cv_u[jr]
+        const mx: u64 = self.ct_maxu(ky)
         if op == 10 {
             if a > mx - b {
                 self.ct_tovf(ky)
@@ -1605,18 +1605,18 @@ extend Check {
 
     # Знаковая арифметика: i32 — вычисление в i64 + проверка диапазона;
     # i64 — классические пре-проверки без выхода из i64.
-    func ct_ai(var self, op: u32, ky: u32, j: u32, jr: u32)
+    func ct_ai(let self, op: u32, ky: u32, j: u32, jr: u32)
         requires j < 2048 and jr < 2048
         ensures true
     {
-        let a: i64 = self.cv_i[j]
-        let b: i64 = self.cv_i[jr]
+        const a: i64 = self.cv_i[j]
+        const b: i64 = self.cv_i[jr]
         if op == 13 or op == 14 {
             if b == 0 {
                 self.ct_fail("comptime: trap: деление на ноль")
                 return
             }
-            var mn: i64 = -2147483648
+            let mn: i64 = -2147483648
             if ky == 14 {
                 mn = -9223372036854775808
             }
@@ -1632,7 +1632,7 @@ extend Check {
             return
         }
         if ky == 0 {
-            let r: i64 = self.ct_i32op(op, a, b)
+            const r: i64 = self.ct_i32op(op, a, b)
             if r > 2147483647 or r < -2147483648 {
                 self.ct_tovf(0)
                 return
@@ -1643,7 +1643,7 @@ extend Check {
         self.ct_i64op(op, j, a, b)
     }
 
-    func ct_i32op(var self, op: u32, a: i64, b: i64) -> i64
+    func ct_i32op(let self, op: u32, a: i64, b: i64) -> i64
         requires true
         ensures true
     {
@@ -1656,7 +1656,7 @@ extend Check {
         return a * b
     }
 
-    func ct_i64op(var self, op: u32, j: u32, a: i64, b: i64)
+    func ct_i64op(let self, op: u32, j: u32, a: i64, b: i64)
         requires j < 2048
         ensures true
     {
@@ -1693,12 +1693,12 @@ extend Check {
         }
     }
 
-    func ct_e_un(var self, i: u32, n: u32, ph: u32)
+    func ct_e_un(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let op: u32 = self.p.nx[n / 65536][n % 65536]
-        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        const op: u32 = self.p.nx[n / 65536][n % 65536]
+        const c: u32 = self.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
             if op == 15 and self.p.nk[c / 65536][c % 65536] == 32 {
                 # слитно «минус-литерал»: +1 шаг за литерал, магнитуда
@@ -1707,12 +1707,12 @@ extend Check {
                 if self.failed {
                     return
                 }
-                let ky: u32 = self.yk[self.nty[n / 65536][n % 65536]]
-                let m: u64 = self.p.mag(c)
+                const ky: u32 = self.yk[self.nty[n / 65536][n % 65536]]
+                const m: u64 = self.p.mag(c)
                 if m == 0 {
                     self.ct_vpush(ky, 0, 0)
                 } else {
-                    let t: i64 = 0 - i64(m - 1)
+                    const t: i64 = 0 - i64(m - 1)
                     self.ct_vpush(ky, 0, t - 1)
                 }
                 self.ncw = i
@@ -1722,14 +1722,14 @@ extend Check {
             self.ct_wpush(1, c, 0)
             return
         }
-        let j: u32 = (self.ncv - 1) & 2047
-        let ky2: u32 = self.cv_k[j]
+        const j: u32 = (self.ncv - 1) & 2047
+        const ky2: u32 = self.cv_k[j]
         if op == 3 {
             self.cv_u[j] = 1 - self.cv_u[j]
         } elif op == 21 {
             self.cv_u[j] = self.cv_u[j] ^ self.ct_maxu(ky2)
         } elif ky2 == 0 or ky2 == 14 {
-            var mn: i64 = -2147483648
+            let mn: i64 = -2147483648
             if ky2 == 14 {
                 mn = -9223372036854775808
             }
@@ -1737,7 +1737,7 @@ extend Check {
                 self.ct_tovf(ky2)
                 return
             }
-            let z: i64 = 0 - self.cv_i[j]
+            const z: i64 = 0 - self.cv_i[j]
             self.cv_i[j] = z
         } elif self.cv_u[j] != 0 {
             self.ct_tovf(ky2)
@@ -1746,12 +1746,12 @@ extend Check {
         self.ncw = i
     }
 
-    func ct_e_call(var self, i: u32, n: u32, ph: u32)
+    func ct_e_call(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let a: u32 = self.p.nss[n / 65536][n % 65536]
-        let l: u32 = self.p.nsl[n / 65536][n % 65536]
+        const a: u32 = self.p.nss[n / 65536][n % 65536]
+        const l: u32 = self.p.nsl[n / 65536][n % 65536]
         if ph == 0 {
             if self.ct_cast_span(a, l) {
                 self.cw_p[i] = 10
@@ -1767,7 +1767,7 @@ extend Check {
             return
         }
         if ph == 1 {
-            let cur: u32 = u32(self.cw_x[i] % 4294967296)
+            const cur: u32 = u32(self.cw_x[i] % 4294967296)
             if cur != NONE {
                 self.cw_x[i] = u64(self.p.nns[cur / 65536][cur % 65536])
                 self.ct_wpush(1, cur, 0)
@@ -1789,13 +1789,13 @@ extend Check {
 
     # Каст kind-значения к целевому виду tk: чек диапазона по
     # математическому значению, тексты кодогена.
-    func ct_e_cast(var self, j: u32, tk: u32)
+    func ct_e_cast(let self, j: u32, tk: u32)
         requires j < 2048
         ensures true
     {
-        let sk: u32 = self.cv_k[j]
+        const sk: u32 = self.cv_k[j]
         if sk == 0 or sk == 14 {
-            let v: i64 = self.cv_i[j]
+            const v: i64 = self.cv_i[j]
             if v < 0 {
                 if tk == 0 {
                     if v < -2147483648 {
@@ -1811,7 +1811,7 @@ extend Check {
             }
             self.cv_u[j] = u64(v)
         }
-        let u: u64 = self.cv_u[j]
+        const u: u64 = self.cv_u[j]
         if tk == 0 {
             if u > 2147483647 {
                 self.ct_tcast(tk)
@@ -1835,7 +1835,7 @@ extend Check {
 
     # Выделить массив (kind элемента ek, длина ln) -> id; переполнение
     # кучи -> ошибка класса «бюджет» (капасити, как SPEC §6).
-    func ct_arr_alloc(var self, ek: u32, ln: u32) -> u32
+    func ct_arr_alloc(let self, ek: u32, ln: u32) -> u32
         requires true
         ensures true
     {
@@ -1843,7 +1843,7 @@ extend Check {
             self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
             return NONE
         }
-        let id: u32 = self.nca
+        const id: u32 = self.nca
         self.ca_ek[id] = ek
         self.ca_ln[id] = ln
         self.ca_bs[id] = self.ncae
@@ -1853,18 +1853,18 @@ extend Check {
     }
 
     # Глубокая копия массива src -> новый id (значение-семантика на
-    # связывании let/параметра/присваивания целого массива).
-    func ct_arr_copy(var self, src: u32) -> u32
+    # связывании const/параметра/присваивания целого массива).
+    func ct_arr_copy(let self, src: u32) -> u32
         requires true
         ensures true
     {
-        let id: u32 = self.ct_arr_alloc(self.ca_ek[src & 511], self.ca_ln[src & 511])
+        const id: u32 = self.ct_arr_alloc(self.ca_ek[src & 511], self.ca_ln[src & 511])
         if id == NONE {
             return NONE
         }
-        let sb: u32 = self.ca_bs[src & 511]
-        let db: u32 = self.ca_bs[id & 511]
-        let ln: u32 = self.ca_ln[src & 511]
+        const sb: u32 = self.ca_bs[src & 511]
+        const db: u32 = self.ca_bs[id & 511]
+        const ln: u32 = self.ca_ln[src & 511]
         for j in 0..4096 {
             if j >= ln {
                 break
@@ -1877,11 +1877,11 @@ extend Check {
 
     # INDEX (44): obj[index]. Python — eval(obj), eval(index), проверка
     # границ, элемент. Значение-массив obj: cv_k = 7, cv_u = id.
-    func ct_e_index(var self, i: u32, n: u32, ph: u32)
+    func ct_e_index(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        const c: u32 = self.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
             self.cw_p[i] = 1
             self.ct_wpush(1, c, 0)
@@ -1892,11 +1892,11 @@ extend Check {
             self.ct_wpush(1, self.p.nns[c / 65536][c % 65536], 0)
             return
         }
-        let jx: u32 = (self.ncv - 1) & 2047
-        let jo: u32 = (self.ncv - 2) & 2047
-        let aid: u32 = u32(self.cv_u[jo])
-        var idx: i64 = self.cv_i[jx]
-        let kk: u32 = self.cv_k[jx]
+        const jx: u32 = (self.ncv - 1) & 2047
+        const jo: u32 = (self.ncv - 2) & 2047
+        const aid: u32 = u32(self.cv_u[jo])
+        let idx: i64 = self.cv_i[jx]
+        const kk: u32 = self.cv_k[jx]
         if kk != 0 and kk != 14 {
             idx = i64(self.cv_u[jx])
         }
@@ -1904,7 +1904,7 @@ extend Check {
             self.ct_fail("comptime: trap: индекс вне границ")
             return
         }
-        let sl: u32 = (self.ca_bs[aid & 511] + u32(idx)) & 4095
+        const sl: u32 = (self.ca_bs[aid & 511] + u32(idx)) & 4095
         self.ncv = self.ncv - 2
         self.ct_vpush(self.ca_ek[aid & 511], self.ca_eu[sl], self.ca_ei[sl])
         self.ncw = i
@@ -1912,7 +1912,7 @@ extend Check {
 
     # ARRAYLIT (47): [e0, e1, ...]. Каждый элемент — eval (+1 шаг),
     # затем сборка массива. cw_x = cnt * 2^32 + курсор-ребёнок.
-    func ct_e_alit(var self, i: u32, n: u32, ph: u32)
+    func ct_e_alit(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
@@ -1923,7 +1923,7 @@ extend Check {
             self.cw_p[i] = 1
             return
         }
-        let cur: u32 = u32(self.cw_x[i] % 4294967296)
+        const cur: u32 = u32(self.cw_x[i] % 4294967296)
         if cur != NONE {
             self.cw_x[i] = (self.cw_x[i] / 4294967296) * 4294967296 + u64(
                 self.p.nns[cur / 65536][cur % 65536]
@@ -1931,18 +1931,18 @@ extend Check {
             self.ct_wpush(1, cur, 0)
             return
         }
-        let cnt: u32 = u32(self.cw_x[i] / 4294967296)
-        let base: u32 = (self.ncv - cnt) & 2047
-        let id: u32 = self.ct_arr_alloc(self.cv_k[base], cnt)
+        const cnt: u32 = u32(self.cw_x[i] / 4294967296)
+        const base: u32 = (self.ncv - cnt) & 2047
+        const id: u32 = self.ct_arr_alloc(self.cv_k[base], cnt)
         if id == NONE {
             return
         }
-        let db: u32 = self.ca_bs[id & 511]
+        const db: u32 = self.ca_bs[id & 511]
         for j in 0..4096 {
             if j >= cnt {
                 break
             }
-            let sj: u32 = (base + j) & 2047
+            const sj: u32 = (base + j) & 2047
             self.ca_eu[(db + j) & 4095] = self.cv_u[sj]
             self.ca_ei[(db + j) & 4095] = self.cv_i[sj]
         }
@@ -1953,7 +1953,7 @@ extend Check {
 
     # ARRAYFILL (48): [value; N]. eval(value) (+1 шаг), затем N копий.
     # Тип/размер/элемент — из типа узла (nty), посчитан тайпчекером.
-    func ct_e_afill(var self, i: u32, n: u32, ph: u32)
+    func ct_e_afill(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
@@ -1962,17 +1962,17 @@ extend Check {
             self.ct_wpush(1, self.p.nfc[n / 65536][n % 65536], 0)
             return
         }
-        let t: u32 = self.nty[n / 65536][n % 65536]
-        let sz: u32 = self.yb[t]
-        let ek: u32 = self.yk[self.ya[t]]
-        let j: u32 = (self.ncv - 1) & 2047
-        let vu: u64 = self.cv_u[j]
-        let vi: i64 = self.cv_i[j]
-        let id: u32 = self.ct_arr_alloc(ek, sz)
+        const t: u32 = self.nty[n / 65536][n % 65536]
+        const sz: u32 = self.yb[t]
+        const ek: u32 = self.yk[self.ya[t]]
+        const j: u32 = (self.ncv - 1) & 2047
+        const vu: u64 = self.cv_u[j]
+        const vi: i64 = self.cv_i[j]
+        const id: u32 = self.ct_arr_alloc(ek, sz)
         if id == NONE {
             return
         }
-        let db: u32 = self.ca_bs[id & 511]
+        const db: u32 = self.ca_bs[id & 511]
         for q in 0..4096 {
             if q >= sz {
                 break
@@ -1986,13 +1986,13 @@ extend Check {
     }
 
     # STMT: инструкция тела (+1 шаг на входе).
-    func ct_stmt(var self, i: u32)
+    func ct_stmt(let self, i: u32)
         requires i < 4096
         ensures true
     {
-        let n: u32 = self.cw_n[i] & 131071
-        let ph: u32 = self.cw_p[i]
-        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        const n: u32 = self.cw_n[i] & 131071
+        const ph: u32 = self.cw_p[i]
+        const k: u32 = self.p.nk[n / 65536][n % 65536]
         if ph == 0 {
             self.ct_step_tick()
             if self.failed {
@@ -2018,11 +2018,11 @@ extend Check {
         }
     }
 
-    func ct_s_let(var self, i: u32, n: u32, ph: u32)
+    func ct_s_let(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let t: u32 = self.p.nfc[n / 65536][n % 65536]
+        const t: u32 = self.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
             self.cw_p[i] = 1
             self.ct_wpush(1, self.p.nns[t / 65536][t % 65536], 0)
@@ -2035,11 +2035,11 @@ extend Check {
         self.ncw = i
     }
 
-    func ct_s_assign(var self, i: u32, n: u32, ph: u32)
+    func ct_s_assign(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let t: u32 = self.p.nfc[n / 65536][n % 65536]
+        const t: u32 = self.p.nfc[n / 65536][n % 65536]
         # A2: цель — индексация массива (t[idx] = value)
         if self.p.nk[t / 65536][t % 65536] == 44 {
             self.ct_s_iassign(i, n, ph, t)
@@ -2051,18 +2051,18 @@ extend Check {
             return
         }
         self.ncv = self.ncv - 1
-        let j: u32 = self.ncv & 2047
-        let sl: u32 = self.ct_lfind(
+        const j: u32 = self.ncv & 2047
+        const sl: u32 = self.ct_lfind(
             self.p.nss[t / 65536][t % 65536], self.p.nsl[t / 65536][t % 65536]
         )
         if sl == NONE {
             self.ct_fail("comptime: trap: не константа")
             return
         }
-        var uu: u64 = self.cv_u[j]
+        let uu: u64 = self.cv_u[j]
         if self.cv_k[j] == 7 {
             # присваивание целого массива — глубокая копия (значение-семантика)
-            let nid: u32 = self.ct_arr_copy(u32(uu))
+            const nid: u32 = self.ct_arr_copy(u32(uu))
             if self.failed {
                 return
             }
@@ -2075,7 +2075,7 @@ extend Check {
 
     # A2: t[idx] = value. Python порядок — eval(value), eval(obj),
     # eval(index), проверка границ, запись элемента (те же шаги/трапы).
-    func ct_s_iassign(var self, i: u32, n: u32, ph: u32, t: u32)
+    func ct_s_iassign(let self, i: u32, n: u32, ph: u32, t: u32)
         requires i < 4096 and n < 131072 and t < 131072
         ensures true
     {
@@ -2091,16 +2091,16 @@ extend Check {
         }
         if ph == 2 {
             self.cw_p[i] = 3
-            let ob: u32 = self.p.nfc[t / 65536][t % 65536]
+            const ob: u32 = self.p.nfc[t / 65536][t % 65536]
             self.ct_wpush(1, self.p.nns[ob / 65536][ob % 65536], 0)
             return
         }
-        let jx: u32 = (self.ncv - 1) & 2047
-        let jo: u32 = (self.ncv - 2) & 2047
-        let jv: u32 = (self.ncv - 3) & 2047
-        let aid: u32 = u32(self.cv_u[jo])
-        var idx: i64 = self.cv_i[jx]
-        let kk: u32 = self.cv_k[jx]
+        const jx: u32 = (self.ncv - 1) & 2047
+        const jo: u32 = (self.ncv - 2) & 2047
+        const jv: u32 = (self.ncv - 3) & 2047
+        const aid: u32 = u32(self.cv_u[jo])
+        let idx: i64 = self.cv_i[jx]
+        const kk: u32 = self.cv_k[jx]
         if kk != 0 and kk != 14 {
             idx = i64(self.cv_u[jx])
         }
@@ -2108,18 +2108,18 @@ extend Check {
             self.ct_fail("comptime: trap: индекс вне границ")
             return
         }
-        let sl: u32 = (self.ca_bs[aid & 511] + u32(idx)) & 4095
+        const sl: u32 = (self.ca_bs[aid & 511] + u32(idx)) & 4095
         self.ca_eu[sl] = self.cv_u[jv]
         self.ca_ei[sl] = self.cv_i[jv]
         self.ncv = self.ncv - 3
         self.ncw = i
     }
 
-    func ct_s_if(var self, i: u32, n: u32, ph: u32)
+    func ct_s_if(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        const c: u32 = self.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
             self.cw_p[i] = 1
             self.cw_x[i] = u64(self.p.nns[c / 65536][c % 65536])
@@ -2127,8 +2127,8 @@ extend Check {
             return
         }
         self.ncv = self.ncv - 1
-        let taken: bool = self.cv_u[self.ncv & 2047] != 0
-        let cur: u32 = u32(self.cw_x[i] % 4294967296)
+        const taken: bool = self.cv_u[self.ncv & 2047] != 0
+        const cur: u32 = u32(self.cw_x[i] % 4294967296)
         if ph == 1 {
             # cur — then-блок
             if taken {
@@ -2141,7 +2141,7 @@ extend Check {
         }
         # ph == 2: cur — elif-узел
         if taken {
-            let eb: u32 = self.p.nfc[cur / 65536][cur % 65536]
+            const eb: u32 = self.p.nfc[cur / 65536][cur % 65536]
             self.ncw = i
             self.ct_wpush(3, self.p.nns[eb / 65536][eb % 65536], 0)
             return
@@ -2151,7 +2151,7 @@ extend Check {
 
     # Переход к следующей ветке if: elif — вычислить условие, else —
     # исполнить блок, конец — снять задачу.
-    func ct_if_next(var self, i: u32, nxt: u32)
+    func ct_if_next(let self, i: u32, nxt: u32)
         requires i < 4096
         ensures true
     {
@@ -2159,7 +2159,7 @@ extend Check {
             self.ncw = i
             return
         }
-        let k: u32 = self.p.nk[nxt / 65536][nxt % 65536]
+        const k: u32 = self.p.nk[nxt / 65536][nxt % 65536]
         if k == 16 {
             self.cw_p[i] = 2
             self.cw_x[i] = u64(nxt)
@@ -2171,17 +2171,17 @@ extend Check {
         self.ct_wpush(3, self.p.nfc[nxt / 65536][nxt % 65536], 0)
     }
 
-    func ct_s_for(var self, i: u32, n: u32, ph: u32)
+    func ct_s_for(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
         if ph == 0 {
-            let rb: u32 = self.range_of(n)
+            const rb: u32 = self.range_of(n)
             if rb == NONE or self.ncq >= 512 {
                 self.ct_fail("comptime: trap: не константа")
                 return
             }
-            let g: u32 = self.ncq
+            const g: u32 = self.ncq
             self.cq_c[g] = self.ct_rb_i64(self.rb_ss[rb & 511], self.rb_sm[rb & 511])
             self.cq_e[g] = self.ct_rb_i64(self.rb_es[rb & 511], self.rb_em[rb & 511])
             self.cq_b[g] = self.ncl
@@ -2203,7 +2203,7 @@ extend Check {
             self.cw_p[i] = 1
             return
         }
-        let g2: u32 = (self.ncq - 1) & 511
+        const g2: u32 = (self.ncq - 1) & 511
         if self.cq_c[g2] >= self.cq_e[g2] {
             self.ncl = self.cq_b[g2]
             self.ncq = self.ncq - 1
@@ -2214,9 +2214,9 @@ extend Check {
         if self.failed {
             return
         }
-        let v: u32 = self.cq_v[g2]
+        const v: u32 = self.cq_v[g2]
         if v != NONE {
-            let ky: u32 = self.cl_k[v & 4479]
+            const ky: u32 = self.cl_k[v & 4479]
             if ky == 0 or ky == 14 {
                 self.cl_i[v & 4479] = self.cq_c[g2]
             } else {
@@ -2225,7 +2225,7 @@ extend Check {
         }
         self.cq_c[g2] = self.cq_c[g2] + 1
         # тело — ребёнок-блок (kind 12)
-        var c: u32 = self.p.nfc[n / 65536][n % 65536]
+        let c: u32 = self.p.nfc[n / 65536][n % 65536]
         for _ in 0..8 {
             if c == NONE {
                 break
@@ -2241,7 +2241,7 @@ extend Check {
 
     # Граница диапазона (sign, mag) -> i64 с насыщением: магнитуды за
     # i64 недостижимы до бюджета (1М витков << 2^63).
-    func ct_rb_i64(var self, s: u32, m: u64) -> i64
+    func ct_rb_i64(let self, s: u32, m: u64) -> i64
         requires true
         ensures true
     {
@@ -2249,7 +2249,7 @@ extend Check {
             if m >= 9223372036854775808 {
                 return -9223372036854775808
             }
-            let z: i64 = 0 - i64(m)
+            const z: i64 = 0 - i64(m)
             return z
         }
         if m > 9223372036854775807 {
@@ -2258,13 +2258,13 @@ extend Check {
         return i64(m)
     }
 
-    func ct_s_ret(var self, i: u32, n: u32, ph: u32)
+    func ct_s_ret(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
         ensures true
     {
-        let g: u32 = (self.ncg - 1) & 63
+        const g: u32 = (self.ncg - 1) & 63
         if ph == 0 {
-            let c: u32 = self.p.nfc[n / 65536][n % 65536]
+            const c: u32 = self.p.nfc[n / 65536][n % 65536]
             if c != NONE {
                 self.cw_p[i] = 1
                 self.ct_wpush(1, c, 0)
@@ -2273,7 +2273,7 @@ extend Check {
             self.cg_rk[g] = NONE
         } else {
             self.ncv = self.ncv - 1
-            let j: u32 = self.ncv & 2047
+            const j: u32 = self.ncv & 2047
             self.cg_rk[g] = self.cv_k[j]
             self.cg_ru[g] = self.cv_u[j]
             self.cg_ri[g] = self.cv_i[j]
@@ -2284,21 +2284,21 @@ extend Check {
         self.ncq = self.cg_qb[g]
     }
 
-    func ct_s_break(var self, i: u32)
+    func ct_s_break(let self, i: u32)
         requires i < 4096
         ensures true
     {
-        var j: u32 = i
-        var found: bool = false
+        let j: u32 = i
+        let found: bool = false
         for _ in 0..4096 {
             if found or j == 0 {
                 break
             }
             j = j - 1
-            let t: u32 = self.cw_t[j]
-            let m: u32 = self.cw_n[j] & 131071
+            const t: u32 = self.cw_t[j]
+            const m: u32 = self.cw_n[j] & 131071
             if t == 2 and self.p.nk[m / 65536][m % 65536] == 18 and self.cw_p[j] == 1 {
-                let g: u32 = (self.ncq - 1) & 511
+                const g: u32 = (self.ncq - 1) & 511
                 self.ncl = self.cq_b[g]
                 self.ncq = self.ncq - 1
                 self.ncw = j
@@ -2312,7 +2312,7 @@ extend Check {
 
     # assert (24) / exprstmt (25) / discard (26): вычислить значение,
     # затем проверить/пропустить/выбросить.
-    func ct_s_val(var self, i: u32, n: u32, ph: u32, k: u32)
+    func ct_s_val(let self, i: u32, n: u32, ph: u32, k: u32)
         requires i < 4096 and n < 131072
         ensures true
     {

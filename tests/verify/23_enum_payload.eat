@@ -36,7 +36,7 @@ func pick(cmd: Cmd) -> u32
 }
 
 func main() {
-    let cells: [u32; 4] = [10, 20, 30, 40]
+    const cells: [u32; 4] = [10, 20, 30, 40]
     print("{apply(cells, Cmd.Set(2))} {apply(cells, Cmd.Clear)}")
     print("{pick(Cmd.Set(7))} {pick(Cmd.Nop)}")
 }

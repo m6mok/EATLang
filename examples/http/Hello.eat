@@ -22,13 +22,13 @@ import {
     parse_i32,
 } from "lib/Parse.eat"
 
-const NO_CONN: u32 = 4294967295
-const SENT: u32 = 4294967295
-const PORT_DEFAULT: u32 = 8080
+constexpr NO_CONN: u32 = 4294967295
+constexpr SENT: u32 = 4294967295
+constexpr PORT_DEFAULT: u32 = 8080
 # детерминированный останов для сверки (у вечного сервера нет break)
-const SERVE_CONNS: u32 = 4
+constexpr SERVE_CONNS: u32 = 4
 # бюджет дренажа одного витка: REQ_CAP + заголовочный запас
-const DRAIN_BUDGET: u32 = 8900
+constexpr DRAIN_BUDGET: u32 = 8900
 
 # Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
 func port_arg() -> u32
@@ -57,7 +57,7 @@ func build_resp(st: u32, r: Req) -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     if st == PARSE_DONE {
         if r.method_is("GET") and r.path_is("/") {
             w.status_line(200, "OK")
@@ -93,7 +93,7 @@ func send_resp(fd: u32, w: Resp)
     if w.of {
         return
     }
-    var sent: u32 = 0
+    let sent: u32 = 0
     for _ in 0..64 {
         if sent >= w.n {
             break
@@ -103,8 +103,8 @@ func send_resp(fd: u32, w: Resp)
 }
 
 func main() {
-    var lst: u32 = 0
-    var live: bool = false
+    let lst: u32 = 0
+    let live: bool = false
     match socket_listen(u16(port_arg())) {
         Ok(fd) {
             lst = fd
@@ -115,16 +115,16 @@ func main() {
         }
     }
     if live {
-        var conn: u32 = SENT
-        var served: u32 = 0
+        let conn: u32 = SENT
+        let served: u32 = 0
         # кадр разбора один на сервер: между соединениями — reset
         # (§8.2), не пересоздание с обнулением raw[8192]
-        var req: Req = req_new()
-        var st: u32 = PARSE_MORE
-        var eof: bool = false
+        let req: Req = req_new()
+        let st: u32 = PARSE_MORE
+        let eof: bool = false
         loop {
             if conn == SENT {
-                let c: u32 = socket_accept(lst)
+                const c: u32 = socket_accept(lst)
                 if c != NO_CONN {
                     conn = c
                     req.reset()

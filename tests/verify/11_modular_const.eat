@@ -7,7 +7,7 @@ func bump(x: i32) -> i32
     requires x >= 0 and x <= 1000
     ensures result >= x
 {
-    var acc: i32 = x
+    let acc: i32 = x
     for _ in 0..3 {
         acc = acc + 1
     }
@@ -15,7 +15,7 @@ func bump(x: i32) -> i32
 }
 
 func main() {
-    let y: i32 = bump(5)
+    const y: i32 = bump(5)
     assert y >= 5
     print("{y}")
 }

@@ -22,7 +22,7 @@ func sat255(x: u32) -> u32
 }
 
 func main() {
-    var sum: u32 = 0
+    let sum: u32 = 0
     for _ in 0..8 {
         for j in 0..1000 {
             sum = sat255(sum + j)

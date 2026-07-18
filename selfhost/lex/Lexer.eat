@@ -147,21 +147,21 @@ struct Lexer {
 
     # --- доступ к вложенным пулам ----------------------------------------
 
-    func tok_k(var self, ti: u32) -> u32
+    func tok_k(let self, ti: u32) -> u32
         requires ti < 262144
         ensures true
     {
         return self.tk[ti / 65536][ti % 65536]
     }
 
-    func tok_l(var self, ti: u32) -> u32
+    func tok_l(let self, ti: u32) -> u32
         requires ti < 262144
         ensures true
     {
         return self.tl[ti / 65536][ti % 65536]
     }
 
-    func tok_c(var self, ti: u32) -> u32
+    func tok_c(let self, ti: u32) -> u32
         requires ti < 262144
         ensures true
     {
@@ -170,7 +170,7 @@ struct Lexer {
 
     # `>>` на месте закрывающего '>' типа: первый '>' съеден,
     # остаток — GT колонкой правее (расщепление как в Rust и Java).
-    func split_shr(var self, ti: u32)
+    func split_shr(let self, ti: u32)
         requires ti < 262144
         ensures true
     {
@@ -178,35 +178,35 @@ struct Lexer {
         self.tc[ti / 65536][ti % 65536] = self.tc[ti / 65536][ti % 65536] + 1
     }
 
-    func tok_vs(var self, ti: u32) -> u32
+    func tok_vs(let self, ti: u32) -> u32
         requires ti < 262144
         ensures true
     {
         return self.tvs[ti / 65536][ti % 65536]
     }
 
-    func tok_vl(var self, ti: u32) -> u32
+    func tok_vl(let self, ti: u32) -> u32
         requires ti < 262144
         ensures true
     {
         return self.tvl[ti / 65536][ti % 65536]
     }
 
-    func tok_sg(var self, ti: u32) -> u32
+    func tok_sg(let self, ti: u32) -> u32
         requires ti < 262144
         ensures true
     {
         return self.tsg[ti / 65536][ti % 65536]
     }
 
-    func tok_ns(var self, ti: u32) -> u32
+    func tok_ns(let self, ti: u32) -> u32
         requires ti < 262144
         ensures true
     {
         return self.tns[ti / 65536][ti % 65536]
     }
 
-    func sb_at(var self, i: u32) -> u8
+    func sb_at(let self, i: u32) -> u8
         requires i < 262144
         ensures true
     {
@@ -215,19 +215,19 @@ struct Lexer {
 
     # Спан пула значений в stdout батчем (write_span); спан может
     # пересекать границу банка — не более одного раза (l <= 256).
-    func w_span(var self, a: u32, l: u32)
+    func w_span(let self, a: u32, l: u32)
         requires a <= 262144 and l <= 131072
         ensures true
     {
-        var pos: u32 = a
-        var left: u32 = l
+        let pos: u32 = a
+        let left: u32 = l
         for _ in 0..2 {
             if left == 0 {
                 break
             }
-            let bk: u32 = (pos >> 16) & 3
-            let off: u32 = pos & 65535
-            var run: u32 = 65536 - off
+            const bk: u32 = (pos >> 16) & 3
+            const off: u32 = pos & 65535
+            let run: u32 = 65536 - off
             if left < run {
                 run = left
             }
@@ -237,7 +237,7 @@ struct Lexer {
         }
     }
 
-    func sb_set(var self, i: u32, b: u8)
+    func sb_set(let self, i: u32, b: u8)
         requires i < 262144
         ensures true
     {
@@ -246,7 +246,7 @@ struct Lexer {
 
     # --- запись токенов в пул -------------------------------------------
 
-    func emit_plain(var self, k: u32)
+    func emit_plain(let self, k: u32)
         requires k <= 68
         ensures true
     {
@@ -254,8 +254,8 @@ struct Lexer {
             self.fail("слишком много токенов (предел 262144)")
             return
         }
-        let hi: u32 = self.ntok / 65536
-        let lo: u32 = self.ntok % 65536
+        const hi: u32 = self.ntok / 65536
+        const lo: u32 = self.ntok % 65536
         self.tk[hi][lo] = k
         self.tl[hi][lo] = self.tline
         self.tc[hi][lo] = self.tcol
@@ -267,7 +267,7 @@ struct Lexer {
     }
 
     # Токен со значением: байты val[0..vlen] копируются в sbuf.
-    func emit_value(var self, k: u32)
+    func emit_value(let self, k: u32)
         requires k <= 68
         ensures true
     {
@@ -275,7 +275,7 @@ struct Lexer {
             self.fail("пул значений токенов переполнен")
             return
         }
-        let start: u32 = self.sblen
+        const start: u32 = self.sblen
         for i in 0..256 {
             if i >= self.vlen {
                 break
@@ -285,14 +285,14 @@ struct Lexer {
         self.sblen = start + self.vlen
         self.emit_plain(k)
         if not self.failed {
-            let ti: u32 = self.ntok - 1
+            const ti: u32 = self.ntok - 1
             self.tvs[ti / 65536][ti % 65536] = start
             self.tvl[ti / 65536][ti % 65536] = self.vlen
         }
     }
 
     # NEWLINE подавляется внутри ( ) [ ], в начале потока и после NEWLINE.
-    func emit_newline(var self)
+    func emit_newline(let self)
         requires true
         ensures true
     {
@@ -310,22 +310,22 @@ struct Lexer {
         self.emit_plain(54)
     }
 
-    func emit_word(var self)
+    func emit_word(let self)
         requires true
         ensures true
     {
-        var w: [u8; 16] = [0; 16]
+        let w: [u8; 16] = [0; 16]
         for i in 0..16 {
             if i >= self.vlen {
                 break
             }
             w[i] = self.val[i]
         }
-        var n: u32 = self.vlen
+        let n: u32 = self.vlen
         if n > 16 {
             n = 16
         }
-        let k: u32 = kw_code(w, n)
+        const k: u32 = kw_code(w, n)
         if k == 3 {
             self.emit_value(3)
         } else {
@@ -335,7 +335,7 @@ struct Lexer {
 
     # --- ошибки ----------------------------------------------------------
 
-    func fail(var self, m: str<128>)
+    func fail(let self, m: str<128>)
         requires true
         ensures true
     {
@@ -345,7 +345,7 @@ struct Lexer {
         self.failed = true
     }
 
-    func fail_sym(var self, b: u8)
+    func fail_sym(let self, b: u8)
         requires true
         ensures true
     {
@@ -355,7 +355,7 @@ struct Lexer {
         self.failed = true
     }
 
-    func fail_esc(var self, b: u8)
+    func fail_esc(let self, b: u8)
         requires true
         ensures true
     {
@@ -367,7 +367,7 @@ struct Lexer {
 
     # --- накопление лексемы -----------------------------------------------
 
-    func begin_tok(var self)
+    func begin_tok(let self)
         requires true
         ensures true
     {
@@ -375,7 +375,7 @@ struct Lexer {
         self.tcol = self.col
     }
 
-    func push_val(var self, b: u8)
+    func push_val(let self, b: u8)
         requires true
         ensures self.vlen <= 256
     {
@@ -389,7 +389,7 @@ struct Lexer {
 
     # --- состояния ---------------------------------------------------------
 
-    func start_byte(var self, b: u8)
+    func start_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -434,11 +434,11 @@ struct Lexer {
         }
     }
 
-    func punct_byte(var self, b: u8)
+    func punct_byte(let self, b: u8)
         requires true
         ensures true
     {
-        let k: u32 = punct_code(b)
+        const k: u32 = punct_code(b)
         if k == 99 {
             self.fail_sym(b)
             return
@@ -453,7 +453,7 @@ struct Lexer {
         self.emit_plain(k)
     }
 
-    func word_byte(var self, b: u8)
+    func word_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -466,7 +466,7 @@ struct Lexer {
         self.start_byte(b)
     }
 
-    func int_byte(var self, b: u8)
+    func int_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -490,11 +490,11 @@ struct Lexer {
     }
 
     # Hex-литерал: первая цифра после «0x» (состояние 15).
-    func hexstart_byte(var self, b: u8)
+    func hexstart_byte(let self, b: u8)
         requires true
         ensures true
     {
-        let v: u32 = hex_val(b)
+        const v: u32 = hex_val(b)
         if v == 99 {
             self.fail("ожидались шестнадцатеричные цифры после 0x")
             return
@@ -507,11 +507,11 @@ struct Lexer {
     # Hex-литерал: цифры и завершение (состояние 16). Предел 16 цифр
     # (всегда влезает в u64) проверяется на первом не-hex байте —
     # позиция ошибки как у эталона; лишние цифры дальше 16 не копятся.
-    func hex_byte(var self, b: u8)
+    func hex_byte(let self, b: u8)
         requires true
         ensures true
     {
-        let v: u32 = hex_val(b)
+        const v: u32 = hex_val(b)
         if v != 99 {
             if self.hexn < 16 {
                 self.hexv = self.hexv * 16 + u64(v)
@@ -536,13 +536,13 @@ struct Lexer {
 
     # Финализация hex-литерала: значение токена — десятичная запись,
     # парсер и дампы о hex не знают (нормализация как у эталона).
-    func hex_fin(var self)
+    func hex_fin(let self)
         requires true
         ensures true
     {
-        var tmp: [u8; 20] = [0; 20]
-        var n: u32 = 0
-        var x: u64 = self.hexv
+        let tmp: [u8; 20] = [0; 20]
+        let n: u32 = 0
+        let x: u64 = self.hexv
         self.vlen = 0
         if x == 0 {
             self.push_val(48)
@@ -568,7 +568,7 @@ struct Lexer {
         self.emit_value(0)
     }
 
-    func str_byte(var self, b: u8)
+    func str_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -588,11 +588,11 @@ struct Lexer {
         self.push_val(b)
     }
 
-    func stresc_byte(var self, b: u8)
+    func stresc_byte(let self, b: u8)
         requires true
         ensures true
     {
-        let e: u32 = esc_code(b)
+        const e: u32 = esc_code(b)
         if e == 256 {
             self.fail_esc(b)
             return
@@ -601,7 +601,7 @@ struct Lexer {
         self.state = 3
     }
 
-    func chopen_byte(var self, b: u8)
+    func chopen_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -617,11 +617,11 @@ struct Lexer {
         self.state = 7
     }
 
-    func chesc_byte(var self, b: u8)
+    func chesc_byte(let self, b: u8)
         requires true
         ensures true
     {
-        let e: u32 = esc_code(b)
+        const e: u32 = esc_code(b)
         if e == 256 {
             self.fail_esc(b)
             return
@@ -630,7 +630,7 @@ struct Lexer {
         self.state = 7
     }
 
-    func chclose_byte(var self, b: u8)
+    func chclose_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -644,7 +644,7 @@ struct Lexer {
         self.fail("ожидался закрывающий апостроф")
     }
 
-    func comment_byte(var self, b: u8)
+    func comment_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -656,7 +656,7 @@ struct Lexer {
 
     # Состояние 17: посимвольный матч `module "` после '#';
     # несовпадение — обычный комментарий (байт уже внутри него).
-    func dir_match_byte(var self, b: u8)
+    func dir_match_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -673,7 +673,7 @@ struct Lexer {
     }
 
     # Состояние 18: путь до закрывающей кавычки.
-    func dir_path_byte(var self, b: u8)
+    func dir_path_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -689,7 +689,7 @@ struct Lexer {
     }
 
     # Эмиссия директивы: схлопнутый NEWLINE (координаты '#') + MODULE.
-    func dir_emit(var self)
+    func dir_emit(let self)
         requires true
         ensures true
     {
@@ -707,7 +707,7 @@ struct Lexer {
 
     # Состояние 19: пробелы до конца строки; перевод строки завершает
     # директиву и перезапускает счёт координат (хвост step даст 1:1).
-    func dir_tail_byte(var self, b: u8)
+    func dir_tail_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -724,11 +724,11 @@ struct Lexer {
     }
 
     # Состояния 9..14: возможный второй байт двухсимвольного оператора.
-    func op_byte(var self, b: u8)
+    func op_byte(let self, b: u8)
         requires true
         ensures true
     {
-        let st: u32 = self.state
+        const st: u32 = self.state
         self.state = 0
         if b == 61 and st >= 11 { # =? : ==  !=  <=  >=
             if st == 11 {
@@ -777,7 +777,7 @@ struct Lexer {
 
     # --- вход автомата ------------------------------------------------------
 
-    func step(var self, b: u8)
+    func step(let self, b: u8)
         requires true
         ensures true
     {
@@ -824,7 +824,7 @@ struct Lexer {
     }
 
     # Конец потока: добить незавершённый токен, финальные NEWLINE и EOF.
-    func finish(var self)
+    func finish(let self)
         requires true
         ensures true
     {
@@ -885,7 +885,7 @@ struct Lexer {
     # Токены, добавленные под-лексингом, тоже проходят обработку —
     # вложенная интерполяция работает без рекурсии.
 
-    func sublex_pass(var self)
+    func sublex_pass(let self)
         requires true
         ensures true
     {
@@ -901,18 +901,18 @@ struct Lexer {
         }
     }
 
-    func has_brace(var self, ti: u32) -> bool
+    func has_brace(let self, ti: u32) -> bool
         requires ti < 262144
         ensures true
     {
-        let vs: u32 = self.tok_vs(ti)
-        let vl: u32 = self.tok_vl(ti)
-        var found: bool = false
+        const vs: u32 = self.tok_vs(ti)
+        const vl: u32 = self.tok_vl(ti)
+        let found: bool = false
         for i in 0..256 {
             if i >= vl {
                 break
             }
-            let b: u8 = self.sb_at(vs + i)
+            const b: u8 = self.sb_at(vs + i)
             if b == 123 or b == 125 {
                 found = true
             }
@@ -921,7 +921,7 @@ struct Lexer {
     }
 
     # Дописать байт литерального сегмента в sbuf.
-    func push_seg_byte(var self, b: u8)
+    func push_seg_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -933,7 +933,7 @@ struct Lexer {
         self.sblen = self.sblen + 1
     }
 
-    func add_segment(var self, kind: u32, a: u32, b: u32)
+    func add_segment(let self, kind: u32, a: u32, b: u32)
         requires true
         ensures true
     {
@@ -949,18 +949,18 @@ struct Lexer {
 
     # Под-лексинг выражения интерполяции: байты sbuf[a..a+n) через тот же
     # автомат; позиции от (line0, col0); токены добавляются в пул.
-    func sublex_expr(var self, a: u32, n: u32, line0: u32, col0: u32)
+    func sublex_expr(let self, a: u32, n: u32, line0: u32, col0: u32)
         requires true
         ensures true
     {
-        let sv_line: u32 = self.line
-        let sv_col: u32 = self.col
-        let sv_depth: u32 = self.depth
+        const sv_line: u32 = self.line
+        const sv_col: u32 = self.col
+        const sv_depth: u32 = self.depth
         self.line = line0
         self.col = col0
         self.depth = 0
         self.state = 0
-        let first: u32 = self.ntok
+        const first: u32 = self.ntok
         for i in 0..256 {
             if i >= n or self.failed {
                 break
@@ -979,28 +979,28 @@ struct Lexer {
     }
 
     # Разбить значение STRING-токена ti на сегменты.
-    func split_string(var self, ti: u32)
+    func split_string(let self, ti: u32)
         requires ti < 262144
         ensures true
     {
-        let vs: u32 = self.tok_vs(ti)
-        let vl: u32 = self.tok_vl(ti)
-        let tln: u32 = self.tok_l(ti)
-        let tcl: u32 = self.tok_c(ti)
-        let seg_first: u32 = self.nseg
-        var lit_start: u32 = self.sblen
-        var i: u32 = 0
+        const vs: u32 = self.tok_vs(ti)
+        const vl: u32 = self.tok_vl(ti)
+        const tln: u32 = self.tok_l(ti)
+        const tcl: u32 = self.tok_c(ti)
+        const seg_first: u32 = self.nseg
+        let lit_start: u32 = self.sblen
+        let i: u32 = 0
         for _ in 0..256 {
             if i >= vl or self.failed {
                 break
             }
-            let b: u8 = self.sb_at(vs + i)
+            const b: u8 = self.sb_at(vs + i)
             if b == 123 { # {
                 if i + 1 < vl and self.sb_at(vs + i + 1) == 123 {
                     self.push_seg_byte(123)
                     i = i + 2
                 } else {
-                    let e: u32 = self.find_close(vs, vl, i + 1)
+                    const e: u32 = self.find_close(vs, vl, i + 1)
                     if e == NONE {
                         self.fail("незакрытая '{{' в интерполяции строки")
                     } else {
@@ -1036,11 +1036,11 @@ struct Lexer {
     }
 
     # Индекс закрывающей '}' от позиции frm; NONE если нет.
-    func find_close(var self, vs: u32, vl: u32, frm: u32) -> u32
+    func find_close(let self, vs: u32, vl: u32, frm: u32) -> u32
         requires true
         ensures true
     {
-        var found: u32 = NONE
+        let found: u32 = NONE
         for k in 0..256 {
             if frm + k >= vl or found != NONE {
                 break
@@ -1052,11 +1052,11 @@ struct Lexer {
         return found
     }
 
-    func all_ws(var self, a: u32, n: u32) -> bool
+    func all_ws(let self, a: u32, n: u32) -> bool
         requires true
         ensures true
     {
-        var ws: bool = true
+        let ws: bool = true
         for k in 0..256 {
             if k >= n {
                 break
@@ -1070,7 +1070,7 @@ struct Lexer {
 
     # --- дамп токенов (формат `eatc lex`, сверка фазы 1) -------------------
 
-    func print_tokens(var self)
+    func print_tokens(let self)
         requires true
         ensures true
     {
@@ -1078,12 +1078,12 @@ struct Lexer {
             if ti >= self.ntok {
                 break
             }
-            let k: u32 = self.tok_k(ti)
+            const k: u32 = self.tok_k(ti)
             write("{self.tok_l(ti)}:{self.tok_c(ti)} ")
             write_kind(k)
             if is_valued(k) {
                 write(" ")
-                let vs: u32 = self.tok_vs(ti)
+                const vs: u32 = self.tok_vs(ti)
                 for i in 0..256 {
                     if i >= self.tok_vl(ti) {
                         break

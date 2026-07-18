@@ -11,7 +11,7 @@ export {
     Tri,
 }
 
-const STEP: u32 = 3
+constexpr STEP: u32 = 3
 
 enum Tri {
     Lo,
@@ -57,8 +57,8 @@ import {
 } from "stress/Dep.eat"
 
 func main() {
-    let p: P2 = pair_of(STEP)
-    let t: Tri = Tri.Hi(p.sum())
+    const p: P2 = pair_of(STEP)
+    const t: Tri = Tri.Hi(p.sum())
     match t {
         Lo { print("lo") }
         Hi(v) { print("hi {v}") }

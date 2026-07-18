@@ -7,14 +7,14 @@ func inv_high(x: u32) -> u32
     requires x <= 0xFF
     ensures true
 {
-    let m: u32 = ~x
+    const m: u32 = ~x
     assert m >= 0xFFFFFF00
     assert m <= 0xFFFFFFFF
     return m
 }
 
 func main() {
-    var n: u32 = 0
+    let n: u32 = 0
     match read_byte() {
         Ok(v) {
             n = u32(v)
@@ -23,8 +23,8 @@ func main() {
             n = 0
         }
     }
-    let r: u32 = inv_high(n & 0xFF)
-    let full: u32 = ~n
+    const r: u32 = inv_high(n & 0xFF)
+    const full: u32 = ~n
     assert full >= 0xFFFFFF01
     print("{r} {full}")
 }

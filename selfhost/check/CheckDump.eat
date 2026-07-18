@@ -7,7 +7,7 @@ extend Check {
     # --- дамп типа (итеративный принтер) -----------------------------------
 
     # Имя скалярного вида (правило 4: вынос из write_type).
-    func write_scalar_kind(var self, k: u32)
+    func write_scalar_kind(let self, k: u32)
         requires k <= 5 or k >= 12
         ensures true
     {
@@ -32,23 +32,23 @@ extend Check {
         }
     }
 
-    func write_type(var self, root: u32)
+    func write_type(let self, root: u32)
         requires root < 512
         ensures true
     {
-        var s1: [u32; 32] = [0; 32]
-        var s2: [u32; 32] = [0; 32]
-        var sp: u32 = 1
+        let s1: [u32; 32] = [0; 32]
+        let s2: [u32; 32] = [0; 32]
+        let sp: u32 = 1
         s1[0] = root
         s2[0] = 0
         for _ in 0..128 {
             if sp == 0 {
                 break
             }
-            let f: u32 = sp - 1
-            let t: u32 = s1[f]
-            let ph: u32 = s2[f]
-            let k: u32 = self.yk[t]
+            const f: u32 = sp - 1
+            const t: u32 = s1[f]
+            const ph: u32 = s2[f]
+            const k: u32 = self.yk[t]
             if k <= 5 or k >= 12 {
                 self.write_scalar_kind(k)
                 sp = f
@@ -107,12 +107,12 @@ extend Check {
 
     # --- дамп сигнатур (формат `eatc sig`) ---------------------------------
 
-    func write_sig(var self, i: u32)
+    func write_sig(let self, i: u32)
         requires i < 1024
         ensures true
     {
         write("(")
-        let ps: u32 = self.fps[i]
+        const ps: u32 = self.fps[i]
         for k in 0..8 {
             if k >= self.fpc[i] {
                 break
@@ -134,11 +134,11 @@ extend Check {
         }
     }
 
-    func dump_sig(var self)
+    func dump_sig(let self)
         requires true
         ensures true
     {
-        var d: u32 = self.p.nfc[0 / 65536][0 % 65536]
+        let d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
             if d == NONE {
                 break
@@ -149,15 +149,15 @@ extend Check {
         write("stats funcs={self.nfun} structs={self.nstr} stmts={self.total_stmts}\n")
     }
 
-    func dump_decl(var self, d: u32)
+    func dump_decl(let self, d: u32)
         requires d < 131072
         ensures true
     {
-        let k: u32 = self.p.nk[d / 65536][d % 65536]
-        let ln: u32 = self.p.nl[d / 65536][d % 65536]
-        let cl: u32 = self.p.nc[d / 65536][d % 65536]
+        const k: u32 = self.p.nk[d / 65536][d % 65536]
+        const ln: u32 = self.p.nl[d / 65536][d % 65536]
+        const cl: u32 = self.p.nc[d / 65536][d % 65536]
         if k == 1 {
-            let ci: u32 = self.find_const(
+            const ci: u32 = self.find_constexpr(
                 self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]
             )
             write("const ")
@@ -166,7 +166,7 @@ extend Check {
             self.write_type(self.cty[ci])
             write(" = ")
             if self.yk[self.cty[ci]] == 7 {
-                self.dump_arr_const(ci)
+                self.dump_arr_constexpr(ci)
                 write("\n")
             } else {
                 if self.cvs[ci] == 1 {
@@ -175,7 +175,7 @@ extend Check {
                 write("{self.cvm[ci]}\n")
             }
         } elif k == 6 or k == 50 {
-            let fi: u32 = self.func_by_node(d)
+            const fi: u32 = self.func_by_node(d)
             if k == 50 {
                 write("extern ")
             } else {
@@ -206,14 +206,14 @@ extend Check {
 
     # A2: значение массива-константы для дампов — `[v0, v1, ...]`
     # (беззнаковые — магнитуда, знаковые — со знаком, как эталон).
-    func dump_arr_const(var self, ci: u32)
+    func dump_arr_constexpr(let self, ci: u32)
         requires ci < 128
         ensures true
     {
-        let ty: u32 = self.cty[ci]
-        let ln: u32 = self.yb[ty]
-        let ek: u32 = self.yk[self.ya[ty]]
-        let base: u32 = self.cca_bs[ci & 127]
+        const ty: u32 = self.cty[ci]
+        const ln: u32 = self.yb[ty]
+        const ek: u32 = self.yk[self.ya[ty]]
+        const base: u32 = self.cca_bs[ci & 127]
         write("[")
         for q in 0..4096 {
             if q >= ln {
@@ -222,7 +222,7 @@ extend Check {
             if q > 0 {
                 write(", ")
             }
-            let sl: u32 = (base + q) & 4095
+            const sl: u32 = (base + q) & 4095
             if ek == 0 or ek == 14 {
                 write("{self.cca_i[sl]}")
             } else {
@@ -233,11 +233,11 @@ extend Check {
     }
 
     # `import {локальное} {l}:{c} :: {путь} {публичное}` на связку.
-    func dump_import(var self, d: u32)
+    func dump_import(let self, d: u32)
         requires d < 131072
         ensures true
     {
-        var b: u32 = self.p.nfc[d / 65536][d % 65536]
+        let b: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
             if b == NONE {
                 break
@@ -258,11 +258,11 @@ extend Check {
     }
 
     # `export {публичное} {l}:{c} :: {внутреннее}` на связку.
-    func dump_export(var self, d: u32)
+    func dump_export(let self, d: u32)
         requires d < 131072
         ensures true
     {
-        var b: u32 = self.p.nfc[d / 65536][d % 65536]
+        let b: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
             if b == NONE {
                 break
@@ -280,17 +280,17 @@ extend Check {
         }
     }
 
-    func dump_struct(var self, d: u32, ln: u32, cl: u32)
+    func dump_struct(let self, d: u32, ln: u32, cl: u32)
         requires d < 131072
         ensures true
     {
         write("struct ")
         self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
         write(" {ln}:{cl}\n")
-        let si: u32 = self.find_struct(
+        const si: u32 = self.find_struct(
             self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]
         )
-        let gs: u32 = self.sgs[si]
+        const gs: u32 = self.sgs[si]
         for g in 0..512 {
             if g >= self.sgc[si] {
                 break
@@ -301,13 +301,13 @@ extend Check {
             self.write_type(self.gty[gs + g])
             write("\n")
         }
-        var c: u32 = self.p.nfc[d / 65536][d % 65536]
+        let c: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
             if c == NONE {
                 break
             }
             if self.p.nk[c / 65536][c % 65536] == 6 {
-                let fi: u32 = self.func_by_node(c)
+                const fi: u32 = self.func_by_node(c)
                 write("  method ")
                 self.write_span2(self.p.nss[c / 65536][c % 65536], self.p.nsl[c / 65536][c % 65536])
                 write(" {self.p.nl[c / 65536][c % 65536]}:{self.p.nc[c / 65536][c % 65536]} ")
@@ -318,17 +318,17 @@ extend Check {
         }
     }
 
-    func dump_enum(var self, d: u32, ln: u32, cl: u32)
+    func dump_enum(let self, d: u32, ln: u32, cl: u32)
         requires d < 131072
         ensures true
     {
         write("enum ")
         self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
         write(" {ln}:{cl}\n")
-        let ei: u32 = self.find_enum(
+        const ei: u32 = self.find_enum(
             self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]
         )
-        let ws: u32 = self.evs[ei]
+        const ws: u32 = self.evs[ei]
         for w in 0..256 {
             if w >= self.evc[ei] {
                 break
@@ -347,12 +347,12 @@ extend Check {
 
     # Имена встроенных enum дописываются в пул байтов лексера — спаны
     # нужны интернированным типам (IoError/ParseError) и дампу.
-    func init_builtins(var self)
+    func init_builtins(let self)
         requires true
         ensures true
     {
-        let io: str<16> = "IoError"
-        let pe: str<16> = "ParseError"
+        const io: str<16> = "IoError"
+        const pe: str<16> = "ParseError"
         self.bn_io = self.p.lex.sblen
         for i in 0..7 {
             self.p.lex.sb_set(self.bn_io + i, u8(io[i]))
@@ -362,16 +362,16 @@ extend Check {
             self.p.lex.sb_set(self.bn_pe + i, u8(pe[i]))
         }
         # "result" — имя-локаль ensures в comptime-вычислителе (§9.6)
-        let rs: str<8> = "result"
+        const rs: str<8> = "result"
         self.bn_res = self.bn_pe + 10
         for i in 0..6 {
             self.p.lex.sb_set(self.bn_res + i, u8(rs[i]))
         }
         self.p.lex.sblen = self.bn_res + 6
         self.ty_sq = self.intern(6, NONE, NONE, NONE, 0)
-        let t_io: u32 = self.intern(9, NONE, NONE, self.bn_io, 7)
-        let t_pe: u32 = self.intern(9, NONE, NONE, self.bn_pe, 10)
-        let t_s256: u32 = self.intern(6, 256, NONE, NONE, 0)
+        const t_io: u32 = self.intern(9, NONE, NONE, self.bn_io, 7)
+        const t_pe: u32 = self.intern(9, NONE, NONE, self.bn_pe, 10)
+        const t_s256: u32 = self.intern(6, 256, NONE, NONE, 0)
         self.ty_rl = self.intern(10, t_s256, t_io, NONE, 0)
         self.ty_rb = self.intern(10, 2, t_io, NONE, 0)
         self.ty_pi = self.intern(10, 0, t_pe, NONE, 0)
@@ -386,7 +386,7 @@ extend Check {
 
     # Совместимость: интернированные типы равны по индексу; строки
     # совместимы при любой ёмкости (проверка — в рантайме).
-    func compat(var self, e: u32, a: u32) -> bool
+    func compat(let self, e: u32, a: u32) -> bool
         requires e < 512 and a < 512
         ensures true
     {
@@ -398,11 +398,11 @@ extend Check {
 
     # --- рёбра графа вызовов ------------------------------------------------
 
-    func add_edge(var self, c: u32, d: u32)
+    func add_edge(let self, c: u32, d: u32)
         requires d < 1024
         ensures true
     {
-        var dup: bool = false
+        let dup: bool = false
         for i in 0..4096 {
             if i >= self.neg or dup {
                 break
@@ -425,7 +425,7 @@ extend Check {
 
     # --- типизированный дамп (`eatc typed`) --------------------------------
 
-    func run_typed(var self)
+    func run_typed(let self)
         requires true
         ensures true
     {
@@ -443,11 +443,11 @@ extend Check {
         self.callgraph()
     }
 
-    func range_of(var self, n: u32) -> u32
+    func range_of(let self, n: u32) -> u32
         requires true
         ensures true
     {
-        var found: u32 = NONE
+        let found: u32 = NONE
         for i in 0..512 {
             if i >= self.nrb or found != NONE {
                 break
@@ -459,7 +459,7 @@ extend Check {
         return found
     }
 
-    func tprint(var self, n: u32, d: u32)
+    func tprint(let self, n: u32, d: u32)
         requires n < 131072
         ensures true
     {
@@ -469,7 +469,7 @@ extend Check {
             }
             write("  ")
         }
-        let k: u32 = self.p.nk[n / 65536][n % 65536]
+        const k: u32 = self.p.nk[n / 65536][n % 65536]
         write_nkind(k)
         if has_pos(k) {
             write(" {self.p.nl[n / 65536][n % 65536]}:{self.p.nc[n / 65536][n % 65536]}")
@@ -479,7 +479,7 @@ extend Check {
             write(" :: ")
             self.write_type(self.nty[n / 65536][n % 65536])
             if k == 18 {
-                let r: u32 = self.range_of(n)
+                const r: u32 = self.range_of(n)
                 if r != NONE {
                     write(" bounds=")
                     if self.rb_ss[r] == 1 {
@@ -496,7 +496,7 @@ extend Check {
         write("\n")
     }
 
-    func textras(var self, n: u32, k: u32)
+    func textras(let self, n: u32, k: u32)
         requires n < 131072
         ensures true
     {
@@ -528,7 +528,7 @@ extend Check {
             if self.p.ny[n / 65536][n % 65536] == 1 {
                 write("-")
             }
-            let m: u64 = self.p.mag(n)
+            const m: u64 = self.p.mag(n)
             write("{m}")
         } elif k == 33 {
             if self.p.nx[n / 65536][n % 65536] == 1 {
@@ -558,7 +558,7 @@ extend Check {
         }
     }
 
-    func wesc_span(var self, a: u32, l: u32)
+    func wesc_span(let self, a: u32, l: u32)
         requires true
         ensures true
     {
@@ -570,34 +570,34 @@ extend Check {
         }
     }
 
-    func tdump(var self)
+    func tdump(let self)
         requires true
         ensures true
     {
-        var st: [u32; 64] = [0; 64]
-        var sp: u32 = 0
-        var cur: u32 = 0
-        var dpt: u32 = 0
-        var done: bool = false
+        let st: [u32; 64] = [0; 64]
+        let sp: u32 = 0
+        let cur: u32 = 0
+        let dpt: u32 = 0
+        let done: bool = false
         for _ in 0..131072 {
             if done {
                 break
             }
             self.tprint(cur, dpt)
             # hoist линков (§1.5): cur остаётся плотным, стек st чист
-            let c: u32 = self.p.nfc[cur / 65536][cur % 65536]
+            const c: u32 = self.p.nfc[cur / 65536][cur % 65536]
             if c != NONE and sp < 64 {
                 st[sp] = cur
                 sp = sp + 1
                 dpt = dpt + 1
                 cur = c
             } else {
-                var moved: bool = false
+                let moved: bool = false
                 for _ in 0..64 {
                     if moved {
                         break
                     }
-                    let nx: u32 = self.p.nns[cur / 65536][cur % 65536]
+                    const nx: u32 = self.p.nns[cur / 65536][cur % 65536]
                     if sp == 0 {
                         done = true
                         moved = true
@@ -619,23 +619,23 @@ extend Check {
     # --- сортировка и печать рёбер ------------------------------------------
 
     # i-й байт ключа вызывающего/вызываемого; 999 — конец.
-    func key_byte(var self, code: u32, i: u32) -> u32
+    func key_byte(let self, code: u32, i: u32) -> u32
         requires true
         ensures true
     {
         if code >= 2048 {
-            let pre: str<8> = "test:"
+            const pre: str<8> = "test:"
             if i < 5 {
                 return u32(u8(pre[i]))
             }
-            let ti: u32 = code - 2048
+            const ti: u32 = code - 2048
             if i - 5 < self.tt_l[ti] {
                 return u32(self.p.lex.sb_at(self.tt_s[ti] + i - 5))
             }
             return 999
         }
-        var off: u32 = 0
-        let own: u32 = self.fown[code]
+        let off: u32 = 0
+        const own: u32 = self.fown[code]
         if own != NONE {
             if i < self.sn_l[own] {
                 return u32(self.p.lex.sb_at(self.sn_s[own] + i))
@@ -652,18 +652,18 @@ extend Check {
     }
 
     # 0: a < b, 1: равны, 2: a > b.
-    func cmp_key(var self, a: u32, b: u32) -> u32
+    func cmp_key(let self, a: u32, b: u32) -> u32
         requires true
         ensures result <= 2
     {
-        var r: u32 = 1
-        var stop: bool = false
+        let r: u32 = 1
+        let stop: bool = false
         for i in 0..300 {
             if stop {
                 break
             }
-            let ba: u32 = self.key_byte(a, i)
-            let bb: u32 = self.key_byte(b, i)
+            const ba: u32 = self.key_byte(a, i)
+            const bb: u32 = self.key_byte(b, i)
             if ba == 999 and bb == 999 {
                 stop = true
             } elif ba == 999 {
@@ -688,11 +688,11 @@ extend Check {
     # совпадает с порядком ключей (строгая монотонность), равенство
     # рангов равносильно равенству ключей — сортировка по рангам даёт
     # байт-в-байт тот же порядок, что посимвольная.
-    func rank_of(var self, code: u32) -> u32
+    func rank_of(let self, code: u32) -> u32
         requires true
         ensures true
     {
-        var r: u32 = 0
+        let r: u32 = 0
         for c2 in 0..1024 {
             if c2 >= self.nfun {
                 break
@@ -712,7 +712,7 @@ extend Check {
         return r
     }
 
-    func rank_build(var self)
+    func rank_build(let self)
         requires true
         ensures true
     {
@@ -730,19 +730,19 @@ extend Check {
         }
     }
 
-    func edge_gt(var self, i: u32, j: u32) -> bool
+    func edge_gt(let self, i: u32, j: u32) -> bool
         requires i < 4096 and j < 4096
         ensures true
     {
-        let a1: u32 = self.erk[self.eg_c[i] & 4095]
-        let b1: u32 = self.erk[self.eg_c[j] & 4095]
+        const a1: u32 = self.erk[self.eg_c[i] & 4095]
+        const b1: u32 = self.erk[self.eg_c[j] & 4095]
         if a1 != b1 {
             return a1 > b1
         }
         return self.erk[self.eg_d[i] & 4095] > self.erk[self.eg_d[j] & 4095]
     }
 
-    func dump_edges(var self)
+    func dump_edges(let self)
         requires true
         ensures true
     {
@@ -752,7 +752,7 @@ extend Check {
             if i >= self.neg {
                 break
             }
-            var best: u32 = i
+            let best: u32 = i
             for j in 0..4096 {
                 if j >= self.neg {
                     break
@@ -764,8 +764,8 @@ extend Check {
                 }
             }
             if best != i {
-                let tc: u32 = self.eg_c[i]
-                let td: u32 = self.eg_d[i]
+                const tc: u32 = self.eg_c[i]
+                const td: u32 = self.eg_d[i]
                 self.eg_c[i] = self.eg_c[best]
                 self.eg_d[i] = self.eg_d[best]
                 self.eg_c[best] = tc
@@ -784,12 +784,12 @@ extend Check {
         }
     }
 
-    func write_key(var self, code: u32)
+    func write_key(let self, code: u32)
         requires true
         ensures true
     {
         for i in 0..300 {
-            let b: u32 = self.key_byte(code, i)
+            const b: u32 = self.key_byte(code, i)
             if b != 999 {
                 write_byte(u8(b))
             }

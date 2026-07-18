@@ -24,14 +24,14 @@ import {
     parse_i32,
 } from "lib/Parse.eat"
 
-const NO_CONN: u32 = 4294967295
-const SENT: u32 = 4294967295
-const PORT_DEFAULT: u32 = 8080
+constexpr NO_CONN: u32 = 4294967295
+constexpr SENT: u32 = 4294967295
+constexpr PORT_DEFAULT: u32 = 8080
 # детерминированный останов для сверки по транскрипту
-const SERVE_CONNS: u32 = 5
-const N_ROUTES: u32 = 4
+constexpr SERVE_CONNS: u32 = 5
+constexpr N_ROUTES: u32 = 4
 # id мимо таблицы — «не найдено» (ветка Miss в match)
-const MISS: u32 = 4
+constexpr MISS: u32 = 4
 
 # Маршруты как значения enum: match по ним обязан быть исчерпывающим —
 # добавил маршрут в таблицу, компилятор заставит добавить обработчик.
@@ -69,8 +69,8 @@ func route_of(r: Req) -> u32
     requires true
     ensures result <= 4
 {
-    let t: [RouteRow; 4] = routes()
-    var id: u32 = MISS
+    const t: [RouteRow; 4] = routes()
+    let id: u32 = MISS
     for i in 0..4 {
         if id != MISS {
             break
@@ -111,11 +111,11 @@ func html_page(title: str<64>, body: str<128>) -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(200, "OK")
     w.header_line("Content-Type", "text/html; charset=utf-8")
     w.header_line("Connection", "close")
-    let t: str<256> = "<html><head><title>{title}</title></head><body>{body}</body></html>\n"
+    const t: str<256> = "<html><head><title>{title}</title></head><body>{body}</body></html>\n"
     w.body(t)
     return w
 }
@@ -124,7 +124,7 @@ func text_ok(body: str<64>) -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(200, "OK")
     w.header_line("Connection", "close")
     w.body(body)
@@ -135,7 +135,7 @@ func not_found() -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(404, "Not Found")
     w.header_line("Connection", "close")
     w.body("no such route\n")
@@ -148,7 +148,7 @@ func handle(r: Req) -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     match to_route(route_of(r)) {
         Home {
             w = html_page("EATLang HTTP", "<h1>Маршруты</h1><a href=\"/hello\">hello</a>")
@@ -182,7 +182,7 @@ func parse_error_resp(st: u32) -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     if st == 413 {
         w.status_line(413, "Payload Too Large")
     } elif st == 431 {
@@ -223,7 +223,7 @@ func send_resp(fd: u32, w: Resp)
     if w.of {
         return
     }
-    var sent: u32 = 0
+    let sent: u32 = 0
     for _ in 0..64 {
         if sent >= w.n {
             break
@@ -233,8 +233,8 @@ func send_resp(fd: u32, w: Resp)
 }
 
 func main() {
-    var lst: u32 = 0
-    var live: bool = false
+    let lst: u32 = 0
+    let live: bool = false
     match socket_listen(u16(port_arg())) {
         Ok(fd) {
             lst = fd
@@ -245,16 +245,16 @@ func main() {
         }
     }
     if live {
-        var conn: u32 = SENT
-        var served: u32 = 0
+        let conn: u32 = SENT
+        let served: u32 = 0
         # кадр разбора один на сервер: между соединениями — reset
         # (§8.2), не пересоздание с обнулением raw[8192]
-        var req: Req = req_new()
-        var st: u32 = PARSE_MORE
-        var eof: bool = false
+        let req: Req = req_new()
+        let st: u32 = PARSE_MORE
+        let eof: bool = false
         loop {
             if conn == SENT {
-                let c: u32 = socket_accept(lst)
+                const c: u32 = socket_accept(lst)
                 if c != NO_CONN {
                     conn = c
                     req.reset()

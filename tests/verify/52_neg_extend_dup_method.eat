@@ -23,6 +23,6 @@ extend Foo {
 }
 
 func main() {
-    let f: Foo = Foo { n: 1 }
+    const f: Foo = Foo { n: 1 }
     print("{f.get()}")
 }

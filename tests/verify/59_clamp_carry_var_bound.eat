@@ -11,8 +11,8 @@
 # (здесь, не несётся) — без монотонного фикспойнта.
 
 func main() {
-    var m: u32 = 255
-    var sum: u32 = 0
+    let m: u32 = 255
+    let sum: u32 = 0
     for _ in 0..8 {
         for j in 0..1000 {
             sum = (sum + j) & m

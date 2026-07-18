@@ -1,15 +1,15 @@
 # Проба self-host лексера: stdin → пул токенов (границы серий байтов).
 # Задействует все кирпичи: read_byte/Result, u8-классификацию, enum,
-# пул в struct с var self, литерал заполнения [0; N], модули.
+# пул в struct с let self, литерал заполнения [0; N], модули.
 
-const CAP: u32 = 1024
+constexpr CAP: u32 = 1024
 
 struct Toks {
     kind: [u32; 1024]
     start: [u32; 1024]
     count: u32
 
-    func push(var self, k: u32, s: u32)
+    func push(let self, k: u32, s: u32)
         requires self.count < CAP
         ensures self.count <= CAP
     {
@@ -20,13 +20,13 @@ struct Toks {
 }
 
 func main() {
-    var toks: Toks = Toks { kind: [0; 1024], start: [0; 1024], count: 0 }
-    var pos: u32 = 0
-    var cur: u32 = 2
+    let toks: Toks = Toks { kind: [0; 1024], start: [0; 1024], count: 0 }
+    let pos: u32 = 0
+    let cur: u32 = 2
     loop {
         match read_byte() {
             Ok(b) {
-                let k: u32 = code_of(klass(b))
+                const k: u32 = code_of(klass(b))
                 if k != cur {
                     if k != 2 {
                         if toks.count < CAP {
