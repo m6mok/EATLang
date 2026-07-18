@@ -16,21 +16,21 @@ import {
     resp_new,
     PARSE_MORE,
     PARSE_DONE,
-} from "lib/Http.eat"
+} from "lib/http/Http.eat"
 
 import {
     Poll,
     ready,
     Timer,
-} from "lib/Async.eat"
+} from "lib/os/Async.eat"
 
 import {
     get,
-} from "lib/Args.eat"
+} from "lib/os/Args.eat"
 
 import {
     parse_i32,
-} from "lib/Parse.eat"
+} from "lib/fmt/Parse.eat"
 
 constexpr NO_CONN: u32 = 4294967295
 constexpr SENT: u32 = 4294967295
@@ -47,7 +47,6 @@ constexpr DRAIN_BUDGET: u32 = 8900
 
 # Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
 func port_arg() -> u32
-    requires true
     ensures result <= 65535
 {
     match get(0) {
@@ -80,8 +79,6 @@ struct Conn {
     # Занять слот принятым соединением. Кадр Req переиспользуется
     # через reset (§8.2: без обнуления raw[8192] на соединение).
     func open(let self, fd: u32)
-        requires true
-        ensures true
     {
         self.fd = fd
         self.req.reset()
@@ -95,8 +92,6 @@ struct Conn {
 
     # Закрыть соединение и вернуть слот пулу.
     func shut(let self) -> Poll
-        requires true
-        ensures true
     {
         socket_close(self.fd)
         self.fd = SENT
@@ -106,8 +101,6 @@ struct Conn {
     # Ответ по итогу разбора; keep-alive решают заголовки запроса и
     # потолок MAX_REQ_PER_CONN (крышка keep-alive — Connection: close).
     func build(let self, st: u32)
-        requires true
-        ensures true
     {
         self.served = self.served + 1
         let keep: bool = false
@@ -146,8 +139,6 @@ struct Conn {
     # Фаза чтения: дренаж готовых байтов сквозь автомат парсера;
     # тишина дольше IDLE_TICKS — закрытие по таймеру.
     func step_read(let self) -> Poll
-        requires true
-        ensures true
     {
         let st: u32 = PARSE_MORE
         let eof: bool = false
@@ -190,8 +181,6 @@ struct Conn {
     # Фаза отправки: неблокирующая досылка курсором (правило 7);
     # после полного ответа — либо close, либо следующий запрос.
     func step_send(let self) -> Poll
-        requires true
-        ensures true
     {
         if self.w.of {
             # переполненный ответ не отправляется (ошибка-значение)
@@ -219,8 +208,6 @@ struct Conn {
 
     # Один шаг автомата соединения; после Ready шаг идемпотентен.
     func step(let self) -> Poll
-        requires true
-        ensures true
     {
         if self.fd == SENT {
             return Poll.Ready
@@ -234,8 +221,6 @@ struct Conn {
 
 # Пустой слот пула.
 func conn_blank() -> Conn
-    requires true
-    ensures true
 {
     return Conn {
         fd: SENT, req: req_new(), w: resp_new(), sent: 0,

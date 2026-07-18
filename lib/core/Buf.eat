@@ -14,7 +14,6 @@ export {
 # Слово (первые 16 байт лексемы) совпадает со строкой-эталоном?
 func same(a: [u8; 16], n: u32, kw: str<16>) -> bool
     requires n <= 16
-    ensures true
 {
     if n != len(kw) {
         return false
@@ -36,7 +35,6 @@ func same(a: [u8; 16], n: u32, kw: str<16>) -> bool
 # см. selfhost/Lexer.eat) — свежий буфер для same().
 func pool16(p: [[u8; 65536]; 4], a: u32, l: u32) -> [u8; 16]
     requires l <= 16
-    ensures true
 {
     let w: [u8; 16] = [0; 16]
     for i in 0..16 {

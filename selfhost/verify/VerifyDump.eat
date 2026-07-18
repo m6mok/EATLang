@@ -6,8 +6,6 @@ extend Verify {
     # --- отметки -------------------------------------------------------
 
     func mark(let self, kind: u32, node: u32, ok: u32)
-        requires true
-        ensures true
     {
         # пробный проход тела цикла не оставляет отметок (эталон _mark:
         # if self._probe: return) — иначе AND-слияние травит реальный проход
@@ -43,7 +41,6 @@ extend Verify {
 
     func analyze_func(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         const d: u32 = self.c.fnd[fi]
         if self.nk(d) == 50 {
@@ -93,8 +90,6 @@ extend Verify {
     # меняется между пассами). Функции недостижимые из вершин обходятся
     # как отдельные корни (внешний цикл по всем fi)
     func topo_order(let self)
-        requires true
-        ensures true
     {
         for i in 0..1024 {
             if i >= self.c.nfun {
@@ -115,7 +110,6 @@ extend Verify {
 
     func topo_visit(let self, start: u32)
         requires start < 1024
-        ensures true
     {
         let st: [u32; 1024] = [0; 1024]
         let sp: u32 = 1
@@ -146,7 +140,6 @@ extend Verify {
     # первый ещё не посещённый callee-функция узла (code < nfun), либо NONE
     func next_child(let self, node: u32) -> u32
         requires node < 1024
-        ensures true
     {
         let found: u32 = NONE
         let done: bool = false
@@ -170,8 +163,6 @@ extend Verify {
     # ti — индекс теста (уникальный own пулов). Тесту не нужны параметры,
     # requires/ensures, сводка — только поток тела (assert/границы/…).
     func analyze_tests(let self)
-        requires true
-        ensures true
     {
         let d: u32 = self.nfc(0)
         let mod: u32 = 0
@@ -193,7 +184,6 @@ extend Verify {
 
     func analyze_test(let self, d: u32, ti: u32, mod: u32)
         requires d < 131072 and ti < 64
-        ensures true
     {
         self.npp = 0
         self.env = self.fresh_st()
@@ -226,7 +216,6 @@ extend Verify {
     # месте вызова в том же модуле (иначе — SPARK-граница contract_iv)
     func finalize_summary(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.sum_tag[fi] = 0
         const ret: u32 = self.c.fret[fi]
@@ -270,7 +259,6 @@ extend Verify {
 
     func seed_params(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         const pbase: u32 = self.c.fps[fi]
         for i in 0..6 {
@@ -292,7 +280,6 @@ extend Verify {
 
     func finish_ensures(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         if self.ens_node == NONE {
             return
@@ -314,8 +301,6 @@ extend Verify {
     }
 
     func requires_pass(let self)
-        requires true
-        ensures true
     {
         for fi in 0..1024 {
             if fi >= self.c.nfun {
@@ -327,7 +312,6 @@ extend Verify {
 
     func requires_one(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         const req: u32 = self.func_clause(fi, 9)
         if req == NONE {
@@ -352,8 +336,6 @@ extend Verify {
     # пасс k использует карты пасса k−1; отметки — последнего пасса
     # (перед ним карты стабилизировались либо исчерпан лимит в 3 пасса)
     func analyze(let self)
-        requires true
-        ensures true
     {
         self.topo_order()
         let stable: bool = false
@@ -376,8 +358,6 @@ extend Verify {
     }
 
     func verify(let self)
-        requires true
-        ensures true
     {
         self.analyze()
         self.dump()
@@ -390,8 +370,6 @@ extend Verify {
     # func.requires_proven/ensures_proven). Ir читает маску зеркально
     # codegen.py: элизия trap-блоков, nsw/nuw.
     func annotate(let self)
-        requires true
-        ensures true
     {
         for i in 0..16384 {
             if i >= self.nck {
@@ -409,7 +387,6 @@ extend Verify {
 
     func ck_less(let self, i: u32, j: u32) -> bool
         requires i < 16384 and j < 16384
-        ensures true
     {
         const a: u32 = self.ck_n[i]
         const b: u32 = self.ck_n[j]
@@ -428,8 +405,6 @@ extend Verify {
     }
 
     func kname(let self, k: u32) -> str<16>
-        requires true
-        ensures true
     {
         if k == 0 {
             return "bounds"
@@ -456,8 +431,6 @@ extend Verify {
     }
 
     func emit_line(let self, kind: u32, ln: u32, cl: u32, ok: u32)
-        requires true
-        ensures true
     {
         const nm: str<16> = self.kname(kind)
         if ok == 1 {
@@ -468,8 +441,6 @@ extend Verify {
     }
 
     func dump(let self)
-        requires true
-        ensures true
     {
         for i in 0..16384 {
             if i >= self.nck {
@@ -499,8 +470,6 @@ extend Verify {
     }
 
     func footer(let self)
-        requires true
-        ensures true
     {
         let tp: [u32; 8] = [0; 8]
         let tt: [u32; 8] = [0; 8]

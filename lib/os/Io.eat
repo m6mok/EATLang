@@ -9,8 +9,6 @@ export {
 }
 
 func read_line() -> Result<str<256>, IoError>
-    requires true
-    ensures true
 {
     let r: RtStr = RtStr { ln: 0, buf: [0; 256] }
     const st: u32 = r.read_line()

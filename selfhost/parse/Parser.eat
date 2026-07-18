@@ -73,29 +73,21 @@ struct Parser {
     # --- токены ---------------------------------------------------------
 
     func tk_at(let self) -> u32
-        requires true
-        ensures true
     {
         return self.lex.tok_k(self.cur)
     }
 
     func t_line(let self) -> u32
-        requires true
-        ensures true
     {
         return self.lex.tok_l(self.cur)
     }
 
     func t_col(let self) -> u32
-        requires true
-        ensures true
     {
         return self.lex.tok_c(self.cur)
     }
 
     func advance(let self)
-        requires true
-        ensures true
     {
         if self.lex.tok_k(self.cur) != 55 {
             self.cur = self.cur + 1
@@ -104,8 +96,6 @@ struct Parser {
 
     # NEWLINE в потоке схлопнут лексером — пропуск не более одного.
     func skip_nl(let self)
-        requires true
-        ensures true
     {
         if self.lex.tok_k(self.cur) == 54 {
             self.advance()
@@ -113,8 +103,6 @@ struct Parser {
     }
 
     func fail(let self, m: str<128>)
-        requires true
-        ensures true
     {
         if not self.failed {
             eprint("err: {self.lex.tok_l(self.cur)}:{self.lex.tok_c(self.cur)}: {m}")
@@ -123,8 +111,6 @@ struct Parser {
     }
 
     func end_of_stmt(let self)
-        requires true
-        ensures true
     {
         const k: u32 = self.tk_at()
         if k == 33 or k == 55 {
@@ -139,8 +125,6 @@ struct Parser {
 
     # Слово текущего токена совпадает со строкой?
     func tok_is16(let self, kw: str<16>) -> bool
-        requires true
-        ensures true
     {
         const vl: u32 = self.lex.tok_vl(self.cur)
         if vl > 16 {
@@ -151,8 +135,6 @@ struct Parser {
 
     # Значение INT-токена как u64 (лимит self-host: |литерал| < 2^64).
     func tok_u64(let self) -> u64
-        requires true
-        ensures true
     {
         const vs: u32 = self.lex.tok_vs(self.cur)
         const vl: u32 = self.lex.tok_vl(self.cur)
@@ -178,7 +160,6 @@ struct Parser {
     # Магнитуда int-узла: пара (nxh, nx) — старшие и младшие 32 бита.
     func mag(let self, n: u32) -> u64
         requires n < 131072
-        ensures true
     {
         return u64(self.nxh[n / 65536][n % 65536]) << 32 | u64(self.nx[n / 65536][n % 65536])
     }
@@ -212,7 +193,6 @@ struct Parser {
     # Строковый payload узла — значение токена ti.
     func set_str(let self, n: u32, ti: u32)
         requires n < 131072 and ti < 262144
-        ensures true
     {
         self.nss[n / 65536][n % 65536] = self.lex.tok_vs(ti)
         self.nsl[n / 65536][n % 65536] = self.lex.tok_vl(ti)
@@ -220,7 +200,6 @@ struct Parser {
 
     func append_child(let self, p: u32, c: u32)
         requires p < 131072 and c < 131072
-        ensures true
     {
         if self.nfc[p / 65536][p % 65536] == NONE {
             self.nfc[p / 65536][p % 65536] = c
@@ -239,7 +218,6 @@ struct Parser {
     # (эталон печатает поля, затем методы). nx[struct] — последнее поле.
     func insert_field(let self, s: u32, f: u32)
         requires s < 131072 and f < 131072
-        ensures true
     {
         # Записи линков ветвятся по NONE (гигиена пулов, §1.5): копия
         # «дырочного» значения одной строкой отравила бы инвариант nns.
@@ -275,7 +253,6 @@ struct Parser {
 
     func push_frame(let self, k: u32, ph: u32, node: u32, att: u32, x: u32)
         requires k <= 17
-        ensures true
     {
         if self.nf >= 64 {
             self.fail("переполнен стек кадров парсера")
@@ -304,7 +281,6 @@ struct Parser {
 
     func set_phase(let self, ph: u32)
         requires self.nf >= 1
-        ensures true
     {
         self.fp[self.nf - 1] = ph
     }
@@ -323,7 +299,6 @@ struct Parser {
     # Завершение кадра: узел прикрепляется к цели и попадает в ret.
     func complete(let self)
         requires self.nf >= 1
-        ensures true
     {
         const f: u32 = self.nf - 1
         const node: u32 = self.fnod[f]
@@ -338,8 +313,6 @@ struct Parser {
     # --- насос -----------------------------------------------------------
 
     func parse(let self)
-        requires true
-        ensures true
     {
         const pn: u32 = self.alloc(0, self.lex.tok_l(0), self.lex.tok_c(0))
         self.push_frame(0, 0, pn, NONE, 0)
@@ -355,8 +328,6 @@ struct Parser {
     }
 
     func pump(let self)
-        requires true
-        ensures true
     {
         if self.nf == 0 {
             self.done = true
@@ -405,8 +376,6 @@ struct Parser {
     # --- программа -------------------------------------------------------
 
     func step_program(let self)
-        requires true
-        ensures true
     {
         self.skip_nl()
         const k: u32 = self.tk_at()
@@ -451,8 +420,6 @@ struct Parser {
 
     # Директива #module: узел 51, новый сегмент потока.
     func start_module(let self, att: u32)
-        requires true
-        ensures true
     {
         const node: u32 = self.alloc(51, self.t_line(), self.t_col())
         self.set_str(node, self.cur)
@@ -468,7 +435,6 @@ struct Parser {
     # алиас — спан в nx/ny). Возвращает число связок.
     func parse_binds(let self, node: u32) -> u32
         requires node < 131072
-        ensures true
     {
         if self.tk_at() != 32 {
             self.fail("ожидалось '{{'")
@@ -516,8 +482,6 @@ struct Parser {
     }
 
     func start_import(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -552,8 +516,6 @@ struct Parser {
     }
 
     func start_export(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -582,7 +544,6 @@ struct Parser {
 
     func start_func(let self, att: u32, instruct: u32)
         requires instruct <= 1
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -604,8 +565,6 @@ struct Parser {
 
     # extern func: заголовок как у функции, узел 50, тела нет.
     func start_extern(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -631,8 +590,6 @@ struct Parser {
     }
 
     func step_func(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const ph: u32 = self.fp[f]
@@ -676,8 +633,6 @@ struct Parser {
     }
 
     func func_params(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const k: u32 = self.tk_at()
@@ -713,8 +668,6 @@ struct Parser {
     }
 
     func func_self_param(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         let mut: u32 = 0
@@ -746,8 +699,6 @@ struct Parser {
 
     # Возврат из типа параметра: запятая или ')'.
     func func_param_next(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         if self.tk_at() == 43 {
@@ -759,8 +710,6 @@ struct Parser {
     }
 
     func func_arrow(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         if self.tk_at() == 48 {
@@ -776,8 +725,6 @@ struct Parser {
     }
 
     func func_requires(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         if self.tk_at() == 21 {
@@ -792,8 +739,6 @@ struct Parser {
     }
 
     func func_ensures(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         if self.tk_at() == 22 {
@@ -808,8 +753,6 @@ struct Parser {
     }
 
     func func_finish(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const node: u32 = self.fnod[f]
@@ -828,15 +771,11 @@ struct Parser {
     # --- типы --------------------------------------------------------------
 
     func start_type(let self, att: u32)
-        requires true
-        ensures true
     {
         self.push_frame(2, 0, NONE, att, 0)
     }
 
     func step_type(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const ph: u32 = self.fp[f]
@@ -876,8 +815,6 @@ struct Parser {
 
     # Закрывающий '>' типа; `>>` вложенных дженериков расщепляется.
     func close_gt(let self)
-        requires true
-        ensures true
     {
         if self.tk_at() == 60 {
             self.lex.split_shr(self.cur)
@@ -893,8 +830,6 @@ struct Parser {
     }
 
     func type_start(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const k: u32 = self.tk_at()
@@ -961,8 +896,6 @@ struct Parser {
     # --- блоки и инструкции ------------------------------------------
 
     func start_block(let self, att: u32)
-        requires true
-        ensures true
     {
         if self.tk_at() != 32 {
             self.fail("ожидалось '{{'")
@@ -979,8 +912,6 @@ struct Parser {
     }
 
     func step_block(let self)
-        requires true
-        ensures true
     {
         self.skip_nl()
         const k: u32 = self.tk_at()
@@ -998,8 +929,6 @@ struct Parser {
     }
 
     func dispatch_stmt(let self)
-        requires true
-        ensures true
     {
         const att: u32 = self.fnod[self.nf - 1]
         const k: u32 = self.tk_at()
@@ -1047,8 +976,6 @@ struct Parser {
     }
 
     func stmt_let(let self, att: u32)
-        requires true
-        ensures true
     {
         let mut: u32 = 0
         if self.tk_at() == 6 {
@@ -1075,8 +1002,6 @@ struct Parser {
     }
 
     func step_local(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         if self.fp[f] == 0 {
@@ -1094,8 +1019,6 @@ struct Parser {
     }
 
     func step_if(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const node: u32 = self.fnod[f]
@@ -1130,8 +1053,6 @@ struct Parser {
     }
 
     func stmt_for(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -1153,8 +1074,6 @@ struct Parser {
     }
 
     func step_for(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const node: u32 = self.fnod[f]
@@ -1187,8 +1106,6 @@ struct Parser {
     }
 
     func step_match(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const ph: u32 = self.fp[f]
@@ -1209,8 +1126,6 @@ struct Parser {
     }
 
     func match_arm(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const node: u32 = self.fnod[f]
@@ -1252,8 +1167,6 @@ struct Parser {
     }
 
     func stmt_return(let self, att: u32)
-        requires true
-        ensures true
     {
         const n: u32 = self.alloc(22, self.t_line(), self.t_col())
         self.advance()
@@ -1268,16 +1181,12 @@ struct Parser {
     }
 
     func step_tail(let self)
-        requires true
-        ensures true
     {
         self.end_of_stmt()
         self.complete()
     }
 
     func step_discard(let self)
-        requires true
-        ensures true
     {
         const rk: u32 = self.nk[self.ret / 65536][self.ret % 65536]
         if rk != 41 and rk != 42 {
@@ -1290,8 +1199,6 @@ struct Parser {
     }
 
     func step_exprstmt(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const node: u32 = self.fnod[f]
@@ -1327,8 +1234,6 @@ struct Parser {
     # --- объявления верхнего уровня --------------------------------------
 
     func start_constexpr(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -1350,8 +1255,6 @@ struct Parser {
     }
 
     func step_constexpr(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         if self.fp[f] == 0 {
@@ -1369,8 +1272,6 @@ struct Parser {
     }
 
     func start_struct(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -1393,8 +1294,6 @@ struct Parser {
     }
 
     func step_struct(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const node: u32 = self.fnod[f]
@@ -1435,8 +1334,6 @@ struct Parser {
     # extend ИМЯ { методы }: узел 55, внутри только func (полей нет);
     # методы сливает в struct фаза Check (зеркало parse_extend эталона).
     func start_extend(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -1458,8 +1355,6 @@ struct Parser {
     }
 
     func step_extend(let self)
-        requires true
-        ensures true
     {
         self.skip_nl()
         const k: u32 = self.tk_at()
@@ -1476,8 +1371,6 @@ struct Parser {
     }
 
     func start_enum(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -1499,8 +1392,6 @@ struct Parser {
     }
 
     func step_enum(let self)
-        requires true
-        ensures true
     {
         const f: u32 = self.nf - 1
         const node: u32 = self.fnod[f]
@@ -1551,8 +1442,6 @@ struct Parser {
     }
 
     func start_test(let self, att: u32)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -1569,15 +1458,11 @@ struct Parser {
     }
 
     func step_test(let self)
-        requires true
-        ensures true
     {
         self.complete()
     }
 
     func step_loop(let self)
-        requires true
-        ensures true
     {
         self.complete()
     }
@@ -1585,8 +1470,6 @@ struct Parser {
     # --- дамп AST -----------------------------------------------------------
 
     func dump(let self)
-        requires true
-        ensures true
     {
         self.dcur = 0
         self.ddepth = 0
@@ -1601,8 +1484,6 @@ struct Parser {
     }
 
     func dump_step(let self)
-        requires true
-        ensures true
     {
         self.print_node(self.dcur, self.ddepth)
         const fc: u32 = self.nfc[self.dcur / 65536][self.dcur % 65536]
@@ -1638,7 +1519,6 @@ struct Parser {
 
     func print_node(let self, n: u32, d: u32)
         requires n < 131072
-        ensures true
     {
         for i in 0..64 {
             if i >= d {
@@ -1657,7 +1537,6 @@ struct Parser {
 
     func node_extras(let self, n: u32, k: u32)
         requires n < 131072
-        ensures true
     {
         if k == 6 {
             write(" name=")
@@ -1718,15 +1597,11 @@ struct Parser {
     }
 
     func write_span(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         self.lex.w_span(a, l)
     }
 
     func write_span_esc(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         for i in 0..256 {
             if i >= l {
@@ -1739,8 +1614,6 @@ struct Parser {
 
 # свежая структура фазы: вся память — в кадре вызывающего
 func parser_new(lex: Lexer) -> Parser
-    requires true
-    ensures true
 {
     return Parser {
         lex: lex, cur: 0, ret: NONE, bdepth: 0, failed: false, done: false, smod: false,

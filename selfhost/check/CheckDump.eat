@@ -9,7 +9,6 @@ extend Check {
     # Имя скалярного вида (правило 4: вынос из write_type).
     func write_scalar_kind(let self, k: u32)
         requires k <= 5 or k >= 12
-        ensures true
     {
         if k == 0 {
             write("i32")
@@ -34,7 +33,6 @@ extend Check {
 
     func write_type(let self, root: u32)
         requires root < 512
-        ensures true
     {
         let s1: [u32; 32] = [0; 32]
         let s2: [u32; 32] = [0; 32]
@@ -109,7 +107,6 @@ extend Check {
 
     func write_sig(let self, i: u32)
         requires i < 1024
-        ensures true
     {
         write("(")
         const ps: u32 = self.fps[i]
@@ -135,8 +132,6 @@ extend Check {
     }
 
     func dump_sig(let self)
-        requires true
-        ensures true
     {
         let d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
@@ -151,7 +146,6 @@ extend Check {
 
     func dump_decl(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         const k: u32 = self.p.nk[d / 65536][d % 65536]
         const ln: u32 = self.p.nl[d / 65536][d % 65536]
@@ -208,7 +202,6 @@ extend Check {
     # (беззнаковые — магнитуда, знаковые — со знаком, как эталон).
     func dump_arr_constexpr(let self, ci: u32)
         requires ci < 128
-        ensures true
     {
         const ty: u32 = self.cty[ci]
         const ln: u32 = self.yb[ty]
@@ -235,7 +228,6 @@ extend Check {
     # `import {локальное} {l}:{c} :: {путь} {публичное}` на связку.
     func dump_import(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         let b: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
@@ -260,7 +252,6 @@ extend Check {
     # `export {публичное} {l}:{c} :: {внутреннее}` на связку.
     func dump_export(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         let b: u32 = self.p.nfc[d / 65536][d % 65536]
         for _ in 0..1024 {
@@ -282,7 +273,6 @@ extend Check {
 
     func dump_struct(let self, d: u32, ln: u32, cl: u32)
         requires d < 131072
-        ensures true
     {
         write("struct ")
         self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
@@ -320,7 +310,6 @@ extend Check {
 
     func dump_enum(let self, d: u32, ln: u32, cl: u32)
         requires d < 131072
-        ensures true
     {
         write("enum ")
         self.write_span2(self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536])
@@ -348,8 +337,6 @@ extend Check {
     # Имена встроенных enum дописываются в пул байтов лексера — спаны
     # нужны интернированным типам (IoError/ParseError) и дампу.
     func init_builtins(let self)
-        requires true
-        ensures true
     {
         const io: str<16> = "IoError"
         const pe: str<16> = "ParseError"
@@ -388,7 +375,6 @@ extend Check {
     # совместимы при любой ёмкости (проверка — в рантайме).
     func compat(let self, e: u32, a: u32) -> bool
         requires e < 512 and a < 512
-        ensures true
     {
         if self.yk[e] == 6 and self.yk[a] == 6 {
             return true
@@ -400,7 +386,6 @@ extend Check {
 
     func add_edge(let self, c: u32, d: u32)
         requires d < 1024
-        ensures true
     {
         let dup: bool = false
         for i in 0..4096 {
@@ -426,8 +411,6 @@ extend Check {
     # --- типизированный дамп (`eatc typed`) --------------------------------
 
     func run_typed(let self)
-        requires true
-        ensures true
     {
         self.run()
         if self.failed {
@@ -444,8 +427,6 @@ extend Check {
     }
 
     func range_of(let self, n: u32) -> u32
-        requires true
-        ensures true
     {
         let found: u32 = NONE
         for i in 0..512 {
@@ -461,7 +442,6 @@ extend Check {
 
     func tprint(let self, n: u32, d: u32)
         requires n < 131072
-        ensures true
     {
         for i in 0..64 {
             if i >= d {
@@ -498,7 +478,6 @@ extend Check {
 
     func textras(let self, n: u32, k: u32)
         requires n < 131072
-        ensures true
     {
         if k == 6 {
             write(" name=")
@@ -559,8 +538,6 @@ extend Check {
     }
 
     func wesc_span(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         for i in 0..256 {
             if i >= l {
@@ -571,8 +548,6 @@ extend Check {
     }
 
     func tdump(let self)
-        requires true
-        ensures true
     {
         let st: [u32; 64] = [0; 64]
         let sp: u32 = 0
@@ -620,8 +595,6 @@ extend Check {
 
     # i-й байт ключа вызывающего/вызываемого; 999 — конец.
     func key_byte(let self, code: u32, i: u32) -> u32
-        requires true
-        ensures true
     {
         if code >= 2048 {
             const pre: str<8> = "test:"
@@ -653,7 +626,6 @@ extend Check {
 
     # 0: a < b, 1: равны, 2: a > b.
     func cmp_key(let self, a: u32, b: u32) -> u32
-        requires true
         ensures result <= 2
     {
         let r: u32 = 1
@@ -689,8 +661,6 @@ extend Check {
     # рангов равносильно равенству ключей — сортировка по рангам даёт
     # байт-в-байт тот же порядок, что посимвольная.
     func rank_of(let self, code: u32) -> u32
-        requires true
-        ensures true
     {
         let r: u32 = 0
         for c2 in 0..1024 {
@@ -713,8 +683,6 @@ extend Check {
     }
 
     func rank_build(let self)
-        requires true
-        ensures true
     {
         for c1 in 0..1024 {
             if c1 >= self.nfun {
@@ -732,7 +700,6 @@ extend Check {
 
     func edge_gt(let self, i: u32, j: u32) -> bool
         requires i < 4096 and j < 4096
-        ensures true
     {
         const a1: u32 = self.erk[self.eg_c[i] & 4095]
         const b1: u32 = self.erk[self.eg_c[j] & 4095]
@@ -743,8 +710,6 @@ extend Check {
     }
 
     func dump_edges(let self)
-        requires true
-        ensures true
     {
         self.rank_build()
         # сортировка выбором
@@ -785,8 +750,6 @@ extend Check {
     }
 
     func write_key(let self, code: u32)
-        requires true
-        ensures true
     {
         for i in 0..300 {
             const b: u32 = self.key_byte(code, i)

@@ -1,7 +1,6 @@
 # Ветвление if / else.
 
 func print_parity(number: i32)
-    requires true
 {
     if number % 2 == 0 {
         print("{number} is even")

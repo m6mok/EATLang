@@ -15,15 +15,12 @@ struct Stats {
 
     func mean(self) -> i32
         requires self.count > 0
-        ensures true
     {
         return self.total / cast_i32(self.count)
     }
 }
 
 func sign_of(x: i32) -> Sign
-    requires true
-    ensures true
 {
     if x < 0 {
         return Sign.Negative
@@ -34,8 +31,6 @@ func sign_of(x: i32) -> Sign
 }
 
 func describe(s: Sign) -> str<16>
-    requires true
-    ensures true
 {
     match s {
         Negative { return "negative" }
@@ -53,7 +48,6 @@ func cast_i32(x: u32) -> i32
 
 # Битовые операции: hex-литералы и ~ (инверсия в ширине типа)
 func low_nibble_inv(x: u32) -> u32
-    requires true
     ensures result <= 0xF
 {
     return ~x & 0x0000000F

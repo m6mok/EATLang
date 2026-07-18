@@ -23,22 +23,22 @@ import {
     PARSE_MORE,
     PARSE_DONE,
     HTTP_MAX_BODY,
-} from "lib/Http.eat"
+} from "lib/http/Http.eat"
 
 import {
     JDoc,
     JOut,
     json_doc,
     json_out,
-} from "lib/Json.eat"
+} from "lib/json/Json.eat"
 
 import {
     get,
-} from "lib/Args.eat"
+} from "lib/os/Args.eat"
 
 import {
     parse_i32,
-} from "lib/Parse.eat"
+} from "lib/fmt/Parse.eat"
 
 constexpr NO_CONN: u32 = 4294967295
 constexpr SENT: u32 = 4294967295
@@ -49,8 +49,6 @@ constexpr SERVE_CONNS: u32 = 6
 # --- ответы ---------------------------------------------------------
 
 func send_resp(fd: u32, w: Resp)
-    requires true
-    ensures true
 {
     if w.of {
         return
@@ -66,8 +64,6 @@ func send_resp(fd: u32, w: Resp)
 
 # JSON-тело произвольной длины из буфера JOut (заголовки уже посланы).
 func send_bytes(fd: u32, o: JOut, n: u32)
-    requires true
-    ensures true
 {
     let sent: u32 = 0
     for _ in 0..70000 {
@@ -79,8 +75,6 @@ func send_bytes(fd: u32, o: JOut, n: u32)
 }
 
 func info_page() -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     w.status_line(200, "OK")
@@ -91,8 +85,6 @@ func info_page() -> Resp
 }
 
 func not_found() -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     w.status_line(404, "Not Found")
@@ -102,8 +94,6 @@ func not_found() -> Resp
 }
 
 func bad_request() -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     w.status_line(400, "Bad Request")
@@ -113,8 +103,6 @@ func bad_request() -> Resp
 }
 
 func too_large() -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     w.status_line(413, "Payload Too Large")
@@ -125,8 +113,6 @@ func too_large() -> Resp
 
 # Ошибка разбора тела: 413 (переполнение) / 400 (кривой chunked).
 func err_resp(st: u32) -> Resp
-    requires true
-    ensures true
 {
     if st == 413 {
         return too_large()
@@ -140,7 +126,6 @@ func err_resp(st: u32) -> Resp
 # (round-trip тела, включая дроби).
 func echo(fd: u32, d: JDoc, root: u32)
     requires root < 4096
-    ensures true
 {
     let o: JOut = json_out()
     match o.ser(d, root) {
@@ -163,7 +148,6 @@ func echo(fd: u32, d: JDoc, root: u32)
 # POST /sum: {"a":i,"b":j} -> {"sum":i+j} (целые i32, счёт в i64).
 func sum(fd: u32, d: JDoc, root: u32)
     requires root < 4096
-    ensures true
 {
     let a: i64 = 0
     let b: i64 = 0
@@ -201,8 +185,6 @@ func sum(fd: u32, d: JDoc, root: u32)
 
 # Тело в JDoc, разбор, диспетч POST-эндпоинтов.
 func post_json(fd: u32, req: Req, body: Body)
-    requires true
-    ensures true
 {
     let d: JDoc = json_doc()
     for i in 0..65536 {
@@ -231,8 +213,6 @@ func post_json(fd: u32, req: Req, body: Body)
 
 # Запрос без тела: GET-маршруты, иначе 404.
 func handle_nobody(fd: u32, req: Req)
-    requires true
-    ensures true
 {
     if req.method_is("GET") and req.path_is("/") {
         send_resp(fd, info_page())
@@ -245,8 +225,6 @@ func handle_nobody(fd: u32, req: Req)
 # 0 нет тела · 1 Content-Length · 2 chunked · 413 CL > потолка.
 
 func body_kind(r: Req) -> u32
-    requires true
-    ensures true
 {
     match r.content_length() {
         Some(n) {
@@ -268,8 +246,6 @@ func body_kind(r: Req) -> u32
 }
 
 func body_len(r: Req) -> u32
-    requires true
-    ensures true
 {
     match r.content_length() {
         Some(n) { return n }
@@ -279,8 +255,6 @@ func body_len(r: Req) -> u32
 
 # После заголовков: спланировать тело, дочитать, обработать.
 func after_head(fd: u32, req: Req)
-    requires true
-    ensures true
 {
     const bk: u32 = body_kind(req)
     if bk == 413 {
@@ -319,8 +293,6 @@ func after_head(fd: u32, req: Req)
 
 # Одно соединение: прочитать заголовки, затем тело + ответ.
 func serve_one(fd: u32)
-    requires true
-    ensures true
 {
     let req: Req = req_new()
     let st: u32 = PARSE_MORE
@@ -343,7 +315,6 @@ func serve_one(fd: u32)
 
 # Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
 func port_arg() -> u32
-    requires true
     ensures result <= 65535
 {
     match get(0) {
@@ -409,8 +380,6 @@ struct Item {
 
 # Цена из сотых в "D.CC" (две дробные цифры, mant >= 0).
 func price_str(mant: i64) -> str<32>
-    requires true
-    ensures true
 {
     const d: i64 = mant / 100
     const c: i64 = mant % 100
@@ -422,8 +391,6 @@ func price_str(mant: i64) -> str<32>
 
 # Item -> JSON-текст.
 func item_json(it: Item) -> str<256>
-    requires true
-    ensures true
 {
     const q: i32 = it.qty
     const ps: str<32> = price_str(it.price_mant)
@@ -434,7 +401,6 @@ func item_json(it: Item) -> str<256>
 # JSON -> Item (обратный разбор).
 func item_of(d: JDoc, r: u32) -> Item
     requires r < 4096
-    ensures true
 {
     let q: i32 = 0
     let p: i64 = 0

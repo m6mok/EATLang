@@ -11,7 +11,7 @@ import {
     u128,
     u128_hi_lo,
     mul_64,
-} from "lib/U128.eat"
+} from "lib/core/U128.eat"
 
 constexpr REPEAT: u32 = 1
 

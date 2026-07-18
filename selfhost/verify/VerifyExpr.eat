@@ -7,8 +7,6 @@ extend Verify {
     # --- стек значений машины выражений --------------------------------
 
     func vpush(let self)
-        requires true
-        ensures true
     {
         if self.nvv >= 96 {
             self.failed = true
@@ -24,8 +22,6 @@ extend Verify {
     }
 
     func vpop(let self)
-        requires true
-        ensures true
     {
         if self.nvv == 0 {
             self.rk = 0
@@ -41,8 +37,6 @@ extend Verify {
     }
 
     func espush(let self, n: u32)
-        requires true
-        ensures true
     {
         if self.nes >= 96 {
             self.failed = true
@@ -60,7 +54,6 @@ extend Verify {
 
     func iv_eval(let self, root: u32, ann: u32)
         requires root < 131072
-        ensures true
     {
         const nbase: u32 = self.nes
         const vbase: u32 = self.nvv
@@ -90,7 +83,6 @@ extend Verify {
 
     func iv_step(let self)
         requires self.nes >= 1
-        ensures true
     {
         const f: u32 = self.nes - 1
         const n: u32 = self.esn[f]
@@ -124,7 +116,6 @@ extend Verify {
 
     func iv_leaf(let self, n: u32, k: u32)
         requires n < 131072
-        ensures true
     {
         if k == 32 {
             const m: u64 = self.c.p.mag(n)
@@ -157,7 +148,6 @@ extend Verify {
     # и диапазон типа ∩ инвариант поля)
     func iv_fieldx(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         if self.esp[f] == 0 {
             const p: u32 = self.node_path(n)
@@ -186,7 +176,6 @@ extend Verify {
 
     func iv_name(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const a: u32 = self.nss(n)
         const l: u32 = self.nsl(n)
@@ -227,7 +216,6 @@ extend Verify {
 
     func iv_bin(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const op: u32 = self.nx(n)
         const ph: u32 = self.esp[f]
@@ -255,7 +243,6 @@ extend Verify {
 
     func iv_bin_fin(let self, n: u32, op: u32)
         requires n < 131072
-        ensures true
     {
         self.vpop()
         self.b_k = self.rk
@@ -287,7 +274,6 @@ extend Verify {
     # a&b <= min, max(a,b) <= a|b <= a+b, a^b <= a+b (беззнаковые)
     func bitwise(let self, n: u32, op: u32)
         requires n < 131072
-        ensures true
     {
         if op == 19 or op == 20 {
             self.shift(n, op)
@@ -343,7 +329,6 @@ extend Verify {
     # переполнения, >> — деление; сдвиг на ширину типа и больше — trap
     func shift(let self, n: u32, op: u32)
         requires n < 131072
-        ensures true
     {
         self.kind_range(self.opkind)
         let w: u64 = 32
@@ -398,7 +383,6 @@ extend Verify {
 
     func arith(let self, n: u32, op: u32)
         requires n < 131072
-        ensures true
     {
         self.kind_range(self.opkind)
         if self.a_k == 0 or self.b_k == 0 {
@@ -429,7 +413,6 @@ extend Verify {
 
     func arith_add(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         self.sadd(self.a_ls, self.a_lm, self.b_ls, self.b_lm)
         const lov: u32 = self.oov
@@ -449,7 +432,6 @@ extend Verify {
 
     func arith_sub(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         self.ssub(self.a_ls, self.a_lm, self.b_hs, self.b_hm)
         const lov: u32 = self.oov
@@ -480,7 +462,6 @@ extend Verify {
     # b ≤ a доказуемо (пути с одним и тем же или разностным ограничением)
     func sub_floor(let self, n: u32) -> bool
         requires n < 131072
-        ensures true
     {
         const left: u32 = self.nfc(n)
         const right: u32 = self.nns(left)
@@ -500,7 +481,6 @@ extend Verify {
     # типа. Сырой интервал — в полях om_ls/om_lm/om_hs/om_hm.
     func overflow_mark(let self, n: u32, ov: u32)
         requires n < 131072
-        ensures true
     {
         let ok: u32 = 1
         if ov == 1 {
@@ -531,7 +511,6 @@ extend Verify {
     # так ensures result>=0 для dx*dx+dy*dy доказуемо
     func square_iv(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         self.kind_range(self.opkind)
         let m: u64 = self.a_lm
@@ -564,7 +543,6 @@ extend Verify {
 
     func arith_mul(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         # x * x — одинаковый путь у обоих операндов: неотрицательный квадрат
         const mlp: u32 = self.node_path(self.nfc(n))
@@ -614,7 +592,6 @@ extend Verify {
     # != 0 (интервал или nz), и не краевой INT_MIN / -1. Ставит отметку
     func div_safe(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         let safe: u32 = 0
         if self.b_ls == 0 and self.b_lm > 0 {
@@ -646,16 +623,12 @@ extend Verify {
 
     # делитель содержит 0 (b_lo <= 0 <= b_hi): точных частных нет
     func div_spans0(let self) -> bool
-        requires true
-        ensures true
     {
         return self.sleq(self.b_ls, self.b_lm, 0, 0) and self.sleq(0, 0, self.b_hs, self.b_hm)
     }
 
     # tdiv (усечение к нулю): oas/oam = m1/m2 со знаком s1^s2
     func sdiv(let self, s1: u32, m1: u64, s2: u32, m2: u64)
-        requires true
-        ensures true
     {
         if m2 == 0 {
             self.oas = 0
@@ -673,8 +646,6 @@ extend Verify {
 
     # угол tdiv в аккумулятор dq_* (min/max с учётом уже накопленного)
     func div_fold(let self, as_: u32, am: u64, bs: u32, bm: u64)
-        requires true
-        ensures true
     {
         self.sdiv(as_, am, bs, bm)
         const cs: u32 = self.oas
@@ -691,7 +662,6 @@ extend Verify {
     # _div: min/max четырёх углов tdiv и нуля, обрезка диапазоном типа)
     func arith_div(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const safe: u32 = self.div_safe(n)
         self.kind_range(self.opkind)
@@ -718,7 +688,6 @@ extend Verify {
     # bound = max(|делитель|)−1; при отрицательном левом крае −bound..bound)
     func arith_mod(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const safe: u32 = self.div_safe(n)
         self.kind_range(self.opkind)
@@ -747,15 +716,12 @@ extend Verify {
     }
 
     func b_spans_neg1(let self) -> bool
-        requires true
-        ensures true
     {
         return self.sleq(self.b_ls, self.b_lm, 1, 1) and self.sleq(1, 1, self.b_hs, self.b_hm)
     }
 
     func iv_un(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const op: u32 = self.nx(n)
         const ph: u32 = self.esp[f]
@@ -795,7 +761,6 @@ extend Verify {
     # ~x = маска − x (эталон _iv UnaryOp "~"): линейно убывает, точно
     func bnot(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         self.kind_range(self.opkind)
         if self.b_k == 0 {
@@ -815,7 +780,6 @@ extend Verify {
 
     func iv_index(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const ph: u32 = self.esp[f]
         if ph == 0 {
@@ -832,7 +796,6 @@ extend Verify {
 
     func iv_index_fin(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         self.vpop()
         const objn: u32 = self.nfc(n)
@@ -862,7 +825,6 @@ extend Verify {
     # строковый литерал: вычислить выражения-сегменты (отметки), итог — ⊥
     func iv_str(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const ph: u32 = self.esp[f]
         if ph == 0 {
@@ -890,7 +852,6 @@ extend Verify {
     # массив-литерал / struct-литерал: вычислить детей (отметки), итог — ⊥
     func iv_children(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const ph: u32 = self.esp[f]
         if ph == 0 {
@@ -922,7 +883,6 @@ extend Verify {
 
     func iv_afill(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const ph: u32 = self.esp[f]
         if ph == 0 {
@@ -940,7 +900,6 @@ extend Verify {
 
     func iv_call(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const ph: u32 = self.esp[f]
         if ph == 0 {
@@ -962,7 +921,6 @@ extend Verify {
 
     func iv_call_fin(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const a: u32 = self.nss(n)
         const l: u32 = self.nsl(n)
@@ -989,7 +947,6 @@ extend Verify {
     # bounds (эталон _iv_call name=="write_span"). Значение вызова — ⊥.
     func call_write_span(let self, n: u32, argc: u32)
         requires n < 131072
-        ensures true
     {
         self.vpop()
         const lls: u32 = self.rls
@@ -1025,7 +982,6 @@ extend Verify {
     # значение вызова — диапазон типа результата
     func call_arg_axiom(let self, n: u32, argc: u32)
         requires n < 131072
-        ensures true
     {
         self.pop_args(argc)
         if self.ann == 1 {
@@ -1035,8 +991,6 @@ extend Verify {
     }
 
     func pop_args(let self, argc: u32)
-        requires true
-        ensures true
     {
         if self.nvv >= argc {
             self.nvv = self.nvv - argc
@@ -1046,8 +1000,6 @@ extend Verify {
     }
 
     func is_cast_name(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         return (
             self.c.span_is(a, l, "i32") or self.c.span_is(a, l, "u32")
@@ -1058,8 +1010,6 @@ extend Verify {
     }
 
     func cast_kind(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         if self.c.span_is(a, l, "i32") {
             return 0
@@ -1084,7 +1034,6 @@ extend Verify {
 
     func call_cast(let self, n: u32, a: u32, l: u32)
         requires n < 131072
-        ensures true
     {
         const argn: u32 = self.nfc(n)
         const argty: u32 = self.nty(argn)
@@ -1130,7 +1079,6 @@ extend Verify {
 
     func call_len(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const argn: u32 = self.nfc(n)
         const aty: u32 = self.nty(argn)
@@ -1152,7 +1100,6 @@ extend Verify {
 
     func call_user(let self, n: u32, a: u32, l: u32, argc: u32)
         requires n < 131072
-        ensures true
     {
         const fi: u32 = self.c.find_func(a, l)
         if self.rec_off == 0 and self.npend < 64 {
@@ -1196,7 +1143,6 @@ extend Verify {
     # состоянии). obj — pid получателя (метод), либо NONE
     func contract_iv(let self, fi: u32, call: u32, obj: u32)
         requires fi < 1024 and call < 131072
-        ensures true
     {
         const ret: u32 = self.c.fret[fi]
         self.set_ty(ret)
@@ -1242,7 +1188,6 @@ extend Verify {
     # Как iv_call, но разрешение по типу получателя (struct.method).
     func iv_method(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const ph: u32 = self.esp[f]
         if ph == 0 {
@@ -1264,7 +1209,6 @@ extend Verify {
 
     func iv_method_fin(let self, f: u32, n: u32)
         requires f < 96 and n < 131072
-        ensures true
     {
         const argc: u32 = self.esx[f]
         const mfi: u32 = self.resolve_method(n)
@@ -1298,7 +1242,6 @@ extend Verify {
     # разрешить метод по типу получателя -> fi, либо NONE (не struct-метод)
     func resolve_method(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         const obj: u32 = self.nfc(n)
         const tres: u32 = self.nty(obj)
@@ -1315,8 +1258,6 @@ extend Verify {
     # обработать накопленные вызовы: для каждого — проверить requires
     # на месте вызова (аргументы в текущем состоянии потока)
     func flush_requires(let self)
-        requires true
-        ensures true
     {
         for _ in 0..4096 {
             if self.npend == 0 {
@@ -1345,8 +1286,6 @@ extend Verify {
     # kill пути op и всех его потомков op.* (эталон State.kill: путь и
     # префикс) — факты о получателе после мутирующего метода
     func kill_subtree(let self, op: u32)
-        requires true
-        ensures true
     {
         for k in 0..512 {
             if k >= self.npp {
@@ -1376,7 +1315,6 @@ extend Verify {
     # в текущем состоянии, построить call-env, оценить requires, счёт
     func check_requires_site(let self, cn: u32)
         requires cn < 131072
-        ensures true
     {
         # проба не считает сайты requires (эталон _check_requires: if _probe)
         if self.probe == 1 {
@@ -1420,7 +1358,6 @@ extend Verify {
     # с obj_path). obj — pid пути получателя, либо NONE.
     func build_method_env(let self, fi: u32, cn: u32, obj: u32)
         requires fi < 1024 and cn < 131072
-        ensures true
     {
         let tk: [u32; 8] = [0; 8]
         let tls: [u32; 8] = [0; 8]
@@ -1467,8 +1404,6 @@ extend Verify {
     # (через слоты self/self.поле): вызывается до сброса env. Пишет во
     # временный St self.msnap (self=selfpid, self.поле=slot(selfpid,поле))
     func snapshot_self(let self, obj: u32, selfpid: u32)
-        requires true
-        ensures true
     {
         self.msnap = self.fresh_st()
         if obj == NONE {
@@ -1496,8 +1431,6 @@ extend Verify {
 
     # наложить снимок self/self.поле (msnap) на свежий call-env метода
     func restore_self(let self)
-        requires true
-        ensures true
     {
         for k in 0..512 {
             if k >= self.npp {
@@ -1516,7 +1449,6 @@ extend Verify {
     # call-env: параметры функции fi <- интервалы аргументов вызова cn
     func build_call_env(let self, fi: u32, cn: u32)
         requires fi < 1024 and cn < 131072
-        ensures true
     {
         let tk: [u32; 8] = [0; 8]
         let tls: [u32; 8] = [0; 8]
@@ -1558,7 +1490,6 @@ extend Verify {
     # узел выражения клаузы вида kind (9 requires / 10 ensures) у функции
     func func_clause(let self, fi: u32, kind: u32) -> u32
         requires fi < 1024
-        ensures true
     {
         const d: u32 = self.c.fnd[fi]
         let c: u32 = self.nfc(d)
@@ -1578,7 +1509,6 @@ extend Verify {
     # тело функции (первый ребёнок-блок), или NONE
     func func_body(let self, fi: u32) -> u32
         requires fi < 1024
-        ensures true
     {
         const d: u32 = self.c.fnd[fi]
         let c: u32 = self.nfc(d)
@@ -1598,7 +1528,6 @@ extend Verify {
     # выражение содержит вызов (Call/MethodCall)?
     func has_call(let self, root: u32) -> bool
         requires root < 131072
-        ensures true
     {
         self.ndfs = 0
         self.dfs_n[0] = root
@@ -1625,7 +1554,6 @@ extend Verify {
 
     func dfs_push_children(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         let c: u32 = self.nfc(n)
         for _ in 0..64 {
@@ -1641,8 +1569,6 @@ extend Verify {
     # --- трёхзначная логика (0 ложь, 1 истина, 2 неизвестно) ----------
 
     func ebpush(let self, n: u32)
-        requires true
-        ensures true
     {
         if self.neb >= 64 {
             self.failed = true
@@ -1655,8 +1581,6 @@ extend Verify {
     }
 
     func ebvpush(let self, v: u32)
-        requires true
-        ensures true
     {
         if self.nebv >= 64 {
             self.failed = true
@@ -1668,8 +1592,6 @@ extend Verify {
     }
 
     func ebvpop(let self) -> u32
-        requires true
-        ensures true
     {
         if self.nebv == 0 {
             return 2
@@ -1680,7 +1602,6 @@ extend Verify {
 
     func eval_bool(let self, root: u32, ann: u32)
         requires root < 131072
-        ensures true
     {
         const nbase: u32 = self.neb
         const vbase: u32 = self.nebv
@@ -1702,7 +1623,6 @@ extend Verify {
 
     func eb_step(let self, ann: u32)
         requires self.neb >= 1
-        ensures true
     {
         const f: u32 = self.neb - 1
         const n: u32 = self.ebn[f]
@@ -1732,7 +1652,6 @@ extend Verify {
 
     func eb_not(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if self.ebp[f] == 0 {
             self.ebp[f] = 1
@@ -1750,7 +1669,6 @@ extend Verify {
 
     func eb_andor(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.ebp[f]
         if ph == 0 {
@@ -1783,7 +1701,6 @@ extend Verify {
 
     func eb_cmp(let self, f: u32, n: u32, ann: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const op: u32 = self.nx(n)
         self.iv_eval(self.nfc(n), ann)
@@ -1810,7 +1727,6 @@ extend Verify {
     # decide_rel → decide_offset → expr_equal). Возвращает 0/1/2.
     func cmp_rel(let self, n: u32, op: u32) -> u32
         requires n < 131072
-        ensures true
     {
         const left: u32 = self.nfc(n)
         const right: u32 = self.nns(left)
@@ -1847,8 +1763,6 @@ extend Verify {
     }
 
     func cmp(let self, op: u32) -> u32
-        requires true
-        ensures true
     {
         if self.la_k == 0 or self.rb_k == 0 {
             return 2
@@ -1869,8 +1783,6 @@ extend Verify {
     }
 
     func cmp_lt(let self) -> u32
-        requires true
-        ensures true
     {
         if self.sless(self.la_hs, self.la_hm, self.rb_ls, self.rb_lm) {
             return 1
@@ -1882,8 +1794,6 @@ extend Verify {
     }
 
     func cmp_le(let self) -> u32
-        requires true
-        ensures true
     {
         if self.sleq(self.la_hs, self.la_hm, self.rb_ls, self.rb_lm) {
             return 1
@@ -1895,8 +1805,6 @@ extend Verify {
     }
 
     func cmp_gt(let self) -> u32
-        requires true
-        ensures true
     {
         if self.sless(self.rb_hs, self.rb_hm, self.la_ls, self.la_lm) {
             return 1
@@ -1908,8 +1816,6 @@ extend Verify {
     }
 
     func cmp_ge(let self) -> u32
-        requires true
-        ensures true
     {
         if self.sleq(self.rb_hs, self.rb_hm, self.la_ls, self.la_lm) {
             return 1
@@ -1921,8 +1827,6 @@ extend Verify {
     }
 
     func cmp_eq(let self, op: u32) -> u32
-        requires true
-        ensures true
     {
         let pt: bool = self.seq(self.la_ls, self.la_lm, self.la_hs, self.la_hm)
         if pt and not self.seq(self.la_ls, self.la_lm, self.rb_ls, self.rb_lm) {
@@ -1955,8 +1859,6 @@ extend Verify {
     # --- уточнение по условиям ----------------------------------------
 
     func neg_op(let self, op: u32) -> u32
-        requires true
-        ensures true
     {
         if op == 6 {
             return 9
@@ -1980,8 +1882,6 @@ extend Verify {
     }
 
     func mirror_op(let self, op: u32) -> u32
-        requires true
-        ensures true
     {
         if op == 6 {
             return 8
@@ -1999,8 +1899,6 @@ extend Verify {
     }
 
     func rfpush(let self, n: u32, a: u32)
-        requires true
-        ensures true
     {
         if self.nrf >= 128 {
             return
@@ -2012,7 +1910,6 @@ extend Verify {
 
     func refine(let self, cond: u32, assume: u32)
         requires cond < 131072
-        ensures true
     {
         self.nrf = 0
         self.rfpush(cond, assume)
@@ -2030,7 +1927,6 @@ extend Verify {
 
     func refine_one(let self, c: u32, a: u32)
         requires c < 131072
-        ensures true
     {
         const k: u32 = self.nk(c)
         if k == 40 and self.nx(c) == 3 {
@@ -2072,7 +1968,6 @@ extend Verify {
     # _refine): из `i + 1 < n` следует ребро i <= n + (0 - 1).
     func refine_rel(let self, left: u32, op: u32, right: u32)
         requires left < 131072 and right < 131072
-        ensures true
     {
         if not self.numeric_node(left) or not self.numeric_node(right) {
             return
@@ -2096,7 +1991,6 @@ extend Verify {
 
     func refine_cmp(let self, target: u32, op: u32, other: u32)
         requires target < 131072 and other < 131072
-        ensures true
     {
         # цель через прозрачный каст / дотовый путь (эталон _path_of)
         const pid: u32 = self.node_path(target)
@@ -2139,7 +2033,6 @@ extend Verify {
 
     func refine_cmp_set(let self, op: u32, pid: u32)
         requires pid < 512
-        ensures true
     {
         # пара для пересечения с текущим интервалом (см. _refine_cmp)
         let pls: u32 = self.rc_cls
@@ -2181,7 +2074,6 @@ extend Verify {
 
     func refine_neq(let self, target: u32, other: u32)
         requires target < 131072 and other < 131072
-        ensures true
     {
         const pid: u32 = self.node_path(target)
         if pid == NONE or pid >= 512 {
@@ -2216,7 +2108,6 @@ extend Verify {
     # схлопнуть дырку пути к плотной части: env.iv = inter(плотное, текущее)
     func collapse_hole(let self, pid: u32)
         requires pid < 512
-        ensures true
     {
         let nls: u32 = self.env.hls[pid]
         let nlm: u64 = self.env.hlm[pid]
@@ -2243,7 +2134,6 @@ extend Verify {
 
     func refine_neq_narrow(let self, pid: u32, tk: u32, cs: u32, cm: u64)
         requires pid < 512
-        ensures true
     {
         let los: u32 = 0
         let lom: u64 = 0

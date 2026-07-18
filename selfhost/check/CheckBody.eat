@@ -10,7 +10,6 @@ extend Check {
 
     func nth_child(let self, n: u32, i: u32) -> u32
         requires n < 131072
-        ensures true
     {
         let c: u32 = self.p.nfc[n / 65536][n % 65536]
         for k in 0..64 {
@@ -24,7 +23,6 @@ extend Check {
 
     func nchildren(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         let c: u32 = self.p.nfc[n / 65536][n % 65536]
         let cnt: u32 = 0
@@ -40,7 +38,6 @@ extend Check {
 
     func xpush(let self, n: u32, exp: u32)
         requires n < 131072
-        ensures true
     {
         if self.nxq >= 64 {
             self.fail_node(n, "слишком глубокое выражение")
@@ -57,7 +54,6 @@ extend Check {
     # Завершение кадра: аннотация, проверка void, pop.
     func xdone(let self)
         requires self.nxq >= 1
-        ensures true
     {
         const f: u32 = self.nxq - 1
         const n: u32 = self.xn[f]
@@ -73,7 +69,6 @@ extend Check {
     # Типизировать выражение root; результат в tres (и nty[root]).
     func expr_check(let self, root: u32, exp: u32, voidok: u32)
         requires root < 131072
-        ensures true
     {
         self.xvoid = voidok
         self.nxq = 0
@@ -93,7 +88,6 @@ extend Check {
 
     func expect_bool(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         self.expr_check(n, 3, 0)
         if not self.failed and self.tres != 3 {
@@ -103,7 +97,6 @@ extend Check {
 
     func xstep(let self)
         requires self.nxq >= 1
-        ensures true
     {
         const f: u32 = self.nxq - 1
         const n: u32 = self.xn[f]
@@ -137,7 +130,6 @@ extend Check {
 
     func xs_leaf(let self, n: u32, k: u32)
         requires n < 131072
-        ensures true
     {
         if k == 32 {
             const exp: u32 = self.xe[self.nxq - 1]
@@ -172,7 +164,6 @@ extend Check {
 
     func xs_name(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -221,7 +212,6 @@ extend Check {
 
     func xs_str(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if self.xp[f] == 0 {
             self.xa[f] = self.p.nfc[n / 65536][n % 65536]
@@ -257,7 +247,6 @@ extend Check {
 
     func xs_unary(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const op: u32 = self.p.nx[n / 65536][n % 65536]
         if self.xp[f] == 0 {
@@ -292,7 +281,6 @@ extend Check {
 
     func xs_binop(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const op: u32 = self.p.nx[n / 65536][n % 65536]
         const ph: u32 = self.xp[f]
@@ -345,7 +333,6 @@ extend Check {
 
     func xs_binop_fin(let self, n: u32, op: u32, left: u32)
         requires n < 131072 and left < 512
-        ensures true
     {
         if not self.compat(left, self.tres) {
             self.fail_node(n, "разные типы (неявных преобразований нет)")
@@ -387,8 +374,6 @@ extend Check {
     }
 
     func enum_has_payload(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         const ei: u32 = self.find_enum(a, l)
         if ei == NONE {
@@ -415,7 +400,6 @@ extend Check {
     # (сдвиг +4096).
     func xs_call(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if self.xp[f] == 0 {
             self.xs_call_start(f, n)
@@ -426,7 +410,6 @@ extend Check {
 
     func xs_call_start(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -490,7 +473,6 @@ extend Check {
     # аннотацией, payload вложенного конструктора); коды xa 113/114/115.
     func xs_ctor_start(let self, f: u32, n: u32, argc: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -559,7 +541,6 @@ extend Check {
 
     func xs_call_start2(let self, f: u32, n: u32, argc: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -631,7 +612,6 @@ extend Check {
     # exit(code): только в main и не более одного раза (машина — код 109).
     func xs_exit_start(let self, f: u32, n: u32, argc: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if argc != 1 {
             self.fail_node(n, "ожидается 1 аргумент")
@@ -654,7 +634,6 @@ extend Check {
     # (1 арг u32, код 116), arg_byte (2 арг u32, код 117 → u8).
     func xs_arg_start(let self, f: u32, n: u32, argc: u32) -> bool
         requires f < 64 and n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -694,7 +673,6 @@ extend Check {
     # результат — полный диапазон типа (как arg_count).
     func xs_async_start(let self, n: u32, argc: u32) -> bool
         requires n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -727,7 +705,6 @@ extend Check {
     # встроенный IoError не расширяется (прецедент ASYNC D1).
     func xs_socket_start(let self, f: u32, n: u32, argc: u32) -> bool
         requires f < 64 and n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -782,7 +759,6 @@ extend Check {
     # Финализация сокет-аксиом: код в xa, очередной аргумент — в tres.
     func xs_socket_next(let self, f: u32, n: u32, code: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if code == 118 {
             if not self.compat(self.u16_ty(), self.tres) {
@@ -842,7 +818,6 @@ extend Check {
     # write_span(a, off, len): три аргумента, машина — код 110.
     func xs_ws_start(let self, f: u32, n: u32, argc: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if argc != 3 {
             self.fail_node(n, "write_span(): ровно три аргумента")
@@ -855,7 +830,6 @@ extend Check {
 
     func xs_call_next(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const code: u32 = self.xa[f]
         if code == 100 or code == 101 or code == 102 or code == 103 or code == 111 or code == 112 {
@@ -946,7 +920,6 @@ extend Check {
     # Финализация arg_len (116, → u32) и arg_byte (117, 2 арг → u8).
     func xs_arg_next(let self, f: u32, n: u32, code: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if code == 116 {
             if not self.compat(1, self.tres) {
@@ -972,7 +945,6 @@ extend Check {
     # Очередной аргумент пользовательской функции готов.
     func xs_user_arg(let self, f: u32, n: u32, fi: u32)
         requires f < 64 and n < 131072 and fi < 1024
-        ensures true
     {
         const i: u32 = self.xb[f]
         if not self.compat(self.pty[self.fps[fi] + i], self.tres) {
@@ -989,7 +961,6 @@ extend Check {
 
     func xs_user_fin(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.add_edge(self.cur_key, fi)
         if self.fret[fi] == NONE {
@@ -1002,8 +973,6 @@ extend Check {
 
     # Имя — enum (пользовательский или встроенный)?
     func is_enum_name(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         if self.find_enum(a, l) != NONE {
             return true
@@ -1013,8 +982,6 @@ extend Check {
 
     # Вариант enum по имени; NONE если нет. Встроенные — без нагрузки.
     func variant_of(let self, ea: u32, el: u32, va: u32, vl: u32) -> u32
-        requires true
-        ensures true
     {
         const ei: u32 = self.find_enum(ea, el)
         if ei == NONE {
@@ -1039,8 +1006,6 @@ extend Check {
     }
 
     func builtin_variant(let self, ea: u32, el: u32, va: u32, vl: u32) -> bool
-        requires true
-        ensures true
     {
         if self.span_is(ea, el, "IoError") {
             return self.span_is(va, vl, "Eof") or self.span_is(va, vl, "Fail")
@@ -1055,7 +1020,6 @@ extend Check {
     # 2+ аргументы; 9 аргумент конструктора готов.
     func xs_method(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp[f]
         const obj: u32 = self.p.nfc[n / 65536][n % 65536]
@@ -1085,7 +1049,6 @@ extend Check {
 
     func xs_enum_ctor(let self, f: u32, n: u32, obj: u32)
         requires f < 64 and n < 131072 and obj < 131072
-        ensures true
     {
         const w: u32 = self.variant_of(
             self.p.nss[obj / 65536][obj % 65536], self.p.nsl[obj / 65536][obj % 65536],
@@ -1114,7 +1077,6 @@ extend Check {
 
     func xs_method_obj(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if self.yk[self.tres] != 8 {
             self.fail_node(n, "метод вызван не у struct")
@@ -1147,7 +1109,6 @@ extend Check {
 
     func xs_marg(let self, f: u32, n: u32, mfi: u32)
         requires f < 64 and n < 131072 and mfi < 1024
-        ensures true
     {
         const i: u32 = self.xb[f]
         if not self.compat(self.pty[self.fps[mfi] + i], self.tres) {
@@ -1165,7 +1126,6 @@ extend Check {
     # Метод с let self: получатель обязан быть изменяемым lvalue.
     func check_receiver(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         let base: u32 = self.p.nfc[n / 65536][n % 65536]
         for _ in 0..32 {
@@ -1196,7 +1156,6 @@ extend Check {
 
     func xs_member(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const obj: u32 = self.p.nfc[n / 65536][n % 65536]
         if self.xp[f] == 0 {
@@ -1242,7 +1201,6 @@ extend Check {
 
     func field_of(let self, si: u32, a: u32, l: u32) -> u32
         requires si < 128
-        ensures true
     {
         let found: u32 = NONE
         for g in 0..1024 {
@@ -1260,7 +1218,6 @@ extend Check {
 
     func xs_index(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp[f]
         if ph == 0 {
@@ -1295,7 +1252,6 @@ extend Check {
     # Struct-литерал: xa — текущий fld-ребёнок, xb — тип текущего поля.
     func xs_slit(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp[f]
         if ph == 0 {
@@ -1343,7 +1299,6 @@ extend Check {
     # Литерал: без повторов, без лишних, все поля struct на месте.
     func slit_fields_ok(let self, n: u32, si: u32)
         requires n < 131072 and si < 128
-        ensures true
     {
         let c: u32 = self.p.nfc[n / 65536][n % 65536]
         let cnt: u32 = 0
@@ -1380,7 +1335,6 @@ extend Check {
     # Массив-литерал: xa — текущий ребёнок, xb — тип первого элемента.
     func xs_alit(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp[f]
         const exp: u32 = self.xe[f]
@@ -1422,7 +1376,6 @@ extend Check {
 
     func xs_afill(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const exp: u32 = self.xe[f]
         if self.xp[f] == 0 {
@@ -1462,7 +1415,6 @@ extend Check {
 
     func qpush(let self, k: u32, node: u32, cursor: u32, aux: u32)
         requires k <= 4 and node < 131072
-        ensures true
     {
         if self.nq >= 128 {
             self.fail_node(node, "слишком глубокая вложенность")
@@ -1486,7 +1438,6 @@ extend Check {
     # Сдвиг курсора кадра f на следующего брата cur: гигиена qp (§1.5).
     func qp_next(let self, f: u32, cur: u32)
         requires f < 128 and cur < 131072
-        ensures true
     {
         const nx: u32 = self.p.nns[cur / 65536][cur % 65536]
         if nx == NONE {
@@ -1498,7 +1449,6 @@ extend Check {
 
     func start_block_frame(let self, body: u32, ns: u32)
         requires body < 131072 and ns <= 1
-        ensures true
     {
         if ns == 1 {
             self.push_scope()
@@ -1508,7 +1458,6 @@ extend Check {
 
     func run_block_machine(let self, body: u32, ns: u32)
         requires body < 131072 and ns <= 1
-        ensures true
     {
         self.nq = 0
         self.start_block_frame(body, ns)
@@ -1525,7 +1474,6 @@ extend Check {
 
     func qstep(let self)
         requires self.nq >= 1
-        ensures true
     {
         const k: u32 = self.qk2[self.nq - 1]
         if k == 0 {
@@ -1544,7 +1492,6 @@ extend Check {
     # call-statement exit(...): управление не возвращается (правило 10).
     func stmt_is_exit(let self, st: u32) -> bool
         requires st < 131072
-        ensures true
     {
         if self.p.nk[st / 65536][st % 65536] != 25 {
             return false
@@ -1560,7 +1507,6 @@ extend Check {
 
     func q_block(let self)
         requires self.nq >= 1
-        ensures true
     {
         const f: u32 = self.nq - 1
         const last: u32 = self.qy[f]
@@ -1598,7 +1544,6 @@ extend Check {
 
     func check_stmt(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const k: u32 = self.p.nk[cur / 65536][cur % 65536]
         if k == 13 {
@@ -1659,7 +1604,6 @@ extend Check {
 
     func q_let(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const ty: u32 = self.resolve(self.p.nfc[cur / 65536][cur % 65536])
         if self.failed {
@@ -1687,7 +1631,6 @@ extend Check {
 
     func q_assign(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const tgt: u32 = self.p.nfc[cur / 65536][cur % 65536]
         self.expr_check(tgt, NONE, 0)
@@ -1734,7 +1677,6 @@ extend Check {
 
     func q_if(let self)
         requires self.nq >= 1
-        ensures true
     {
         const f: u32 = self.nq - 1
         const cur: u32 = self.qp[f]
@@ -1802,8 +1744,6 @@ extend Check {
 
     # Знаковое сравнение (s1,m1) < (s2,m2).
     func slt(let self, s1: u32, m1: u64, s2: u32, m2: u64) -> bool
-        requires true
-        ensures true
     {
         if s1 == 1 and s2 == 0 {
             return true
@@ -1819,7 +1759,6 @@ extend Check {
 
     func q_for_start(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         self.loopd = self.loopd + 1
         self.brkc[self.loopd - 1] = 0
@@ -1889,7 +1828,6 @@ extend Check {
 
     func q_for_end(let self)
         requires self.nq >= 1
-        ensures true
     {
         self.loopd = self.loopd - 1
         self.pop_scope()
@@ -1898,7 +1836,6 @@ extend Check {
 
     func q_loop_end(let self)
         requires self.nq >= 1
-        ensures true
     {
         self.loopd = self.loopd - 1
         self.nq = self.nq - 1
@@ -1906,7 +1843,6 @@ extend Check {
 
     func q_return(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         let ret: u32 = NONE
         if self.cur_key < 2048 {
@@ -1934,7 +1870,6 @@ extend Check {
 
     func q_match_start(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const subj: u32 = self.p.nfc[cur / 65536][cur % 65536]
         self.expr_check(subj, NONE, 0)
@@ -1951,7 +1886,6 @@ extend Check {
 
     func q_match(let self)
         requires self.nq >= 1
-        ensures true
     {
         const f: u32 = self.nq - 1
         if self.qy[f] == 1 {
@@ -1974,7 +1908,6 @@ extend Check {
 
     func q_arm(let self, f: u32, arm: u32)
         requires f < 128 and arm < 131072
-        ensures true
     {
         const dom: u32 = self.qx[f]
         # повтор варианта
@@ -2018,7 +1951,6 @@ extend Check {
     # Тип нагрузки варианта арма в домене dom; ошибка — не вариант.
     func arm_payload(let self, dom: u32, arm: u32) -> u32
         requires dom < 512 and arm < 131072
-        ensures true
     {
         const va: u32 = self.p.nss[arm / 65536][arm % 65536]
         const vl: u32 = self.p.nsl[arm / 65536][arm % 65536]
@@ -2056,7 +1988,6 @@ extend Check {
 
     func has_arm16(let self, m: u32, kw: str<16>) -> bool
         requires m < 131072
-        ensures true
     {
         let a: u32 = self.p.nns[self.p.nfc[m / 65536][m % 65536] / 65536][
             self.p.nfc[m / 65536][m % 65536] % 65536
@@ -2078,7 +2009,6 @@ extend Check {
 
     func exhaust_check(let self, m: u32, dom: u32)
         requires m < 131072 and dom < 512
-        ensures true
     {
         const dk: u32 = self.yk[dom]
         if dk == 10 {
@@ -2112,7 +2042,6 @@ extend Check {
 
     func exhaust_builtin(let self, m: u32, dom: u32)
         requires m < 131072 and dom < 512
-        ensures true
     {
         if self.span_is(self.ys[dom], self.yl[dom], "IoError") {
             if not self.has_arm16(m, "Eof") or not self.has_arm16(m, "Fail") {
@@ -2131,7 +2060,6 @@ extend Check {
 
     func has_arm_span(let self, m: u32, a: u32, l: u32) -> bool
         requires m < 131072
-        ensures true
     {
         let c: u32 = self.p.nns[self.p.nfc[m / 65536][m % 65536] / 65536][
             self.p.nfc[m / 65536][m % 65536] % 65536
@@ -2175,7 +2103,6 @@ extend Check {
 
     func check_func_body(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.cur_key = fi
         self.self_ty2 = NONE
@@ -2238,7 +2165,6 @@ extend Check {
     # возврат — только скаляр.
     func extern_boundary(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         const d: u32 = self.fnd[fi]
         for k in 0..8 {
@@ -2258,7 +2184,6 @@ extend Check {
 
     func extern_ok(let self, t: u32, arrays: bool) -> bool
         requires t < 512
-        ensures true
     {
         const k: u32 = self.yk[t]
         if k <= 4 or k >= 12 {
@@ -2273,8 +2198,6 @@ extend Check {
 
     # Параметры extern «использует» C-реализация — не считаем мёртвыми.
     func mark_params_used(let self)
-        requires true
-        ensures true
     {
         for v in 0..256 {
             if v >= self.nsv {
@@ -2285,8 +2208,6 @@ extend Check {
     }
 
     func run_bodies(let self)
-        requires true
-        ensures true
     {
         let d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
@@ -2316,7 +2237,6 @@ extend Check {
 
     func check_test_body(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         if self.ttn >= 64 {
             self.fail_node(d, "слишком много тестов")
@@ -2337,7 +2257,6 @@ extend Check {
 
     func cg_code(let self, idx: u32) -> u32
         requires idx < 1024
-        ensures true
     {
         if idx < 1024 {
             return idx
@@ -2348,7 +2267,6 @@ extend Check {
     # k-й вызываемый из idx; NONE.
     func cg_callee(let self, idx: u32, k: u32) -> u32
         requires idx < 1024
-        ensures true
     {
         const code: u32 = self.cg_code(idx)
         let cnt: u32 = 0
@@ -2368,8 +2286,6 @@ extend Check {
     }
 
     func callgraph(let self)
-        requires true
-        ensures true
     {
         let col: [u32; 1024] = [0; 1024]
         let dep: [u32; 1024] = [0; 1024]
@@ -2417,7 +2333,6 @@ extend Check {
 
     func cg_valid(let self, idx: u32) -> bool
         requires idx < 1024
-        ensures true
     {
         if idx < 1024 {
             return idx < self.nfun
@@ -2427,7 +2342,6 @@ extend Check {
 
     func cg_maxdep(let self, idx: u32, dep: [u32; 1024]) -> u32
         requires idx < 1024
-        ensures true
     {
         let best: u32 = 0
         for k in 0..64 {

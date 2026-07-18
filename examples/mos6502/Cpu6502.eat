@@ -30,28 +30,23 @@ struct Cpu {
     # --- шина ------------------------------------------------------------
 
     func rd(self, ad: u32) -> u32
-        requires true
         ensures result <= 255
     {
         return u32(self.mem[ad & 65535])
     }
 
     func rd16(self, ad: u32) -> u32
-        requires true
         ensures result <= 65535
     {
         return self.rd(ad) | (self.rd(ad + 1) << 8)
     }
 
     func wr(let self, ad: u32, val: u32)
-        requires true
-        ensures true
     {
         self.mem[ad & 65535] = u8(val & 255)
     }
 
     func fetch(let self) -> u32
-        requires true
         ensures result <= 255
     {
         const b: u32 = self.rd(self.pc)
@@ -60,7 +55,6 @@ struct Cpu {
     }
 
     func fetch16(let self) -> u32
-        requires true
         ensures result <= 65535
     {
         const lo: u32 = self.fetch()
@@ -71,15 +65,12 @@ struct Cpu {
     # --- стек ($0100..$01FF) ----------------------------------------------
 
     func push(let self, val: u32)
-        requires true
-        ensures true
     {
         self.wr(256 | self.sp, val)
         self.sp = (self.sp + 255) & 255
     }
 
     func pop(let self) -> u32
-        requires true
         ensures result <= 255
     {
         self.sp = (self.sp + 1) & 255
@@ -90,7 +81,6 @@ struct Cpu {
 
     func set_nz(let self, val: u32)
         requires val <= 255
-        ensures true
     {
         self.n = val >> 7
         if val == 0 {
@@ -113,7 +103,6 @@ struct Cpu {
 
     func set_flags(let self, p: u32)
         requires p <= 255
-        ensures true
     {
         self.n = p >> 7
         self.v = (p >> 6) & 1
@@ -185,7 +174,6 @@ struct Cpu {
 
     func adc(let self, m: u32)
         requires m <= 255
-        ensures true
     {
         const sum: u32 = self.a + m + self.c
         if self.d == 1 {
@@ -202,7 +190,6 @@ struct Cpu {
     # коррекции младшей тетрады, C — после коррекции старшей.
     func adc_dec(let self, m: u32, sum: u32)
         requires m <= 255 and sum <= 511
-        ensures true
     {
         if (sum & 255) == 0 {
             self.z = 1
@@ -231,7 +218,6 @@ struct Cpu {
     # в десятичном режиме корректируется только аккумулятор.
     func sbc(let self, m: u32)
         requires m <= 255
-        ensures true
     {
         const borrow: u32 = 1 - self.c
         const bin: u32 = self.a + 256 - m - borrow
@@ -261,7 +247,6 @@ struct Cpu {
 
     func cmp_gen(let self, reg: u32, m: u32)
         requires reg <= 255 and m <= 255
-        ensures true
     {
         const t: u32 = reg + 256 - m
         self.c = t >> 8
@@ -296,7 +281,6 @@ struct Cpu {
 
     func exec_alu(let self, op: u32)
         requires op <= 255
-        ensures true
     {
         const aaa: u32 = op >> 5
         const bbb: u32 = (op >> 2) & 7
@@ -338,7 +322,6 @@ struct Cpu {
 
     func exec_rmw(let self, op: u32)
         requires op <= 255
-        ensures true
     {
         const aaa: u32 = op >> 5
         const bbb: u32 = (op >> 2) & 7
@@ -388,7 +371,6 @@ struct Cpu {
     # Однобайтовые опкоды колонки cc=2: xA и xA+16.
     func rmw_impl(let self, op: u32)
         requires op <= 255
-        ensures true
     {
         if op == 10 or op == 42 or op == 74 or op == 106 {
             self.a = self.shift_val(op >> 5, self.a)
@@ -417,7 +399,6 @@ struct Cpu {
 
     func branch(let self, op: u32)
         requires op <= 255
-        ensures true
     {
         const off: u32 = self.fetch()
         let flag: u32 = self.n
@@ -442,7 +423,6 @@ struct Cpu {
 
     func exec_ctl(let self, op: u32)
         requires op <= 255
-        ensures true
     {
         if op == 0 { # BRK: вектор $FFFE; нулевой вектор — останов
             const vec: u32 = self.rd16(65534)
@@ -503,7 +483,6 @@ struct Cpu {
     # Колонка $x8: стек и инкременты Y.
     func ctl_col2(let self, op: u32)
         requires op <= 255
-        ensures true
     {
         if op == 8 { # PHP (B=1 на стеке)
             self.push(self.flags_byte(1))
@@ -535,7 +514,6 @@ struct Cpu {
     # Колонка $x8+16: операции с флагами и TYA.
     func ctl_col6(let self, op: u32)
         requires op <= 255
-        ensures true
     {
         if op == 24 { # CLC
             self.c = 0
@@ -562,7 +540,6 @@ struct Cpu {
     # BIT, STY, LDY, CPY, CPX с режимами по bbb.
     func ctl_mem(let self, op: u32, bbb: u32)
         requires op <= 255 and bbb <= 7
-        ensures true
     {
         const aaa: u32 = op >> 5
         if aaa == 1 and (bbb == 1 or bbb == 3) { # BIT zp/abs
@@ -605,8 +582,6 @@ struct Cpu {
     # --- шаг ------------------------------------------------------------------
 
     func step(let self)
-        requires true
-        ensures true
     {
         if self.halted {
             return
@@ -634,8 +609,6 @@ struct Cpu {
 
 # Свежий процессор после «сброса»: SP=$FD, регистры и память — нули.
 func cpu_new() -> Cpu
-    requires true
-    ensures true
 {
     return Cpu {
         a: 0, x: 0, y: 0, sp: 253, pc: 0,

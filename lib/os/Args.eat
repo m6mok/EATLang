@@ -9,8 +9,6 @@ export {
 }
 
 func get(i: u32) -> Result<str<256>, IoError>
-    requires true
-    ensures true
 {
     if i >= arg_count() {
         return Err(IoError.Eof)

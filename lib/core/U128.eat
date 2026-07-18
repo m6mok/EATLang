@@ -36,7 +36,7 @@ export {
 
 import {
     hex_digit,
-} from "lib/Hex.eat"
+} from "lib/fmt/Hex.eat"
 
 struct U128 {
     w0: u64
@@ -48,7 +48,6 @@ struct U128 {
     func lo64(self) -> u64
         requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
             and self.w2 <= 4294967295 and self.w3 <= 4294967295)
-        ensures true
     {
         return (self.w1 << 32) | self.w0
     }
@@ -57,28 +56,21 @@ struct U128 {
     func hi64(self) -> u64
         requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
             and self.w2 <= 4294967295 and self.w3 <= 4294967295)
-        ensures true
     {
         return (self.w3 << 32) | self.w2
     }
 
     func is_zero(self) -> bool
-        requires true
-        ensures true
     {
         return self.w0 == 0 and self.w1 == 0 and self.w2 == 0 and self.w3 == 0
     }
 
     func eq(self, o: U128) -> bool
-        requires true
-        ensures true
     {
         return self.w0 == o.w0 and self.w1 == o.w1 and self.w2 == o.w2 and self.w3 == o.w3
     }
 
     func lt(self, o: U128) -> bool
-        requires true
-        ensures true
     {
         if self.w3 != o.w3 {
             return self.w3 < o.w3
@@ -93,8 +85,6 @@ struct U128 {
     }
 
     func le(self, o: U128) -> bool
-        requires true
-        ensures true
     {
         return not o.lt(self)
     }
@@ -273,7 +263,6 @@ struct U128 {
 
 # Из младших 64 бит: u128(lo) — число 0..2^64-1 в лимбах.
 func u128(lo: u64) -> U128
-    requires true
     ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
         and result.w2 <= 4294967295 and result.w3 <= 4294967295)
 {
@@ -282,7 +271,6 @@ func u128(lo: u64) -> U128
 
 # Из двух 64-битных половин: значение hi * 2^64 + lo.
 func u128_hi_lo(hi: u64, lo: u64) -> U128
-    requires true
     ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
         and result.w2 <= 4294967295 and result.w3 <= 4294967295)
 {
@@ -294,7 +282,6 @@ func u128_hi_lo(hi: u64, lo: u64) -> U128
 # Точное произведение u64 x u64 -> 128 бит — главный кирпич (лемма
 # MAC в шапке: суммы столбцов не переполняют u64, trap невозможен).
 func mul_64(a: u64, b: u64) -> U128
-    requires true
     ensures (result.w0 <= 4294967295 and result.w1 <= 4294967295
         and result.w2 <= 4294967295 and result.w3 <= 4294967295)
 {
@@ -658,7 +645,6 @@ extend U128 {
     func repr_hex(self) -> str<32>
         requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
             and self.w2 <= 4294967295 and self.w3 <= 4294967295)
-        ensures true
     {
         let out: str<32> = ""
         let started: bool = false
@@ -687,7 +673,6 @@ extend U128 {
     func repr_dec(self) -> str<40>
         requires (self.w0 <= 4294967295 and self.w1 <= 4294967295
             and self.w2 <= 4294967295 and self.w3 <= 4294967295)
-        ensures true
     {
         let buf: [u8; 40] = [0; 40]
         let n: u32 = 0
@@ -736,7 +721,6 @@ func i128_make(sgn: bool, mag: U128) -> I128
 # Из i64; края диапазона (включая i64-минимум) без переполнения:
 # магнитуда отрицательного собирается как |v+1| + 1.
 func i128(v: i64) -> I128
-    requires true
     ensures (result.mag.w0 <= 4294967295 and result.mag.w1 <= 4294967295
         and result.mag.w2 <= 4294967295 and result.mag.w3 <= 4294967295)
 {
@@ -749,22 +733,16 @@ func i128(v: i64) -> I128
 
 extend I128 {
     func is_zero(self) -> bool
-        requires true
-        ensures true
     {
         return self.mag.is_zero()
     }
 
     func eq(self, o: I128) -> bool
-        requires true
-        ensures true
     {
         return self.sgn == o.sgn and self.mag.eq(o.mag)
     }
 
     func lt(self, o: I128) -> bool
-        requires true
-        ensures true
     {
         if self.sgn and not o.sgn {
             return true
@@ -779,8 +757,6 @@ extend I128 {
     }
 
     func le(self, o: I128) -> bool
-        requires true
-        ensures true
     {
         return not o.lt(self)
     }
@@ -848,7 +824,6 @@ extend I128 {
     func to_i64(self) -> i64
         requires (self.mag.w2 == 0 and self.mag.w3 == 0
             and self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295)
-        ensures true
     {
         const lo: u64 = self.mag.lo64()
         if self.sgn {
@@ -861,7 +836,6 @@ extend I128 {
     func repr_dec(self) -> str<40>
         requires (self.mag.w0 <= 4294967295 and self.mag.w1 <= 4294967295
             and self.mag.w2 <= 4294967295 and self.mag.w3 <= 4294967295)
-        ensures true
     {
         if self.sgn {
             return "-{self.mag.repr_dec()}"

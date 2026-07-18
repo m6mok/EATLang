@@ -17,7 +17,7 @@ import {
     ready,
     Timer,
     Debounce,
-} from "lib/Async.eat"
+} from "lib/os/Async.eat"
 
 # выборок подряд для подтверждения уровня (дребезг короче — шум)
 constexpr HOLD: u32 = 3
@@ -32,8 +32,6 @@ struct Button {
     done: bool
 
     func step(let self) -> Poll
-        requires true
-        ensures true
     {
         if self.done {
             return Poll.Ready
@@ -86,8 +84,6 @@ struct Pulse {
     n: u32
 
     func step(let self)
-        requires true
-        ensures true
     {
         match self.t.fire(PULSE) {
             Some(now) {
@@ -100,8 +96,6 @@ struct Pulse {
 }
 
 func main()
-    requires true
-    ensures true
 {
     let btn: Button = Button {
         db: Debounce { stable: 0, cand: 0, held: 0 },

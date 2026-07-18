@@ -7,15 +7,13 @@
 
 import {
     read_line,
-} from "lib/Io.eat"
+} from "lib/os/Io.eat"
 
 import {
     parse_i32,
-} from "lib/Parse.eat"
+} from "lib/fmt/Parse.eat"
 
 func describe(number: i32) -> str<16>
-    requires true
-    ensures true
 {
     if number > 0 {
         return "positive"

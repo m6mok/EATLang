@@ -29,7 +29,7 @@ import {
     Poll,
     ready,
     Timer,
-} from "lib/Async.eat"
+} from "lib/os/Async.eat"
 
 # ёмкость колец конвейера (тип массива требует литерала — там 8)
 constexpr RCAP: u32 = 8
@@ -53,15 +53,12 @@ struct Ring {
 
     func push(let self, b: u8)
         requires self.len < RCAP
-        ensures true
     {
         self.buf[(self.head + self.len) % RCAP] = b
         self.len = self.len + 1
     }
 
     func pop(let self) -> Option<u8>
-        requires true
-        ensures true
     {
         if self.len == 0 {
             return None
@@ -73,8 +70,6 @@ struct Ring {
     }
 
     func empty(self) -> bool
-        requires true
-        ensures true
     {
         return self.len == 0
     }
@@ -89,8 +84,6 @@ struct Src {
     done: bool
 
     func step(let self) -> Poll
-        requires true
-        ensures true
     {
         if self.done {
             return Poll.Ready
@@ -132,8 +125,6 @@ struct Caps {
     ups: u32
 
     func step(let self)
-        requires true
-        ensures true
     {
         for _ in 0..CAPS_BUDGET {
             if self.outq.len >= RCAP {
@@ -158,8 +149,6 @@ struct Caps {
     }
 
     func drained(self) -> bool
-        requires true
-        ensures true
     {
         return self.inq.empty() and self.outq.empty()
     }
@@ -176,8 +165,6 @@ struct Snk {
 
     # выталкивает накопленную строку (даже пустую) с переводом строки
     func put_line(let self)
-        requires true
-        ensures true
     {
         for i in 0..LINE_CAP {
             if i >= self.llen {
@@ -191,8 +178,6 @@ struct Snk {
     }
 
     func step(let self)
-        requires true
-        ensures true
     {
         for _ in 0..SNK_BUDGET {
             match self.q.pop() {
@@ -226,8 +211,6 @@ struct Stat {
     n: u32
 
     func step(let self, got: u32, put: u32)
-        requires true
-        ensures true
     {
         match self.t.fire(STAT_PERIOD) {
             Some(now) {
@@ -240,8 +223,6 @@ struct Stat {
 }
 
 func main()
-    requires true
-    ensures true
 {
     let src: Src = Src {
         q: Ring { buf: [0; 8], head: 0, len: 0 },

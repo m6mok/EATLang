@@ -8,8 +8,6 @@ extend Verify {
 
     # ребро в self.env: pp[p] <= pp[q] + (ds, dm); минимальное d
     func env_add(let self, p: u32, q: u32, ds: u32, dm: u64)
-        requires true
-        ensures true
     {
         if p == q or p == NONE or q == NONE {
             return
@@ -43,8 +41,6 @@ extend Verify {
 
     # факт lp op rp + (ds, dm); op 4 ==,6 <,7 <=,8 >,9 >=
     func env_relate(let self, lp: u32, op: u32, rp: u32, ds: u32, dm: u64)
-        requires true
-        ensures true
     {
         if op == 7 {
             self.env_add(lp, rp, ds, dm)
@@ -69,8 +65,6 @@ extend Verify {
 
     # удалить рёбра, касающиеся pid (kill пути)
     func rels_kill(let self, pid: u32)
-        requires true
-        ensures true
     {
         let w: u32 = 0
         for e in 0..32 {
@@ -94,8 +88,6 @@ extend Verify {
     # компактный индекс cln_pid; буфер остаётся 64x64 при пуле путей 512
 
     func cl_node(let self, pid: u32) -> u32
-        requires true
-        ensures true
     {
         let r: u32 = NONE
         for i in 0..64 {
@@ -110,8 +102,6 @@ extend Verify {
     }
 
     func cl_node_add(let self, pid: u32) -> u32
-        requires true
-        ensures true
     {
         const e: u32 = self.cl_node(pid)
         if e != NONE {
@@ -127,8 +117,6 @@ extend Verify {
     }
 
     func closure(let self)
-        requires true
-        ensures true
     {
         self.ncln = 0
         for i in 0..4096 {
@@ -161,7 +149,6 @@ extend Verify {
 
     func closure_k(let self, k: u32)
         requires k < 64
-        ensures true
     {
         for i in 0..64 {
             if i >= self.ncln {
@@ -175,7 +162,6 @@ extend Verify {
 
     func closure_ik(let self, i: u32, k: u32)
         requires i < 64 and k < 64
-        ensures true
     {
         const dik_s: u32 = self.cl_s[i * 64 + k]
         const dik_m: u64 = self.cl_m[i * 64 + k]
@@ -199,7 +185,6 @@ extend Verify {
     # x <= y (по замыканию; default d=+1 → неизвестно); x, y — pid'ы
     func cl_le(let self, x: u32, y: u32) -> bool
         requires x < 512 and y < 512
-        ensures true
     {
         if x == y {
             return true
@@ -218,7 +203,6 @@ extend Verify {
 
     func cl_lt(let self, x: u32, y: u32) -> bool
         requires x < 512 and y < 512
-        ensures true
     {
         const cx: u32 = self.cl_node(x)
         const cy: u32 = self.cl_node(y)
@@ -235,7 +219,6 @@ extend Verify {
     # решить lp op rp по отношениям (0 ложь, 1 истина, 2 неизв.)
     func decide_rel(let self, lp: u32, op: u32, rp: u32) -> u32
         requires lp < 512 and rp < 512
-        ensures true
     {
         self.closure()
         if op == 6 {
@@ -288,7 +271,6 @@ extend Verify {
     # левая сторона — в dl_p/dl_s/dl_m, правая — в dc_p/dc_s/dc_m
     func decide_offset(let self, op: u32) -> u32
         requires self.dl_p < 512 and self.dc_p < 512
-        ensures true
     {
         const pp: u32 = self.dl_p
         const qp: u32 = self.dc_p
@@ -340,8 +322,6 @@ extend Verify {
     }
 
     func decide_delta(let self, op: u32, ds: u32, dm: u64) -> u32
-        requires true
-        ensures true
     {
         if op == 6 {
             if self.sless(ds, dm, 0, 0) {
@@ -385,7 +365,6 @@ extend Verify {
     # разложить узел в (база-путь, смещение) -> dc_p/dc_s/dc_m; bool успех
     func decompose(let self, n: u32) -> bool
         requires n < 131072
-        ensures true
     {
         const p: u32 = self.node_path(n)
         if p != NONE {
@@ -429,7 +408,6 @@ extend Verify {
 
     func numeric_node(let self, n: u32) -> bool
         requires n < 131072
-        ensures true
     {
         const ty: u32 = self.nty(n)
         if ty == NONE {
@@ -443,7 +421,6 @@ extend Verify {
 
     func expr_equal(let self, a: u32, b: u32) -> bool
         requires a < 131072 and b < 131072
-        ensures true
     {
         self.neq2 = 0
         self.eq_a[0] = a
@@ -466,8 +443,6 @@ extend Verify {
     }
 
     func eq_push(let self, a: u32, b: u32)
-        requires true
-        ensures true
     {
         if self.neq2 >= 256 {
             return
@@ -480,7 +455,6 @@ extend Verify {
     # сравнить пару узлов; при равенстве — протолкнуть детей; иначе false
     func eq_one(let self, ain: u32, bin: u32) -> bool
         requires ain < 131072 and bin < 131072
-        ensures true
     {
         let a: u32 = self.uncast(ain)
         let b: u32 = self.uncast(bin)
@@ -534,7 +508,6 @@ extend Verify {
 
     func eq_bin(let self, a: u32, b: u32) -> bool
         requires a < 131072 and b < 131072
-        ensures true
     {
         if self.nx(a) != self.nx(b) {
             return false
@@ -554,7 +527,6 @@ extend Verify {
     # i-й ребёнок узла (аргумент вызова), либо NONE
     func nth_child(let self, node: u32, i: u32) -> u32
         requires node < 131072
-        ensures true
     {
         let c: u32 = self.nfc(node)
         for j in 0..64 {
@@ -569,7 +541,6 @@ extend Verify {
     # индекс параметра функции fi с именем-span (a,l), либо NONE
     func param_index(let self, fi: u32, a: u32, l: u32) -> u32
         requires fi < 1024
-        ensures true
     {
         const pbase: u32 = self.c.fps[fi]
         let r: u32 = NONE
@@ -588,7 +559,6 @@ extend Verify {
     # ms_t: 0 нет | 1 интервал (ms_ls..ms_hm) | 2 путь+смещение (ms_p,ms_cs,ms_cm)
     func map_leaf(let self, e: u32)
         requires e < 131072
-        ensures true
     {
         self.ms_t = 0
         const k: u32 = self.nk(e)
@@ -643,7 +613,6 @@ extend Verify {
     # сложное интервальное выражение-аргумент даёт «неизвестно» (этап 3).
     func map_arg(let self, arg: u32)
         requires arg < 131072
-        ensures true
     {
         if self.decompose(arg) {
             self.ms_t = 2
@@ -665,7 +634,6 @@ extend Verify {
     # База self заменяется на ae_obj, хвост полей достраивается.
     func map_self_path(let self, e: u32)
         requires e < 131072
-        ensures true
     {
         let chain: [u32; 16] = [0; 16]
         let nch: u32 = 0
@@ -706,8 +674,6 @@ extend Verify {
     }
 
     func mvpush(let self)
-        requires true
-        ensures true
     {
         if self.nmv >= 64 {
             return
@@ -727,7 +693,6 @@ extend Verify {
     # map_side: сторона конъюнкта -> ms_* (пост-обход +/- явным стеком)
     func map_side(let self, e: u32)
         requires e < 131072
-        ensures true
     {
         self.nms = 0
         self.nmv = 0
@@ -783,7 +748,6 @@ extend Verify {
     # интервал стороны idx стека значений -> siv_* (siv_ok=0 если нет)
     func side_iv(let self, idx: u32)
         requires idx < 64
-        ensures true
     {
         const t: u32 = self.mv_t[idx]
         if t == 1 {
@@ -810,8 +774,6 @@ extend Verify {
 
     # склейка двух вершин стека значений (op 10 +, 11 -) -> ms_*
     func map_combine(let self, op: u32)
-        requires true
-        ensures true
     {
         if self.nmv < 2 {
             self.ms_t = 0
@@ -857,7 +819,6 @@ extend Verify {
     # интервальная арифметика сторон li op ri -> ms_*
     func map_combine_iv(let self, op: u32, li: u32, ri: u32)
         requires li < 64 and ri < 64
-        ensures true
     {
         self.side_iv(li)
         if self.siv_ok == 0 {
@@ -898,7 +859,6 @@ extend Verify {
     # операнд oiv — в rpi_* (обход предела в 6 параметров)
     func refine_path_iv(let self, path: u32, op: u32)
         requires path < 512
-        ensures true
     {
         const ols: u32 = self.rpi_ls
         const olm: u64 = self.rpi_lm
@@ -956,7 +916,6 @@ extend Verify {
     # bind — pid связываемого результата (или NONE), obj — pid получателя
     func assume_ensures(let self, fi: u32, call: u32, bind: u32, obj: u32)
         requires fi < 1024 and call < 131072
-        ensures true
     {
         const ens: u32 = self.func_clause(fi, 10)
         if ens == NONE {
@@ -997,7 +956,6 @@ extend Verify {
     # один конъюнкт-сравнение ensures -> факты в self.env
     func assume_conj(let self, c: u32)
         requires c < 131072
-        ensures true
     {
         if self.nk(c) != 39 {
             return
@@ -1040,8 +998,6 @@ extend Verify {
 
     # путь+смещение op путь+смещение: разностный факт + подрезка обеих
     func assume_off_off(let self, op: u32)
-        requires true
-        ensures true
     {
         const lp: u32 = self.lz_p
         const rp: u32 = self.rz_p
@@ -1081,8 +1037,6 @@ extend Verify {
 
     # путь+смещение op интервал: подрезка пути (iv - lc)
     func assume_off_iv(let self, op: u32)
-        requires true
-        ensures true
     {
         if self.lz_p >= 512 {
             return
@@ -1098,8 +1052,6 @@ extend Verify {
 
     # интервал op путь+смещение: подрезка пути зеркальным op (iv - rc)
     func assume_iv_off(let self, op: u32)
-        requires true
-        ensures true
     {
         if self.rz_p >= 512 {
             return

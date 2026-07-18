@@ -9,8 +9,6 @@ enum Klass {
 
 # Классы — через lib/Ascii.eat; '_' считается буквой (байт слова).
 func klass(b: u8) -> Klass
-    requires true
-    ensures true
 {
     if is_alpha(b) or b == 95 {
         return Klass.Letter
@@ -25,7 +23,6 @@ func klass(b: u8) -> Klass
 }
 
 func code_of(k: Klass) -> u32
-    requires true
     ensures result <= 3
 {
     match k {

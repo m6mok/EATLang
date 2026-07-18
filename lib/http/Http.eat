@@ -31,12 +31,21 @@ export {
     HTTP_MAX_HEADERS,
     HTTP_MAX_BODY,
     HTTP_NONE,
+    HTTP_OK,
+    HTTP_CREATED,
+    HTTP_NO_CONTENT,
+    HTTP_BAD_REQUEST,
+    HTTP_NOT_FOUND,
+    HTTP_METHOD_NOT_ALLOWED,
+    HTTP_PAYLOAD_TOO_LARGE,
+    HTTP_HEADERS_TOO_LARGE,
+    HTTP_INSUFFICIENT_STORAGE,
 }
 
 import {
     Dec,
     fmt_u32,
-} from "lib/Fmt.eat"
+} from "lib/fmt/Fmt.eat"
 
 # Потолки этапа 1 (решение H3, план §4): размеры зашиты в типы —
 # массив фиксированного размера есть часть типа (правило 3).
@@ -51,12 +60,23 @@ constexpr PARSE_DONE: u32 = 1
 # «нет такого» для поисков по заголовкам (идиома SENT-сентинела)
 constexpr HTTP_NONE: u32 = 4294967295
 
+# Реестр кодов ответа: один источник имён для всех примеров/хелперов,
+# чтобы статус не размазывался магическими числами по коду. Текст
+# reason-phrase остаётся у места ответа (строки — не constexpr).
+constexpr HTTP_OK: u32 = 200
+constexpr HTTP_CREATED: u32 = 201
+constexpr HTTP_NO_CONTENT: u32 = 204
+constexpr HTTP_BAD_REQUEST: u32 = 400
+constexpr HTTP_NOT_FOUND: u32 = 404
+constexpr HTTP_METHOD_NOT_ALLOWED: u32 = 405
+constexpr HTTP_PAYLOAD_TOO_LARGE: u32 = 413
+constexpr HTTP_HEADERS_TOO_LARGE: u32 = 431
+constexpr HTTP_INSUFFICIENT_STORAGE: u32 = 507
+
 # ASCII в нижний регистр — для регистронезависимых имён заголовков
 # (RFC 9110: имена case-insensitive, значения сравниваем так же для
 # токенов вроде close/keep-alive).
 func lower(b: u8) -> u8
-    requires true
-    ensures true
 {
     if b >= 65 and b <= 90 {
         return b + 32
@@ -91,8 +111,6 @@ struct Req {
 
     # Очередной принятый байт. PARSE_MORE / PARSE_DONE / 400|413|431.
     func push_byte(let self, b: u8) -> u32
-        requires true
-        ensures true
     {
         if self.state == 2 {
             return PARSE_DONE
@@ -120,7 +138,6 @@ struct Req {
     # CR перед ним откусывается; диспетч по текущему состоянию.
     func line_end(let self, lb: u32, e0: u32) -> u32
         requires e0 < 8192
-        ensures true
     {
         let le: u32 = e0
         if le > lb and le >= 1 and self.raw[le - 1] == 13 {
@@ -141,7 +158,6 @@ struct Req {
     # (§8.1): без холостого прохода [0..b0) идиомы констант-диапазона.
     func find_sp(let self, b0: u32, e0: u32) -> u32
         requires e0 <= 8192
-        ensures true
     {
         let at: u32 = HTTP_NONE
         let j: u32 = b0
@@ -160,7 +176,6 @@ struct Req {
     # METHOD SP PATH SP VERSION; пустые компоненты и лишние формы — 400.
     func parse_reqline(let self, ls2: u32, le: u32) -> u32
         requires le <= 8192
-        ensures true
     {
         const sp1: u32 = self.find_sp(ls2, le)
         let bad: bool = sp1 == HTTP_NONE
@@ -193,7 +208,6 @@ struct Req {
     # Скан двоеточия прямо от ls2 (§8.1) — как find_sp.
     func parse_header(let self, ls2: u32, le: u32) -> u32
         requires le <= 8192
-        ensures true
     {
         if self.nh >= 64 {
             # заголовков больше MAX_HEADERS -> 431 Header Fields Too Large
@@ -245,8 +259,6 @@ struct Req {
 
     # Срез raw[s..s+l) == строка (точно, по байтам).
     func span_is(self, s: u32, l: u32, kw: str<64>) -> bool
-        requires true
-        ensures true
     {
         if l != len(kw) {
             return false
@@ -265,8 +277,6 @@ struct Req {
 
     # Срез raw[s..s+l) == строка без учёта регистра ASCII.
     func span_is_ci(self, s: u32, l: u32, kw: str<64>) -> bool
-        requires true
-        ensures true
     {
         if l != len(kw) {
             return false
@@ -284,30 +294,22 @@ struct Req {
     }
 
     func method_is(self, m: str<64>) -> bool
-        requires true
-        ensures true
     {
         return self.span_is(self.ms, self.ml, m)
     }
 
     func path_is(self, p: str<64>) -> bool
-        requires true
-        ensures true
     {
         return self.span_is(self.ps, self.pl, p)
     }
 
     func version_is(self, v: str<64>) -> bool
-        requires true
-        ensures true
     {
         return self.span_is(self.vs, self.vl, v)
     }
 
     # Индекс заголовка по имени (без регистра) или HTTP_NONE.
     func find_header(self, name: str<64>) -> u32
-        requires true
-        ensures true
     {
         let at: u32 = HTTP_NONE
         for i in 0..64 {
@@ -325,15 +327,12 @@ struct Req {
     # close/keep-alive сравниваются case-insensitive).
     func header_val_is(self, i: u32, v: str<64>) -> bool
         requires i < 64
-        ensures true
     {
         return self.span_is_ci(self.hdr[i].vs, self.hdr[i].vl, v)
     }
 
     # Путь начинается с префикса (этап 3, маршруты-шаблоны).
     func path_starts(self, pre: str<64>) -> bool
-        requires true
-        ensures true
     {
         if self.pl < len(pre) {
             return false
@@ -344,8 +343,6 @@ struct Req {
     # Параметр пути: хвост после skip байт. None — хвоста нет или он
     # длиннее 64 байт (маршрут обязан ответить 404, а не усекать).
     func path_param(self, skip: u32) -> Option<str<64>>
-        requires true
-        ensures true
     {
         if self.pl <= skip or self.pl - skip > 64 {
             return None
@@ -364,8 +361,6 @@ struct Req {
     # keep-alive): явный `Connection: close` — да; явный `keep-alive`
     # — нет; иначе по версии (HTTP/1.1 держит, HTTP/1.0 закрывает).
     func wants_close(self) -> bool
-        requires true
-        ensures true
     {
         const c: u32 = self.find_header("connection")
         if c != HTTP_NONE and c < 64 {
@@ -383,8 +378,6 @@ struct Req {
     # значение больше HTTP_MAX_BODY клампится к MAX_BODY+1 (без
     # переполнения u32) — вызывающий отвечает 413, не читая тело.
     func span_u32(self, s: u32, l: u32) -> Option<u32>
-        requires true
-        ensures true
     {
         if l == 0 {
             return None
@@ -412,8 +405,6 @@ struct Req {
 
     # Content-Length как u32 (None — нет заголовка или значение кривое).
     func content_length(self) -> Option<u32>
-        requires true
-        ensures true
     {
         const i: u32 = self.find_header("content-length")
         if i == HTTP_NONE or i >= 64 {
@@ -425,8 +416,6 @@ struct Req {
     # Transfer-Encoding: chunked (без регистра). MVP: только сам токен
     # `chunked` (списки кодировок вроде "gzip, chunked" — не разбираем).
     func is_chunked(self) -> bool
-        requires true
-        ensures true
     {
         const i: u32 = self.find_header("transfer-encoding")
         if i == HTTP_NONE or i >= 64 {
@@ -442,8 +431,6 @@ struct Req {
     # сброса; срезы Header — в пределах нового n (nh = 0); старые
     # байты недостижимы, разбор после reset чистый.
     func reset(let self)
-        requires true
-        ensures true
     {
         self.n = 0
         self.state = 0
@@ -464,8 +451,6 @@ struct Req {
     # уходит на точный побайтовый путь push_byte). Вызывается
     # только при fits: n+ln до потолка.
     func span_copy(let self, s: str<256>, ln: u32) -> bool
-        requires true
-        ensures true
     {
         let w: u32 = self.n
         let lf: bool = false
@@ -488,8 +473,6 @@ struct Req {
     # — точный побайтовый путь push_byte. Байты за пределом n после
     # отката спан-копии не читаются парсером (raw[0..n) — контракт).
     func feed_line(let self, s: str<256>) -> u32
-        requires true
-        ensures true
     {
         if self.state == 2 {
             return PARSE_DONE
@@ -533,8 +516,6 @@ struct Req {
     # тот же быстрый спан-путь, что feed_line. Без LF смена
     # состояния невозможна — результат всегда PARSE_MORE.
     func feed_str(let self, s: str<256>) -> u32
-        requires true
-        ensures true
     {
         if self.state == 2 {
             return PARSE_DONE
@@ -563,8 +544,6 @@ struct Req {
 }
 
 func req_new() -> Req
-    requires true
-    ensures true
 {
     return Req {
         raw: [0; 8192], n: 0, state: 0, ls: 0,
@@ -595,8 +574,6 @@ struct Body {
     # Тело по Content-Length: n байт (n > MAX_BODY — сразу 413, тело не
     # читается; n == 0 — пустое тело, сразу готово).
     func begin_cl(let self, n: u32)
-        requires true
-        ensures true
     {
         self.mode = 0
         self.need = n
@@ -610,8 +587,6 @@ struct Body {
 
     # Тело chunked: автомат размеров/данных ведёт push.
     func begin_chunked(let self)
-        requires true
-        ensures true
     {
         self.mode = 1
         self.cs = 0
@@ -619,8 +594,6 @@ struct Body {
 
     # Байт в буфер тела; false — потолок HTTP_MAX_BODY (413).
     func store(let self, b: u8) -> bool
-        requires true
-        ensures true
     {
         if self.bn >= 65536 {
             return false
@@ -632,8 +605,6 @@ struct Body {
 
     # hex-цифра -> 0..15; иначе 99 (как lib/Hex.hex_val).
     func hexv(self, b: u8) -> u32
-        requires true
-        ensures true
     {
         if b >= 48 and b <= 57 {
             return u32(b - 48)
@@ -650,8 +621,6 @@ struct Body {
     # Конец size-строки chunked: нет hex-цифр — 400; нулевой размер —
     # последний чанк (ждём финальный CRLF), иначе — читаем данные.
     func size_end(let self) -> u32
-        requires true
-        ensures true
     {
         if not self.seen {
             self.state = 2
@@ -670,8 +639,6 @@ struct Body {
 
     # size-строка chunked: hex-размер (+ расширение ;… до LF).
     func chunk_size(let self, b: u8) -> u32
-        requires true
-        ensures true
     {
         if self.skip {
             if b == 10 {
@@ -706,8 +673,6 @@ struct Body {
 
     # Разделители chunked после данных (cs 2/3) и финальный CRLF (cs 4/5).
     func chunk_delim(let self, b: u8) -> u32
-        requires true
-        ensures true
     {
         if self.cs == 2 {
             if b == 13 {
@@ -743,8 +708,6 @@ struct Body {
 
     # Байт тела в режиме chunked: диспетч по подсостоянию cs.
     func chunk(let self, b: u8) -> u32
-        requires true
-        ensures true
     {
         if self.cs == 0 {
             return self.chunk_size(b)
@@ -767,8 +730,6 @@ struct Body {
     # Очередной байт тела. PARSE_MORE / PARSE_DONE / 413 / 400.
     # После готовности/ошибки идемпотентен (как Req.push_byte).
     func push(let self, b: u8) -> u32
-        requires true
-        ensures true
     {
         if self.state == 1 {
             return PARSE_DONE
@@ -794,8 +755,6 @@ struct Body {
 
     # Готово ли тело целиком принято.
     func is_done(self) -> bool
-        requires true
-        ensures true
     {
         return self.state == 1
     }
@@ -803,15 +762,12 @@ struct Body {
     # Байт декодированного тела (для копирования в JDoc и т.п.).
     func at(self, i: u32) -> u8
         requires i < 65536
-        ensures true
     {
         return self.buf[i]
     }
 
     # Декодированное тело == строка (точно, по байтам) — для тестов.
     func buf_is(self, s: str<64>) -> bool
-        requires true
-        ensures true
     {
         if self.bn != len(s) {
             return false
@@ -830,8 +786,6 @@ struct Body {
 }
 
 func body_new() -> Body
-    requires true
-    ensures true
 {
     return Body {
         buf: [0; 65536], bn: 0, mode: 0, need: 0, cs: 0, csz: 0,
@@ -848,8 +802,6 @@ struct Resp {
     of: bool
 
     func put_byte(let self, b: u8)
-        requires true
-        ensures true
     {
         if self.n < 16384 {
             self.buf[self.n] = b
@@ -860,8 +812,6 @@ struct Resp {
     }
 
     func put_str(let self, s: str<256>)
-        requires true
-        ensures true
     {
         for i in 0..256 {
             if u32(i) >= len(s) {
@@ -872,8 +822,6 @@ struct Resp {
     }
 
     func put_dec(let self, v: u32)
-        requires true
-        ensures true
     {
         const d: Dec = fmt_u32(v)
         for i in 0..20 {
@@ -886,8 +834,6 @@ struct Resp {
 
     # CRLF: '\r' в строковых литералах языка нет — байтами.
     func crlf(let self)
-        requires true
-        ensures true
     {
         self.put_byte(13)
         self.put_byte(10)
@@ -895,8 +841,6 @@ struct Resp {
 
     # "HTTP/1.1 <code> <text>" CRLF
     func status_line(let self, code: u32, text: str<64>)
-        requires true
-        ensures true
     {
         self.put_str("HTTP/1.1 ")
         self.put_dec(code)
@@ -912,8 +856,6 @@ struct Resp {
 
     # "<name>: <val>" CRLF
     func header_line(let self, name: str<64>, val: str<128>)
-        requires true
-        ensures true
     {
         for i in 0..64 {
             if u32(i) >= len(name) {
@@ -934,8 +876,6 @@ struct Resp {
 
     # Content-Length + пустая строка + тело: ответ завершён.
     func body(let self, s: str<256>)
-        requires true
-        ensures true
     {
         self.put_str("Content-Length: ")
         self.put_dec(len(s))
@@ -947,8 +887,6 @@ struct Resp {
     # "Content-Length: n" CRLF — для тела произвольной длины (байты
     # шлёт вызывающий отдельным socket_write_span из своего буфера).
     func content_length(let self, n: u32)
-        requires true
-        ensures true
     {
         self.put_str("Content-Length: ")
         self.put_dec(n)
@@ -957,16 +895,12 @@ struct Resp {
 
     # Пустая строка — конец заголовков (дальше идёт тело).
     func end_headers(let self)
-        requires true
-        ensures true
     {
         self.crlf()
     }
 }
 
 func resp_new() -> Resp
-    requires true
-    ensures true
 {
     return Resp { buf: [0; 16384], n: 0, of: false }
 }

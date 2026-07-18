@@ -8,36 +8,27 @@ struct Point {
     y: i32
 
     func add(self, other: Point) -> Point
-        requires true
-        ensures true
     {
         return Point { x: self.x + other.x, y: self.y + other.y }
     }
 
     func sub(self, other: Point) -> Point
-        requires true
-        ensures true
     {
         return Point { x: self.x - other.x, y: self.y - other.y }
     }
 
     func neg(self) -> Point
-        requires true
-        ensures true
     {
         return Point { x: -self.x, y: -self.y }
     }
 
     func repr(self) -> str<64>
-        requires true
-        ensures true
     {
         return "Point({self.x}, {self.y})"
     }
 }
 
 func dist_sq(p: Point, q: Point) -> i32
-    requires true
     ensures result >= 0
 {
     const dx: i32 = p.x - q.x

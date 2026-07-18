@@ -17,7 +17,7 @@ import {
     Poll,
     ready,
     Timer,
-} from "lib/Async.eat"
+} from "lib/os/Async.eat"
 
 # период мигания в тиках: на виртуальных часах тик = виток суперцикла
 constexpr BLINK_PERIOD: u64 = 2
@@ -30,8 +30,6 @@ struct Echo {
     done: bool
 
     func step(let self) -> Poll
-        requires true
-        ensures true
     {
         if self.done {
             return Poll.Ready
@@ -69,8 +67,6 @@ struct Blink {
     n: u32
 
     func step(let self)
-        requires true
-        ensures true
     {
         match self.t.fire(BLINK_PERIOD) {
             Some(now) {
@@ -83,8 +79,6 @@ struct Blink {
 }
 
 func main()
-    requires true
-    ensures true
 {
     let e: Echo = Echo { seen: 0, done: false }
     let b: Blink = Blink { t: Timer { next: 0 }, n: 0 }

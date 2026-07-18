@@ -31,8 +31,6 @@ enum Poll {
 # Завершилась ли задача — расход Poll одним выражением:
 # `if ready(t.step()) { break }`.
 func ready(p: Poll) -> bool
-    requires true
-    ensures true
 {
     match p {
         Ready { return true }
@@ -50,8 +48,6 @@ struct Timer {
     # Наступил ли дедлайн: Some(момент срабатывания) — да, и таймер
     # перезаряжен на period вперёд; None — ещё рано.
     func fire(let self, period: u64) -> Option<u64>
-        requires true
-        ensures true
     {
         const now: u64 = ticks()
         if now < self.next {
@@ -73,7 +69,6 @@ struct Debounce {
     # (self.stable уже обновлён), false — уровень прежний.
     func sample(let self, raw: u8, hold: u32) -> bool
         requires hold >= 1
-        ensures true
     {
         if raw == self.stable {
             # вернулись к подтверждённому — кандидат сброшен

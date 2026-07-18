@@ -6,70 +6,70 @@
 
 import {
     is_digit,
-} from "lib/Ascii.eat"
+} from "lib/fmt/Ascii.eat"
 
 import {
     get,
-} from "lib/Args.eat"
+} from "lib/os/Args.eat"
 
 import {
     Poll,
     ready,
     Timer,
     Debounce,
-} from "lib/Async.eat"
+} from "lib/os/Async.eat"
 
 import {
     same,
-} from "lib/Buf.eat"
+} from "lib/core/Buf.eat"
 
 import {
     NONE,
     U32_MAX,
-} from "lib/Const.eat"
+} from "lib/core/Const.eat"
 
 import {
     q16,
-} from "lib/Fixed.eat"
+} from "lib/fmt/Fixed.eat"
 
 import {
     Dec,
     fmt_u32,
-} from "lib/Fmt.eat"
+} from "lib/fmt/Fmt.eat"
 
 import {
     hex_digit,
-} from "lib/Hex.eat"
+} from "lib/fmt/Hex.eat"
 
 import {
     Req,
     req_new,
-} from "lib/Http.eat"
+} from "lib/http/Http.eat"
 
 import {
     read_line,
-} from "lib/Io.eat"
+} from "lib/os/Io.eat"
 
 import {
     JDoc,
     json_doc,
-} from "lib/Json.eat"
+} from "lib/json/Json.eat"
 
 import {
     min,
-} from "lib/Num.eat"
+} from "lib/fmt/Num.eat"
 
 import {
     parse_i32,
-} from "lib/Parse.eat"
+} from "lib/fmt/Parse.eat"
 
 import {
     server_listen,
-} from "lib/Server.eat"
+} from "lib/http/Server.eat"
 
 import {
     mul_64,
-} from "lib/U128.eat"
+} from "lib/core/U128.eat"
 
 func main() {
     const d: Dec = fmt_u32(min(42, 99))

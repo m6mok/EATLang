@@ -12,7 +12,6 @@ struct Pair {
 
     func absorb(let self, o: Pair)
         requires o.a <= 1000 and o.b <= 1000
-        ensures true
     {
         self.a = o.b
         self.b = o.a

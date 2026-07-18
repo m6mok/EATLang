@@ -14,15 +14,15 @@ import {
     resp_new,
     PARSE_MORE,
     PARSE_DONE,
-} from "lib/Http.eat"
+} from "lib/http/Http.eat"
 
 import {
     get,
-} from "lib/Args.eat"
+} from "lib/os/Args.eat"
 
 import {
     parse_i32,
-} from "lib/Parse.eat"
+} from "lib/fmt/Parse.eat"
 
 constexpr NO_CONN: u32 = 4294967295
 constexpr SENT: u32 = 4294967295
@@ -53,8 +53,6 @@ struct RouteRow {
 
 # Таблица маршрутов; порядок — приоритет (первое совпадение).
 func routes() -> [RouteRow; 4]
-    requires true
-    ensures true
 {
     return [
         RouteRow { m: "GET", p: "/", pre: false, id: 0 },
@@ -66,7 +64,6 @@ func routes() -> [RouteRow; 4]
 
 # Матчинг по таблице: for со статической границей и одним break.
 func route_of(r: Req) -> u32
-    requires true
     ensures result <= 4
 {
     const t: [RouteRow; 4] = routes()
@@ -92,8 +89,6 @@ func route_of(r: Req) -> u32
 }
 
 func to_route(id: u32) -> Route
-    requires true
-    ensures true
 {
     if id == 0 {
         return Route.Home
@@ -108,8 +103,6 @@ func to_route(id: u32) -> Route
 }
 
 func html_page(title: str<64>, body: str<128>) -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     w.status_line(200, "OK")
@@ -121,8 +114,6 @@ func html_page(title: str<64>, body: str<128>) -> Resp
 }
 
 func text_ok(body: str<64>) -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     w.status_line(200, "OK")
@@ -132,8 +123,6 @@ func text_ok(body: str<64>) -> Resp
 }
 
 func not_found() -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     w.status_line(404, "Not Found")
@@ -145,8 +134,6 @@ func not_found() -> Resp
 # Обработчик готового запроса: диспетч — исчерпывающий match по
 # Route (обработчики — обычные ветки, граф статичен).
 func handle(r: Req) -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     match to_route(route_of(r)) {
@@ -179,8 +166,6 @@ func handle(r: Req) -> Resp
 
 # Ответ на ошибку разбора (413/431/400) — готовый статус парсера.
 func parse_error_resp(st: u32) -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     if st == 413 {
@@ -197,7 +182,6 @@ func parse_error_resp(st: u32) -> Resp
 
 # Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
 func port_arg() -> u32
-    requires true
     ensures result <= 65535
 {
     match get(0) {
@@ -217,8 +201,6 @@ func port_arg() -> u32
 }
 
 func send_resp(fd: u32, w: Resp)
-    requires true
-    ensures true
 {
     if w.of {
         return

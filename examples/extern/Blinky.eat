@@ -3,13 +3,11 @@
 # МК (mcu_driver.c поверх шима платы): вывод байт-в-байт одинаков.
 
 extern func led_set(on: bool)
-    requires true
 
 extern func delay_ms(ms: u32)
     requires ms <= 1000
 
 extern func button_pressed() -> bool
-    ensures true
 
 func main() {
     let presses: u32 = 0

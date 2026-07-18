@@ -10,7 +10,6 @@
 
 func write_kind(k: u32)
     requires k <= 68
-    ensures true
 {
     if k < 30 {
         write_kind_kw(k)
@@ -23,7 +22,6 @@ func write_kind(k: u32)
 
 func write_kind_mod(k: u32)
     requires k >= 63 and k <= 68
-    ensures true
 {
     if k == 63 { write("IMPORT")
     } elif k == 64 { write("EXPORT")
@@ -35,7 +33,6 @@ func write_kind_mod(k: u32)
 
 func write_kind_kw(k: u32)
     requires k < 30
-    ensures true
 {
     if k == 0 { write("INT")
     } elif k == 1 { write("STRING")
@@ -71,7 +68,6 @@ func write_kind_kw(k: u32)
 
 func write_kind_op(k: u32)
     requires k >= 30 and k <= 62
-    ensures true
 {
     if k == 30 { write("LPAREN")
     } elif k == 31 { write("RPAREN")

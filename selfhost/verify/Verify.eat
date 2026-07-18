@@ -577,70 +577,60 @@ struct Verify {
 
     func nk(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.nk[n / 65536][n % 65536]
     }
 
     func nfc(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.nfc[n / 65536][n % 65536]
     }
 
     func nns(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.nns[n / 65536][n % 65536]
     }
 
     func nl(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.nl[n / 65536][n % 65536]
     }
 
     func nc(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.nc[n / 65536][n % 65536]
     }
 
     func nss(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.nss[n / 65536][n % 65536]
     }
 
     func nsl(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.nsl[n / 65536][n % 65536]
     }
 
     func nx(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.nx[n / 65536][n % 65536]
     }
 
     func ny(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.p.ny[n / 65536][n % 65536]
     }
 
     func nty(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         return self.c.nty[n / 65536][n % 65536]
     }
@@ -648,8 +638,6 @@ struct Verify {
     # --- знаковая арифметика (sign, mag), как constexpr_binop в Check ------
 
     func sless(let self, s1: u32, m1: u64, s2: u32, m2: u64) -> bool
-        requires true
-        ensures true
     {
         if s1 == 1 and s2 == 0 {
             return true
@@ -664,22 +652,16 @@ struct Verify {
     }
 
     func sleq(let self, s1: u32, m1: u64, s2: u32, m2: u64) -> bool
-        requires true
-        ensures true
     {
         return not self.sless(s2, m2, s1, m1)
     }
 
     func seq(let self, s1: u32, m1: u64, s2: u32, m2: u64) -> bool
-        requires true
-        ensures true
     {
         return s1 == s2 and m1 == m2
     }
 
     func sadd(let self, s1: u32, m1: u64, s2: u32, m2: u64)
-        requires true
-        ensures true
     {
         self.oov = 0
         if s1 == s2 {
@@ -709,8 +691,6 @@ struct Verify {
     }
 
     func ssub(let self, s1: u32, m1: u64, s2: u32, m2: u64)
-        requires true
-        ensures true
     {
         let ns: u32 = s2
         if m2 != 0 {
@@ -720,8 +700,6 @@ struct Verify {
     }
 
     func smul(let self, s1: u32, m1: u64, s2: u32, m2: u64)
-        requires true
-        ensures true
     {
         self.oov = 0
         if m1 != 0 and m2 > 18446744073709551615 / m1 {
@@ -740,8 +718,6 @@ struct Verify {
     }
 
     func smin(let self, s1: u32, m1: u64, s2: u32, m2: u64)
-        requires true
-        ensures true
     {
         if self.sless(s1, m1, s2, m2) {
             self.oas = s1
@@ -753,8 +729,6 @@ struct Verify {
     }
 
     func smax(let self, s1: u32, m1: u64, s2: u32, m2: u64)
-        requires true
-        ensures true
     {
         if self.sless(s1, m1, s2, m2) {
             self.oas = s2
@@ -767,8 +741,6 @@ struct Verify {
 
     # диапазон целого/char по виду типа -> kls/klm/khs/khm
     func kind_range(let self, k: u32)
-        requires true
-        ensures true
     {
         self.kls = 0
         self.klm = 0
@@ -796,16 +768,12 @@ struct Verify {
     }
 
     func numeric_kind(let self, k: u32) -> bool
-        requires true
-        ensures true
     {
         return k == 0 or k == 1 or k == 2 or k == 4 or k == 12 or k == 13 or k == 14
     }
 
     # r-регистры := диапазон типа ty (rk=0 если тип не числовой)
     func set_ty(let self, ty: u32)
-        requires true
-        ensures true
     {
         if ty == NONE {
             self.rk = 0
@@ -826,8 +794,6 @@ struct Verify {
 
     # r := пересечение [raw_lo,raw_hi] с [kls,khm]; пусто -> clamp
     func set_inter(let self, rls: u32, rlm: u64, rhs: u32, rhm: u64)
-        requires true
-        ensures true
     {
         let los: u32 = rls
         let lom: u64 = rlm
@@ -859,8 +825,6 @@ struct Verify {
 
     # общий поиск слота пула по (родитель, self-флаг, span компоненты)
     func slot_find(let self, par: u32, sf: u32, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let r: u32 = NONE
         for i in 0..512 {
@@ -877,8 +841,6 @@ struct Verify {
     }
 
     func slot_intern(let self, par: u32, sf: u32, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         const e: u32 = self.slot_find(par, sf, a, l)
         if e != NONE {
@@ -899,15 +861,11 @@ struct Verify {
 
     # простое имя (совместимость: прежние вызовы path_find/path_intern)
     func path_find(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         return self.slot_find(NONE, 0, a, l)
     }
 
     func path_intern(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         return self.slot_intern(NONE, 0, a, l)
     }
@@ -915,7 +873,6 @@ struct Verify {
     # снять прозрачные касты char/u8(char): для путей каст незаметен
     func uncast(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         let cur: u32 = n
         let done: bool = false
@@ -948,7 +905,6 @@ struct Verify {
     # Рекурсии нет: цепочка полей собирается явным стеком.
     func node_path(let self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         let chain: [u32; 16] = [0; 16]
         let nch: u32 = 0
@@ -1006,7 +962,6 @@ struct Verify {
     # self.поле как loop-carried путь (kill на входе тела, проба, accel)
     func target_pid(let self, tgt: u32) -> u32
         requires tgt < 131072
-        ensures true
     {
         const k: u32 = self.nk(tgt)
         if k != 37 and k != 43 {
@@ -1016,8 +971,6 @@ struct Verify {
     }
 
     func fresh_st(let self) -> St
-        requires true
-        ensures true
     {
         return St {
             kn: [0; 512], ls: [0; 512], lm: [0; 512], hs: [0; 512], hm: [0; 512], nz: [0; 512],
@@ -1031,8 +984,6 @@ struct Verify {
     # интернировать ключ пула/поля: loc=1 локальный массив (own=fi),
     # loc=0 поле struct (own=si); (a,l) — имя переменной/поля
     func pki_intern(let self, loc: u32, own: u32, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let r: u32 = NONE
         for i in 0..2048 {
@@ -1064,7 +1015,6 @@ struct Verify {
     # владельца (struct поля или локальный массив). NONE — не трассируется
     func pool_key(let self, node: u32) -> u32
         requires node < 131072
-        ensures true
     {
         let base: u32 = node
         let done: bool = false
@@ -1095,7 +1045,6 @@ struct Verify {
     # struct-владелец объекта поля: тип объекта (struct) или self → fown
     func owner_si(let self, obj: u32) -> u32
         requires obj < 131072
-        ensures true
     {
         const oty: u32 = self.nty(obj)
         if oty != NONE and self.c.yk[oty] == 8 {
@@ -1110,7 +1059,6 @@ struct Verify {
     # ключ скалярного поля struct (эталон _field_key)
     func field_key(let self, node: u32) -> u32
         requires node < 131072
-        ensures true
     {
         if self.nk(node) != 43 {
             return NONE
@@ -1125,7 +1073,6 @@ struct Verify {
     # тип поля (si, имя) -> тип-узел | NONE
     func sfield_type(let self, si: u32, a: u32, l: u32) -> u32
         requires si < 128
-        ensures true
     {
         const g: u32 = self.c.field_of(si, a, l)
         if g == NONE {
@@ -1136,8 +1083,6 @@ struct Verify {
 
     # элемент-тип массива (снять слои [T; N]) -> тип-узел
     func array_elem_type(let self, ty: u32) -> u32
-        requires true
-        ensures true
     {
         let t: u32 = ty
         let done: bool = false
@@ -1157,8 +1102,6 @@ struct Verify {
     # запись элемента пула (эталон _note_pool): плотная часть — в
     # r-регистрах (rk=0 → пул мёртв); точечный максимум типа — сентинел
     func note_pool(let self, keyid: u32, sentk: u32, sents: u32, sentm: u64)
-        requires true
-        ensures true
     {
         if keyid == NONE or keyid >= 2048 {
             return
@@ -1197,8 +1140,6 @@ struct Verify {
 
     # запись скалярного поля (эталон _note_field): плотная часть в r
     func note_field(let self, keyid: u32)
-        requires true
-        ensures true
     {
         if keyid == NONE or keyid >= 2048 {
             return
@@ -1227,7 +1168,6 @@ struct Verify {
     # неизвестно). Рекурсии нет: слои ArrayFill снимаются циклом
     func elem_iv(let self, expr: u32)
         requires expr < 131072
-        ensures true
     {
         let e: u32 = expr
         let done: bool = false
@@ -1290,7 +1230,6 @@ struct Verify {
     # листьев + сентинел из типа элемента; прочее — нетрассируемо (мёртв)
     func store_array(let self, keyid: u32, expr: u32)
         requires expr < 131072
-        ensures true
     {
         if keyid == NONE or keyid >= 2048 {
             return
@@ -1338,7 +1277,6 @@ struct Verify {
     # рекурсией нельзя — замкнёт note_structlit -> store_array, правило 1)
     func note_structlit(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         self.nsl_n[0] = n
         self.nsl_sp = 1
@@ -1386,7 +1324,6 @@ struct Verify {
     # (вложенные литералы — записи их структур)
     func note_structlit_one(let self, e: u32)
         requires e < 131072
-        ensures true
     {
         const ty: u32 = self.nty(e)
         let si: u32 = NONE
@@ -1415,7 +1352,6 @@ struct Verify {
 
     func note_structlit_field(let self, si: u32, c: u32)
         requires si < 128 and c < 131072
-        ensures true
     {
         const fexpr: u32 = self.nfc(c)
         if fexpr == NONE {
@@ -1438,7 +1374,6 @@ struct Verify {
     # hull, дырка запоминается в регистре ho_* для guard'а `!= сент`
     func pool_read_refine(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const pkey: u32 = self.pool_key(n)
         if pkey == NONE or pkey >= 2048 or self.piv_kn[pkey] == 0 {
@@ -1475,7 +1410,6 @@ struct Verify {
     # сужение чтения скалярного поля инвариантом (эталон _iv FieldAccess)
     func field_read_refine(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const fkey: u32 = self.field_key(n)
         if fkey == NONE or fkey >= 2048 or self.fiv_kn[fkey] == 0 {
@@ -1492,7 +1426,6 @@ struct Verify {
     # интервал значения — в r-регистрах (rk=0 → диапазон типа/мёртв)
     func note_write_target(let self, tgt: u32, tk: u32, tty: u32, value: u32)
         requires tgt < 131072 and value < 131072
-        ensures true
     {
         if tty != NONE and self.c.yk[tty] == 7 {
             if tk == 37 {
@@ -1530,8 +1463,6 @@ struct Verify {
     # --- пассы-фикспойнт (эталон run/_begin_pass/_finish_pass) ---------
 
     func begin_pass(let self)
-        requires true
-        ensures true
     {
         self.nck = 0
         self.npend = 0
@@ -1559,8 +1490,6 @@ struct Verify {
     }
 
     func finish_pass(let self) -> bool
-        requires true
-        ensures true
     {
         self.resolve_deps()
         let stable: bool = true
@@ -1580,8 +1509,6 @@ struct Verify {
     # единой записи и без входящих копий нетрассируем — приёмник мёртв
 
     func resolve_deps(let self)
-        requires true
-        ensures true
     {
         if self.npd == 0 {
             return
@@ -1618,8 +1545,6 @@ struct Verify {
     }
 
     func resolve_deps_pass(let self) -> bool
-        requires true
-        ensures true
     {
         let changed: bool = false
         for e in 0..256 {
@@ -1635,7 +1560,6 @@ struct Verify {
 
     func resolve_dep_edge(let self, e: u32) -> bool
         requires e < 256
-        ensures true
     {
         const dst: u32 = self.pd_dst[e]
         const src: u32 = self.pd_src[e]
@@ -1677,8 +1601,6 @@ struct Verify {
     # Разные значения сентинелов на одном ключе невозможны (сентинел —
     # максимум типа элемента, тип копий совпадает) — smulti лишь страховка
     func inherit_sents_pass(let self) -> bool
-        requires true
-        ensures true
     {
         let grew: bool = false
         for e in 0..256 {
@@ -1709,7 +1631,6 @@ struct Verify {
     # зафиксировать ключ i: аккумулятор пасса -> карта; вернуть «не менялся»
     func commit_key(let self, i: u32) -> bool
         requires i < 2048
-        ensures true
     {
         let unch: bool = true
         # --- скалярное поле (field_iv) ---
@@ -1738,7 +1659,6 @@ struct Verify {
 
     func commit_pool(let self, i: u32) -> bool
         requires i < 2048
-        ensures true
     {
         let dkn: u32 = 0
         let dls: u32 = 0
@@ -1799,8 +1719,6 @@ struct Verify {
 
 # свежая структура фазы: вся память — в кадре вызывающего
 func verify_new(c: Check) -> Verify
-    requires true
-    ensures true
 {
     return Verify {
         c: c,

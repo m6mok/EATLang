@@ -52,14 +52,14 @@ BENCHES = {
     "bank": ("BankBench", 200_000, 2048, 64, 8, []),
     "strcmp": ("StrCmpBench", 20_000, 128, 16, 4, []),
     "u64": ("U64Bench", 200_000, 4096, 128, 8, []),
-    # 128-битная арифметика lib/U128.eat (U128_PLAN, замер этапа 4):
+    # 128-битная арифметика lib/core/U128.eat (U128_PLAN, замер этапа 4):
     # "driver" вместо списка модулей — у U128 import-шапка, cat-режим
     # невозможен, поток собирает драйвер (eatc --lib . / stream)
     "u128": ("U128Bench", 20_000, 1024, 64, 8, "driver"),
     "u128div": ("U128DivBench", 4_400, 2048, 128, 32, "driver"),
-    # HTTP-парсер lib/Http.eat (HTTP_PLAN): 2 000 запросов на REPEAT=1
+    # HTTP-парсер lib/http/Http.eat (HTTP_PLAN): 2 000 запросов на REPEAT=1
     # (4 профиля × 500) — request-line, заголовки, роутер, keep-alive;
-    # драйвер: HttpBench → lib/Http.eat → lib/Fmt.eat
+    # драйвер: HttpBench → lib/http/Http.eat → lib/fmt/Fmt.eat
     "http": ("HttpBench", 2_500, 256, 32, 4, "driver"),
     # ядро RESTful TODO-list lib/-free (TODO_REST_PLAN): пул из 64 слотов
     # под потоком create/toggle/serialize/remove — 2 048 операций на
@@ -73,7 +73,7 @@ RUNS_FULL, RUNS_QUICK = 5, 3
 # Макробенч mos6502: нагрузка — ROM со stdin (шагов ~ top*outer*mid*
 # 256*7), метрика — нс/шаг; steps= парсится из отчёта эмулятора.
 # (генератор, ROM сверки, ROM python, ROM native, ROM native quick)
-MOS_EAT_SRC = ["lib/Hex.eat", "examples/mos6502/Cpu6502.eat",
+MOS_EAT_SRC = ["lib/fmt/Hex.eat", "examples/mos6502/Cpu6502.eat",
                "examples/mos6502/Tests.eat", "examples/mos6502/Main.eat"]
 MOS_ROMS = {
     "verify": ["--top", "1", "--outer", "1", "--middle", "16"],
@@ -84,7 +84,7 @@ MOS_ROMS = {
 
 # маркеры константы REPEAT в исходниках (подменяются копией в OUT)
 MARKERS = {
-    "eat": "const REPEAT: u32 = 1",
+    "eat": "constexpr REPEAT: u32 = 1",
     "c": "static const uint32_t REPEAT = 1;",
     "rust": "const REPEAT: u32 = 1;",
     "go": "const REPEAT uint32 = 1",

@@ -49,7 +49,7 @@ from eatc.codegen import inline_hints  # noqa: E402 — сама эвристи�
 # numparse нет в реестре crosslang — REPEAT как в make bench (×64)
 BENCH_DEFS = {
     "strcmp": ("StrCmpBench", 20_000, 128, 16, []),
-    "numparse": ("NumParseBench", 200_000, 64, 8, ["lib/Parse.eat"]),
+    "numparse": ("NumParseBench", 200_000, 64, 8, ["lib/fmt/Parse.eat"]),
     "u128": ("U128Bench", 20_000, 1024, 64, "driver"),
 }
 C_PORTS = {"strcmp", "u128"}  # у numparse C-порта нет

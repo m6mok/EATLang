@@ -19,15 +19,11 @@ struct RtStr {
     # --- вывод (write_byte — аксиома) -------------------------------------
 
     func write(self)
-        requires true
-        ensures true
     {
         write_span(self.buf, 0, self.ln)
     }
 
     func print(self)
-        requires true
-        ensures true
     {
         self.write()
         write_byte(10)
@@ -36,15 +32,12 @@ struct RtStr {
     # --- построение строки (интерполяция) ---------------------------------
 
     func init(let self)
-        requires true
         ensures self.ln == 0
     {
         self.ln = 0
     }
 
     func append_str(let self, o: RtStr)
-        requires true
-        ensures true
     {
         assert self.ln + o.ln <= 256
         const base: u32 = self.ln
@@ -65,8 +58,6 @@ struct RtStr {
     }
 
     func append_char(let self, c: char)
-        requires true
-        ensures true
     {
         assert self.ln < 256
         self.buf[self.ln] = u8(c)
@@ -74,8 +65,6 @@ struct RtStr {
     }
 
     func append_bool(let self, b: bool)
-        requires true
-        ensures true
     {
         if b {
             self.append_char('t')
@@ -92,8 +81,6 @@ struct RtStr {
     }
 
     func append_u32(let self, v: u32)
-        requires true
-        ensures true
     {
         let tmp: [u8; 10] = [0; 10]
         let n: u32 = 0
@@ -121,8 +108,6 @@ struct RtStr {
 
     # Магнитуда через (v + 1): -2147483648 выразим без переполнения.
     func append_i32(let self, v: i32)
-        requires true
-        ensures true
     {
         if v < 0 {
             self.append_char('-')
@@ -133,8 +118,6 @@ struct RtStr {
     }
 
     func append_u64(let self, v: u64)
-        requires true
-        ensures true
     {
         let tmp: [u8; 20] = [0; 20]
         let n: u32 = 0
@@ -162,8 +145,6 @@ struct RtStr {
 
     # Магнитуда через (v + 1): -9223372036854775808 выразим без переполнения.
     func append_i64(let self, v: i64)
-        requires true
-        ensures true
     {
         if v < 0 {
             self.append_char('-')
@@ -177,8 +158,6 @@ struct RtStr {
     # --- сравнение ---------------------------------------------------------
 
     func eq(self, o: RtStr) -> bool
-        requires true
-        ensures true
     {
         if self.ln != o.ln {
             return false
@@ -222,7 +201,6 @@ struct RtStr {
     # байтов — обычная строка; строка длиннее 256 байт — trap.
 
     func read_line(let self) -> u32
-        requires true
         ensures result <= 1
     {
         self.ln = 0
@@ -260,7 +238,6 @@ struct RtStr {
 
     # Индекс первого значимого байта.
     func p_lo(self) -> u32
-        requires true
         ensures result <= 256
     {
         let i: u32 = 0
@@ -276,7 +253,6 @@ struct RtStr {
 
     # Индекс за последним значимым байтом.
     func p_hi(self) -> u32
-        requires true
         ensures result <= 256
     {
         let h: u32 = self.ln
@@ -291,7 +267,6 @@ struct RtStr {
     }
 
     func parse_status(self) -> u32
-        requires true
         ensures result <= 3
     {
         let lo: u32 = self.p_lo()
@@ -338,8 +313,6 @@ struct RtStr {
 
     # Значение при статусе 0; иначе 0. Границы уже проверены статусом.
     func parse_value(self) -> i32
-        requires true
-        ensures true
     {
         if self.parse_status() != 0 {
             return 0
@@ -373,8 +346,6 @@ struct RtStr {
 # строки. Канал ошибок не смешивается с полезным выводом фильтра
 # stdin → stdout (SPEC §7); используется fail-путями компилятора.
 func eprint(s: str<256>)
-    requires true
-    ensures true
 {
     for i in 0..256 {
         if i >= len(s) {
@@ -387,8 +358,6 @@ func eprint(s: str<256>)
 
 # Заполнение RtStr в тестах: побайтно через append_char.
 func rt_of(a: str<16>) -> RtStr
-    requires true
-    ensures true
 {
     let s: RtStr = RtStr { ln: 0, buf: [0; 256] }
     for i in 0..16 {

@@ -9,14 +9,11 @@ extend Parser {
 
     func push_expr(let self, att: u32, allow: u32, lvl: u32)
         requires allow <= 1 and lvl <= 1
-        ensures true
     {
         self.push_frame(4, 0, NONE, att, allow + lvl * 2)
     }
 
     func step_expr(let self)
-        requires true
-        ensures true
     {
         if self.fp[self.nf - 1] == 0 {
             self.expr_operand()
@@ -27,7 +24,6 @@ extend Parser {
 
     func push_opnd(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         if self.nos >= 64 {
             self.fail("превышен предел: глубина выражения")
@@ -38,7 +34,6 @@ extend Parser {
     }
 
     func pop_opnd(let self) -> u32
-        requires true
         ensures result < 131072
     {
         if self.nos == 0 {
@@ -51,7 +46,6 @@ extend Parser {
 
     func push_oper(let self, k: u32, a: u32, fl: u32, ln: u32, cl: u32)
         requires k <= 8 and a < 131072
-        ensures true
     {
         if self.nop >= 64 {
             self.fail("превышен предел: глубина выражения")
@@ -70,8 +64,6 @@ extend Parser {
 
     # Текущие флаги уровня: верхняя запись стека, иначе базовые кадра.
     func cur_flags(let self) -> u32
-        requires true
-        ensures true
     {
         if self.nop > 0 {
             return self.pfl[self.nop - 1]
@@ -81,8 +73,6 @@ extend Parser {
 
     # Ближайший сентинель (вид) — NONE, если стек без сентинелей.
     func top_sent(let self) -> u32
-        requires true
-        ensures true
     {
         let found: u32 = NONE
         for d in 0..64 {
@@ -100,7 +90,6 @@ extend Parser {
     # Свернуть одну операцию с вершины стека.
     func reduce_one(let self)
         requires self.nop >= 1
-        ensures true
     {
         const e: u32 = self.nop - 1
         self.nop = e
@@ -146,8 +135,6 @@ extend Parser {
     }
 
     func reduce_ge(let self, p: u32)
-        requires true
-        ensures true
     {
         let more: bool = true
         for _ in 0..64 {
@@ -166,8 +153,6 @@ extend Parser {
     }
 
     func reduce_gt(let self, p: u32)
-        requires true
-        ensures true
     {
         let more: bool = true
         for _ in 0..64 {
@@ -187,8 +172,6 @@ extend Parser {
 
     # Свернуть все операции до ближайшего сентинеля.
     func reduce_sent(let self)
-        requires true
-        ensures true
     {
         let more: bool = true
         for _ in 0..64 {
@@ -205,8 +188,6 @@ extend Parser {
 
     # Выражение окончено: свернуть всё; незакрытый сентинель — ошибка.
     func end_expr(let self)
-        requires true
-        ensures true
     {
         self.reduce_sent()
         if self.failed {
@@ -226,8 +207,6 @@ extend Parser {
     }
 
     func sent_error(let self, k: u32)
-        requires true
-        ensures true
     {
         if k == 0 or k == 1 or k == 2 {
             self.fail("ожидалось ')'")
@@ -243,8 +222,6 @@ extend Parser {
     # --- позиция операнда --------------------------------------------------
 
     func expr_operand(let self)
-        requires true
-        ensures true
     {
         const k: u32 = self.tk_at()
         const ln: u32 = self.t_line()
@@ -312,8 +289,6 @@ extend Parser {
     # `not` допустим там, где его принял бы parse_not эталона:
     # в начале выражения, после or/and или после сентинеля.
     func expr_not_ok(let self) -> bool
-        requires true
-        ensures true
     {
         if self.nop == 0 {
             return true
@@ -327,8 +302,6 @@ extend Parser {
     }
 
     func expr_op_ident(let self)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -373,8 +346,6 @@ extend Parser {
     # сегменты из прохода интерполяции, выражения парсятся из под-регионов
     # пула токенов через SEG-сентинель (прыжок курсора туда и обратно).
     func expr_op_string(let self)
-        requires true
-        ensures true
     {
         const ti: u32 = self.cur
         const node: u32 = self.alloc(35, self.t_line(), self.t_col())
@@ -409,7 +380,6 @@ extend Parser {
     # сегмента-выражения (NONE, если сегменты кончились).
     func seg_scan(let self, node: u32, si: u32, send: u32) -> u32
         requires node < 131072
-        ensures true
     {
         let nxt: u32 = NONE
         let i: u32 = si
@@ -432,8 +402,6 @@ extend Parser {
 
     # Под-выражение сегмента готово (курсор на EOF под-региона).
     func seg_complete(let self)
-        requires true
-        ensures true
     {
         self.reduce_sent()
         if self.failed {
@@ -463,8 +431,6 @@ extend Parser {
     # --- позиция после операнда ------------------------------------------
 
     func expr_infix(let self)
-        requires true
-        ensures true
     {
         const k: u32 = self.tk_at()
         const oc: u32 = tok2op(k)
@@ -515,7 +481,6 @@ extend Parser {
 
     func expr_binop(let self, oc: u32)
         requires oc >= 1 and oc <= 20
-        ensures true
     {
         const fl: u32 = self.cur_flags()
         const p: u32 = prec_of(oc)
@@ -545,8 +510,6 @@ extend Parser {
     }
 
     func expr_dot(let self)
-        requires true
-        ensures true
     {
         self.advance()
         if self.tk_at() != 3 {
@@ -580,8 +543,6 @@ extend Parser {
     }
 
     func expr_index(let self)
-        requires true
-        ensures true
     {
         const ln: u32 = self.t_line()
         const cl: u32 = self.t_col()
@@ -594,8 +555,6 @@ extend Parser {
     }
 
     func expr_comma(let self)
-        requires true
-        ensures true
     {
         const ts: u32 = self.top_sent()
         if ts == 1 or ts == 2 {
@@ -643,8 +602,6 @@ extend Parser {
 
     # Значение поля struct-литерала готово: прикрепить к последнему fld.
     func slit_value_done(let self)
-        requires true
-        ensures true
     {
         const e: u32 = self.nop - 1
         const val: u32 = self.pop_opnd()
@@ -653,8 +610,6 @@ extend Parser {
 
     # После значения поля: '}' закрывает литерал, иначе — новое поле.
     func slit_after(let self)
-        requires true
-        ensures true
     {
         if self.tk_at() == 33 {
             self.advance()
@@ -683,8 +638,6 @@ extend Parser {
     }
 
     func expr_rparen(let self)
-        requires true
-        ensures true
     {
         const ts: u32 = self.top_sent()
         if ts == 0 {
@@ -707,8 +660,6 @@ extend Parser {
     }
 
     func expr_rbracket(let self)
-        requires true
-        ensures true
     {
         const ts: u32 = self.top_sent()
         if ts == 3 or ts == 4 or ts == 5 {
@@ -726,8 +677,6 @@ extend Parser {
 
     # `[значение; N]` — литерал заполнения: ARR-сентинель становится FILL.
     func expr_semi(let self)
-        requires true
-        ensures true
     {
         const ts: u32 = self.top_sent()
         if ts == 4 {
@@ -749,8 +698,6 @@ extend Parser {
     }
 
     func expr_rbrace(let self)
-        requires true
-        ensures true
     {
         if self.top_sent() == 6 {
             self.reduce_sent()
@@ -767,8 +714,6 @@ extend Parser {
     }
 
     func expr_newline(let self)
-        requires true
-        ensures true
     {
         const ts: u32 = self.top_sent()
         if ts == 6 {

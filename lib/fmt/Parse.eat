@@ -9,8 +9,6 @@ export {
 }
 
 func parse_i32(s: str<256>) -> Result<i32, ParseError>
-    requires true
-    ensures true
 {
     const n: u32 = len(s)
     let lo: u32 = 0

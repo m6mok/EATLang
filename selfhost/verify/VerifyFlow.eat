@@ -7,8 +7,6 @@ extend Verify {
     # --- машина потока (0 блок, 1 if, 2 for) --------------------------
 
     func fpush_block(let self, node: u32)
-        requires true
-        ensures true
     {
         if self.nf2 >= 64 {
             self.failed = true
@@ -24,8 +22,6 @@ extend Verify {
     }
 
     func fpush_kind(let self, node: u32, kind: u32)
-        requires true
-        ensures true
     {
         if self.nf2 >= 64 {
             self.failed = true
@@ -41,7 +37,6 @@ extend Verify {
 
     func run_flow(let self, body: u32)
         requires body < 131072
-        ensures true
     {
         self.nf2 = 0
         self.fpush_block(body)
@@ -55,7 +50,6 @@ extend Verify {
 
     func flow_step(let self)
         requires self.nf2 >= 1
-        ensures true
     {
         const f: u32 = self.nf2 - 1
         const k: u32 = self.fk[f]
@@ -76,7 +70,6 @@ extend Verify {
     # пути убиты, тело гоняется ради отметок, выход — env входа тела
     func floop(let self)
         requires self.nf2 >= 1
-        ensures true
     {
         const f: u32 = self.nf2 - 1
         if self.fp2[f] == 0 {
@@ -92,7 +85,6 @@ extend Verify {
 
     func fblock(let self)
         requires self.nf2 >= 1
-        ensures true
     {
         const f: u32 = self.nf2 - 1
         const cur: u32 = self.fc2[f]
@@ -106,7 +98,6 @@ extend Verify {
 
     func flow_stmt(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const k: u32 = self.nk(cur)
         if k == 13 {
@@ -132,8 +123,6 @@ extend Verify {
     }
 
     func capture_hole(let self, value: u32)
-        requires true
-        ensures true
     {
         self.hc_on = 0
         if self.ho_on == 1 and self.ho_node == value {
@@ -150,7 +139,6 @@ extend Verify {
 
     func flow_let(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const ty: u32 = self.nty(cur)
         self.iv_eval(self.nns(self.nfc(cur)), 1)
@@ -233,7 +221,6 @@ extend Verify {
     # const c = Struct{ f: e, ... } -> env.ivs[c.f] = iv(e) (эталон flow_let)
     func seed_structlit(let self, base: u32, sl: u32)
         requires sl < 131072
-        ensures true
     {
         let c: u32 = self.nfc(sl)
         for _ in 0..1024 {
@@ -263,7 +250,6 @@ extend Verify {
 
     func flow_assign(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const tgt: u32 = self.nfc(cur)
         const value: u32 = self.nns(tgt)
@@ -326,7 +312,6 @@ extend Verify {
     # пути, установка интервала из av_*, дырки, разностного факта x==y+c
     func assign_env(let self, tgt: u32, value: u32, tty: u32)
         requires tgt < 131072
-        ensures true
     {
         const pid: u32 = self.node_path(tgt)
         if pid == NONE or pid >= 512 {
@@ -377,7 +362,6 @@ extend Verify {
 
     func flow_return(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const value: u32 = self.nfc(cur)
         let vk_: u32 = 0
@@ -444,8 +428,6 @@ extend Verify {
     # накопить один возврат в сводку (эталон returns/ret_syms/ret_holes +
     # тело _summary/_hive_summary). Интервал возврата — в res_kn/res_*
     func acc_return(let self, value: u32)
-        requires true
-        ensures true
     {
         self.nret = self.nret + 1
         self.acc_sym(value)
@@ -474,8 +456,6 @@ extend Verify {
     # тождество параметру: все возвраты — один и тот же параметр (эталон
     # _ret_sym + set(ret_syms)). NONE-возврат ломает тождество
     func acc_sym(let self, value: u32)
-        requires true
-        ensures true
     {
         const sym: u32 = self.ret_sym_index(value)
         if self.nret == 1 {
@@ -489,8 +469,6 @@ extend Verify {
     # индекс параметра, которому тождественен возврат (возможно через
     # прозрачный/сужающий каст одного аргумента), либо NONE (эталон _ret_sym)
     func ret_sym_index(let self, value: u32) -> u32
-        requires true
-        ensures true
     {
         if value == NONE {
             return NONE
@@ -512,8 +490,6 @@ extend Verify {
     # накопить hive-часть возврата: дырка/точечный-сентинел/плотное
     # (эталон тело _hive_summary). Сентинел единствен, иначе hive недоступен
     func acc_hive(let self, value: u32)
-        requires true
-        ensures true
     {
         # тип-максимум возврата
         let smk: u32 = 0
@@ -541,8 +517,6 @@ extend Verify {
     }
 
     func hole_pid_of(let self, value: u32) -> u32
-        requires true
-        ensures true
     {
         if value == NONE {
             return NONE
@@ -551,8 +525,6 @@ extend Verify {
     }
 
     func acc_hive_sent(let self, ss: u32, sm: u64)
-        requires true
-        ensures true
     {
         if self.rs_has == 1 and not (self.rs_s == ss and self.rs_m == sm) {
             self.rs_multi = 1
@@ -563,8 +535,6 @@ extend Verify {
     }
 
     func acc_hive_dense(let self, ls: u32, lm: u64, hs: u32, hm: u64)
-        requires true
-        ensures true
     {
         if self.rd_kn == 0 {
             self.rd_kn = 1
@@ -589,7 +559,6 @@ extend Verify {
     # одномодульных вызовов-тождеств нет). Полное — этап 4
     func apply_summary(let self, fi: u32, n: u32)
         requires fi < 1024 and n < 131072
-        ensures true
     {
         const ret: u32 = self.c.fret[fi]
         self.set_ty(ret)
@@ -618,7 +587,6 @@ extend Verify {
     # экспериментом (патч эталона, дампы байт-в-байт на 124 файлах)
     func apply_param_summary(let self, fi: u32, n: u32)
         requires fi < 1024 and n < 131072
-        ensures true
     {
         let arg: u32 = self.nfc(n)
         if self.nk(n) == 42 and arg != NONE {
@@ -665,7 +633,6 @@ extend Verify {
 
     func apply_hive_summary(let self, fi: u32, n: u32, ret: u32)
         requires fi < 1024 and n < 131072
-        ensures true
     {
         # плотная часть (обрезанная типом) — в дырку
         self.kind_range(self.c.yk[ret])
@@ -689,7 +656,6 @@ extend Verify {
 
     func flow_assert(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const cond: u32 = self.nfc(cur)
         self.eval_bool(cond, 1)
@@ -706,7 +672,6 @@ extend Verify {
 
     func fif(let self)
         requires self.nf2 >= 1
-        ensures true
     {
         const f: u32 = self.nf2 - 1
         const node: u32 = self.fnn[f]
@@ -726,7 +691,6 @@ extend Verify {
 
     func fif1(let self, f: u32)
         requires f < 64
-        ensures true
     {
         const cur: u32 = self.fc2[f]
         if cur == NONE {
@@ -751,7 +715,6 @@ extend Verify {
 
     func fif_branch(let self, f: u32, cnd: u32, blk: u32, nextc: u32)
         requires f < 64 and cnd < 131072 and blk < 131072
-        ensures true
     {
         self.env = self.fsa[f]
         # обязательства внутри условия ветви отмечаются (эталон _flow_if:
@@ -771,7 +734,6 @@ extend Verify {
 
     func fif2(let self, f: u32)
         requires f < 64
-        ensures true
     {
         if not self.block_exits(self.fbk[f]) {
             self.join_into(f)
@@ -787,7 +749,6 @@ extend Verify {
 
     func fif_tail(let self, f: u32)
         requires f < 64
-        ensures true
     {
         if self.fhe[f] == 0 {
             self.env = self.fsa[f]
@@ -803,7 +764,6 @@ extend Verify {
 
     func join_into(let self, f: u32)
         requires f < 64
-        ensures true
     {
         if self.fx2[f] == 0 {
             self.fsb[f] = self.env
@@ -815,7 +775,6 @@ extend Verify {
 
     func meet(let self, f: u32)
         requires f < 64
-        ensures true
     {
         for pid in 0..512 {
             if pid >= self.npp {
@@ -849,7 +808,6 @@ extend Verify {
 
     func hole_eq(let self, f: u32, pid: u32) -> bool
         requires f < 64 and pid < 512
-        ensures true
     {
         return (
             self.fsb[f].hls[pid] == self.env.hls[pid]
@@ -865,7 +823,6 @@ extend Verify {
     # если есть в обеих, с максимальным (слабейшим) d (эталон _join)
     func meet_rels(let self, f: u32)
         requires f < 64
-        ensures true
     {
         let w: u32 = 0
         for e in 0..32 {
@@ -897,7 +854,6 @@ extend Verify {
 
     func block_exits(let self, blk: u32) -> bool
         requires blk < 131072
-        ensures true
     {
         let c: u32 = self.nfc(blk)
         let ex: bool = false
@@ -918,7 +874,6 @@ extend Verify {
     # доходящее до join, — только return (break из арма вне цикла нет)
     func block_returns(let self, blk: u32) -> bool
         requires blk < 131072
-        ensures true
     {
         let c: u32 = self.nfc(blk)
         let r: bool = false
@@ -941,7 +896,6 @@ extend Verify {
 
     func fmatch(let self)
         requires self.nf2 >= 1
-        ensures true
     {
         const f: u32 = self.nf2 - 1
         const node: u32 = self.fnn[f]
@@ -963,7 +917,6 @@ extend Verify {
 
     func fmatch1(let self, f: u32)
         requires f < 64
-        ensures true
     {
         const cur: u32 = self.fc2[f]
         if cur == NONE {
@@ -985,7 +938,6 @@ extend Verify {
 
     func fmatch2(let self, f: u32)
         requires f < 64
-        ensures true
     {
         if not self.block_returns(self.fbk[f]) {
             self.join_into(f)
@@ -996,7 +948,6 @@ extend Verify {
     # интервал связки арма — диапазон типа нагрузки (эталон _ty_iv)
     func seed_binding(let self, arm: u32)
         requires arm < 131072
-        ensures true
     {
         const bs: u32 = self.nx(arm)
         if bs == NONE {
@@ -1020,7 +971,6 @@ extend Verify {
 
     func ffor(let self)
         requires self.nf2 >= 1
-        ensures true
     {
         const f: u32 = self.nf2 - 1
         if self.fp2[f] == 0 {
@@ -1038,7 +988,6 @@ extend Verify {
     # берут observed-объединение (эталон _flow_for, ветвь has_direct_break)
     func has_break(let self, body: u32) -> bool
         requires body < 131072
-        ensures true
     {
         let st: [u32; 256] = [0; 256]
         let sp: u32 = 1
@@ -1069,7 +1018,6 @@ extend Verify {
 
     func ffor0(let self, f: u32, node: u32)
         requires f < 64 and node < 131072
-        ensures true
     {
         const it: u32 = self.nfc(node)
         self.for_ns = 0
@@ -1142,7 +1090,6 @@ extend Verify {
     # применить инварианты loop-carried путей, запустить реальное тело
     func ffor_probe_done(let self, f: u32, node: u32)
         requires f < 64 and node < 131072
-        ensures true
     {
         self.probe = 0
         self.er_active = 0
@@ -1156,7 +1103,6 @@ extend Verify {
 
     func ffor1(let self, f: u32, node: u32)
         requires f < 64 and node < 131072
-        ensures true
     {
         # выход цикла — от снимка входа тела (эталон out = body_env.copy();
         # эффекты символического прохода тела не текут за цикл)
@@ -1193,7 +1139,6 @@ extend Verify {
 
     func ffor1_kill(let self, pid: u32)
         requires pid < 512
-        ensures true
     {
         self.env.kn[pid] = 0
         self.env.nz[pid] = 0
@@ -1203,7 +1148,6 @@ extend Verify {
 
     func ffor1_restore_ov(let self, f: u32, m: u32)
         requires f < 64 and m < 16
-        ensures true
     {
         const pid: u32 = self.fov_p[f][m]
         self.env.kn[pid] = 0
@@ -1228,7 +1172,6 @@ extend Verify {
 
     func ffor1_apply(let self, f: u32, pid: u32)
         requires f < 64 and pid < 512
-        ensures true
     {
         self.env.kn[pid] = 0
         self.env.nz[pid] = 0
@@ -1244,7 +1187,6 @@ extend Verify {
 
     func loop_body(let self, node: u32)
         requires node < 131072
-        ensures true
     {
         self.kill_assigned(self.nns(self.nfc(node)))
         for j in 0..32 {
@@ -1280,7 +1222,6 @@ extend Verify {
     # инвариант пула (эталон _loop_body_env, ветвь array: inter(pool_iv,eiv))
     func seed_array_iter_var(let self, node: u32)
         requires node < 131072
-        ensures true
     {
         if self.c.span_is(self.nss(node), self.nsl(node), "_") {
             return
@@ -1320,7 +1261,6 @@ extend Verify {
     # исключённые (эталон _nested_loop_paths): их записи проба не видит
     func nested_mark_excl(let self, body: u32)
         requires body < 131072
-        ensures true
     {
         let sn: [u32; 256] = [0; 256]
         let sl: [u32; 256] = [0; 256]
@@ -1361,7 +1301,6 @@ extend Verify {
     # кроме accel (те точнее) и исключённых. Сброс аккумуляторов
     func collect_observed(let self, body: u32)
         requires body < 131072
-        ensures true
     {
         self.er_n = 0
         for i in 0..512 {
@@ -1402,7 +1341,6 @@ extend Verify {
 
     func observe_target(let self, tgt: u32)
         requires tgt < 131072
-        ensures true
     {
         const pid: u32 = self.target_pid(tgt)
         if pid == NONE or pid >= 512 or self.er_excl[pid] == 1 {
@@ -1463,8 +1401,6 @@ extend Verify {
     }
 
     func er_slot(let self, pid: u32) -> u32
-        requires true
-        ensures true
     {
         let r: u32 = NONE
         for s in 0..64 {
@@ -1480,7 +1416,6 @@ extend Verify {
 
     func er_add_dense(let self, slot: u32, ls: u32, lm: u64, hs: u32, hm: u64)
         requires slot < 64
-        ensures true
     {
         if self.er_dkn[slot] == 0 {
             self.er_dkn[slot] = 1
@@ -1500,7 +1435,6 @@ extend Verify {
 
     func er_add_sent(let self, slot: u32, ss: u32, sm: u64)
         requires slot < 64
-        ensures true
     {
         if self.er_shas[slot] == 1 and not (self.er_ss[slot] == ss and self.er_sm[slot] == sm) {
             self.er_smulti[slot] = 1
@@ -1514,7 +1448,6 @@ extend Verify {
     # дырка в ho_* (эталон union внутри _loop_exit)
     func er_feed(let self, slot: u32)
         requires slot < 64
-        ensures true
     {
         if self.er_bad[slot] == 1 {
             return
@@ -1537,7 +1470,6 @@ extend Verify {
 
     func load_hole_env(let self, pid: u32)
         requires pid < 512
-        ensures true
     {
         if self.env.hk[pid] == 1 {
             self.ho_on = 1
@@ -1556,7 +1488,6 @@ extend Verify {
     # присваивания + тип-максимум (эталон _exit_rec.append + _exit_ty)
     func er_record(let self, pid: u32, tty: u32)
         requires pid < 512
-        ensures true
     {
         const slot: u32 = self.er_slot(pid)
         if slot == NONE {
@@ -1587,7 +1518,6 @@ extend Verify {
     # сентинел). Результат — в er_r*[slot]; er_rkn=0 — нет инварианта
     func er_finalize(let self, slot: u32)
         requires slot < 64
-        ensures true
     {
         self.er_rkn[slot] = 0
         self.er_rhon[slot] = 0
@@ -1628,7 +1558,6 @@ extend Verify {
 
     func er_set_inv(let self, slot: u32, ls: u32, lm: u64, hs: u32, hm: u64)
         requires slot < 64
-        ensures true
     {
         self.er_rkn[slot] = 1
         self.er_rls[slot] = ls
@@ -1642,7 +1571,6 @@ extend Verify {
     # записать на входе тела (env) и запомнить на выход цикла (fsb + fov)
     func apply_loop_inv(let self, f: u32)
         requires f < 64
-        ensures true
     {
         self.fov_n[f] = 0
         for s in 0..64 {
@@ -1655,7 +1583,6 @@ extend Verify {
 
     func apply_one_inv(let self, f: u32, slot: u32)
         requires f < 64 and slot < 64
-        ensures true
     {
         const pid: u32 = self.er_pid[slot]
         if self.er_v0k[slot] == 1 {
@@ -1692,7 +1619,6 @@ extend Verify {
     # по ac_* — те клобберятся accelerate вложенных циклов к probe_done
     func is_accel(let self, f: u32, pid: u32) -> bool
         requires f < 64
-        ensures true
     {
         let r: bool = false
         for j in 0..32 {
@@ -1708,7 +1634,6 @@ extend Verify {
 
     func load_hole_er(let self, slot: u32)
         requires slot < 64
-        ensures true
     {
         if self.er_v0hk[slot] == 1 {
             self.ho_on = 1
@@ -1726,7 +1651,6 @@ extend Verify {
     # записать инвариант слота в env[pid] (вход тела): интервал + дырка
     func set_path_inv(let self, pid: u32, slot: u32)
         requires pid < 512 and slot < 64
-        ensures true
     {
         self.env.kn[pid] = 1
         self.env.nz[pid] = 0
@@ -1747,7 +1671,6 @@ extend Verify {
 
     func store_fsb_inv(let self, f: u32, pid: u32, slot: u32)
         requires f < 64 and pid < 512 and slot < 64
-        ensures true
     {
         self.fsb[f].kn[pid] = 1
         self.fsb[f].ls[pid] = self.er_rls[slot]
@@ -1771,7 +1694,6 @@ extend Verify {
     # даёт только верх). v0 — значение на входе цикла (ein), start — начало
     func lockstep(let self, tpid: u32)
         requires tpid < 512
-        ensures true
     {
         for j in 0..32 {
             if j >= self.nac {
@@ -1792,7 +1714,6 @@ extend Verify {
 
     func accel_body_iv(let self, j: u32)
         requires j < 32
-        ensures true
     {
         const pid: u32 = self.ac_p[j]
         if self.ein.kn[pid] == 0 {
@@ -1840,7 +1761,6 @@ extend Verify {
 
     func accel_after_iv(let self, j: u32)
         requires j < 32
-        ensures true
     {
         const pid: u32 = self.ac_p[j]
         if self.ein.kn[pid] == 0 {
@@ -1905,8 +1825,6 @@ extend Verify {
     # --- сбор обновлений цикла (accel) --------------------------------
 
     func cspush(let self, node: u32, cond: u32, guard: u32)
-        requires true
-        ensures true
     {
         if self.ncs >= 64 {
             return
@@ -1919,7 +1837,6 @@ extend Verify {
 
     func accelerate(let self, body: u32)
         requires body < 131072
-        ensures true
     {
         self.nac = 0
         self.ncs = 0
@@ -1939,7 +1856,6 @@ extend Verify {
 
     func collect_block(let self, blk: u32, cond: u32, guard: u32)
         requires blk < 131072
-        ensures true
     {
         let s: u32 = self.nfc(blk)
         for _ in 0..1024 {
@@ -1962,7 +1878,6 @@ extend Verify {
 
     func collect_if(let self, s: u32)
         requires s < 131072
-        ensures true
     {
         const cnd: u32 = self.nfc(s)
         const thenblk: u32 = self.nns(cnd)
@@ -1984,7 +1899,6 @@ extend Verify {
 
     func collect_match(let self, s: u32)
         requires s < 131072
-        ensures true
     {
         let arm: u32 = self.nns(self.nfc(s))
         for _ in 0..64 {
@@ -1998,7 +1912,6 @@ extend Verify {
 
     func collect_nested_loop(let self, s: u32)
         requires s < 131072
-        ensures true
     {
         let body: u32 = self.nfc(s)
         if self.nk(s) == 18 {
@@ -2033,8 +1946,6 @@ extend Verify {
     }
 
     func accel_entry(let self, pid: u32) -> u32
-        requires true
-        ensures true
     {
         let idx: u32 = NONE
         for i in 0..32 {
@@ -2063,7 +1974,6 @@ extend Verify {
 
     func collect_assign(let self, s: u32, cond: u32, guard: u32)
         requires s < 131072
-        ensures true
     {
         const tgt: u32 = self.nfc(s)
         const pid: u32 = self.target_pid(tgt)
@@ -2098,15 +2008,12 @@ extend Verify {
     }
 
     func int_kind(let self, k: u32) -> bool
-        requires true
-        ensures true
     {
         return k == 0 or k == 1 or k == 2 or k == 12 or k == 13 or k == 14
     }
 
     func delta_of(let self, value: u32, pid: u32) -> bool
         requires value < 131072
-        ensures true
     {
         if self.nk(value) != 39 {
             return false
@@ -2144,7 +2051,6 @@ extend Verify {
 
     func constexpr_of(let self, node: u32) -> bool
         requires node < 131072
-        ensures true
     {
         if self.nk(node) == 32 {
             self.csig = self.ny(node)
@@ -2164,7 +2070,6 @@ extend Verify {
 
     func guard_bounds(let self, guard: u32, pid: u32, idx: u32)
         requires guard < 131072 and idx < 32
-        ensures true
     {
         let gstk: [u32; 32] = [0; 32]
         let gsp: u32 = 1
@@ -2189,7 +2094,6 @@ extend Verify {
 
     func guard_cmp(let self, g: u32, pid: u32, idx: u32)
         requires g < 131072 and idx < 32
-        ensures true
     {
         const op: u32 = self.nx(g)
         if op < 4 or op > 9 {
@@ -2211,7 +2115,6 @@ extend Verify {
 
     func guard_apply(let self, op: u32, idx: u32)
         requires idx < 32
-        ensures true
     {
         if op == 6 {
             self.ssub(self.csig, self.cmag, 0, 1)
@@ -2228,7 +2131,6 @@ extend Verify {
 
     func gset_hi(let self, idx: u32, s: u32, m: u64)
         requires idx < 32
-        ensures true
     {
         if self.ac_ghk[idx] == 1 {
             self.smin(self.ac_ghs[idx], self.ac_ghm[idx], s, m)
@@ -2243,7 +2145,6 @@ extend Verify {
 
     func gset_lo(let self, idx: u32, s: u32, m: u64)
         requires idx < 32
-        ensures true
     {
         if self.ac_glk[idx] == 1 {
             self.smax(self.ac_gls[idx], self.ac_glm[idx], s, m)
@@ -2258,7 +2159,6 @@ extend Verify {
 
     func kill_assigned(let self, body: u32)
         requires body < 131072
-        ensures true
     {
         let st: [u32; 128] = [0; 128]
         let sp: u32 = 1

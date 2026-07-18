@@ -187,14 +187,11 @@ struct Ir {
     # isz размер тела (строк-инструкций эмитируемого IR), ist сайтов
     # вызова, itg метка alwaysinline, ihd голова списка вызываемых.
     # Список рёбер графа вызовов (вызывающий→вызываемый) — пул iec/ien;
-    # ils — порядок измеренных функций. Рёбра пишутся прямо на сайтах
-    # эмиссии call к определённой функции (rec_edge под флагом msr==1
-    # измерительного прохода): e_ucall и встроенные методы RtStr. rsi —
-    # индекс struct RtStr (владелец встроенных методов, резолв в measure).
-    # Эталон паритета — вывод codegen.axis_inline_hints (не метод).
+    # ils — порядок измеренных функций. Вызываемые находятся сканом строк
+    # lb на `call ... @"ИМЯ"` (как Python по тексту) и разрешаются картой
+    # мангл-имя→fi: imq рабочий буфер, imnp пул имён (imns/imnc спаны),
+    # imh хеш-таблица (open addressing). Эталон — codegen.axis_inline_hints.
     him: u32
-    msr: u32
-    rsi: u32
     isz: [u32; 1024]
     ist: [u32; 1024]
     itg: [u32; 1024]
@@ -204,12 +201,17 @@ struct Ir {
     iec: [u32; 32768]
     ien: [u32; 32768]
     ine: u32
+    imq: [u8; 256]
+    imql: u32
+    imnp: [u8; 65536]
+    imnpl: u32
+    imns: [u32; 1024]
+    imnc: [u32; 1024]
+    imh: [u32; 2048]
 
     # --- инфраструктура ---------------------------------------------------
 
     func fail(let self, m: str<64>)
-        requires true
-        ensures true
     {
         if not self.failed {
             eprint("err: 1:1: {m}")
@@ -220,8 +222,6 @@ struct Ir {
     # --- байтовый буфер текста функции -------------------------------------
 
     func lb_b(let self, b: u8)
-        requires true
-        ensures true
     {
         if self.lbl >= 4194304 {
             self.fail("переполнен буфер текста функции")
@@ -233,14 +233,11 @@ struct Ir {
 
     func lb_at(let self, i: u32) -> u8
         requires i < 4194304
-        ensures true
     {
         return self.lb[i / 65536][i % 65536]
     }
 
     func lb_lit(let self, s: str<64>)
-        requires true
-        ensures true
     {
         for i in 0..64 {
             if i >= len(s) {
@@ -251,8 +248,6 @@ struct Ir {
     }
 
     func lb_dec(let self, n: u32)
-        requires true
-        ensures true
     {
         const t: Dec = fmt_u32(n)
         for i in 0..20 {
@@ -264,8 +259,6 @@ struct Ir {
     }
 
     func lb_dec64(let self, n: u64)
-        requires true
-        ensures true
     {
         const t: Dec = fmt_u64(n)
         for i in 0..20 {
@@ -277,8 +270,6 @@ struct Ir {
     }
 
     func lb_sb(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         for i in 0..256 {
             if i >= l {
@@ -289,8 +280,6 @@ struct Ir {
     }
 
     func lb_nb(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         for i in 0..128 {
             if i >= l {
@@ -302,7 +291,6 @@ struct Ir {
 
     func lb_tp(let self, a: u32, l: u32)
         requires a <= 65536 and l <= 65536
-        ensures true
     {
         # строки типов пишутся при каждой инструкции — горячий путь;
         # ёмкость проверяется один раз, копия — без ветвления на байт
@@ -328,15 +316,11 @@ struct Ir {
     }
 
     func line_new(let self)
-        requires true
-        ensures true
     {
         self.lcu = self.lbl
     }
 
     func line_fin(let self)
-        requires true
-        ensures true
     {
         if self.nln >= 65536 {
             self.fail("слишком много инструкций в функции")
@@ -358,8 +342,6 @@ struct Ir {
     # --- пул имён функции ---------------------------------------------------
 
     func nb_b(let self, b: u8)
-        requires true
-        ensures true
     {
         if self.nbn >= 65536 {
             self.fail("переполнен пул имён функции")
@@ -370,8 +352,6 @@ struct Ir {
     }
 
     func nb_lit(let self, s: str<16>)
-        requires true
-        ensures true
     {
         for i in 0..16 {
             if i >= len(s) {
@@ -382,8 +362,6 @@ struct Ir {
     }
 
     func nb_dec(let self, n: u32)
-        requires true
-        ensures true
     {
         const t: Dec = fmt_u32(n)
         for i in 0..20 {
@@ -395,8 +373,6 @@ struct Ir {
     }
 
     func nb_sb(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         for i in 0..256 {
             if i >= l {
@@ -407,8 +383,6 @@ struct Ir {
     }
 
     func nb_eq(let self, a1: u32, l1: u32, a2: u32, l2: u32) -> bool
-        requires true
-        ensures true
     {
         if l1 != l2 {
             return false
@@ -428,8 +402,6 @@ struct Ir {
     # Имя занято? Хранятся только базовые (несуффиксованные) имена:
     # суффиксованные кандидаты не сталкиваются ни с чем (см. шапку).
     func name_used(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         let found: bool = false
         for i in 0..256 {
@@ -444,8 +416,6 @@ struct Ir {
     }
 
     func bs_bump(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let f: u32 = NONE
         for i in 0..256 {
@@ -473,8 +443,6 @@ struct Ir {
 
     # Кандидат построен в nb начиная с s; результат — dds/ddl.
     func dedup(let self, s: u32)
-        requires true
-        ensures true
     {
         const l: u32 = self.nbn - s
         if not self.name_used(s, l) {
@@ -504,8 +472,6 @@ struct Ir {
     }
 
     func nm_lit(let self, s: str<16>)
-        requires true
-        ensures true
     {
         const m: u32 = self.nbn
         self.nb_lit(s)
@@ -513,8 +479,6 @@ struct Ir {
     }
 
     func nm_sb(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         const m: u32 = self.nbn
         self.nb_sb(a, l)
@@ -524,7 +488,6 @@ struct Ir {
     # --- блоки --------------------------------------------------------------
 
     func blk_rec(let self) -> u32
-        requires true
         ensures result < 16384
     {
         if self.nbk >= 16384 {
@@ -543,7 +506,6 @@ struct Ir {
     }
 
     func blk_new(let self, nm: str<16>) -> u32
-        requires true
         ensures result < 16384
     {
         self.nm_lit(nm)
@@ -551,7 +513,6 @@ struct Ir {
     }
 
     func blk_arm(let self, a: u32, l: u32) -> u32
-        requires true
         ensures result < 16384
     {
         const m: u32 = self.nbn
@@ -564,8 +525,6 @@ struct Ir {
     # --- строки типов LLVM --------------------------------------------------
 
     func tp_b(let self, b: u8)
-        requires true
-        ensures true
     {
         if self.tpl >= 65536 {
             self.fail("переполнен пул строк типов")
@@ -576,8 +535,6 @@ struct Ir {
     }
 
     func tp_lit(let self, s: str<32>)
-        requires true
-        ensures true
     {
         for i in 0..32 {
             if i >= len(s) {
@@ -588,8 +545,6 @@ struct Ir {
     }
 
     func tp_dec(let self, n: u32)
-        requires true
-        ensures true
     {
         const t: Dec = fmt_u32(n)
         for i in 0..20 {
@@ -602,14 +557,12 @@ struct Ir {
 
     func enum_of(let self, t: u32) -> u32
         requires t < 512
-        ensures true
     {
         return self.c.find_enum(self.c.ys[t], self.c.yl[t])
     }
 
     func enum_pay(let self, t: u32) -> bool
         requires t < 512
-        ensures true
     {
         const ei: u32 = self.enum_of(t)
         if ei == NONE {
@@ -631,7 +584,6 @@ struct Ir {
 
     # Индекс интернированного типа u16 (вид 12; уже создан фазой Check).
     func u16t(let self) -> u32
-        requires true
         ensures result < 512
     {
         return self.c.u16_ty()
@@ -639,7 +591,6 @@ struct Ir {
 
     # Индекс интернированного типа u64 (вид 13; уже создан фазой Check).
     func u64t(let self) -> u32
-        requires true
         ensures result < 512
     {
         return self.c.u64_ty()
@@ -647,7 +598,6 @@ struct Ir {
 
     # Индекс интернированного типа i64 (вид 14; уже создан фазой Check).
     func i64t(let self) -> u32
-        requires true
         ensures result < 512
     {
         return self.c.i64_ty()
@@ -655,7 +605,6 @@ struct Ir {
 
     # Вид ссылки для константы (sign, m): 2 — модуль в b, 5 — в пуле cwm.
     func cw_k(let self, m: u64) -> u32
-        requires true
         ensures result == 2 or result == 5
     {
         if m <= 4294967295 {
@@ -666,8 +615,6 @@ struct Ir {
 
     # Поле b для константы: сам модуль (вид 2) или индекс пула (вид 5).
     func cw_b(let self, m: u64) -> u32
-        requires true
-        ensures true
     {
         if m <= 4294967295 {
             return u32(m)
@@ -695,7 +642,6 @@ struct Ir {
 
     func is_agg(let self, t: u32) -> bool
         requires t < 512
-        ensures true
     {
         const k: u32 = self.c.yk[t]
         if k == 6 or k == 7 or k == 8 or k == 10 or k == 11 {
@@ -710,7 +656,6 @@ struct Ir {
     # Слот нагрузки варианта w внутри enum-типа t (тег — слот 0).
     func slot_of(let self, t: u32, w: u32) -> u32
         requires t < 512 and w < 256
-        ensures true
     {
         const ei: u32 = self.enum_of(t)
         let slot: u32 = 1
@@ -729,7 +674,6 @@ struct Ir {
 
     func typ_push(let self, t: u32)
         requires t < 512
-        ensures true
     {
         if self.ybp >= 32 {
             self.fail("слишком глубокий тип")
@@ -742,7 +686,6 @@ struct Ir {
 
     func ty_scalar(let self, k: u32)
         requires k <= 6 or k >= 12
-        ensures true
     {
         if k == 0 or k == 1 {
             self.tp_lit("i32")
@@ -763,7 +706,6 @@ struct Ir {
 
     func ty_struct(let self, f: u32, t: u32, ph: u32)
         requires f < 32 and t < 512
-        ensures true
     {
         const si: u32 = self.c.find_struct(self.c.ys[t], self.c.yl[t])
         const nf: u32 = self.c.sgc[si]
@@ -790,7 +732,6 @@ struct Ir {
 
     func ty_enum(let self, f: u32, t: u32, ph: u32)
         requires f < 32 and t < 512
-        ensures true
     {
         if ph == 0 {
             if not self.enum_pay(t) {
@@ -826,7 +767,6 @@ struct Ir {
 
     func ty_step(let self)
         requires self.ybp >= 1
-        ensures true
     {
         const f: u32 = self.ybp - 1
         const t: u32 = self.yb1[f]
@@ -877,7 +817,6 @@ struct Ir {
 
     func ty_build(let self, root: u32)
         requires root < 512
-        ensures true
     {
         if self.tyl[root] != NONE {
             return
@@ -901,8 +840,6 @@ struct Ir {
     # --- глобалы @"str.N" ---------------------------------------------------
 
     func g_b(let self, b: u8)
-        requires true
-        ensures true
     {
         if self.gpl >= 2097152 {
             self.fail("переполнен пул глобальных констант")
@@ -914,14 +851,11 @@ struct Ir {
 
     func g_at(let self, i: u32) -> u8
         requires i < 2097152
-        ensures true
     {
         return self.gp[i / 65536][i % 65536]
     }
 
     func g_lit(let self, s: str<64>)
-        requires true
-        ensures true
     {
         for i in 0..64 {
             if i >= len(s) {
@@ -932,8 +866,6 @@ struct Ir {
     }
 
     func g_dec(let self, n: u32)
-        requires true
-        ensures true
     {
         const t: Dec = fmt_u32(n)
         for i in 0..20 {
@@ -945,8 +877,6 @@ struct Ir {
     }
 
     func g_sb(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         for i in 0..256 {
             if i >= l {
@@ -957,15 +887,12 @@ struct Ir {
     }
 
     func g_begin(let self)
-        requires true
-        ensures true
     {
         self.gmk = self.gpl
     }
 
     func g_eqspan(let self, gi: u32, s: u32, l: u32) -> bool
         requires gi < 65536
-        ensures true
     {
         if self.gsl[gi] != l {
             return false
@@ -988,8 +915,6 @@ struct Ir {
     }
 
     func g_hash(let self, s: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let h: u32 = 0
         for hh in 0..2 {
@@ -1008,7 +933,6 @@ struct Ir {
 
     func tail_add(let self, k: u32, x: u32)
         requires k <= 1
-        ensures true
     {
         if self.ntl >= 65536 {
             self.fail("переполнен хвост модуля")
@@ -1021,7 +945,6 @@ struct Ir {
 
     func use_intr(let self, id: u32)
         requires id < 32
-        ensures true
     {
         if self.itr[id] == 0 {
             self.itr[id] = 1
@@ -1035,7 +958,6 @@ struct Ir {
     # канонная эмиссия не меняется (зеркало getattr(node, ..., False)).
     func an(let self, n: u32, bit: u32) -> bool
         requires n < 131072
-        ensures true
     {
         return (self.c.nvm[n / 65536][n % 65536] & bit) != 0
     }
@@ -1094,7 +1016,6 @@ struct Ir {
 
     func g_kind(let self, k: u32)
         requires k <= 2 or k >= 12
-        ensures true
     {
         if k == 0 {
             self.g_lit("i32")
@@ -1176,7 +1097,6 @@ struct Ir {
     # буфер по фактической длине): передаётся методам RtStr через
     # bitcast к {i32, [256 x i8]}* на месте использования.
     func cstr_seg(let self, a: u32, l: u32) -> u32
-        requires true
         ensures result < 65536
     {
         self.g_begin()
@@ -1187,8 +1107,6 @@ struct Ir {
     # --- регистры значений --------------------------------------------------
 
     func set1(let self, k: u32, a: u32, b: u32)
-        requires true
-        ensures true
     {
         self.w1k = k
         self.w1a = a
@@ -1196,8 +1114,6 @@ struct Ir {
     }
 
     func set2(let self, k: u32, a: u32, b: u32)
-        requires true
-        ensures true
     {
         self.w2k = k
         self.w2a = a
@@ -1205,8 +1121,6 @@ struct Ir {
     }
 
     func set3(let self, k: u32, a: u32, b: u32)
-        requires true
-        ensures true
     {
         self.w3k = k
         self.w3a = a
@@ -1214,8 +1128,6 @@ struct Ir {
     }
 
     func set1rr(let self)
-        requires true
-        ensures true
     {
         self.w1k = self.rrk
         self.w1a = self.rra
@@ -1223,8 +1135,6 @@ struct Ir {
     }
 
     func set2rr(let self)
-        requires true
-        ensures true
     {
         self.w2k = self.rrk
         self.w2a = self.rra
@@ -1232,8 +1142,6 @@ struct Ir {
     }
 
     func set3rr(let self)
-        requires true
-        ensures true
     {
         self.w3k = self.rrk
         self.w3a = self.rra
@@ -1241,8 +1149,6 @@ struct Ir {
     }
 
     func set1er(let self)
-        requires true
-        ensures true
     {
         self.w1k = self.erk
         self.w1a = self.era
@@ -1250,8 +1156,6 @@ struct Ir {
     }
 
     func set2er(let self)
-        requires true
-        ensures true
     {
         self.w2k = self.erk
         self.w2a = self.era
@@ -1259,8 +1163,6 @@ struct Ir {
     }
 
     func ser(let self, k: u32, a: u32, b: u32)
-        requires true
-        ensures true
     {
         self.erk = k
         self.era = a
@@ -1268,8 +1170,6 @@ struct Ir {
     }
 
     func serrr(let self, t: u32)
-        requires true
-        ensures true
     {
         self.erk = self.rrk
         self.era = self.rra
@@ -1280,8 +1180,6 @@ struct Ir {
     # --- запись ссылок и типов в буфер --------------------------------------
 
     func wref(let self, k: u32, a: u32, b: u32)
-        requires true
-        ensures true
     {
         if k == 0 {
             self.lb_lit("%\".")
@@ -1326,29 +1224,22 @@ struct Ir {
     }
 
     func wr1(let self)
-        requires true
-        ensures true
     {
         self.wref(self.w1k, self.w1a, self.w1b)
     }
 
     func wr2(let self)
-        requires true
-        ensures true
     {
         self.wref(self.w2k, self.w2a, self.w2b)
     }
 
     func wr3(let self)
-        requires true
-        ensures true
     {
         self.wref(self.w3k, self.w3a, self.w3b)
     }
 
     func wty(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.ty_build(t)
         self.lb_tp(self.tys[t], self.tyl[t])
@@ -1356,7 +1247,6 @@ struct Ir {
 
     func wblk(let self, b: u32)
         requires b < 16384
-        ensures true
     {
         self.lb_lit("%\"")
         self.lb_nb(self.bns[b], self.bnl[b])
@@ -1364,15 +1254,12 @@ struct Ir {
     }
 
     func w_strty(let self)
-        requires true
-        ensures true
     {
         self.lb_lit("{{i32, [256 x i8]}}")
     }
 
     func w_mangle(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.lb_lit("eat_")
         const own: u32 = self.c.fown[fi]
@@ -1384,16 +1271,12 @@ struct Ir {
     }
 
     func bump(let self) -> u32
-        requires true
-        ensures true
     {
         self.ctr = self.ctr + 1
         return self.ctr
     }
 
     func rpre(let self)
-        requires true
-        ensures true
     {
         self.line_new()
         const n: u32 = self.bump()
@@ -1406,8 +1289,6 @@ struct Ir {
     }
 
     func vpre(let self)
-        requires true
-        ensures true
     {
         self.line_new()
         discard self.bump()
@@ -1416,8 +1297,6 @@ struct Ir {
 
 # свежая структура фазы: вся память — в кадре вызывающего
 func ir_new(c: Check) -> Ir
-    requires true
-    ensures true
 {
     return Ir {
         c: c, failed: false, tp: [0; 65536], tpl: 0, tys: [0; 512], tyl: [0; 512],
@@ -1442,8 +1321,9 @@ func ir_new(c: Check) -> Ir
         agb: [0; 256], agt: [0; 256], nag: 0, sk4: [0; 64], sn4: [0; 64], sp4: [0; 64],
         sa4: [0; 64], sb4: [0; 64], sc4: [0; 64], sd4: [0; 64], se4: [0; 64],
         sf4: [0; 64], sg4: [0; 64], ns4: 0, fst: 0, tmode: 0,
-        him: 0, msr: 0, rsi: NONE, isz: [0; 1024], ist: [0; 1024],
-        itg: [0; 1024], ihd: [NONE; 1024], ils: [0; 1024], iln: 0,
-        iec: [0; 32768], ien: [0; 32768], ine: 0
+        him: 0, isz: [0; 1024], ist: [0; 1024], itg: [0; 1024],
+        ihd: [NONE; 1024], ils: [0; 1024], iln: 0, iec: [0; 32768],
+        ien: [0; 32768], ine: 0, imq: [0; 256], imql: 0, imnp: [0; 65536],
+        imnpl: 0, imns: [0; 1024], imnc: [0; 1024], imh: [NONE; 2048]
     }
 }

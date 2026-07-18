@@ -14,7 +14,6 @@ extend Verify {
     # обнуляет и его); hasp=1 ⇒ p закреплён на [pls..phm].
     func clamp_probe(let self, rhsn: u32, body: u32, pid: u32, hasp: u32)
         requires rhsn < 131072 and body < 131072 and pid < 512
-        ensures true
     {
         let saved: St = self.env
         const srec: u32 = self.rec_off
@@ -54,7 +53,6 @@ extend Verify {
     # перекрыть их клэмпом-надмножеством было бы регрессией.
     func clamp_carry(let self, node: u32)
         requires node < 131072
-        ensures true
     {
         const body: u32 = self.nns(self.nfc(node))
         self.clamp_collect(body)
@@ -102,7 +100,6 @@ extend Verify {
     # с раздельным сбором (тот же обход), cc_nst используется по членству.
     func clamp_collect(let self, body: u32)
         requires body < 131072
-        ensures true
     {
         self.cc_nd = 0
         self.cc_nn = 0
@@ -170,7 +167,6 @@ extend Verify {
     # читаются из cc_dp/cc_dr (буферы за полями).
     func clamp_one(let self, pid: u32, body: u32)
         requires pid < 512 and body < 131072
-        ensures true
     {
         let disq: u32 = 0
         let hinit: u32 = 0

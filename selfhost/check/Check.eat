@@ -268,8 +268,6 @@ struct Check {
     # --- инфраструктура ---------------------------------------------------
 
     func fail_at(let self, ln: u32, cl: u32, m: str<128>)
-        requires true
-        ensures true
     {
         if not self.failed {
             eprint("err: {ln}:{cl}: {m}")
@@ -280,8 +278,6 @@ struct Check {
     # Тип содержит сам себя по значению (цикл размера): текст вынесен,
     # чтобы глубоко вложенный вызов помещался в потолок строки.
     func fail_size_cycle(let self)
-        requires true
-        ensures true
     {
         self.fail_at(
             1, 1,
@@ -291,14 +287,11 @@ struct Check {
 
     func fail_node(let self, n: u32, m: str<128>)
         requires n < 131072
-        ensures true
     {
         self.fail_at(self.p.nl[n / 65536][n % 65536], self.p.nc[n / 65536][n % 65536], m)
     }
 
     func span_eq(let self, a1: u32, l1: u32, a2: u32, l2: u32) -> bool
-        requires true
-        ensures true
     {
         if l1 != l2 {
             return false
@@ -316,8 +309,6 @@ struct Check {
     }
 
     func span_is(let self, a: u32, l: u32, kw: str<16>) -> bool
-        requires true
-        ensures true
     {
         if l > 16 {
             return false
@@ -329,8 +320,6 @@ struct Check {
     # (потолок span_is): первые 16 байт через span_is, хвост — прямым
     # чтением пула (HTTP_PLAN §5).
     func span_is_sws(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         if l != 17 {
             return false
@@ -342,8 +331,6 @@ struct Check {
     }
 
     func write_span2(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         self.p.lex.w_span(a, l)
     }
@@ -351,7 +338,6 @@ struct Check {
     # Имя узла (nss/nsl).
     func nspan_is(let self, n: u32, kw: str<16>) -> bool
         requires n < 131072
-        ensures true
     {
         return self.span_is(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536], kw)
     }
@@ -359,8 +345,6 @@ struct Check {
     # --- пул типов --------------------------------------------------------
 
     func init_types(let self)
-        requires true
-        ensures true
     {
         for k in 0..6 {
             self.yk[k] = k
@@ -374,7 +358,6 @@ struct Check {
 
     # Индекс типа u16 (вид 12 интернируется по требованию).
     func u16_ty(let self) -> u32
-        requires true
         ensures result < 512
     {
         return self.intern(12, NONE, NONE, NONE, 0)
@@ -382,7 +365,6 @@ struct Check {
 
     # Индекс типа u64 (вид 13 интернируется по требованию).
     func u64_ty(let self) -> u32
-        requires true
         ensures result < 512
     {
         return self.intern(13, NONE, NONE, NONE, 0)
@@ -390,7 +372,6 @@ struct Check {
 
     # Индекс типа i64 (вид 14 интернируется по требованию).
     func i64_ty(let self) -> u32
-        requires true
         ensures result < 512
     {
         return self.intern(14, NONE, NONE, NONE, 0)
@@ -434,8 +415,6 @@ struct Check {
 
     # Индекс struct по имени; NONE если нет.
     func find_struct(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let found: u32 = NONE
         for i in 0..128 {
@@ -450,8 +429,6 @@ struct Check {
     }
 
     func find_enum(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let found: u32 = NONE
         for i in 0..64 {
@@ -466,8 +443,6 @@ struct Check {
     }
 
     func find_constexpr(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let found: u32 = NONE
         for i in 0..128 {
@@ -482,8 +457,6 @@ struct Check {
     }
 
     func fh_hash(let self, own: u32, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let h: u32 = own % 8191 + 1
         for i in 0..256 {
@@ -499,8 +472,6 @@ struct Check {
     # слота; при дубликатах имён (ошибочные программы) порядок вставки
     # растёт по индексу — находится тот же первый, что у скана.
     func fh_find(let self, own: u32, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let f: u32 = NONE
         let slot: u32 = self.fh_hash(own, a, l) & 2047
@@ -525,7 +496,6 @@ struct Check {
 
     func fh_insert(let self, i: u32)
         requires i < 1024
-        ensures true
     {
         let slot: u32 = self.fh_hash(self.fown[i], self.fn_s[i], self.fn_l[i]) & 2047
         for _ in 0..2048 {
@@ -540,8 +510,6 @@ struct Check {
     # Функция верхнего уровня (owner NONE) по имени. Привязка к локали
     # перед return сохраняет hive-дырку summary для вызывающих (§1.5).
     func find_func(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         const f: u32 = self.fh_find(NONE, a, l)
         return f
@@ -549,8 +517,6 @@ struct Check {
 
     # Запись таблицы функций по узлу AST.
     func func_by_node(let self, n: u32) -> u32
-        requires true
-        ensures true
     {
         let found: u32 = NONE
         for i in 0..1024 {
@@ -754,8 +720,6 @@ struct Check {
 
     # Имя занято на верхнем уровне (правило 6 + встроенные имена)?
     func top_taken(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         if self.find_func(a, l) != NONE {
             return true
@@ -773,8 +737,6 @@ struct Check {
     }
 
     func builtin_name(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         if self.span_is(a, l, "print") or self.span_is(a, l, "write") {
             return true
@@ -843,7 +805,6 @@ struct Check {
 
     func declare_top(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         if self.top_taken(self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]) {
             self.fail_node(n, "имя уже занято")
@@ -859,7 +820,6 @@ struct Check {
 
     # Модуль по спану канонического пути; NONE — не найден.
     func find_module(let self, a: u32, l: u32) -> u32
-        requires true
         ensures result < 64 or result == NONE
     {
         let found: u32 = NONE
@@ -883,7 +843,6 @@ struct Check {
     # internal (docs/MODULES_PLAN.md §5).
     func is_exported(let self, fi: u32) -> bool
         requires fi < 1024
-        ensures true
     {
         const fm: u32 = self.fmod[fi]
         if fm == 0 {
@@ -915,7 +874,6 @@ struct Check {
     # закрепляет драйвер, ставя #module.
     func col_export(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         if self.cmod == 0 {
             return
@@ -949,7 +907,6 @@ struct Check {
     # (компилятор перепроверяет драйвер), имя — в его экспорте.
     func col_import(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         const src: u32 = self.find_module(
             self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]
@@ -973,7 +930,6 @@ struct Check {
     # Одна связка import: поиск публичного имени в экспорте источника.
     func col_bind(let self, b: u32, src: u32)
         requires b < 131072 and src < 64
-        ensures true
     {
         let hit: u32 = NONE
         for j in 0..256 {
@@ -1013,8 +969,6 @@ struct Check {
 
     # Проход по шапкам: границы модулей, export- и import-блоки.
     func modules_pass(let self)
-        requires true
-        ensures true
     {
         let d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
@@ -1054,8 +1008,6 @@ struct Check {
     # Узлы идут в порядке разбора: принадлежность модулю — по последней
     # встреченной директиве (вид 51).
     func canon_pass(let self)
-        requires true
-        ensures true
     {
         let cur: u32 = 0
         for i in 0..131072 {
@@ -1075,7 +1027,6 @@ struct Check {
 
     func canon_node(let self, n: u32, cur: u32)
         requires n < 131072
-        ensures true
     {
         for j in 0..512 {
             if j >= self.nimp {
@@ -1100,8 +1051,6 @@ struct Check {
     # блоке; узел extend исчезает из списка деклараций — фазы ниже
     # различий не видят (зеркало merge_extends, src/eatc/checks.py).
     func extend_pass(let self)
-        requires true
-        ensures true
     {
         let prev: u32 = NONE
         let d: u32 = self.p.nfc[0 / 65536][0 % 65536]
@@ -1123,7 +1072,6 @@ struct Check {
     # его модуль обязан совпадать с модулем самого extend.
     func merge_extend(let self, e: u32, prev: u32)
         requires e < 131072
-        ensures true
     {
         let tgt: u32 = NONE
         let tmod: u32 = 0
@@ -1165,7 +1113,6 @@ struct Check {
     # дубликат имени метода — ошибка с координатами метода из extend.
     func splice_extend(let self, e: u32, s: u32)
         requires e < 131072 and s < 131072
-        ensures true
     {
         let m: u32 = self.p.nfc[e / 65536][e % 65536]
         for _ in 0..1024 {
@@ -1214,7 +1161,6 @@ struct Check {
     # часть инварианта nns/nlc на весь u32.
     func unlink_top(let self, e: u32, prev: u32)
         requires e < 131072
-        ensures true
     {
         assert prev < 131072
         const nxt: u32 = self.p.nns[e / 65536][e % 65536]
@@ -1230,8 +1176,6 @@ struct Check {
     }
 
     func pass1(let self)
-        requires true
-        ensures true
     {
         let d: u32 = self.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
@@ -1252,7 +1196,6 @@ struct Check {
 
     func reg_struct(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         if self.nstr >= 128 {
             self.fail_node(d, "слишком много struct (предел 128)")
@@ -1269,7 +1212,6 @@ struct Check {
 
     func reg_enum(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         if self.nenu >= 64 {
             self.fail_node(d, "слишком много enum (предел 64)")
@@ -1306,8 +1248,6 @@ struct Check {
 
     # Проход 2: сигнатуры, поля, нагрузка enum, константы.
     func pass2(let self)
-        requires true
-        ensures true
     {
         self.cmod = 0
         let d: u32 = self.p.nfc[0 / 65536][0 % 65536]
@@ -1334,7 +1274,6 @@ struct Check {
 
     func col_constexpr(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         self.declare_top(d)
         if self.ncon >= 128 {
@@ -1386,7 +1325,6 @@ struct Check {
     # _expr_has_call + _Deferred по Name эталона).
     func has_call_deep(let self, root: u32) -> bool
         requires root < 131072
-        ensures true
     {
         let st: [u32; 64] = [0; 64]
         let sp: u32 = 1
@@ -1430,7 +1368,6 @@ struct Check {
     # Сигнатура функции d в таблицу (owner — struct | NONE).
     func add_func(let self, d: u32, owner: u32)
         requires d < 131072
-        ensures true
     {
         if self.nfun >= 1024 {
             self.fail_node(d, "слишком много функций (предел 1024)")
@@ -1484,7 +1421,6 @@ struct Check {
 
     func col_enum(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         const ei: u32 = self.find_enum(
             self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]
@@ -1518,7 +1454,6 @@ struct Check {
 
     func col_struct(let self, d: u32)
         requires d < 131072
-        ensures true
     {
         const si: u32 = self.find_struct(
             self.p.nss[d / 65536][d % 65536], self.p.nsl[d / 65536][d % 65536]
@@ -1548,7 +1483,6 @@ struct Check {
 
     func col_field(let self, si: u32, c: u32)
         requires si < 128 and c < 131072
-        ensures true
     {
         # повтор поля — ошибка
         const a: u32 = self.p.nss[c / 65536][c % 65536]
@@ -1580,8 +1514,6 @@ struct Check {
     # Идентификатор узла графа: struct — i, enum — 128 + i.
     # Рёбра: тип поля/нагрузки упоминает struct/enum.
     func type_cycles(let self)
-        requires true
-        ensures true
     {
         # цвета: 0 белый, 1 серый, 2 чёрный
         let color: [u32; 192] = [0; 192]
@@ -1623,7 +1555,6 @@ struct Check {
 
     func cyc_id_valid(let self, id: u32) -> bool
         requires id < 192
-        ensures true
     {
         if id < 128 {
             return id < self.nstr
@@ -1635,7 +1566,6 @@ struct Check {
     # членов); NONE, если зависимостей меньше k+1.
     func cyc_dep(let self, id: u32, k: u32) -> u32
         requires id < 192
-        ensures true
     {
         self.dep_k = k
         self.dep_cnt = 0
@@ -1670,7 +1600,6 @@ struct Check {
     # dep_k-я попадает в dep_found.
     func cyc_scan(let self, ty: u32)
         requires ty < 512
-        ensures true
     {
         let ts: [u32; 16] = [0; 16]
         let tp: u32 = 1
@@ -1697,8 +1626,6 @@ struct Check {
     }
 
     func cyc_hit(let self, tk: u32, a: u32, l: u32)
-        requires true
-        ensures true
     {
         const dep: u32 = self.cyc_name_id(tk, a, l)
         if dep == NONE {
@@ -1711,8 +1638,6 @@ struct Check {
     }
 
     func cyc_name_id(let self, tk: u32, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         if tk == 8 {
             const si: u32 = self.find_struct(a, l)
@@ -1728,8 +1653,6 @@ struct Check {
     # --- правила 4 и 5 -------------------------------------------------------
 
     func rules45(let self)
-        requires true
-        ensures true
     {
         for i in 0..1024 {
             if i >= self.nfun or self.failed {
@@ -1741,7 +1664,6 @@ struct Check {
 
     func rule_func(let self, i: u32)
         requires i < 1024
-        ensures true
     {
         const d: u32 = self.fnd[i]
         const n: u32 = self.count_stmts(d)
@@ -1759,7 +1681,6 @@ struct Check {
     # Число statements в поддереве функции (вид узла — инструкция).
     func count_stmts(let self, root: u32) -> u32
         requires root < 131072
-        ensures true
     {
         let cnt: u32 = 0
         let cur: u32 = root
@@ -1810,8 +1731,6 @@ struct Check {
     # --- main ------------------------------------------------------------
 
     func check_main(let self)
-        requires true
-        ensures true
     {
         let mi: u32 = NONE
         for i in 0..1024 {
@@ -1840,8 +1759,6 @@ struct Check {
     # --- запуск -----------------------------------------------------------
 
     func run(let self)
-        requires true
-        ensures true
     {
         self.init_types()
         self.extend_pass()
@@ -1889,8 +1806,6 @@ struct Check {
     # --- области видимости (правила 6 и 10) --------------------------------
 
     func push_scope(let self)
-        requires true
-        ensures true
     {
         if self.nsc >= 64 {
             self.fail_at(1, 1, "слишком глубокие области видимости")
@@ -1902,7 +1817,6 @@ struct Check {
 
     func pop_scope(let self)
         requires self.nsc >= 1
-        ensures true
     {
         const base: u32 = self.scp[self.nsc - 1]
         for i in 0..256 {
@@ -1924,7 +1838,6 @@ struct Check {
     # Объявить переменную (sv_s = NONE — self). «_» не заносится.
     func declare(let self, nd: u32, a: u32, l: u32, ty: u32, mut: u32)
         requires nd < 131072 and ty < 512
-        ensures true
     {
         if self.span_is(a, l, "_") {
             return
@@ -1961,8 +1874,6 @@ struct Check {
     }
 
     func io_builtin(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         if self.span_is(a, l, "print") or self.span_is(a, l, "write") {
             return true
@@ -1998,7 +1909,6 @@ struct Check {
 
     func decl_self(let self, ty: u32, mut: u32)
         requires ty < 512
-        ensures true
     {
         const v: u32 = self.nsv
         self.sv_s[v] = NONE
@@ -2013,8 +1923,6 @@ struct Check {
 
     # Поиск переменной; пометка «использована». NONE — нет.
     func lookup(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let found: u32 = NONE
         for i in 0..256 {
@@ -2034,8 +1942,6 @@ struct Check {
     }
 
     func lookup_self(let self) -> u32
-        requires true
-        ensures true
     {
         let found: u32 = NONE
         for i in 0..256 {
@@ -2052,8 +1958,6 @@ struct Check {
 
 # Вид узла — инструкция (для подсчёта правила 4).
 func is_stmt_kind(k: u32) -> bool
-    requires true
-    ensures true
 {
     if k >= 13 and k <= 26 {
         return k != 16 and k != 17 and k != 21
@@ -2063,8 +1967,6 @@ func is_stmt_kind(k: u32) -> bool
 
 # свежая структура фазы: вся память — в кадре вызывающего
 func check_new(p: Parser) -> Check
-    requires true
-    ensures true
 {
     return Check {
         p: p, failed: false, yk: [0; 512], ya: [0; 512], yb: [0; 512], ys: [0; 512],

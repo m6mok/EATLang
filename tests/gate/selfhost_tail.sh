@@ -53,7 +53,7 @@ typed_ir_job() {
 	./build/SelfIr < "$d/all.eat" > "$d/self.ll"
 	diff "$d/ref.ll" "$d/self.ll" > /dev/null \
 		&& echo "IR OK (самоприменение: IR всего фронтенда байт-в-байт)" || exit 1
-	cat lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat \
+	cat lib/fmt/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat \
 		> "$d/probe.eat"
 	clang "$d/self.ll" src/eatc/runtime.c -o "$d/typed_bin" \
 		$STACK_FLAGS 2>/dev/null || exit 1
@@ -94,7 +94,7 @@ sig_interp_job() {
 typed_interp_job() {
 	d=$(mktemp -d "${TMPDIR:-/tmp}/eat_vst.XXXXXX")
 	trap 'rm -rf "$d"' EXIT INT TERM
-	cat lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat \
+	cat lib/fmt/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat \
 		> "$d/probe.eat"
 	cat "$d/probe.eat" | env $EATC run $SELFHOST_TYPED > "$d/interp.txt" || exit 1
 	cat "$d/probe.eat" | ./build/SelfTyped > "$d/native.txt"

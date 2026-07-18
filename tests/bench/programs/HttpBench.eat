@@ -15,7 +15,7 @@ import {
     Req,
     req_new,
     HTTP_NONE,
-} from "lib/Http.eat"
+} from "lib/http/Http.eat"
 
 constexpr REPEAT: u32 = 1
 

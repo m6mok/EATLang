@@ -15,7 +15,6 @@ extend Check {
     # Годность функции fi с кэшем (свёртка дёргает по всем вызовам).
     func ct_fold_elig(let self, fi: u32) -> bool
         requires fi < 1024
-        ensures true
     {
         if self.cfe[fi] == 0 {
             self.cgen = self.cgen + 1
@@ -36,7 +35,6 @@ extend Check {
     # массив — v1), уже свёрнутый вызов. Иначе false.
     func ct_fold_const_of(let self, n: u32) -> bool
         requires n < 131072
-        ensures true
     {
         const k: u32 = self.p.nk[n / 65536][n % 65536]
         if k == 32 {
@@ -75,7 +73,6 @@ extend Check {
     # Попытка свёртки вызова n (nk 41). true — узел аннотирован.
     func ct_fold_try(let self, n: u32) -> bool
         requires n < 131072
-        ensures true
     {
         if self.nfs[n / 65536][n % 65536] != NONE or self.nfm[n / 65536][n % 65536] == 1 {
             return false
@@ -143,7 +140,6 @@ extend Check {
     # пропускается). true — появились новые свёртки.
     func ct_fold_scan(let self, body: u32) -> bool
         requires body < 131072
-        ensures true
     {
         let ch: bool = false
         let sp: u32 = 1
@@ -186,8 +182,6 @@ extend Check {
     # Драйвер прохода (ось -O): тела всех функций и методов (extern без
     # тела, тестов в fnd нет); фикспойнт сканов = post-order эталона.
     func ct_fold_pass(let self)
-        requires true
-        ensures true
     {
         for fi in 0..1024 {
             if fi >= self.nfun {

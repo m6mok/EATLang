@@ -10,7 +10,6 @@ export {
 }
 
 func min(a: u32, b: u32) -> u32
-    requires true
     ensures result <= a and result <= b
 {
     if a < b {
@@ -20,7 +19,6 @@ func min(a: u32, b: u32) -> u32
 }
 
 func max(a: u32, b: u32) -> u32
-    requires true
     ensures result >= a and result >= b
 {
     if a > b {

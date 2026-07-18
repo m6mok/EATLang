@@ -8,7 +8,6 @@ extend Ir {
 
     func e_alloca_u(let self, t: u32)
         requires t < 512
-        ensures true
     {
         const saved: u32 = self.cb
         self.cb = 0
@@ -22,7 +21,6 @@ extend Ir {
     # Имя-кандидат уже прошло dedup (dds/ddl).
     func e_alloca_n(let self, t: u32)
         requires t < 512
-        ensures true
     {
         const saved: u32 = self.cb
         self.cb = 0
@@ -41,7 +39,6 @@ extend Ir {
     # v1 — указатель.
     func e_load(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("load ")
@@ -56,7 +53,6 @@ extend Ir {
     # v1 — значение, v2 — указатель.
     func e_store(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.vpre()
         self.lb_lit("store ")
@@ -73,7 +69,6 @@ extend Ir {
     # v1 — указатель; путь [0, k].
     func e_gepc(let self, t: u32, k: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("getelementptr inbounds ")
@@ -90,7 +85,6 @@ extend Ir {
     # v1 — указатель, v2 — индекс; путь [0, idx].
     func e_gepi(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("getelementptr inbounds ")
@@ -107,7 +101,6 @@ extend Ir {
     # v1 — указатель на str, v2 — индекс; путь [0, 1, idx].
     func e_geps(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("getelementptr inbounds ")
@@ -123,8 +116,6 @@ extend Ir {
 
     # zext i32 v1 to i64 — размер memcpy строки по фактической длине.
     func e_zx64(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("zext i32 ")
@@ -136,7 +127,6 @@ extend Ir {
     # sizeof-трюк: gep(null, 1) без inbounds.
     func e_gepn(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("getelementptr ")
@@ -149,7 +139,6 @@ extend Ir {
 
     func e_gepg(let self, g: u32)
         requires g < 65536
-        ensures true
     {
         self.rpre()
         self.lb_lit("getelementptr inbounds [")
@@ -164,7 +153,6 @@ extend Ir {
 
     func e_p2i(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("ptrtoint ")
@@ -177,7 +165,6 @@ extend Ir {
 
     func e_bc(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("bitcast ")
@@ -190,8 +177,6 @@ extend Ir {
 
     # v1 — dst i8*, v2 — src i8*, v3 — размер i64.
     func e_mcpy(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"llvm.memcpy.p0i8.p0i8.i64\"(i8* ")
@@ -206,7 +191,6 @@ extend Ir {
 
     func w_iop(let self, op: u32)
         requires op >= 1 and op <= 10
-        ensures true
     {
         if op == 1 {
             self.lb_lit("eq")
@@ -234,7 +218,6 @@ extend Ir {
     # v1, v2 — операнды типа t.
     func e_icmp(let self, op: u32, t: u32)
         requires op >= 1 and op <= 10 and t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("icmp ")
@@ -250,7 +233,6 @@ extend Ir {
 
     func w_bop(let self, o: u32)
         requires o >= 1 and o <= 12
-        ensures true
     {
         if o == 1 {
             self.lb_lit("add")
@@ -282,7 +264,6 @@ extend Ir {
     # v1, v2 — операнды типа t.
     func e_bin(let self, o: u32, t: u32)
         requires o >= 1 and o <= 12 and t < 512
-        ensures true
     {
         self.rpre()
         self.w_bop(o)
@@ -301,7 +282,6 @@ extend Ir {
     # (эталон codegen.arith/shift, flags=("nsw",)/("nuw",)).
     func e_binf(let self, o: u32, t: u32, sg: u32)
         requires o >= 1 and o <= 12 and t < 512 and sg <= 1
-        ensures true
     {
         self.rpre()
         self.w_bop(o)
@@ -320,8 +300,6 @@ extend Ir {
 
     # not: xor i1 v1, -1.
     func e_not(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("xor i1 ")
@@ -333,7 +311,6 @@ extend Ir {
     # ~: xor <ty> v1, -1 — инверсия в ширине типа, из типа не выходит.
     func e_bnot(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("xor ")
@@ -347,7 +324,6 @@ extend Ir {
     # o: 0 zext, 1 trunc, 2 sext; v1 — значение.
     func e_cvt(let self, o: u32, tf: u32, tt: u32)
         requires o <= 2 and tf < 512 and tt < 512
-        ensures true
     {
         self.rpre()
         if o == 0 {
@@ -367,7 +343,6 @@ extend Ir {
 
     func w_it(let self, id: u32)
         requires id >= 1 and id <= 18
-        ensures true
     {
         if id >= 13 {
             self.lb_lit("i64")
@@ -382,7 +357,6 @@ extend Ir {
 
     func w_iname(let self, id: u32)
         requires id >= 1 and id <= 18
-        ensures true
     {
         if id == 1 or id == 4 or id == 7 or id == 10 or id == 13 or id == 16 {
             if id == 1 or id == 16 {
@@ -408,7 +382,6 @@ extend Ir {
     # v1, v2 — операнды; вызов llvm.*.with.overflow.*.
     func e_ov(let self, id: u32)
         requires id >= 1 and id <= 18
-        ensures true
     {
         self.rpre()
         self.lb_lit("call {{")
@@ -432,7 +405,6 @@ extend Ir {
     # v1 — пара {int, i1}.
     func e_exv(let self, id: u32, idx: u32)
         requires id >= 1 and id <= 18 and idx <= 1
-        ensures true
     {
         self.rpre()
         self.lb_lit("extractvalue {{")
@@ -447,7 +419,6 @@ extend Ir {
     # v1 — условие, v2/v3 — ветви типа t. Двойной пробел — llvmlite.
     func e_sel(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.rpre()
         self.lb_lit("select  i1 ")
@@ -466,7 +437,6 @@ extend Ir {
     # v1 — из блока b1, v2 — из блока b2. Двойной пробел — llvmlite.
     func e_phi(let self, t: u32, b1: u32, b2: u32)
         requires t < 512 and b1 < 16384 and b2 < 16384
-        ensures true
     {
         self.rpre()
         self.lb_lit("phi  ")
@@ -485,7 +455,6 @@ extend Ir {
 
     func e_br(let self, b: u32)
         requires b < 16384
-        ensures true
     {
         self.vpre()
         self.lb_lit("br label ")
@@ -497,7 +466,6 @@ extend Ir {
     # v1 — условие.
     func e_cbr(let self, b1: u32, b2: u32)
         requires b1 < 16384 and b2 < 16384
-        ensures true
     {
         self.vpre()
         self.lb_lit("br i1 ")
@@ -511,8 +479,6 @@ extend Ir {
     }
 
     func e_retv(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("ret void")
@@ -523,7 +489,6 @@ extend Ir {
     # v1 — значение.
     func e_ret(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.vpre()
         self.lb_lit("ret ")
@@ -535,8 +500,6 @@ extend Ir {
     }
 
     func e_unr(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("unreachable")
@@ -569,7 +532,6 @@ extend Ir {
 
     func case_add(let self, s: u32, v: u32, b: u32)
         requires s < 512 and b < 16384
-        ensures true
     {
         if self.ncs >= 4096 {
             self.fail("слишком много веток switch")
@@ -592,12 +554,7 @@ extend Ir {
 
     # call void @"eat_{nm}"({STR}* v1)
     func e_rt_s(let self, nm: str<16>)
-        requires true
-        ensures true
     {
-        if self.msr == 1 {
-            self.rec_edge(self.rt_mfi(nm, ""))
-        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__")
         self.lb_lit(nm)
@@ -611,8 +568,6 @@ extend Ir {
 
     # call void @"eat_write_byte"(i8 v1)
     func e_wbyte(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"eat_write_byte\"(i8 ")
@@ -623,8 +578,6 @@ extend Ir {
 
     # call void @"eat_write_err_byte"(i8 v1)
     func e_webyte(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"eat_write_err_byte\"(i8 ")
@@ -635,8 +588,6 @@ extend Ir {
 
     # call void @"eat_exit"(i32 v1)
     func e_exit(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"eat_exit\"(i32 ")
@@ -647,8 +598,6 @@ extend Ir {
 
     # call void @"eat_write_span"(i8* v1, i32 v2)
     func e_wspan(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"eat_write_span\"(i8* ")
@@ -661,8 +610,6 @@ extend Ir {
 
     # %r = call i32 @"eat_arg_count"()
     func e_argcount(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_arg_count\"()")
@@ -671,8 +618,6 @@ extend Ir {
 
     # %r = call i32 @"eat_arg_len"(i32 v1)
     func e_arglen(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_arg_len\"(i32 ")
@@ -683,8 +628,6 @@ extend Ir {
 
     # %r = call i8 @"eat_arg_byte"(i32 v1, i32 v2)
     func e_argbyte(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i8 @\"eat_arg_byte\"(i32 ")
@@ -697,8 +640,6 @@ extend Ir {
 
     # %r = call i32 @"eat_in_avail"() — асинхронность (ASYNC_PLAN)
     func e_inavail(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_in_avail\"()")
@@ -707,8 +648,6 @@ extend Ir {
 
     # %r = call i64 @"eat_ticks"() — асинхронность (ASYNC_PLAN)
     func e_ticks(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i64 @\"eat_ticks\"()")
@@ -717,8 +656,6 @@ extend Ir {
 
     # %r = call i64 @"eat_socket_listen"(i16 v1) — сокеты (HTTP_PLAN)
     func e_slisten(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i64 @\"eat_socket_listen\"(i16 ")
@@ -729,8 +666,6 @@ extend Ir {
 
     # %r = call i32 @"eat_socket_accept"(i32 v1)
     func e_saccept(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_socket_accept\"(i32 ")
@@ -741,8 +676,6 @@ extend Ir {
 
     # %r = call i32 @"eat_socket_avail"(i32 v1)
     func e_savail(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_socket_avail\"(i32 ")
@@ -753,8 +686,6 @@ extend Ir {
 
     # %r = call i32 @"eat_socket_read_byte"(i32 v1)
     func e_srbyte(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_socket_read_byte\"(i32 ")
@@ -765,8 +696,6 @@ extend Ir {
 
     # %r = call i32 @"eat_socket_write_span"(i32 v1, i8* v2, i32 v3)
     func e_swspan(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_socket_write_span\"(i32 ")
@@ -781,8 +710,6 @@ extend Ir {
 
     # call void @"eat_socket_close"(i32 v1)
     func e_sclose(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"eat_socket_close\"(i32 ")
@@ -793,12 +720,7 @@ extend Ir {
 
     # call void @"eat_str_append_{nm}"({STR}* v1, {at} v2)
     func e_rt_si(let self, nm: str<8>, at: str<8>)
-        requires true
-        ensures true
     {
-        if self.msr == 1 {
-            self.rec_edge(self.rt_mfi("append_", nm))
-        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__append_")
         self.lb_lit(nm)
@@ -816,8 +738,6 @@ extend Ir {
 
     # call void @"eat_str_append_bytes"({STR}* v1, i8* v2, i32 n)
     func e_ab(let self, n: u32)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"eat_str_append_bytes\"(")
@@ -834,12 +754,7 @@ extend Ir {
 
     # call void @"eat_str_append_str"({STR}* v1, {STR}* v2)
     func e_as(let self)
-        requires true
-        ensures true
     {
-        if self.msr == 1 {
-            self.rec_edge(self.rt_mfi("append_str", ""))
-        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__append_str\"(")
         self.w_strty()
@@ -854,12 +769,7 @@ extend Ir {
     }
 
     func e_streq(let self)
-        requires true
-        ensures true
     {
-        if self.msr == 1 {
-            self.rec_edge(self.rt_mfi("eq", ""))
-        }
         self.rpre()
         self.lb_lit("call i1 @\"eat_RtStr__eq\"(")
         self.w_strty()
@@ -874,8 +784,6 @@ extend Ir {
     }
 
     func e_rbyte(let self)
-        requires true
-        ensures true
     {
         self.rpre()
         self.lb_lit("call i32 @\"eat_read_byte\"()")
@@ -884,8 +792,6 @@ extend Ir {
 
     # v1 — i8* сообщение.
     func e_trapc(let self)
-        requires true
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"eat_trap\"(i8* ")
@@ -897,7 +803,6 @@ extend Ir {
     # call void @"eat_trap_code"(i32 g) — режим trap-кодов (tmode 1)
     func e_trapcode(let self, g: u32)
         requires g < 65536
-        ensures true
     {
         self.vpre()
         self.lb_lit("call void @\"eat_trap_code\"(i32 ")
@@ -910,7 +815,6 @@ extend Ir {
 
     func ag_push(let self, t: u32)
         requires t < 512
-        ensures true
     {
         if self.nag >= 256 {
             self.fail("слишком глубокий стек аргументов")
@@ -925,7 +829,6 @@ extend Ir {
 
     func ag_push_rr(let self, t: u32)
         requires t < 512
-        ensures true
     {
         if self.nag >= 256 {
             self.fail("слишком глубокий стек аргументов")
@@ -940,12 +843,7 @@ extend Ir {
 
     func e_ucall(let self, fi: u32, base: u32)
         requires fi < 1024 and base < 256
-        ensures true
     {
-        # ось -O: ребро на определённый вызываемый (extern — не ребро)
-        if self.msr == 1 and not self.fn_ext(fi) {
-            self.rec_edge(fi)
-        }
         const cnt: u32 = self.nag - base
         const rt2: u32 = self.c.fret[fi]
         let isv: bool = true
@@ -994,7 +892,6 @@ extend Ir {
     # w1 — указатель-назначение, w2 — источник (значение или указатель).
     func copy_into(let self, t: u32)
         requires t < 512
-        ensures true
     {
         if not self.is_agg(t) {
             const dk: u32 = self.w1k
@@ -1048,7 +945,6 @@ extend Ir {
     # w2 — источник; результат (указатель на копию) — rr.
     func materialize(let self, t: u32)
         requires t < 512
-        ensures true
     {
         const sk2: u32 = self.w2k
         const sa2: u32 = self.w2a
@@ -1066,7 +962,6 @@ extend Ir {
     # w1 — i1: если истина, аварийная остановка.
     func trap_if(let self, ln: u32, cl: u32, mk: u32, e1: u32, e2: u32)
         requires mk <= 12
-        ensures true
     {
         const bk2: u32 = self.w1k
         const ba2: u32 = self.w1a
@@ -1090,7 +985,6 @@ extend Ir {
 
     func ensure_br(let self, b: u32)
         requires b < 16384
-        ensures true
     {
         if self.bkt[self.cb] == 0 {
             self.e_br(b)
@@ -1100,8 +994,6 @@ extend Ir {
     # --- области видимости значений ------------------------------------------
 
     func push_sc(let self)
-        requires true
-        ensures true
     {
         if self.nsb >= 64 {
             self.fail("слишком глубокие области видимости")
@@ -1113,7 +1005,6 @@ extend Ir {
 
     func pop_sc(let self)
         requires self.nsb >= 1
-        ensures true
     {
         self.nvr = self.scb[self.nsb - 1]
         self.nsb = self.nsb - 1
@@ -1122,7 +1013,6 @@ extend Ir {
     # w1 — указатель привязки; a=NONE — self, «_» пропускается.
     func bindv(let self, a: u32, l: u32, t: u32)
         requires t < 512
-        ensures true
     {
         if a != NONE {
             if self.c.span_is(a, l, "_") {
@@ -1144,8 +1034,6 @@ extend Ir {
     }
 
     func lookupv(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         let f: u32 = NONE
         for i in 0..256 {
@@ -1162,8 +1050,6 @@ extend Ir {
     }
 
     func lookup_self2(let self) -> u32
-        requires true
-        ensures true
     {
         let f: u32 = NONE
         for i in 0..256 {

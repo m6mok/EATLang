@@ -5,11 +5,11 @@
 import {
     is_digit,
     digit_value as digit,
-} from "lib/Ascii.eat"
+} from "lib/fmt/Ascii.eat"
 
 import {
     clamp,
-} from "lib/Num.eat"
+} from "lib/fmt/Num.eat"
 
 func main() {
     const c: char = '7'

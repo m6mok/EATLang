@@ -16,11 +16,11 @@
 
 import {
     get,
-} from "lib/Args.eat"
+} from "lib/os/Args.eat"
 
 import {
     parse_i32,
-} from "lib/Parse.eat"
+} from "lib/fmt/Parse.eat"
 
 # Сентинелы: NO_CONN — «никто не ждёт» у socket_accept (SPEC §7),
 # SENT — свободный слот пула (идиома пула с курсором).
@@ -40,7 +40,6 @@ constexpr SERVE_CONNS: u32 = 2
 
 # Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
 func port_arg() -> u32
-    requires true
     ensures result <= 65535
 {
     match get(0) {
@@ -64,8 +63,6 @@ func port_arg() -> u32
 # обратно одним спаном. true — пир закрыл соединение (Err(Eof)),
 # слот возвращён пулу.
 func step_conn(fd: u32) -> bool
-    requires true
-    ensures true
 {
     let buf: [u8; 512] = [0; 512]
     let n: u32 = 0

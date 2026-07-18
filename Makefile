@@ -26,11 +26,11 @@ EXAMPLES = \
 # этап 2 модулей): собирается с --lib ., отдельно от списка выше
 ELIF_MAIN = examples/if_statement/Elif.eat
 
-# JSON — витрина lib/Json.eat (docs/plans/JSON_PLAN.md): bounded-JSON
+# JSON — витрина lib/json/Json.eat (docs/plans/JSON_PLAN.md): bounded-JSON
 # без рекурсии/кучи/while; check исполняет и тесты самого модуля
 JSON_MAIN = examples/json/Main.eat
 
-# Fixed — витрина lib/Fixed.eat (docs/plans/FIXED_POINT_PLAN.md):
+# Fixed — витрина lib/fmt/Fixed.eat (docs/plans/FIXED_POINT_PLAN.md):
 # дроби Q16.16 без float; первый lib→lib импорт (Fixed → Fmt)
 FIXED_MAIN = examples/fixed/Main.eat
 
@@ -56,7 +56,7 @@ check:
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
 # модули, нужные самому self-hosted фронтенду (Tok/Lexer/Parser/Check)
-LIB_FRONT = lib/Const.eat lib/Ascii.eat lib/Buf.eat lib/Hex.eat
+LIB_FRONT = lib/core/Const.eat lib/fmt/Ascii.eat lib/core/Buf.eat lib/fmt/Hex.eat
 
 # Модульная программа: import-блоки, драйвер строит DAG и подставляет
 # Rt.eat и lib/ сам (docs/MODULES_PLAN.md §4); --lib . — корень путей
@@ -67,14 +67,14 @@ run_modules:
 
 # Эмулятор MOS 6502 (examples/mos6502): все официальные опкоды,
 # собственный тест-ROM в test-блоках; программа — байты со stdin
-MOS6502_EXAMPLE = $(RT) lib/Hex.eat examples/mos6502/Cpu6502.eat \
+MOS6502_EXAMPLE = $(RT) lib/fmt/Hex.eat examples/mos6502/Cpu6502.eat \
 	examples/mos6502/Tests.eat examples/mos6502/Main.eat
 
 run_mos6502:
 	cat examples/mos6502/mul13x11.rom | $(EATC) run $(MOS6502_EXAMPLE)
 
 # Кооперативная асинхронность (docs/plans/ASYNC_PLAN.md): суперцикл
-# в main на аксиомах in_avail()/ticks(); словарь идиомы — lib/Async.eat
+# в main на аксиомах in_avail()/ticks(); словарь идиомы — lib/os/Async.eat
 # (ярус 1: Poll/Timer/Debounce), примеры собирает драйвер (--lib .).
 # Async — две независимые задачи; Pipe — конвейер фильтров stdin с
 # бюджетом на виток (кольца, backpressure); Debounce — витрина lib
@@ -157,7 +157,7 @@ serve_hello:
 	./build/HttpHello $(PORT)
 
 # Проба self-host лексера: все кирпичи разом, вход — собственный исходник
-LEXER_PROBE = $(RT) lib/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
+LEXER_PROBE = $(RT) lib/fmt/Ascii.eat examples/lexer/LexUtil.eat examples/lexer/LexMain.eat
 
 run_lexer_probe:
 	cat examples/lexer/LexMain.eat | $(EATC) run $(LEXER_PROBE)
@@ -228,17 +228,17 @@ SELFHOST_TYPED = $(RT) $(LIB_FRONT) selfhost/lex/Tok.eat selfhost/lex/Lexer.eat 
 	selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
 	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
 	selfhost/check/TypedMain.eat
-SELFHOST_IR = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/lex/Tok.eat selfhost/lex/Lexer.eat \
+SELFHOST_IR = $(RT) $(LIB_FRONT) lib/fmt/Fmt.eat selfhost/lex/Tok.eat selfhost/lex/Lexer.eat \
 	selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
 	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
 	selfhost/ir/Ir.eat selfhost/ir/IrEmit.eat selfhost/ir/IrExpr.eat selfhost/ir/IrStmt.eat \
 	selfhost/ir/IrMain.eat
-SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/lex/Tok.eat \
+SELFHOST_IR_CODES = $(RT) $(LIB_FRONT) lib/fmt/Fmt.eat selfhost/lex/Tok.eat \
 	selfhost/lex/Lexer.eat selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
 	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
 	selfhost/ir/Ir.eat selfhost/ir/IrEmit.eat selfhost/ir/IrExpr.eat selfhost/ir/IrStmt.eat \
 	selfhost/ir/IrCodesMain.eat
-SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/Fmt.eat selfhost/lex/Tok.eat \
+SELFHOST_IR_OPT = $(RT) $(LIB_FRONT) lib/fmt/Fmt.eat selfhost/lex/Tok.eat \
 	selfhost/lex/Lexer.eat selfhost/parse/Ast.eat selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
 	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
 	selfhost/check/CheckFold.eat \
@@ -291,7 +291,7 @@ VERIFY_PROGS = examples/if_statement/Elif.eat examples/json/Main.eat \
 	examples/http/Router.eat examples/http/Api.eat \
 	examples/http/todo/Todo.eat \
 	examples/blinky_cli/BlinkyCli.eat \
-	$(RT),lib/Hex.eat,examples/mos6502/Cpu6502.eat,examples/mos6502/Tests.eat,examples/mos6502/Main.eat
+	$(RT),lib/fmt/Hex.eat,examples/mos6502/Cpu6502.eat,examples/mos6502/Tests.eat,examples/mos6502/Main.eat
 
 # Стек 128 МБ для бинарников, собираемых clang'ом из self-hosted IR
 # (пулы компилятора живут в кадре main — как в src/eatc/codegen.py;

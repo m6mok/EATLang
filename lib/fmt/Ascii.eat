@@ -11,7 +11,6 @@ export {
 }
 
 func is_digit(b: u8) -> bool
-    requires true
     ensures result == (b >= 48 and b <= 57)
 {
     return b >= 48 and b <= 57
@@ -19,8 +18,6 @@ func is_digit(b: u8) -> bool
 
 # ASCII-буква (латиница обоих регистров); '_' буквой не считается.
 func is_alpha(b: u8) -> bool
-    requires true
-    ensures true
 {
     if b >= 97 and b <= 122 {
         return true
@@ -30,8 +27,6 @@ func is_alpha(b: u8) -> bool
 
 # Пробельный байт (как str.strip Python: пробел, \t, \n, \r, VT, FF).
 func is_space(b: u8) -> bool
-    requires true
-    ensures true
 {
     return b == 32 or b == 9 or b == 10 or b == 13 or b == 11 or b == 12
 }

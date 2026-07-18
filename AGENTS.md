@@ -89,8 +89,10 @@ selfhost/     компилятор на EATLang, разложен по папк�
               +Const/Body/Dump/Fold, SigMain, TypedMain), ir/ (Ir
               +Emit/Expr/Stmt, IrMain, IrCodesMain, IrOptMain), verify/
               (Verify +Expr/Rel/Flow/Clamp/Dump, VerifyMain)
-lib/          библиотека на EATLang (Args, Ascii, Async, Buf, Const, Fixed, Fmt, Hex, Http, Io, Json, Num, Parse, U128) —
-              подключается списком файлов после Rt.eat
+lib/          библиотека на EATLang, разложена по ролям-папкам:
+              http/ (Http, Server), json/ (Json), fmt/ (Fmt, Hex, Ascii,
+              Num, Parse, Fixed), os/ (Io, Args, Async), core/ (Const,
+              Buf, U128) — подключается списком файлов после Rt.eat
               (docs/plans/MODULES_PLAN.md, этап 0 — конкатенация)
 examples/     эталонные примеры (all — витрина конструкций; mos6502 —
               эмулятор; lexer — проба self-host)

@@ -21,6 +21,7 @@
 
 export {
     Server,
+    Tick,
     server_listen,
     Bytes,
     bytes_new,
@@ -40,15 +41,21 @@ import {
     Resp,
     resp_new,
     PARSE_MORE,
-} from "lib/Http.eat"
+    PARSE_DONE,
+    HTTP_BAD_REQUEST,
+    HTTP_NOT_FOUND,
+    HTTP_METHOD_NOT_ALLOWED,
+    HTTP_PAYLOAD_TOO_LARGE,
+    HTTP_HEADERS_TOO_LARGE,
+} from "lib/http/Http.eat"
 
 import {
     get,
-} from "lib/Args.eat"
+} from "lib/os/Args.eat"
 
 import {
     parse_i32,
-} from "lib/Parse.eat"
+} from "lib/fmt/Parse.eat"
 
 # Порт по умолчанию, если argv пуст или значение кривое.
 constexpr PORT_DEFAULT: u32 = 8080
@@ -74,8 +81,6 @@ struct Bytes {
     # Байт в буфер; за потолком — взводит over и молчит (тело такой
     # длины отправлять нельзя, как Resp.of).
     func put_byte(let self, b: u8)
-        requires true
-        ensures true
     {
         if self.n < 65536 {
             self.buf[self.n] = b
@@ -86,8 +91,6 @@ struct Bytes {
     }
 
     func put_str(let self, s: str<256>)
-        requires true
-        ensures true
     {
         for i in 0..256 {
             if u32(i) >= len(s) {
@@ -100,8 +103,6 @@ struct Bytes {
     # Сброс под следующее тело без пересоздания (буфер не обнуляем —
     # читается только [0..n), как raw в Req).
     func clear(let self)
-        requires true
-        ensures true
     {
         self.n = 0
         self.over = false
@@ -110,17 +111,22 @@ struct Bytes {
     # i-й байт (для тестов и мостов).
     func at(self, i: u32) -> u8
         requires i < 65536
-        ensures true
     {
         return self.buf[i]
     }
 }
 
 func bytes_new() -> Bytes
-    requires true
-    ensures true
 {
     return Bytes { buf: [0; 65536], n: 0, over: false }
+}
+
+# Итог одного витка tick() — что делать вызывающему (вместо сырого
+# u32-статуса парсера): исчерпывающий match вместо сравнений с кодами.
+enum Tick {
+    Idle,        # соединения нет / запрос собирается / пир оборвал — ждать
+    Ready,       # запрос собран, читай self.req, ответь .reply/.reply_bytes
+    Bad(u32),    # ошибка парсера (HTTP-код 400/413/431), ответь err_resp(k)
 }
 
 # Драйвер одного сервера: состояние, которое примеры руками
@@ -138,17 +144,15 @@ struct Server {
     eof: bool         # пир оборвал соединение
     wc: u32           # курсор досылки ответа (правило 7)
 
-    # Один виток событийного цикла: accept-or-drain. Возвращает
-    #   PARSE_MORE — соединения нет / запрос ещё собирается / пир
-    #     оборвал (внутренний close+advance, наружу idle);
-    #   PARSE_DONE — запрос собран, читай self.req, ответь .reply;
-    #   400|413|431 — ошибка парсера, ответь .reply(err_resp(k)).
-    func tick(let self) -> u32
-        requires true
-        ensures true
+    # Один виток событийного цикла: accept-or-drain. Возвращает Tick:
+    #   Idle   — соединения нет / запрос ещё собирается / пир оборвал
+    #            (внутренний close+advance, наружу idle);
+    #   Ready  — запрос собран, читай self.req, ответь .reply;
+    #   Bad(k) — ошибка парсера (k = 400/413/431), ответь err_resp(k).
+    func tick(let self) -> Tick
     {
         if not self.live {
-            return PARSE_MORE
+            return Tick.Idle
         }
         if self.conn == SRV_SENT {
             const c: u32 = socket_accept(self.lst)
@@ -160,7 +164,7 @@ struct Server {
             }
         }
         if self.conn == SRV_SENT {
-            return PARSE_MORE
+            return Tick.Idle
         }
         for _ in 0..DRAIN_BUDGET {
             if self.st != PARSE_MORE or self.eof or socket_avail(self.conn) == 0 {
@@ -171,22 +175,23 @@ struct Server {
                 Err(_) { self.eof = true }
             }
         }
+        if self.st == PARSE_DONE {
+            return Tick.Ready
+        }
         if self.st != PARSE_MORE {
-            return self.st
+            return Tick.Bad(self.st)
         }
         if self.eof {
             self.drop_conn()
-            return PARSE_MORE
+            return Tick.Idle
         }
-        return PARSE_MORE
+        return Tick.Idle
     }
 
     # Отправить ответ и завершить соединение: send_resp курсором +
     # close + served++ + слот свободен. Переполненный Resp (of) не
     # отправляется вовсе, но соединение всё равно закрывается.
     func reply(let self, w: Resp)
-        requires true
-        ensures true
     {
         if not w.of {
             self.wc = 0
@@ -204,8 +209,6 @@ struct Server {
     # с Content-Length) + тело из буфера-носителя b. head.of или b.over
     # — не отправляем ничего, но соединение закрываем.
     func reply_bytes(let self, head: Resp, b: Bytes)
-        requires true
-        ensures true
     {
         if not head.of and not b.over {
             self.wc = 0
@@ -230,8 +233,6 @@ struct Server {
     # Закрыть текущее соединение и освободить слот (served++). Общий
     # хвост reply/reply_bytes и обрыва пира в tick.
     func drop_conn(let self)
-        requires true
-        ensures true
     {
         socket_close(self.conn)
         self.conn = SRV_SENT
@@ -241,8 +242,6 @@ struct Server {
     # Закрыть слушатель по завершении обслуживания (замена концевого
     # socket_close(lst) в main). После — tick инертен.
     func stop(let self)
-        requires true
-        ensures true
     {
         socket_close(self.lst)
         self.live = false
@@ -252,8 +251,6 @@ struct Server {
 # bind+listen. Ok — готовый к циклу Server; Err — порт занят (проброс
 # IoError слушателя без потери причины).
 func server_listen(port: u16) -> Result<Server, IoError>
-    requires true
-    ensures true
 {
     match socket_listen(port) {
         Ok(fd) {
@@ -271,7 +268,6 @@ func server_listen(port: u16) -> Result<Server, IoError>
 # Порт из argv (аргумент 0) или дефолт; кривое значение — дефолт.
 # (Переезд из каждого примера — §3.1 плана, ×6 дословных копий.)
 func port_arg() -> u32
-    requires true
     ensures result <= 65535
 {
     match get(0) {
@@ -293,8 +289,6 @@ func port_arg() -> u32
 # Готовый текстовый ответ: статус + Content-Type + Connection: close +
 # тело (автоматический Content-Length). Кирпич ответов-хелперов.
 func simple(code: u32, text: str<64>, msg: str<256>) -> Resp
-    requires true
-    ensures true
 {
     let w: Resp = resp_new()
     w.status_line(code, text)
@@ -305,49 +299,38 @@ func simple(code: u32, text: str<64>, msg: str<256>) -> Resp
 }
 
 func not_found() -> Resp
-    requires true
-    ensures true
 {
-    return simple(404, "Not Found", "not found\n")
+    return simple(HTTP_NOT_FOUND, "Not Found", "not found\n")
 }
 
 func bad_request() -> Resp
-    requires true
-    ensures true
 {
-    return simple(400, "Bad Request", "bad request\n")
+    return simple(HTTP_BAD_REQUEST, "Bad Request", "bad request\n")
 }
 
 func too_large() -> Resp
-    requires true
-    ensures true
 {
-    return simple(413, "Payload Too Large", "payload too large\n")
+    return simple(HTTP_PAYLOAD_TOO_LARGE, "Payload Too Large", "payload too large\n")
 }
 
 func too_many_headers() -> Resp
-    requires true
-    ensures true
 {
-    return simple(431, "Request Header Fields Too Large", "headers too large\n")
+    return simple(HTTP_HEADERS_TOO_LARGE,
+                  "Request Header Fields Too Large", "headers too large\n")
 }
 
 func method_not_allowed() -> Resp
-    requires true
-    ensures true
 {
-    return simple(405, "Method Not Allowed", "method not allowed\n")
+    return simple(HTTP_METHOD_NOT_ALLOWED, "Method Not Allowed", "method not allowed\n")
 }
 
-# Ответ по коду ошибки парсера (несёт .tick при k != PARSE_MORE/DONE).
+# Ответ по коду ошибки парсера (несёт Tick.Bad(k) из .tick).
 func err_resp(st: u32) -> Resp
-    requires true
-    ensures true
 {
-    if st == 413 {
+    if st == HTTP_PAYLOAD_TOO_LARGE {
         return too_large()
     }
-    if st == 431 {
+    if st == HTTP_HEADERS_TOO_LARGE {
         return too_many_headers()
     }
     return bad_request()

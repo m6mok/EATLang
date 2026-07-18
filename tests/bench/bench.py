@@ -62,7 +62,7 @@ RUNTIME_PROGRAMS = [
     ("ArrayBench", 520_192, 256, 32),
     ("StructBench", 500_000, 256, 32),
     ("AggBench", 200_000, 160, 20),
-    ("NumParseBench", 200_000, 64, 8, ["lib/Parse.eat"]),
+    ("NumParseBench", 200_000, 64, 8, ["lib/fmt/Parse.eat"]),
     ("StrBench", 1_280_000, 8, 2),
     # расширение 2026-07-14: слои плана оптимизаций (COMPTIME_PLAN §0,
     # TRACKS 3/4) — каждая программа метрика своего слоя
@@ -80,7 +80,7 @@ RUNTIME_PROGRAMS = [
     ("SortBench", 250_000, 512, 64),
     ("BranchBench", 500_000, 512, 64),
     ("MachineBench", 500_000, 512, 64),
-    # 128-битная арифметика lib/U128.eat (U128_PLAN, замер этапа 4):
+    # 128-битная арифметика lib/core/U128.eat (U128_PLAN, замер этапа 4):
     # модуль с import-шапкой — cat-режим невозможен, сборку ведёт
     # драйвер ("driver" → eatc --lib .). Микс — LCG128+mul_64 (крипто),
     # деление — полный divrem (128 итераций) + divrem_32.
@@ -313,11 +313,11 @@ def bench_runtime(quick: bool):
 
         # нативный замер: REPEAT масштабируем, чтобы уйти от шума таймера
         rep = rep_quick if quick else rep_full
-        marker = "const REPEAT: u32 = 1"
+        marker = "constexpr REPEAT: u32 = 1"
         assert marker in text, f"{name}: нет константы REPEAT"
         xl_src = OUT / f"{name}XL.eat"
         xl_src.write_text(text.replace(
-            marker, f"const REPEAT: u32 = {rep}"), encoding="utf-8")
+            marker, f"constexpr REPEAT: u32 = {rep}"), encoding="utf-8")
         bin_xl = OUT / f"{name}XL"
         bxl = run_timed(eatc("build", *head, *libs, str(xl_src),
                              "-o", str(bin_xl)))
@@ -454,7 +454,7 @@ def bench_stress(quick: bool):
 
 # ==== Секция 4: self-hosted компилятор ==================================
 
-LIB_FRONT = ["lib/Const.eat", "lib/Ascii.eat", "lib/Buf.eat", "lib/Hex.eat"]
+LIB_FRONT = ["lib/core/Const.eat", "lib/fmt/Ascii.eat", "lib/core/Buf.eat", "lib/fmt/Hex.eat"]
 
 SELF_BINARIES = {
     "SelfLex": LIB_FRONT + ["selfhost/lex/Tok.eat", "selfhost/lex/Lexer.eat",
@@ -559,7 +559,7 @@ SELF_STAGES = [
     ("SelfSig", "sig", LIB_FRONT + SELF_MID + ["selfhost/check/SigMain.eat"]),
     ("SelfTyped", "typed", LIB_FRONT + SELF_MID + ["selfhost/check/TypedMain.eat"]),
     ("SelfIr", "ir",
-     LIB_FRONT + ["lib/Fmt.eat"] + SELF_MID +
+     LIB_FRONT + ["lib/fmt/Fmt.eat"] + SELF_MID +
      ["selfhost/ir/Ir.eat", "selfhost/ir/IrEmit.eat", "selfhost/ir/IrExpr.eat",
       "selfhost/ir/IrStmt.eat", "selfhost/ir/IrMain.eat"]),
 ]
@@ -643,9 +643,9 @@ def bench_compiler(quick: bool):
 # ==== Секция 6: размеры бинарников и данных (метрика МК/флеша) ==========
 
 # Типичная МК-программа набора — эмулятор mos6502 (examples/);
-# после этапа модулей зависит от lib/Hex.eat (зеркало MOS6502_EXAMPLE
+# после этапа модулей зависит от lib/fmt/Hex.eat (зеркало MOS6502_EXAMPLE
 # из Makefile — модули подключаются явным списком файлов)
-MOS_LIB = [Path("lib/Hex.eat")]
+MOS_LIB = [Path("lib/fmt/Hex.eat")]
 MOS_SRCS = ["Cpu6502.eat", "Tests.eat", "Main.eat"]
 
 

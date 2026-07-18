@@ -20,7 +20,6 @@ struct Dec {
 }
 
 func fmt_u32(n: u32) -> Dec
-    requires true
     ensures result.ln >= 1 and result.ln <= 10
 {
     let t: [u8; 10] = [0; 10]
@@ -45,7 +44,6 @@ func fmt_u32(n: u32) -> Dec
 }
 
 func fmt_u64(n: u64) -> Dec
-    requires true
     ensures result.ln >= 1 and result.ln <= 20
 {
     let t: [u8; 20] = [0; 20]
@@ -72,7 +70,6 @@ func fmt_u64(n: u64) -> Dec
 # Магнитуда через (n + 1): -2147483648 выразим без переполнения
 # (как RtStr.append_i32); знак — первым байтом.
 func fmt_i32(n: i32) -> Dec
-    requires true
     ensures result.ln >= 1 and result.ln <= 11
 {
     if n >= 0 {
@@ -92,8 +89,6 @@ func fmt_i32(n: i32) -> Dec
 
 # Дамп Dec в тестах: собранная строка совпадает с эталоном?
 func fmt_is(t: Dec, kw: str<32>) -> bool
-    requires true
-    ensures true
 {
     if t.ln != len(kw) {
         return false

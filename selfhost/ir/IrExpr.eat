@@ -8,7 +8,6 @@ extend Ir {
 
     func xpush2(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         if self.nx3 >= 64 {
             self.fail("слишком глубокое выражение")
@@ -28,7 +27,6 @@ extend Ir {
 
     func expr_run(let self, root: u32)
         requires root < 131072
-        ensures true
     {
         self.nx3 = 0
         self.xpush2(root)
@@ -45,7 +43,6 @@ extend Ir {
 
     func xstep(let self)
         requires self.nx3 >= 1
-        ensures true
     {
         const f: u32 = self.nx3 - 1
         const n: u32 = self.xn3[f]
@@ -77,7 +74,6 @@ extend Ir {
 
     func xleaf(let self, n: u32, k: u32)
         requires n < 131072
-        ensures true
     {
         if k == 32 {
             const m: u64 = self.c.p.mag(n)
@@ -101,7 +97,6 @@ extend Ir {
 
     func xname(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const a: u32 = self.c.p.nss[n / 65536][n % 65536]
         const l: u32 = self.c.p.nsl[n / 65536][n % 65536]
@@ -163,7 +158,6 @@ extend Ir {
 
     func xstr(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp3[f]
         if ph == 0 {
@@ -226,7 +220,6 @@ extend Ir {
     # Выражение-сегмент готово (er): подобрать eat_str_append_*.
     func xseg(let self, f: u32)
         requires f < 64
-        ensures true
     {
         const tk: u32 = self.c.yk[self.ert]
         if tk == 6 {
@@ -274,7 +267,6 @@ extend Ir {
 
     func xun(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if self.xp3[f] == 0 {
             self.xp3[f] = 1
@@ -334,7 +326,6 @@ extend Ir {
 
     func xbin(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const op: u32 = self.c.p.nx[n / 65536][n % 65536]
         if op <= 2 {
@@ -364,7 +355,6 @@ extend Ir {
     # Короткое замыкание and/or (op: 1 or, 2 and).
     func xsc(let self, f: u32, n: u32, op: u32)
         requires f < 64 and n < 131072 and op <= 2
-        ensures true
     {
         const ph: u32 = self.xp3[f]
         if ph == 0 {
@@ -415,7 +405,6 @@ extend Ir {
 
     func xbfin(let self, f: u32, n: u32, op: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const lt: u32 = self.xd3[f]
         const lk: u32 = self.c.yk[lt]
@@ -466,7 +455,6 @@ extend Ir {
     # Арифметика с проверками; левый операнд в кадре, правый в er.
     func xarith(let self, f: u32, n: u32, op: u32)
         requires f < 64 and n < 131072 and op >= 10 and op <= 14
-        ensures true
     {
         const lt: u32 = self.xd3[f]
         const lk: u32 = self.c.yk[lt]
@@ -525,7 +513,6 @@ extend Ir {
     # (рисунок инструкций и trap'ов — байт-в-байт как у эталона).
     func xbit(let self, f: u32, n: u32, op: u32)
         requires f < 64 and n < 131072 and op >= 16 and op <= 20
-        ensures true
     {
         const lt: u32 = self.xd3[f]
         if op <= 18 {
@@ -550,7 +537,6 @@ extend Ir {
     # битов (обратный lshr обязан восстановить операнд).
     func xshift(let self, f: u32, n: u32, op: u32, lt: u32)
         requires f < 64 and n < 131072 and lt < 512
-        ensures true
     {
         const lk: u32 = self.c.yk[lt]
         const rk: u32 = self.erk
@@ -611,7 +597,6 @@ extend Ir {
 
     func xdiv(let self, f: u32, n: u32, op: u32, lt: u32)
         requires f < 64 and n < 131072 and lt < 512
-        ensures true
     {
         const rk: u32 = self.erk
         const ra: u32 = self.era
@@ -671,7 +656,6 @@ extend Ir {
 
     func xcall(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if self.xp3[f] == 0 {
             self.xcall_start(f, n)
@@ -682,7 +666,6 @@ extend Ir {
 
     func xcall_start(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const s0: u32 = self.c.nfs[n / 65536][n % 65536]
         if s0 != NONE {
@@ -775,7 +758,6 @@ extend Ir {
 
     func xcall_len(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const at: u32 = self.c.nty[self.c.p.nfc[n / 65536][n % 65536] / 65536][
             self.c.p.nfc[n / 65536][n % 65536] % 65536
@@ -793,7 +775,6 @@ extend Ir {
 
     func xcall_user(let self, f: u32, n: u32, a: u32, l: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const fi: u32 = self.c.find_func(a, l)
         self.xa3[f] = 0
@@ -817,7 +798,6 @@ extend Ir {
 
     func xcall_next(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const code: u32 = self.xa3[f]
         if code == 1 or code == 2 {
@@ -905,7 +885,6 @@ extend Ir {
     # границы off > N или len > N - off — trap (как codegen.py).
     func xwspan(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const base: u32 = self.xg3[f]
         const arg0: u32 = self.c.p.nfc[n / 65536][n % 65536]
@@ -955,7 +934,6 @@ extend Ir {
     # arg_len(i): i в er; i >= arg_count() — trap, результат u32.
     func xarglen(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         self.e_argcount()
         self.set1er()
@@ -973,7 +951,6 @@ extend Ir {
     # (i >= arg_count(), j >= arg_len(i)) — trap, как codegen.py.
     func xargbyte(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const base: u32 = self.xg3[f]
         const ik: u32 = self.agk[base]
@@ -1010,7 +987,6 @@ extend Ir {
     # (правило 4: хелпер, чтобы не раздувать xcall_start).
     func xsock_start(let self, f: u32, n: u32, a: u32, l: u32) -> bool
         requires f < 64 and n < 131072
-        ensures true
     {
         if self.c.span_is(a, l, "socket_listen") {
             self.xa3[f] = 11
@@ -1036,7 +1012,6 @@ extend Ir {
     # Готов очередной аргумент сокет-аксиомы (коды 11..16).
     func xsock_next(let self, f: u32, n: u32, code: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if code == 11 {
             self.xslisten(n)
@@ -1074,7 +1049,6 @@ extend Ir {
     # xrbyte; ошибка одна — Err(Fail), вариант 1 (gen_socket_listen).
     func xslisten(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const t: u32 = self.c.nty[n / 65536][n % 65536]
         self.set1er()
@@ -1138,7 +1112,6 @@ extend Ir {
     # ошибки выбирается по значению (gen_socket_read_byte).
     func xsrbyte(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const t: u32 = self.c.nty[n / 65536][n % 65536]
         self.set1er()
@@ -1212,7 +1185,6 @@ extend Ir {
     # рантайме (общий путь новых аксиом, элизии оси -O нет).
     func xswspan(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const base: u32 = self.xg3[f]
         const arg1: u32 = self.c.nth_child(n, 1)
@@ -1264,7 +1236,6 @@ extend Ir {
     # Завершение вызова функции/метода: аргументы в ag[xg3..nag).
     func xufin(let self, f: u32)
         requires f < 64
-        ensures true
     {
         const fi: u32 = self.xb3[f]
         const base: u32 = self.xg3[f]
@@ -1296,7 +1267,6 @@ extend Ir {
     # Корень lvalue-пути (a, a.f, a[i] → узел name/self); NONE — rvalue.
     func lv_root(self, n: u32) -> u32
         requires n < 131072
-        ensures true
     {
         let m: u32 = n
         for _ in 0..32 {
@@ -1316,7 +1286,6 @@ extend Ir {
     # Перекрытие lvalue-путей: общий корень (a и a.f/a[i]; self и self).
     func lv_overlap(let self, an: u32, bn: u32) -> bool
         requires an < 131072 and bn < 131072
-        ensures true
     {
         const r1: u32 = self.lv_root(an)
         const r2: u32 = self.lv_root(bn)
@@ -1339,7 +1308,6 @@ extend Ir {
 
     func xmeth(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp3[f]
         const obj: u32 = self.c.p.nfc[n / 65536][n % 65536]
@@ -1388,7 +1356,6 @@ extend Ir {
 
     func xmeth_obj(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const st2: u32 = self.ert
         const si: u32 = self.c.find_struct(self.c.ys[st2], self.c.yl[st2])
@@ -1422,7 +1389,6 @@ extend Ir {
     # Конструктор варианта enum с нагрузкой: E.V(x).
     func xctor(let self, f: u32, n: u32, obj: u32)
         requires f < 64 and n < 131072 and obj < 131072
-        ensures true
     {
         const ei: u32 = self.c.find_enum(
             self.c.p.nss[obj / 65536][obj % 65536], self.c.p.nsl[obj / 65536][obj % 65536]
@@ -1459,7 +1425,6 @@ extend Ir {
     # с gen_tagged_ctor: alloca, store тега, gep слота, payload).
     func xtctor(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const a: u32 = self.c.p.nss[n / 65536][n % 65536]
         const l: u32 = self.c.p.nsl[n / 65536][n % 65536]
@@ -1499,7 +1464,6 @@ extend Ir {
 
     # Тег встроенного enum-варианта.
     func builtin_vtag(let self, va: u32, vl: u32) -> u32
-        requires true
         ensures result <= 2
     {
         if self.c.span_is(va, vl, "Eof") or self.c.span_is(va, vl, "Empty") {
@@ -1513,7 +1477,6 @@ extend Ir {
 
     func xmem(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const obj: u32 = self.c.p.nfc[n / 65536][n % 65536]
         if self.xp3[f] == 0 {
@@ -1551,7 +1514,6 @@ extend Ir {
     # Литерал варианта без нагрузки: E.V.
     func xmem_enum(let self, n: u32, obj: u32)
         requires n < 131072 and obj < 131072
-        ensures true
     {
         const ety: u32 = self.c.nty[n / 65536][n % 65536]
         const ei: u32 = self.c.find_enum(
@@ -1601,8 +1563,6 @@ extend Ir {
     # Индекс u8/u16 расширяется до i32; 64-битный индекс помечается
     # флагом idxw — границы сверяются в i64, ужатие делает idx_gep.
     func widen(let self)
-        requires true
-        ensures true
     {
         self.idxw = 0
         if self.c.yk[self.ert] == 2 {
@@ -1622,7 +1582,6 @@ extend Ir {
     # индекс — er (i32; при idxw == 1 — i64: границы в i64, потом trunc).
     func idx_gep(let self, n: u32, bk: u32, ba: u32, bb: u32, bt: u32)
         requires n < 131072 and bt < 512
-        ensures true
     {
         const iw: u32 = self.idxw
         let ik: u32 = self.erk
@@ -1691,7 +1650,6 @@ extend Ir {
 
     func xidx(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp3[f]
         if ph == 0 {
@@ -1727,7 +1685,6 @@ extend Ir {
 
     func xslit(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp3[f]
         if ph == 0 {
@@ -1770,7 +1727,6 @@ extend Ir {
 
     func xalit(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const ph: u32 = self.xp3[f]
         if ph == 0 {
@@ -1808,7 +1764,6 @@ extend Ir {
 
     func xafill(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         if self.xp3[f] == 0 {
             self.nm_lit("arr.fill")
@@ -1825,7 +1780,6 @@ extend Ir {
 
     func xafill_fin(let self, f: u32, n: u32)
         requires f < 64 and n < 131072
-        ensures true
     {
         const t: u32 = self.c.nty[n / 65536][n % 65536]
         const et: u32 = self.c.ya[t]
@@ -1877,7 +1831,6 @@ extend Ir {
 
     func xrbyte(let self, n: u32)
         requires n < 131072
-        ensures true
     {
         const t: u32 = self.c.nty[n / 65536][n % 65536]
         self.e_rbyte()
@@ -1933,7 +1886,6 @@ extend Ir {
     # 103 u16, 104 char.
     func xcast(let self, n: u32, code: u32)
         requires n < 131072 and code >= 100
-        ensures true
     {
         const st2: u32 = self.ert
         const sk2: u32 = self.c.yk[st2]
@@ -2012,7 +1964,6 @@ extend Ir {
     # в u64/i64 — zext, в i32/u32 — zext (всегда помещается).
     func xcast_from_u16(let self, n: u32, st2: u32, code: u32)
         requires n < 131072 and st2 < 512
-        ensures true
     {
         if code == 103 {
             self.ert = st2
@@ -2070,7 +2021,6 @@ extend Ir {
     # Верхняя граница цели каста (для сужения из 64 бит).
     func cast_hi(let self, code: u32) -> u64
         requires code >= 100
-        ensures true
     {
         if code == 100 {
             return 2147483647
@@ -2091,7 +2041,6 @@ extend Ir {
     # диапазону цели, u64 ↔ i64 — проверка без смены ширины.
     func xcast_from64(let self, n: u32, st2: u32, code: u32)
         requires n < 131072 and st2 < 512 and code >= 100
-        ensures true
     {
         const sk2: u32 = self.c.yk[st2]
         if (code == 111 and sk2 == 13) or (code == 112 and sk2 == 14) {
@@ -2176,7 +2125,6 @@ extend Ir {
     # отрицательный i32 в u64.
     func xcast_to64(let self, n: u32, st2: u32, sk2: u32, code: u32)
         requires n < 131072 and st2 < 512 and code >= 100
-        ensures true
     {
         if sk2 == 0 {
             if code == 111 and not self.an(n, 8) {
@@ -2201,7 +2149,6 @@ extend Ir {
     # Цель u16, источник i32/u32: trap вне [0, 65535] и trunc.
     func xcast_u16(let self, n: u32, st2: u32, sk2: u32)
         requires n < 131072 and st2 < 512
-        ensures true
     {
         if not self.an(n, 8) {
             if sk2 == 0 {
@@ -2234,7 +2181,6 @@ extend Ir {
 
     func xcast_u8(let self, n: u32, st2: u32, sk2: u32)
         requires n < 131072 and st2 < 512
-        ensures true
     {
         if not self.an(n, 8) {
             if sk2 == 0 {
@@ -2270,7 +2216,6 @@ extend Ir {
     # Указатель на цель присваивания; результат — lvk/lva/lvb.
     func lvalue(let self, tgt: u32)
         requires tgt < 131072
-        ensures true
     {
         let path: [u32; 32] = [0; 32]
         let np: u32 = 0

@@ -10,7 +10,7 @@ import {
     Q32,
     q32,
     q32_ratio,
-} from "lib/Fixed.eat"
+} from "lib/fmt/Fixed.eat"
 
 func main() {
     # 1.25 точен в двоичной сетке 1/65536 — произведение без потерь

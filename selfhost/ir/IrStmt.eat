@@ -8,7 +8,6 @@ extend Ir {
 
     func spush(let self, k: u32, nd: u32, cur: u32)
         requires k <= 4 and nd < 131072
-        ensures true
     {
         if self.ns4 >= 64 {
             self.fail("слишком глубокая вложенность")
@@ -29,7 +28,6 @@ extend Ir {
 
     func start_blk(let self, body: u32)
         requires body < 131072
-        ensures true
     {
         self.push_sc()
         self.spush(0, body, self.c.p.nfc[body / 65536][body % 65536])
@@ -37,7 +35,6 @@ extend Ir {
 
     func st_run(let self, body: u32)
         requires body < 131072
-        ensures true
     {
         self.ns4 = 0
         self.start_blk(body)
@@ -54,7 +51,6 @@ extend Ir {
 
     func sstep(let self)
         requires self.ns4 >= 1
-        ensures true
     {
         const k: u32 = self.sk4[self.ns4 - 1]
         if k == 0 {
@@ -72,7 +68,6 @@ extend Ir {
 
     func s_blk(let self)
         requires self.ns4 >= 1
-        ensures true
     {
         const f: u32 = self.ns4 - 1
         if self.bkt[self.cb] == 1 {
@@ -92,7 +87,6 @@ extend Ir {
 
     func s_stmt(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
         if k == 13 {
@@ -120,7 +114,6 @@ extend Ir {
 
     func s_let(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const t: u32 = self.c.nty[cur / 65536][cur % 65536]
         self.expr_run(
@@ -141,7 +134,6 @@ extend Ir {
 
     func s_assign(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const tgt: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         self.expr_run(self.c.p.nns[tgt / 65536][tgt % 65536])
@@ -159,7 +151,6 @@ extend Ir {
 
     func s_assert(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         if self.an(cur, 128) {
             # доказан статически (ось -O) — проверка не нужна, условие
@@ -180,7 +171,6 @@ extend Ir {
 
     func s_ret(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const v: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         if v != NONE {
@@ -197,7 +187,6 @@ extend Ir {
 
     func s_if_start(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const mrg: u32 = self.blk_new("if.end")
         self.spush(1, cur, self.c.p.nfc[cur / 65536][cur % 65536])
@@ -207,7 +196,6 @@ extend Ir {
 
     func s_if(let self)
         requires self.ns4 >= 1
-        ensures true
     {
         const f: u32 = self.ns4 - 1
         const stage: u32 = self.sc4[f]
@@ -277,7 +265,6 @@ extend Ir {
 
     func s_for_start(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const it: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         const cty: u32 = self.for_cty(cur, it)
@@ -332,7 +319,6 @@ extend Ir {
     # Инициализация счётчика и предел (u1) / источник (u2, uty).
     func s_for_src(let self, cur: u32, it: u32, is2: u32, il2: u32)
         requires cur < 131072 and it < 131072
-        ensures true
     {
         if self.c.p.nk[it / 65536][it % 65536] == 49 {
             const ri: u32 = self.c.range_of(cur)
@@ -377,7 +363,6 @@ extend Ir {
     # Слот переменной цикла; w1 — текущее значение счётчика (i32).
     func s_for_slot(let self, cur: u32, it: u32)
         requires cur < 131072 and it < 131072
-        ensures true
     {
         if self.c.span_is(
             self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536], "_"
@@ -433,7 +418,6 @@ extend Ir {
 
     func s_for(let self)
         requires self.ns4 >= 1
-        ensures true
     {
         const f: u32 = self.ns4 - 1
         self.nlx = self.nlx - 1
@@ -456,7 +440,6 @@ extend Ir {
 
     func s_loop_start(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const bodyb: u32 = self.blk_new("loop")
         const afterb: u32 = self.blk_new("loop.end")
@@ -476,7 +459,6 @@ extend Ir {
 
     func s_loop(let self)
         requires self.ns4 >= 1
-        ensures true
     {
         const f: u32 = self.ns4 - 1
         self.nlx = self.nlx - 1
@@ -487,7 +469,6 @@ extend Ir {
 
     func s_match_start(let self, cur: u32)
         requires cur < 131072
-        ensures true
     {
         const subj: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         self.expr_run(subj)
@@ -533,7 +514,6 @@ extend Ir {
 
     func s_match(let self)
         requires self.ns4 >= 1
-        ensures true
     {
         const f: u32 = self.ns4 - 1
         if self.sg4[f] == 1 {
@@ -555,7 +535,6 @@ extend Ir {
     # Значение кейса варианта арма в домене dom.
     func arm_tag(let self, dom: u32, arm: u32) -> u32
         requires dom < 512 and arm < 131072
-        ensures true
     {
         const dk: u32 = self.c.yk[dom]
         const va: u32 = self.c.p.nss[arm / 65536][arm % 65536]
@@ -583,7 +562,6 @@ extend Ir {
     # Слот нагрузки варианта арма в домене dom.
     func arm_slot(let self, dom: u32, arm: u32) -> u32
         requires dom < 512 and arm < 131072
-        ensures true
     {
         const dk: u32 = self.c.yk[dom]
         if dk == 10 {
@@ -606,7 +584,6 @@ extend Ir {
 
     func s_arm(let self, f: u32, arm: u32)
         requires f < 64 and arm < 131072
-        ensures true
     {
         const dom: u32 = self.sd4[f]
         const ab: u32 = self.blk_arm(
@@ -628,7 +605,6 @@ extend Ir {
 
     func s_arm_bind(let self, f: u32, arm: u32, dom: u32, payload: u32, bind: u32)
         requires f < 64 and arm < 131072 and dom < 512 and payload < 512
-        ensures true
     {
         self.set1(self.sa4[f], self.sb4[f], self.sc4[f])
         self.e_gepc(dom, self.arm_slot(dom, arm))
@@ -647,8 +623,6 @@ extend Ir {
     # --- генерация функции ------------------------------------------------------
 
     func reset_fn(let self)
-        requires true
-        ensures true
     {
         self.lbl = 0
         self.lcu = 0
@@ -671,7 +645,6 @@ extend Ir {
     # k-й ребёнок вида kind у декларации d; NONE.
     func find_child(let self, d: u32, kind: u32) -> u32
         requires d < 131072
-        ensures true
     {
         let cc: u32 = self.c.p.nfc[d / 65536][d % 65536]
         let found: u32 = NONE
@@ -690,7 +663,6 @@ extend Ir {
     # Функция объявлена как extern (узел вида 50)?
     func fn_ext(let self, fi: u32) -> bool
         requires fi < 1024
-        ensures true
     {
         const d: u32 = self.c.fnd[fi]
         return self.c.p.nk[d / 65536][d % 65536] == 50
@@ -698,7 +670,6 @@ extend Ir {
 
     func gen_fn(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.gen_body(fi)
         if not self.failed {
@@ -711,7 +682,6 @@ extend Ir {
     # размера — у вызывающего.
     func gen_body(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.reset_fn()
         self.fi2 = fi
@@ -764,64 +734,219 @@ extend Ir {
     # отдельным проходом gen_body без печати (генерация детерминирована,
     # Check только читается), затем сброс модульных пулов и реальная
     # печать с ` alwaysinline` в define-строках помеченных функций.
-    # Рёбра графа вызовов пишутся прямо на сайтах эмиссии call к
-    # определённой функции (rec_edge под msr==1): пользовательские через
-    # e_ucall (fi под рукой), встроенные — методы RtStr (fi по владельцу
-    # rsi + имени через rt_mfi). Аксиомы/интринзики (extern, llvm.*) — не
-    # рёбра: их нет в таблице define-функций.
+    # Вызываемые — сканом строк lb на `call ... @"ИМЯ"` (как Python по
+    # тексту) с разрешением карты мангл-имя→fi: покрывает и e_ucall, и
+    # встроенные RtStr-вызовы (print/write/append/eq) одинаково.
 
-    # Ребро вызывающий(fi2)→вызываемый(cf) в измерительном проходе; сайт
-    # cf учитывается для бюджета. Дубли допускаются — замыкание проверяет
-    # «все вызываемые помечены», повтор безвреден.
-    func rec_edge(let self, cf: u32)
-        requires true
-        ensures true
+    # --- карта мангл-имя → fi (хелперы слиты в вызывающие: потолок §6) ----
+    func mq_lit(let self, s: str<16>)
     {
-        if self.ine >= 32768 {
-            self.fail("переполнен граф вызовов инлайн-хинтов")
-            return
-        }
-        if cf < 1024 and self.fi2 < 1024 {
-            self.iec[self.ine] = cf
-            self.ien[self.ine] = self.ihd[self.fi2]
-            self.ihd[self.fi2] = self.ine
-            self.ine = self.ine + 1
-            self.ist[cf] = self.ist[cf] + 1
+        for i in 0..16 {
+            if i >= len(s) {
+                break
+            }
+            if self.imql < 256 {
+                self.imq[self.imql] = u8(s[i])
+                self.imql = self.imql + 1
+            }
         }
     }
 
-    # fi метода RtStr с именем pfx++sfx (владелец — self.rsi). Пустой sfx
-    # — имя целиком в pfx. NONE, если метод не найден (или RtStr нет). Имя
-    # сверяется с таблицей функций Check (span_is), не с текстом IR.
-    func rt_mfi(let self, pfx: str<16>, sfx: str<16>) -> u32
-        requires true
-        ensures true
+    func mq_sb(let self, a: u32, l: u32)
     {
-        if self.rsi == NONE {
-            return NONE
-        }
-        const lp: u32 = len(pfx)
-        const ls: u32 = len(sfx)
-        let res: u32 = NONE
-        for fi in 0..1024 {
-            if fi >= self.c.nfun or res != NONE {
+        for i in 0..256 {
+            if i >= l {
                 break
             }
-            if self.c.fown[fi] == self.rsi {
-                const a: u32 = self.c.fn_s[fi]
-                const l: u32 = self.c.fn_l[fi]
-                if l == lp + ls and l <= 16 {
-                    let ok: bool = self.c.span_is(a, lp, pfx)
-                    if ls > 0 {
-                        ok = ok and self.c.span_is(a + lp, ls, sfx)
+            if self.imql < 256 {
+                self.imq[self.imql] = self.c.p.lex.sb_at(a + i)
+                self.imql = self.imql + 1
+            }
+        }
+    }
+
+    # Мангл-имя функции fi в imq — зеркало o_mangle (eat_[Owner__]name).
+    func mn_gen(let self, fi: u32)
+        requires fi < 1024
+    {
+        self.imql = 0
+        self.mq_lit("eat_")
+        const own: u32 = self.c.fown[fi]
+        if own != NONE {
+            self.mq_sb(self.c.sn_s[own], self.c.sn_l[own])
+            self.mq_lit("__")
+        }
+        self.mq_sb(self.c.fn_s[fi], self.c.fn_l[fi])
+    }
+
+    # Хеш имени в imq (тот же класс, что g_hash: 31-основание по модулю).
+    func mn_hash(self) -> u32
+    {
+        let h: u32 = 0
+        for i in 0..256 {
+            if i >= self.imql {
+                break
+            }
+            h = (h % 131072) * 31 + u32(self.imq[i])
+        }
+        return h
+    }
+
+    # Вставить fi в карту: имя из imq копируется в imnp, слот по хешу
+    # (open addressing, линейное пробирование; ≤1 break на цикл).
+    func mn_insert(let self, fi: u32)
+        requires fi < 1024
+    {
+        const base: u32 = self.imnpl
+        self.imns[fi] = base
+        self.imnc[fi] = self.imql
+        for i in 0..256 {
+            if i >= self.imql {
+                break
+            }
+            if (base + i) < 65536 {
+                self.imnp[base + i] = self.imq[i]
+            }
+        }
+        self.imnpl = base + self.imql
+        let slot: u32 = self.mn_hash() & 2047
+        let placed: bool = false
+        for _ in 0..2048 {
+            if placed {
+                break
+            }
+            if self.imh[slot] == NONE {
+                self.imh[slot] = fi
+                placed = true
+            } else {
+                slot = (slot + 1) & 2047
+            }
+        }
+    }
+
+    # Разрешить имя в imq → fi (NONE — не определённая функция). Сравнение
+    # байтов с сохранённым именем встроено (было mn_eqp); ≤1 break/цикл.
+    func mn_find(self) -> u32
+    {
+        let slot: u32 = self.mn_hash() & 2047
+        let res: u32 = NONE
+        let done: bool = false
+        for _ in 0..2048 {
+            if done {
+                break
+            }
+            const fi: u32 = self.imh[slot]
+            if fi == NONE {
+                done = true
+            } elif fi < 1024 and self.imnc[fi] == self.imql {
+                let eq: bool = true
+                const base: u32 = self.imns[fi]
+                for i in 0..256 {
+                    if i >= self.imql or not eq {
+                        break
                     }
-                    if ok {
-                        res = fi
+                    if (base + i) < 65536 {
+                        if self.imnp[base + i] != self.imq[i] {
+                            eq = false
+                        }
                     }
                 }
+                if eq {
+                    res = fi
+                    done = true
+                } else {
+                    slot = (slot + 1) & 2047
+                }
+            } else {
+                slot = (slot + 1) & 2047
             }
         }
         return res
+    }
+
+    # Вызываемое строки li → imq (true, если строка — `call` к @"ИМЯ").
+    # Зеркало Python: первое `@"` после `call ` — вызываемое (тип до него
+    # `@` не содержит; аргументы-глобалы идут после). "call "
+    # (99 97 108 108 32) и '@"'(64 34) — байтами; ≤1 break на цикл.
+    func line_callee(let self, li: u32) -> bool
+        requires li < 65536
+    {
+        const a: u32 = self.lns[li]
+        const l: u32 = self.lnl[li]
+        let ci: u32 = NONE
+        for i in 0..65536 {
+            if i + 5 > l or ci != NONE {
+                break
+            }
+            if (a + i + 4) < 4194304 {
+                let m: bool = self.lb_at(a + i) == 99
+                m = m and self.lb_at(a + i + 1) == 97
+                m = m and self.lb_at(a + i + 2) == 108
+                m = m and self.lb_at(a + i + 3) == 108
+                m = m and self.lb_at(a + i + 4) == 32
+                if m {
+                    ci = i
+                }
+            }
+        }
+        if ci == NONE {
+            return false
+        }
+        let qi: u32 = NONE
+        for i in 0..65536 {
+            if i + 1 >= l or qi != NONE {
+                break
+            }
+            if i > ci and (a + i + 1) < 4194304 {
+                if self.lb_at(a + i) == 64 and self.lb_at(a + i + 1) == 34 {
+                    qi = i + 2
+                }
+            }
+        }
+        if qi == NONE {
+            return false
+        }
+        self.imql = 0
+        let stop: bool = false
+        for i in 0..256 {
+            if qi + i >= l or stop {
+                break
+            }
+            if (a + qi + i) < 4194304 {
+                const b: u8 = self.lb_at(a + qi + i)
+                if b == 34 {
+                    stop = true
+                } elif self.imql < 256 {
+                    self.imq[self.imql] = b
+                    self.imql = self.imql + 1
+                }
+            }
+        }
+        return true
+    }
+
+    # Записать рёбра вызовов функции fi (= self.fi2) по её строкам: для
+    # каждого разрешённого вызываемого cf — ребро fi2→cf и +сайт cf
+    # (бывший rec_edge встроен; дубли допускаются, замыкание проверяет
+    # «все помечены»).
+    func scan_calls(let self, fi: u32)
+        requires fi < 1024
+    {
+        for li in 0..65536 {
+            if li >= self.nln or self.ine >= 32768 {
+                break
+            }
+            if self.line_callee(li) {
+                const cf: u32 = self.mn_find()
+                if cf != NONE and cf < 1024 and self.fi2 < 1024 {
+                    self.iec[self.ine] = cf
+                    self.ien[self.ine] = self.ihd[self.fi2]
+                    self.ihd[self.fi2] = self.ine
+                    self.ine = self.ine + 1
+                    self.ist[cf] = self.ist[cf] + 1
+                }
+            }
+        }
     }
 
     # Замыкание снизу вверх (граф вызовов — DAG, рекурсии в языке нет):
@@ -829,8 +954,6 @@ extend Ir {
     # все определённые вызываемые помечены (fi станет листом). Пригодность
     # (бывшая im_ok) и обход списка вызываемых (бывшая im_leaf) встроены.
     func im_closure(let self)
-        requires true
-        ensures true
     {
         for _ in 0..1024 {
             let changed: bool = false
@@ -869,26 +992,23 @@ extend Ir {
         }
     }
 
-    # Измерительный проход: генерирует тела всех функций (в порядке emit),
-    # записывает размер и рёбра прямой эмиссией (msr==1); печати нет.
+    # Измерительный проход: строит карту имён, генерирует тела всех
+    # функций (в порядке emit), записывает размер и рёбра; печати нет.
     # Порядок деклараций — как в emit (k==6 функция, k==4 методы struct;
     # extern k==50 — declare, не измеряется, как и у Python: не в define).
     func measure(let self)
-        requires true
-        ensures true
     {
-        # индекс struct RtStr — владелец встроенных методов (rt_mfi),
-        # резолв до измерения (Check-таблица уже полна)
-        self.rsi = NONE
-        for si in 0..128 {
-            if si >= self.c.nstr or self.rsi != NONE {
+        # карта мангл-имя→fi всех определённых функций (не extern) — до
+        # измерения, чтобы вызовы вперёд по коду разрешались (был build_map)
+        for fi in 0..1024 {
+            if fi >= self.c.nfun {
                 break
             }
-            if self.c.span_is(self.c.sn_s[si], self.c.sn_l[si], "RtStr") {
-                self.rsi = si
+            if not self.fn_ext(fi) {
+                self.mn_gen(fi)
+                self.mn_insert(fi)
             }
         }
-        self.msr = 1
         let d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
             if d == NONE or self.failed {
@@ -911,20 +1031,17 @@ extend Ir {
             }
             d = self.c.p.nns[d / 65536][d % 65536]
         }
-        self.msr = 0
     }
 
     func measure_fn(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.gen_body(fi)
         if self.failed {
             return
         }
         # размер тела = строки-инструкции (nln) + вводный br entry (1) +
-        # по строке на switch; метки не в счёт. Рёбра уже записаны на
-        # сайтах эмиссии gen_body выше (rec_edge под msr==1).
+        # по строке на switch; метки не в счёт (был fn_isz)
         let s: u32 = self.nln + 1
         for b in 0..16384 {
             if b >= self.nbk {
@@ -935,6 +1052,7 @@ extend Ir {
             }
         }
         self.isz[fi] = s
+        self.scan_calls(fi)
         if self.iln < 1024 {
             self.ils[self.iln] = fi
             self.iln = self.iln + 1
@@ -947,8 +1065,6 @@ extend Ir {
     # восстанавливаются с нуля — реальный проход канонен (tyl обнуляет
     # цикл в начале emit).
     func reset_mod(let self)
-        requires true
-        ensures true
     {
         self.tpl = 0
         self.gpl = 0
@@ -968,7 +1084,6 @@ extend Ir {
 
     func gen_prologue(let self, fi: u32, own: u32)
         requires fi < 1024
-        ensures true
     {
         self.push_sc()
         let ai: u32 = 0
@@ -1004,7 +1119,6 @@ extend Ir {
 
     func gen_param(let self, pi: u32, ai: u32)
         requires pi < 1024
-        ensures true
     {
         const pt: u32 = self.c.pty[pi]
         if self.is_agg(pt) {
@@ -1024,7 +1138,6 @@ extend Ir {
 
     func gen_req(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         const d: u32 = self.c.fnd[fi]
         const rq: u32 = self.find_child(d, 9)
@@ -1053,7 +1166,6 @@ extend Ir {
 
     func gen_ens(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         const d: u32 = self.c.fnd[fi]
         const en: u32 = self.find_child(d, 10)
@@ -1085,8 +1197,6 @@ extend Ir {
     # --- печать модуля -----------------------------------------------------------
 
     func p_sep(let self)
-        requires true
-        ensures true
     {
         if self.fst == 1 {
             self.fst = 0
@@ -1099,7 +1209,6 @@ extend Ir {
     # длинная строка (инлайн-типы) может пересечь до 64 границ.
     func o_lb(let self, a: u32, l: u32)
         requires a <= 4194304 and l <= 4194304
-        ensures true
     {
         let pos: u32 = a
         let left: u32 = l
@@ -1120,29 +1229,22 @@ extend Ir {
     }
 
     func o_nb(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         write_span(self.nb, a, l)
     }
 
     func o_tp(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         write_span(self.tp, a, l)
     }
 
     func o_sb(let self, a: u32, l: u32)
-        requires true
-        ensures true
     {
         self.c.p.lex.w_span(a, l)
     }
 
     func o_ty(let self, t: u32)
         requires t < 512
-        ensures true
     {
         self.ty_build(t)
         self.o_tp(self.tys[t], self.tyl[t])
@@ -1150,7 +1252,6 @@ extend Ir {
 
     func o_mangle(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         write("eat_")
         const own: u32 = self.c.fown[fi]
@@ -1163,7 +1264,6 @@ extend Ir {
 
     func p_fn(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.p_sep()
         write("define ")
@@ -1195,7 +1295,6 @@ extend Ir {
     # nounwind; массивы — указатель read-only (граница доверия v1).
     func p_extern(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         self.p_sep()
         write("declare ")
@@ -1226,7 +1325,6 @@ extend Ir {
 
     func p_args(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         let i: u32 = 0
         if self.aggr == 1 {
@@ -1264,8 +1362,6 @@ extend Ir {
     }
 
     func p_blocks(let self)
-        requires true
-        ensures true
     {
         let b: u32 = 0
         let li: u32 = 0
@@ -1300,8 +1396,6 @@ extend Ir {
     }
 
     func o_ref(let self, k: u32, a: u32, b: u32)
-        requires true
-        ensures true
     {
         if k == 0 {
             write("%\".{a}\"")
@@ -1328,7 +1422,6 @@ extend Ir {
 
     func p_switch(let self, s: u32)
         requires s < 512
-        ensures true
     {
         write("  switch i32 ")
         self.o_ref(self.swk[s], self.swa[s], self.swb[s])
@@ -1354,8 +1447,6 @@ extend Ir {
     }
 
     func p_esc(let self, b: u8)
-        requires true
-        ensures true
     {
         if b >= 32 and b <= 126 and b != 34 and b != 92 {
             write_byte(b)
@@ -1367,7 +1458,6 @@ extend Ir {
 
     func p_glob(let self, g: u32)
         requires g < 65536
-        ensures true
     {
         const l: u32 = self.gsl[g]
         if self.gvk[g] == 1 {
@@ -1399,7 +1489,6 @@ extend Ir {
 
     func p_it(let self, id: u32)
         requires id >= 1 and id <= 18
-        ensures true
     {
         if id >= 13 {
             write("i64")
@@ -1414,7 +1503,6 @@ extend Ir {
 
     func p_iname(let self, id: u32)
         requires id >= 1 and id <= 18
-        ensures true
     {
         if id == 1 or id == 16 {
             write("sadd")
@@ -1433,7 +1521,6 @@ extend Ir {
 
     func p_intr(let self, id: u32)
         requires id < 32
-        ensures true
     {
         if id == 0 {
             write("declare void @\"llvm.memcpy.p0i8.p0i8.i64\"(")
@@ -1454,8 +1541,6 @@ extend Ir {
     }
 
     func p_tail(let self)
-        requires true
-        ensures true
     {
         for i in 0..65536 {
             if i >= self.ntl {
@@ -1471,8 +1556,6 @@ extend Ir {
     }
 
     func p_head(let self)
-        requires true
-        ensures true
     {
         write("; ModuleID = \"stdin\"\n")
         write("target triple = \"\"\n")
@@ -1523,8 +1606,6 @@ extend Ir {
     }
 
     func p_main(let self)
-        requires true
-        ensures true
     {
         self.p_sep()
         write("define i32 @\"main\"(i32 %\".1\", i8** %\".2\") norecurse nounwind\n")
@@ -1542,8 +1623,6 @@ extend Ir {
     # declare'ов, до функций (порядок объявления). Строка без хвостового
     # \n: завершит её следующий p_sep (соглашение p_glob).
     func p_constexpr_globals(let self)
-        requires true
-        ensures true
     {
         let d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
@@ -1564,7 +1643,6 @@ extend Ir {
 
     func p_one_constexpr(let self, ci: u32, na: u32, nl: u32)
         requires ci < 128
-        ensures true
     {
         const ty: u32 = self.c.cty[ci]
         const et: u32 = self.c.ya[ty]
@@ -1597,8 +1675,6 @@ extend Ir {
     }
 
     func emit(let self)
-        requires true
-        ensures true
     {
         # ось -O: измерить тела, замкнуть граф, сбросить пулы — до печати
         if self.him == 1 {
@@ -1649,8 +1725,6 @@ extend Ir {
     # Таблица режима trap-кодов: `; trap <код>: <сообщение>` —
     # комментарии в самом хвосте .ll (во флеш не попадают).
     func p_trapmap(let self)
-        requires true
-        ensures true
     {
         for g in 0..65536 {
             if g >= self.ngl {

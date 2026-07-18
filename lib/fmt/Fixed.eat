@@ -36,13 +36,13 @@ export {
 import {
     Dec,
     fmt_u32,
-} from "lib/Fmt.eat"
+} from "lib/fmt/Fmt.eat"
 
 import {
     I128,
     i128,
     i128_make,
-} from "lib/U128.eat"
+} from "lib/core/U128.eat"
 
 constexpr Q16_SCALE: i32 = 65536
 constexpr Q32_SCALE: i64 = 4294967296
@@ -51,63 +51,47 @@ struct Q16 {
     v: i32
 
     func add(self, o: Q16) -> Q16
-        requires true
-        ensures true
     {
         return Q16 { v: self.v + o.v }
     }
 
     func sub(self, o: Q16) -> Q16
-        requires true
-        ensures true
     {
         return Q16 { v: self.v - o.v }
     }
 
     func neg(self) -> Q16
-        requires true
-        ensures true
     {
         return Q16 { v: 0 - self.v }
     }
 
     func mul(self, o: Q16) -> Q16
-        requires true
-        ensures true
     {
         return Q16 { v: i32(i64(self.v) * i64(o.v) / 65536) }
     }
 
     func div(self, o: Q16) -> Q16
         requires o.v != 0
-        ensures true
     {
         return Q16 { v: i32(i64(self.v) * 65536 / i64(o.v)) }
     }
 
     func eq(self, o: Q16) -> bool
-        requires true
-        ensures true
     {
         return self.v == o.v
     }
 
     func lt(self, o: Q16) -> bool
-        requires true
-        ensures true
     {
         return self.v < o.v
     }
 
     func le(self, o: Q16) -> bool
-        requires true
-        ensures true
     {
         return self.v <= o.v
     }
 
     func abs(self) -> Q16
-        requires true
         ensures result.v >= 0
     {
         if self.v < 0 {
@@ -117,7 +101,6 @@ struct Q16 {
     }
 
     func min(self, o: Q16) -> Q16
-        requires true
         ensures result.v <= self.v and result.v <= o.v
     {
         if self.v < o.v {
@@ -127,7 +110,6 @@ struct Q16 {
     }
 
     func max(self, o: Q16) -> Q16
-        requires true
         ensures result.v >= self.v and result.v >= o.v
     {
         if self.v > o.v {
@@ -151,7 +133,6 @@ struct Q16 {
 
     # Целая часть с усечением к нулю (пин §7.3: -1.5 → -1).
     func to_int(self) -> i32
-        requires true
         ensures result >= -32768 and result <= 32767
     {
         return self.v / 65536
@@ -159,8 +140,6 @@ struct Q16 {
 
     # К ближайшему целому, половина — от нуля (-1.5 → -2, 1.5 → 2).
     func round(self) -> i32
-        requires true
-        ensures true
     {
         if self.v >= 0 {
             return (self.v + 32768) / 65536
@@ -170,8 +149,6 @@ struct Q16 {
 
     # К −∞: остаток отрицателен (знак по делимому) — целое на 1 вниз.
     func floor(self) -> Q16
-        requires true
-        ensures true
     {
         let q: i32 = self.v / 65536
         if self.v % 65536 < 0 {
@@ -182,8 +159,6 @@ struct Q16 {
 
     # К +∞: остаток положителен — целое на 1 вверх.
     func ceil(self) -> Q16
-        requires true
-        ensures true
     {
         let q: i32 = self.v / 65536
         if self.v % 65536 > 0 {
@@ -198,7 +173,6 @@ struct Q16 {
     # при n <= 32 — та же оговорка, что у read_line (MODULES_PLAN §11).
     func repr(self, digits: u32) -> str<32>
         requires digits <= 6
-        ensures true
     {
         let out: str<32> = ""
         if self.v < 0 {
@@ -239,7 +213,6 @@ struct Q16 {
 # доказывает верификатору отсутствие переполнения.
 func q16(n: i32) -> Q16
     requires n >= -32768 and n <= 32767
-    ensures true
 {
     return Q16 { v: n * 65536 }
 }
@@ -248,7 +221,6 @@ func q16(n: i32) -> Q16
 # сетке 1/65536; результат вне ±32768 — trap на финальном касте.
 func q16_ratio(num: i32, den: i32) -> Q16
     requires den != 0
-    ensures true
 {
     return Q16 { v: i32(i64(num) * 65536 / i64(den)) }
 }
@@ -342,22 +314,16 @@ struct Q32 {
     v: i64
 
     func add(self, o: Q32) -> Q32
-        requires true
-        ensures true
     {
         return Q32 { v: self.v + o.v }
     }
 
     func sub(self, o: Q32) -> Q32
-        requires true
-        ensures true
     {
         return Q32 { v: self.v - o.v }
     }
 
     func neg(self) -> Q32
-        requires true
-        ensures true
     {
         return Q32 { v: 0 - self.v }
     }
@@ -365,8 +331,6 @@ struct Q32 {
     # Произведение через I128: trunc(a*b / 2^32) — сдвиг магнитуды
     # вправо на 32 и есть усечение к нулю у знака-магнитуды.
     func mul(self, o: Q32) -> Q32
-        requires true
-        ensures true
     {
         const p: I128 = i128(self.v).mul(i128(o.v))
         const t: I128 = i128_make(p.sgn, p.mag.shr(32))
@@ -377,7 +341,6 @@ struct Q32 {
     # на 32 не переполняется никогда (|raw| <= 2^63 -> сдвиг <= 2^95).
     func div(self, o: Q32) -> Q32
         requires o.v != 0
-        ensures true
     {
         const na: I128 = i128(self.v)
         const sc: I128 = i128_make(na.sgn, na.mag.shl(32))
@@ -385,28 +348,21 @@ struct Q32 {
     }
 
     func eq(self, o: Q32) -> bool
-        requires true
-        ensures true
     {
         return self.v == o.v
     }
 
     func lt(self, o: Q32) -> bool
-        requires true
-        ensures true
     {
         return self.v < o.v
     }
 
     func le(self, o: Q32) -> bool
-        requires true
-        ensures true
     {
         return self.v <= o.v
     }
 
     func abs(self) -> Q32
-        requires true
         ensures result.v >= 0
     {
         if self.v < 0 {
@@ -416,7 +372,6 @@ struct Q32 {
     }
 
     func min(self, o: Q32) -> Q32
-        requires true
         ensures result.v <= self.v and result.v <= o.v
     {
         if self.v < o.v {
@@ -426,7 +381,6 @@ struct Q32 {
     }
 
     func max(self, o: Q32) -> Q32
-        requires true
         ensures result.v >= self.v and result.v >= o.v
     {
         if self.v > o.v {
@@ -450,7 +404,6 @@ struct Q32 {
 
     # Целая часть с усечением к нулю (пин §7.3): весь i32 достижим.
     func to_int(self) -> i32
-        requires true
         ensures result >= -2147483648 and result <= 2147483647
     {
         return i32(self.v / 4294967296)
@@ -459,8 +412,6 @@ struct Q32 {
     # К ближайшему целому, половина — от нуля; v ± 2^31 у края
     # диапазона переполняется -> trap, штатная граница (как у Q16).
     func round(self) -> i32
-        requires true
-        ensures true
     {
         if self.v >= 0 {
             return i32((self.v + 2147483648) / 4294967296)
@@ -470,8 +421,6 @@ struct Q32 {
 
     # К −∞: остаток отрицателен (знак по делимому) — целое на 1 вниз.
     func floor(self) -> Q32
-        requires true
-        ensures true
     {
         let q: i64 = self.v / 4294967296
         if self.v % 4294967296 < 0 {
@@ -482,8 +431,6 @@ struct Q32 {
 
     # К +∞: остаток положителен — целое на 1 вверх.
     func ceil(self) -> Q32
-        requires true
-        ensures true
     {
         let q: i64 = self.v / 4294967296
         if self.v % 4294967296 > 0 {
@@ -497,7 +444,6 @@ struct Q32 {
     # влезает в fmt_u32.
     func repr(self, digits: u32) -> str<32>
         requires digits <= 9
-        ensures true
     {
         let out: str<32> = ""
         let m: u64 = 0
@@ -536,8 +482,6 @@ struct Q32 {
 # Из целого: точен на всём i32 — q32(-2147483648) и q32(2147483647)
 # влезают в raw без переполнения ((2^31)·2^32 = 2^63).
 func q32(n: i32) -> Q32
-    requires true
-    ensures true
 {
     return Q32 { v: i64(n) * 4294967296 }
 }
@@ -546,7 +490,6 @@ func q32(n: i32) -> Q32
 # сетке 1/2^32; результат вне ±2^31 — trap на выходе из I128.
 func q32_ratio(num: i64, den: i64) -> Q32
     requires den != 0
-    ensures true
 {
     const nn: I128 = i128(num)
     const sc: I128 = i128_make(nn.sgn, nn.mag.shl(32))

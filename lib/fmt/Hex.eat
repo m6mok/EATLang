@@ -11,7 +11,6 @@ export {
 
 func hex_digit(v: u32) -> char
     requires v <= 15
-    ensures true
 {
     if v < 10 {
         return char(u8(v + 48))
@@ -21,14 +20,12 @@ func hex_digit(v: u32) -> char
 
 func write_hex8(v: u32)
     requires v <= 255
-    ensures true
 {
     write("{hex_digit(v >> 4)}{hex_digit(v & 15)}")
 }
 
 func write_hex16(v: u32)
     requires v <= 65535
-    ensures true
 {
     write_hex8(v >> 8)
     write_hex8(v & 255)
@@ -36,7 +33,6 @@ func write_hex16(v: u32)
 
 # Значение hex-цифры 0..15; 99 — не hex-цифра.
 func hex_val(b: u8) -> u32
-    requires true
     ensures result <= 15 or result == 99
 {
     if b >= 48 and b <= 57 {

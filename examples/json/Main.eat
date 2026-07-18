@@ -13,12 +13,10 @@ import {
     json_doc,
     json_out,
     J_ARR,
-} from "lib/Json.eat"
+} from "lib/json/Json.eat"
 
 # имя ошибки для печати (исчерпывающий match — правило 7)
 func jerr_name(e: JErr) -> str<16>
-    requires true
-    ensures true
 {
     match e {
         Capacity { return "Capacity" }

@@ -9,7 +9,6 @@ extend Check {
 
     func constexpr_eval(let self, root: u32)
         requires root < 131072
-        ensures true
     {
         let s1: [u32; 32] = [0; 32]
         let s2: [u32; 32] = [0; 32]
@@ -92,7 +91,6 @@ extend Check {
     # считает константы средствами Python). Результат в ces/cem.
     func constexpr_binop(let self, n: u32, s1: u32, m1: u64, s2: u32, m2: u64)
         requires n < 131072
-        ensures true
     {
         const op: u32 = self.p.nx[n / 65536][n % 65536]
         if op == 10 {
@@ -145,7 +143,6 @@ extend Check {
 
     func sadd(let self, n: u32, s1: u32, m1: u64, s2: u32, m2: u64)
         requires n < 131072
-        ensures true
     {
         if s1 == s2 {
             if m1 > 18446744073709551615 - m2 {
@@ -174,7 +171,6 @@ extend Check {
     # Значение (sign, mag) помещается в целевой целочисленный тип?
     func int_fits(let self, ty: u32, s: u32, m: u64) -> bool
         requires ty < 512
-        ensures true
     {
         const k: u32 = self.yk[ty]
         if k == 0 {
@@ -210,8 +206,6 @@ extend Check {
     # (cnd[ct_ci]), тексты «comptime: …» зеркалят классы эталона.
 
     func ct_fail(let self, m: str<128>)
-        requires true
-        ensures true
     {
         if self.csoft == 1 {
             # soft-fail (D4): попытка свёртки — не ошибка компиляции;
@@ -225,8 +219,6 @@ extend Check {
 
     # Спан — имя нечистого встроенного (аксиомы ОС и обёртки вывода)?
     func ct_axiom_span(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         if self.span_is(a, l, "read_byte") or self.span_is(a, l, "write_byte") {
             return true
@@ -259,8 +251,6 @@ extend Check {
 
     # Спан — имя целочисленного каста?
     func ct_cast_span(let self, a: u32, l: u32) -> bool
-        requires true
-        ensures true
     {
         if self.span_is(a, l, "i32") or self.span_is(a, l, "u32") or self.span_is(a, l, "u8") {
             return true
@@ -271,7 +261,6 @@ extend Check {
     # Вид узла разрешён в скалярном подмножестве A1 (§9.3)?
     func ct_scalar_nk(let self, n: u32) -> bool
         requires n < 131072
-        ensures true
     {
         const k: u32 = self.p.nk[n / 65536][n % 65536]
         if k >= 12 and k <= 18 and k != 13 {
@@ -325,7 +314,6 @@ extend Check {
     # тело). extern и методы — негодны сразу.
     func ct_scan_func(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         const d: u32 = self.fnd[fi]
         if self.p.nk[d / 65536][d % 65536] == 50 {
@@ -372,7 +360,6 @@ extend Check {
     # от порядка обхода, §9.3). cgen — поколение пометок cseen.
     func ct_reason(let self, fi: u32)
         requires fi < 1024
-        ensures true
     {
         let st: [u32; 1024] = [0; 1024]
         let sp: u32 = 1
@@ -404,7 +391,6 @@ extend Check {
     # решает вычислитель теми же ошибками, что эталон).
     func ct_check_elig(let self, ci: u32)
         requires ci < 128
-        ensures true
     {
         let st: [u32; 64] = [0; 64]
         let sp: u32 = 1
@@ -454,8 +440,6 @@ extend Check {
     # Драйвер фазы 3.5: годность всех отложенных (в порядке таблицы),
     # затем вычисление каждой (ленивые зависимости — инлайн машиной).
     func comptime_pass(let self)
-        requires true
-        ensures true
     {
         for ci in 0..128 {
             if ci >= self.ncon or self.failed {
@@ -483,8 +467,6 @@ extend Check {
     # 4 CALLX (финиш кадра/ensures), 5 CRES (запись constexpr), 6 REQX.
 
     func ct_wpush(let self, t: u32, n: u32, x: u64)
-        requires true
-        ensures true
     {
         if self.ncw >= 4096 {
             self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
@@ -498,8 +480,6 @@ extend Check {
     }
 
     func ct_vpush(let self, k: u32, u: u64, v: i64)
-        requires true
-        ensures true
     {
         if self.ncv >= 2048 {
             self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
@@ -513,8 +493,6 @@ extend Check {
 
     # +1 шаг вычисления; за пределом бюджета — ошибка (§9.2).
     func ct_step_tick(let self)
-        requires true
-        ensures true
     {
         self.csteps = self.csteps + 1
         if self.csteps > 1000000 {
@@ -524,8 +502,6 @@ extend Check {
 
     # Магнитуда минимума знакового вида (для edge-проверок MIN/(-1)).
     func ct_magmin(let self, ky: u32) -> u64
-        requires true
-        ensures true
     {
         if ky == 0 {
             return 2147483648
@@ -538,8 +514,6 @@ extend Check {
 
     # Максимум беззнакового вида.
     func ct_maxu(let self, ky: u32) -> u64
-        requires true
-        ensures true
     {
         if ky == 2 {
             return 255
@@ -555,8 +529,6 @@ extend Check {
 
     # trap «переполнение {kind}» (тексты кодогена, §9.1).
     func ct_tovf(let self, ky: u32)
-        requires true
-        ensures true
     {
         if ky == 0 {
             self.ct_fail("comptime: trap: переполнение i32")
@@ -575,8 +547,6 @@ extend Check {
 
     # trap «сдвиг ≥ ширины {kind}» (только беззнаковые).
     func ct_tshf(let self, ky: u32)
-        requires true
-        ensures true
     {
         if ky == 2 {
             self.ct_fail("comptime: trap: сдвиг ≥ ширины u8")
@@ -591,8 +561,6 @@ extend Check {
 
     # trap «переполнение при {target}()» (касты).
     func ct_tcast(let self, ky: u32)
-        requires true
-        ensures true
     {
         if ky == 0 {
             self.ct_fail("comptime: trap: переполнение при i32()")
@@ -612,8 +580,6 @@ extend Check {
     # trap точки связывания «переполнение: {v} вне {kind} [{lo}, {hi}]»
     # (интерп-текст эталона: параметры вызова и запись constexpr).
     func ct_tfit(let self, s: u32, m: u64, ky: u32)
-        requires true
-        ensures true
     {
         if ky == 2 {
             if s == 1 {
@@ -656,8 +622,6 @@ extend Check {
     # верхнеуровневым вычислением; используют ярус A (ct_eval_constexpr,
     # ошибка-при-fail) и свёртка -O (skip-при-fail, csoft = 1).
     func ct_reset(let self)
-        requires true
-        ensures true
     {
         self.ncw = 0
         self.ncv = 0
@@ -672,8 +636,6 @@ extend Check {
     # D4: общий драйвер — один ограниченный цикл; бюджет шагов
     # срабатывает раньше границы (машинных переходов ≤ 16 на шаг).
     func ct_run(let self)
-        requires true
-        ensures true
     {
         for _ in 0..16000000 {
             if self.ncw == 0 or self.failed {
@@ -689,7 +651,6 @@ extend Check {
     # Запуск машины для constexpr ci: CRES снизу, CEXPR значения сверху.
     func ct_eval_constexpr(let self, ci: u32)
         requires ci < 128
-        ensures true
     {
         self.ct_reset()
         const d: u32 = self.cnd[ci] & 131071
@@ -703,8 +664,6 @@ extend Check {
     }
 
     func ct_step(let self)
-        requires true
-        ensures true
     {
         const i: u32 = (self.ncw - 1) & 4095
         const t: u32 = self.cw_t[i]
@@ -730,7 +689,6 @@ extend Check {
     # cw_x), деление trunc, шаги не считаются.
     func ct_cexpr(let self, i: u32)
         requires i < 4096
-        ensures true
     {
         const n: u32 = self.cw_n[i] & 131071
         const ph: u32 = self.cw_p[i]
@@ -754,7 +712,6 @@ extend Check {
 
     func ct_cx_name(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const ci: u32 = self.find_constexpr(
             self.p.nss[n / 65536][n % 65536], self.p.nsl[n / 65536][n % 65536]
@@ -785,7 +742,6 @@ extend Check {
 
     func ct_cx_un(let self, i: u32, n: u32, ph: u32, ky: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         if self.p.nx[n / 65536][n % 65536] != 15 {
             self.ct_fail("comptime: trap: не константа")
@@ -809,7 +765,6 @@ extend Check {
 
     func ct_cx_bin(let self, i: u32, n: u32, ph: u32, ky: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const op: u32 = self.p.nx[n / 65536][n % 65536]
         if op < 10 or op > 14 {
@@ -846,7 +801,6 @@ extend Check {
     # результат в ces/cem. ky берётся из типа текущей constexpr.
     func ct_cx_arith(let self, op: u32, s1: u32, m1: u64, s2: u32, m2: u64)
         requires op >= 10 and op <= 14
-        ensures true
     {
         const ky: u32 = self.yk[self.cty[self.ct_ci & 127]]
         if op == 10 or op == 11 {
@@ -891,8 +845,6 @@ extend Check {
     }
 
     func ct_cx_add(let self, ky: u32, s1: u32, m1: u64, s2: u32, m2: u64)
-        requires true
-        ensures true
     {
         if s1 == s2 {
             if m1 > 18446744073709551615 - m2 {
@@ -920,7 +872,6 @@ extend Check {
     # аргументы CEXPR'ами, кадр, конверсия результата в (s, m) (фаза 90).
     func ct_cx_call(let self, i: u32, n: u32, ph: u32, ky: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -970,8 +921,6 @@ extend Check {
 
     # yk-код по спану имени скалярного типа.
     func ct_span_kind(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         if self.span_is(a, l, "i32") {
             return 0
@@ -994,7 +943,6 @@ extend Check {
     # kind-значение слота j -> (sign, mag) [cv_k 99].
     func ct_k2sm(let self, j: u32)
         requires j < 2048
-        ensures true
     {
         const k: u32 = self.cv_k[j]
         if k == 0 or k == 14 {
@@ -1017,7 +965,6 @@ extend Check {
     # (интерп-текст) — параметры вызова из constexpr-выражений.
     func ct_sm2k(let self, j: u32, ky: u32)
         requires j < 2048
-        ensures true
     {
         if self.cv_k[j] != 99 {
             return
@@ -1043,7 +990,6 @@ extend Check {
     # тело; fresh-бюджет на верхнеуровневом вызове (§9.2).
     func ct_enter_frame(let self, fi: u32, from_cx: u32)
         requires fi < 1024
-        ensures true
     {
         if self.ncg >= 64 {
             self.ct_fail("comptime: превышена глубина вызовов (предел 64)")
@@ -1110,7 +1056,6 @@ extend Check {
     # requires true / ensures true — тривиальный контракт (0 шагов).
     func ct_trivial_true(let self, n: u32) -> bool
         requires n < 131072
-        ensures true
     {
         if self.p.nk[n / 65536][n % 65536] != 33 {
             return false
@@ -1121,7 +1066,6 @@ extend Check {
     # Локаль кадра из значения-слота vj.
     func ct_lpush(let self, a: u32, l: u32, vj: u32)
         requires vj < 2048
-        ensures true
     {
         if self.ncl >= 4480 {
             self.ct_fail("comptime: превышена глубина вызовов (предел 64)")
@@ -1147,7 +1091,6 @@ extend Check {
     # REQX: значение requires вычислено — false намертво.
     func ct_reqx(let self, i: u32)
         requires i < 4096
-        ensures true
     {
         self.ncv = self.ncv - 1
         if self.cv_u[self.ncv & 2047] == 0 {
@@ -1161,7 +1104,6 @@ extend Check {
     # v-стек вызывающего, снятие кадра.
     func ct_callx(let self, i: u32)
         requires i < 4096
-        ensures true
     {
         const fi: u32 = self.cw_n[i] & 1023
         const g: u32 = (self.ncg - 1) & 63
@@ -1215,7 +1157,6 @@ extend Check {
     # интерп-текст точки связывания).
     func ct_cres(let self, i: u32)
         requires i < 4096
-        ensures true
     {
         const ci: u32 = self.cw_n[i] & 127
         self.ncv = self.ncv - 1
@@ -1245,7 +1186,6 @@ extend Check {
     # постоянное хранилище констант (cca), база -> cca_bs[ci].
     func ct_store_arr_constexpr(let self, ci: u32, aid: u32)
         requires ci < 128
-        ensures true
     {
         const ln: u32 = self.ca_ln[aid & 511]
         if self.ncca + ln > 4096 {
@@ -1269,7 +1209,6 @@ extend Check {
     # (cw_x: base * 2^32 + курсор-узел).
     func ct_block(let self, i: u32)
         requires i < 4096
-        ensures true
     {
         const n: u32 = self.cw_n[i] & 131071
         if self.cw_p[i] == 0 {
@@ -1291,8 +1230,6 @@ extend Check {
 
     # Поиск локали кадра по спану (сверху вниз — шэдоуинг).
     func ct_lfind(let self, a: u32, l: u32) -> u32
-        requires true
-        ensures true
     {
         const base: u32 = self.cg_lb[(self.ncg - 1) & 63]
         let j: u32 = self.ncl
@@ -1312,7 +1249,6 @@ extend Check {
     # EXPR: выражение в теле (+1 шаг на входе, kind-значения).
     func ct_expr(let self, i: u32)
         requires i < 4096
-        ensures true
     {
         const n: u32 = self.cw_n[i] & 131071
         const ph: u32 = self.cw_p[i]
@@ -1369,7 +1305,6 @@ extend Check {
 
     func ct_e_name(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -1419,7 +1354,6 @@ extend Check {
     # транзитивную кучу вычислителя -> id (ссылка на копию).
     func ct_arr_from_constexpr(let self, ci: u32) -> u32
         requires ci < 128
-        ensures true
     {
         const ty: u32 = self.cty[ci]
         const ln: u32 = self.yb[ty]
@@ -1441,7 +1375,6 @@ extend Check {
 
     func ct_e_bin(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const op: u32 = self.p.nx[n / 65536][n % 65536]
         const c: u32 = self.p.nfc[n / 65536][n % 65536]
@@ -1485,8 +1418,6 @@ extend Check {
     # Бинарная операция тел над kind-значениями: [ncv-2] op [ncv-1] ->
     # [ncv-2]; сравнения дают bool.
     func ct_e_arith(let self, op: u32)
-        requires true
-        ensures true
     {
         self.ncv = self.ncv - 1
         const j: u32 = (self.ncv - 1) & 2047
@@ -1537,7 +1468,6 @@ extend Check {
 
     func ct_acmp(let self, op: u32, j: u32, jr: u32)
         requires j < 2048 and jr < 2048
-        ensures true
     {
         const ky: u32 = self.cv_k[j]
         let r: bool = false
@@ -1571,7 +1501,6 @@ extend Check {
     # Беззнаковая арифметика с пре-проверками переполнения (§9.1).
     func ct_au(let self, op: u32, ky: u32, j: u32, jr: u32)
         requires j < 2048 and jr < 2048
-        ensures true
     {
         const a: u64 = self.cv_u[j]
         const b: u64 = self.cv_u[jr]
@@ -1607,7 +1536,6 @@ extend Check {
     # i64 — классические пре-проверки без выхода из i64.
     func ct_ai(let self, op: u32, ky: u32, j: u32, jr: u32)
         requires j < 2048 and jr < 2048
-        ensures true
     {
         const a: i64 = self.cv_i[j]
         const b: i64 = self.cv_i[jr]
@@ -1644,8 +1572,6 @@ extend Check {
     }
 
     func ct_i32op(let self, op: u32, a: i64, b: i64) -> i64
-        requires true
-        ensures true
     {
         if op == 10 {
             return a + b
@@ -1658,7 +1584,6 @@ extend Check {
 
     func ct_i64op(let self, op: u32, j: u32, a: i64, b: i64)
         requires j < 2048
-        ensures true
     {
         if op == 10 {
             if (b > 0 and a > 9223372036854775807 - b) or (b < 0 and a < -9223372036854775808 - b) {
@@ -1695,7 +1620,6 @@ extend Check {
 
     func ct_e_un(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const op: u32 = self.p.nx[n / 65536][n % 65536]
         const c: u32 = self.p.nfc[n / 65536][n % 65536]
@@ -1748,7 +1672,6 @@ extend Check {
 
     func ct_e_call(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const a: u32 = self.p.nss[n / 65536][n % 65536]
         const l: u32 = self.p.nsl[n / 65536][n % 65536]
@@ -1791,7 +1714,6 @@ extend Check {
     # математическому значению, тексты кодогена.
     func ct_e_cast(let self, j: u32, tk: u32)
         requires j < 2048
-        ensures true
     {
         const sk: u32 = self.cv_k[j]
         if sk == 0 or sk == 14 {
@@ -1836,8 +1758,6 @@ extend Check {
     # Выделить массив (kind элемента ek, длина ln) -> id; переполнение
     # кучи -> ошибка класса «бюджет» (капасити, как SPEC §6).
     func ct_arr_alloc(let self, ek: u32, ln: u32) -> u32
-        requires true
-        ensures true
     {
         if self.nca >= 512 or self.ncae + ln > 4096 {
             self.ct_fail("comptime: превышен предел шагов (предел 1000000)")
@@ -1855,8 +1775,6 @@ extend Check {
     # Глубокая копия массива src -> новый id (значение-семантика на
     # связывании const/параметра/присваивания целого массива).
     func ct_arr_copy(let self, src: u32) -> u32
-        requires true
-        ensures true
     {
         const id: u32 = self.ct_arr_alloc(self.ca_ek[src & 511], self.ca_ln[src & 511])
         if id == NONE {
@@ -1879,7 +1797,6 @@ extend Check {
     # границ, элемент. Значение-массив obj: cv_k = 7, cv_u = id.
     func ct_e_index(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const c: u32 = self.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
@@ -1914,7 +1831,6 @@ extend Check {
     # затем сборка массива. cw_x = cnt * 2^32 + курсор-ребёнок.
     func ct_e_alit(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         if ph == 0 {
             self.cw_x[i] = u64(self.nchildren(n)) * 4294967296 + u64(
@@ -1955,7 +1871,6 @@ extend Check {
     # Тип/размер/элемент — из типа узла (nty), посчитан тайпчекером.
     func ct_e_afill(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         if ph == 0 {
             self.cw_p[i] = 1
@@ -1988,7 +1903,6 @@ extend Check {
     # STMT: инструкция тела (+1 шаг на входе).
     func ct_stmt(let self, i: u32)
         requires i < 4096
-        ensures true
     {
         const n: u32 = self.cw_n[i] & 131071
         const ph: u32 = self.cw_p[i]
@@ -2020,7 +1934,6 @@ extend Check {
 
     func ct_s_let(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const t: u32 = self.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
@@ -2037,7 +1950,6 @@ extend Check {
 
     func ct_s_assign(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const t: u32 = self.p.nfc[n / 65536][n % 65536]
         # A2: цель — индексация массива (t[idx] = value)
@@ -2077,7 +1989,6 @@ extend Check {
     # eval(index), проверка границ, запись элемента (те же шаги/трапы).
     func ct_s_iassign(let self, i: u32, n: u32, ph: u32, t: u32)
         requires i < 4096 and n < 131072 and t < 131072
-        ensures true
     {
         if ph == 0 {
             self.cw_p[i] = 1
@@ -2117,7 +2028,6 @@ extend Check {
 
     func ct_s_if(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const c: u32 = self.p.nfc[n / 65536][n % 65536]
         if ph == 0 {
@@ -2153,7 +2063,6 @@ extend Check {
     # исполнить блок, конец — снять задачу.
     func ct_if_next(let self, i: u32, nxt: u32)
         requires i < 4096
-        ensures true
     {
         if nxt == NONE {
             self.ncw = i
@@ -2173,7 +2082,6 @@ extend Check {
 
     func ct_s_for(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         if ph == 0 {
             const rb: u32 = self.range_of(n)
@@ -2242,8 +2150,6 @@ extend Check {
     # Граница диапазона (sign, mag) -> i64 с насыщением: магнитуды за
     # i64 недостижимы до бюджета (1М витков << 2^63).
     func ct_rb_i64(let self, s: u32, m: u64) -> i64
-        requires true
-        ensures true
     {
         if s == 1 {
             if m >= 9223372036854775808 {
@@ -2260,7 +2166,6 @@ extend Check {
 
     func ct_s_ret(let self, i: u32, n: u32, ph: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         const g: u32 = (self.ncg - 1) & 63
         if ph == 0 {
@@ -2286,7 +2191,6 @@ extend Check {
 
     func ct_s_break(let self, i: u32)
         requires i < 4096
-        ensures true
     {
         let j: u32 = i
         let found: bool = false
@@ -2314,7 +2218,6 @@ extend Check {
     # затем проверить/пропустить/выбросить.
     func ct_s_val(let self, i: u32, n: u32, ph: u32, k: u32)
         requires i < 4096 and n < 131072
-        ensures true
     {
         if ph == 0 {
             self.cw_p[i] = 1
