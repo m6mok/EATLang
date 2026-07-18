@@ -30,14 +30,14 @@ struct Check {
     cvm: [u64; 128]
     ncon: u32
     # функции и методы: owner — индекс struct | NONE
-    fn_s: [u32; 1024]
-    fn_l: [u32; 1024]
-    fown: [u32; 1024]
-    fps: [u32; 1024]
-    fpc: [u32; 1024]
-    fret: [u32; 1024]
-    fvs: [u32; 1024]
-    fnd: [u32; 1024]
+    fn_s: [u32; 2048]
+    fn_l: [u32; 2048]
+    fown: [u32; 2048]
+    fps: [u32; 2048]
+    fpc: [u32; 2048]
+    fret: [u32; 2048]
+    fvs: [u32; 2048]
+    fnd: [u32; 2048]
     nfun: u32
     # параметры (без self)
     # 4096: самоприменение — 1074 параметра (без self) на 705 функций;
@@ -95,7 +95,7 @@ struct Check {
     imt_l: [u32; 512]
     imm: [u32; 512]
     nimp: u32
-    fmod: [u32; 1024]
+    fmod: [u32; 2048]
     cmod: u32
     # --- фаза 3b: тайпчекер тел -----------------------------------------
     # аннотации узлов: тип выражения и «возвращает» (достижимость)
@@ -121,7 +121,7 @@ struct Check {
     nsv: u32
     scp: [u32; 64]
     nsc: u32
-    # текущий контекст: fi | 2048+тест; main; self; result; loop
+    # текущий контекст: fi | 4096+тест; main; self; result; loop
     cur_key: u32
     main_fi: u32
     self_ty2: u32
@@ -143,11 +143,13 @@ struct Check {
     tt_s: [u32; 64]
     tt_l: [u32; 64]
     ttn: u32
-    # ранги ключей сортировки рёбер: erk[код] — номер в порядке имён
-    erk: [u32; 4096]
+    # ранги ключей сортировки рёбер: erk[код] — номер в порядке имён.
+    # 8192: коды функций [0,2048), тест-коды [4096,4096+64) — держим до 4159
+    erk: [u32; 8192]
     # хеш-индекс таблицы функций: open addressing по ключу
-    # (владелец, имя), слот — индекс функции или NONE
-    fhx: [u32; 2048]
+    # (владелец, имя), слот — индекс функции или NONE. 4096: 2× потолка
+    # функций (2048) — коэффициент загрузки ≤ 0.5
+    fhx: [u32; 4096]
     # машина выражений: кадры (узел, фаза, ожидаемый тип, aux)
     xn: [u32; 64]
     xp: [u32; 64]
@@ -182,7 +184,7 @@ struct Check {
     ndef: u32
     bdone: u32
     # годность (DFS по подграфу, приоритет impure > nonscalar)
-    cseen: [u32; 1024]
+    cseen: [u32; 2048]
     cgen: u32
     cimp: u32
     cnsc: u32
@@ -238,7 +240,7 @@ struct Check {
     # каждый узел кладётся не более раза за скан, переполнение невозможно)
     nfs: [[u32; 65536]; 2]
     nfm: [[u64; 65536]; 2]
-    cfe: [u32; 1024]
+    cfe: [u32; 2048]
     cfw: [[u32; 65536]; 2]
     # аннотации верификатора по id узла (этап 5 SELFHOST_VERIFIER_PLAN):
     # битовая маска доказанных обязательств, бит = 1 << вид ck_k
@@ -474,35 +476,35 @@ struct Check {
     func fh_find(let self, own: u32, a: u32, l: u32) -> u32
     {
         let f: u32 = NONE
-        let slot: u32 = self.fh_hash(own, a, l) & 2047
+        let slot: u32 = self.fh_hash(own, a, l) & 4095
         let stop: bool = false
-        for _ in 0..2048 {
+        for _ in 0..4096 {
             if stop {
                 break
             }
             const fi: u32 = self.fhx[slot]
             if fi == NONE {
                 stop = true
-            } elif (self.fown[fi & 1023] == own
-                    and self.span_eq(self.fn_s[fi & 1023], self.fn_l[fi & 1023], a, l)) {
+            } elif (self.fown[fi & 2047] == own
+                    and self.span_eq(self.fn_s[fi & 2047], self.fn_l[fi & 2047], a, l)) {
                 f = fi
                 stop = true
             } else {
-                slot = (slot + 1) & 2047
+                slot = (slot + 1) & 4095
             }
         }
         return f
     }
 
     func fh_insert(let self, i: u32)
-        requires i < 1024
+        requires i < 2048
     {
-        let slot: u32 = self.fh_hash(self.fown[i], self.fn_s[i], self.fn_l[i]) & 2047
-        for _ in 0..2048 {
+        let slot: u32 = self.fh_hash(self.fown[i], self.fn_s[i], self.fn_l[i]) & 4095
+        for _ in 0..4096 {
             if self.fhx[slot] == NONE {
                 break
             }
-            slot = (slot + 1) & 2047
+            slot = (slot + 1) & 4095
         }
         self.fhx[slot] = i
     }
@@ -519,7 +521,7 @@ struct Check {
     func func_by_node(let self, n: u32) -> u32
     {
         let found: u32 = NONE
-        for i in 0..1024 {
+        for i in 0..2048 {
             if i >= self.nfun or found != NONE {
                 break
             }
@@ -842,7 +844,7 @@ struct Check {
     # (Rt, склейка cat) ничего не экспортирует — его функции
     # internal (docs/MODULES_PLAN.md §5).
     func is_exported(let self, fi: u32) -> bool
-        requires fi < 1024
+        requires fi < 2048
     {
         const fm: u32 = self.fmod[fi]
         if fm == 0 {
@@ -1369,8 +1371,8 @@ struct Check {
     func add_func(let self, d: u32, owner: u32)
         requires d < 131072
     {
-        if self.nfun >= 1024 {
-            self.fail_node(d, "слишком много функций (предел 1024)")
+        if self.nfun >= 2048 {
+            self.fail_node(d, "слишком много функций (предел 2048)")
             return
         }
         const i: u32 = self.nfun
@@ -1654,7 +1656,7 @@ struct Check {
 
     func rules45(let self)
     {
-        for i in 0..1024 {
+        for i in 0..2048 {
             if i >= self.nfun or self.failed {
                 break
             }
@@ -1663,7 +1665,7 @@ struct Check {
     }
 
     func rule_func(let self, i: u32)
-        requires i < 1024
+        requires i < 2048
     {
         const d: u32 = self.fnd[i]
         const n: u32 = self.count_stmts(d)
@@ -1733,7 +1735,7 @@ struct Check {
     func check_main(let self)
     {
         let mi: u32 = NONE
-        for i in 0..1024 {
+        for i in 0..2048 {
             if i >= self.nfun or mi != NONE {
                 break
             }
@@ -1971,9 +1973,9 @@ func check_new(p: Parser) -> Check
     return Check {
         p: p, failed: false, yk: [0; 512], ya: [0; 512], yb: [0; 512], ys: [0; 512],
         yl: [0; 512], ntype: 0, cn_s: [0; 128], cn_l: [0; 128], cty: [0; 128],
-        cvs: [0; 128], cvm: [0; 128], ncon: 0, fn_s: [0; 1024], fn_l: [0; 1024],
-        fown: [0; 1024], fps: [0; 1024], fpc: [0; 1024], fret: [0; 1024], fvs: [0; 1024],
-        fnd: [0; 1024], nfun: 0, pn_s: [0; 4096], pn_l: [0; 4096], pty: [0; 4096], npar: 0,
+        cvs: [0; 128], cvm: [0; 128], ncon: 0, fn_s: [0; 2048], fn_l: [0; 2048],
+        fown: [0; 2048], fps: [0; 2048], fpc: [0; 2048], fret: [0; 2048], fvs: [0; 2048],
+        fnd: [0; 2048], nfun: 0, pn_s: [0; 4096], pn_l: [0; 4096], pty: [0; 4096], npar: 0,
         sn_s: [0; 128], sn_l: [0; 128], sgs: [0; 128], sgc: [0; 128], snd: [0; 128],
         nstr: 0, gn_s: [0; 1024], gn_l: [0; 1024], gty: [0; 1024], ngld: 0, en_s: [0; 64],
         en_l: [0; 64], evs: [0; 64], evc: [0; 64], nenu: 0, wn_s: [0; 256], wn_l: [0; 256],
@@ -1981,17 +1983,17 @@ func check_new(p: Parser) -> Check
         total_stmts: 0, mnd: [0; 64], nmod: 0, exp_s: [0; 256], exp_l: [0; 256],
         exi_s: [0; 256], exi_l: [0; 256], exm: [0; 256], nexp: 0, iml_s: [0; 512],
         iml_l: [0; 512], imt_s: [0; 512], imt_l: [0; 512], imm: [0; 512], nimp: 0,
-        fmod: [0; 1024], cmod: 0, nty: [[0; 65536]; 2], nrt: [[0; 65536]; 2],
+        fmod: [0; 2048], cmod: 0, nty: [[0; 65536]; 2], nrt: [[0; 65536]; 2],
         rb_n: [0; 512], rb_ss: [0; 512], rb_sm: [0; 512], rb_es: [0; 512], rb_em: [0; 512],
         nrb: 0, pnd: [0; 4096], sv_s: [0; 256], sv_l: [0; 256], sv_t: [0; 256],
         sv_m: [0; 256], sv_u: [0; 256], sv_ln: [0; 256], sv_cl: [0; 256], nsv: 0,
         scp: [0; 64], nsc: 0, cur_key: 0, main_fi: 0, self_ty2: 0, self_mu: 0, res_ty2: 0,
         loopd: 0, cr: 0, brkc: [0; 8], nexit: 0, eg_c: [0; 4096], eg_d: [0; 4096], neg: 0,
-        tt_s: [0; 64], tt_l: [0; 64], ttn: 0, erk: [0; 4096], fhx: [NONE; 2048],
+        tt_s: [0; 64], tt_l: [0; 64], ttn: 0, erk: [0; 8192], fhx: [NONE; 4096],
         xn: [0; 64], xp: [0; 64], xe: [0; 64], xa: [0; 64], xb: [0; 64], nxq: 0, tres: 0,
         xvoid: 0, qk2: [0; 128], qn: [0; 128], qp: [0; 128], qx: [0; 128], qy: [0; 128],
         nq: 0, ty_sq: 0, ty_rl: 0, ty_rb: 0, ty_pi: 0, bn_io: 0, bn_pe: 0, sdep: 0,
-        cnd: [NONE; 128], crs2: [0; 128], ndef: 0, bdone: 0, cseen: [0; 1024], cgen: 0,
+        cnd: [NONE; 128], crs2: [0; 128], ndef: 0, bdone: 0, cseen: [0; 2048], cgen: 0,
         cimp: 0, cnsc: 0, cw_t: [0; 4096], cw_n: [0; 4096], cw_p: [0; 4096],
         cw_x: [0; 4096], ncw: 0, cv_k: [0; 2048], cv_u: [0; 2048], cv_i: [0; 2048], ncv: 0,
         cg_f: [0; 64], cg_lb: [0; 64], cg_vb: [0; 64], cg_wb: [0; 64], cg_qb: [0; 64],
@@ -1999,7 +2001,7 @@ func check_new(p: Parser) -> Check
         cl_l: [0; 4480], cl_k: [0; 4480], cl_u: [0; 4480], cl_i: [0; 4480], ncl: 0,
         cq_c: [0; 512], cq_e: [0; 512], cq_v: [0; 512], cq_b: [0; 512], ncq: 0, csteps: 0,
         ct_ci: 0, bn_res: 0, csoft: 0, nfs: [[NONE; 65536]; 2], nfm: [[0; 65536]; 2],
-        cfe: [0; 1024], cfw: [[0; 65536]; 2], nvm: [[0; 65536]; 2],
+        cfe: [0; 2048], cfw: [[0; 65536]; 2], nvm: [[0; 65536]; 2],
         ca_ek: [0; 512], ca_ln: [0; 512], ca_bs: [0; 512],
         ca_eu: [0; 4096], ca_ei: [0; 4096], nca: 0, ncae: 0, cca_bs: [NONE; 128],
         cca_u: [0; 4096], cca_i: [0; 4096], ncca: 0

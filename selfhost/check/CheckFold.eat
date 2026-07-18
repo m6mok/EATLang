@@ -14,7 +14,7 @@ extend Check {
 
     # Годность функции fi с кэшем (свёртка дёргает по всем вызовам).
     func ct_fold_elig(let self, fi: u32) -> bool
-        requires fi < 1024
+        requires fi < 2048
     {
         if self.cfe[fi] == 0 {
             self.cgen = self.cgen + 1
@@ -183,7 +183,7 @@ extend Check {
     # тела, тестов в fnd нет); фикспойнт сканов = post-order эталона.
     func ct_fold_pass(let self)
     {
-        for fi in 0..1024 {
+        for fi in 0..2048 {
             if fi >= self.nfun {
                 break
             }

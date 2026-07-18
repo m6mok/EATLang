@@ -944,7 +944,7 @@ extend Check {
 
     # Очередной аргумент пользовательской функции готов.
     func xs_user_arg(let self, f: u32, n: u32, fi: u32)
-        requires f < 64 and n < 131072 and fi < 1024
+        requires f < 64 and n < 131072 and fi < 2048
     {
         const i: u32 = self.xb[f]
         if not self.compat(self.pty[self.fps[fi] + i], self.tres) {
@@ -960,7 +960,7 @@ extend Check {
     }
 
     func xs_user_fin(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.add_edge(self.cur_key, fi)
         if self.fret[fi] == NONE {
@@ -1108,7 +1108,7 @@ extend Check {
     }
 
     func xs_marg(let self, f: u32, n: u32, mfi: u32)
-        requires f < 64 and n < 131072 and mfi < 1024
+        requires f < 64 and n < 131072 and mfi < 2048
     {
         const i: u32 = self.xb[f]
         if not self.compat(self.pty[self.fps[mfi] + i], self.tres) {
@@ -1845,7 +1845,7 @@ extend Check {
         requires cur < 131072
     {
         let ret: u32 = NONE
-        if self.cur_key < 2048 {
+        if self.cur_key < 4096 {
             ret = self.fret[self.cur_key]
         }
         const value: u32 = self.p.nfc[cur / 65536][cur % 65536]
@@ -2102,7 +2102,7 @@ extend Check {
     # --- проверка тел -----------------------------------------------------
 
     func check_func_body(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.cur_key = fi
         self.self_ty2 = NONE
@@ -2164,7 +2164,7 @@ extend Check {
     # Граница с C (SPEC §7): параметры — скаляры или [u8|u16|u32; N],
     # возврат — только скаляр.
     func extern_boundary(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         const d: u32 = self.fnd[fi]
         for k in 0..8 {
@@ -2246,27 +2246,27 @@ extend Check {
         self.tt_s[ti] = self.p.nss[d / 65536][d % 65536]
         self.tt_l[ti] = self.p.nsl[d / 65536][d % 65536]
         self.ttn = ti + 1
-        self.cur_key = 2048 + ti
+        self.cur_key = 4096 + ti
         self.self_ty2 = NONE
         self.res_ty2 = NONE
         self.run_block_machine(self.p.nfc[d / 65536][d % 65536], 1)
     }
 
     # --- правило 1: DAG вызовов и глубина стека ------------------------------
-    # Идентификаторы: fi < 1024; тест — 1024 + ti (код ребра 2048 + ti).
+    # Идентификаторы: fi < 2048; тест — 2048 + ti (код ребра 4096 + ti).
 
     func cg_code(let self, idx: u32) -> u32
-        requires idx < 1024
+        requires idx < 2048
     {
-        if idx < 1024 {
+        if idx < 2048 {
             return idx
         }
-        return 2048 + idx - 1024
+        return 4096 + idx - 2048
     }
 
     # k-й вызываемый из idx; NONE.
     func cg_callee(let self, idx: u32, k: u32) -> u32
-        requires idx < 1024
+        requires idx < 2048
     {
         const code: u32 = self.cg_code(idx)
         let cnt: u32 = 0
@@ -2287,11 +2287,11 @@ extend Check {
 
     func callgraph(let self)
     {
-        let col: [u32; 1024] = [0; 1024]
-        let dep: [u32; 1024] = [0; 1024]
+        let col: [u32; 2048] = [0; 2048]
+        let dep: [u32; 2048] = [0; 2048]
         let st: [u32; 128] = [0; 128]
         let sp2: [u32; 128] = [0; 128]
-        for r in 0..1024 {
+        for r in 0..2048 {
             if self.cg_valid(r) and col[r] == 0 and not self.failed {
                 let sp: u32 = 1
                 st[0] = r
@@ -2332,16 +2332,16 @@ extend Check {
     }
 
     func cg_valid(let self, idx: u32) -> bool
-        requires idx < 1024
+        requires idx < 2048
     {
-        if idx < 1024 {
+        if idx < 2048 {
             return idx < self.nfun
         }
-        return idx - 1024 < self.ttn
+        return idx - 2048 < self.ttn
     }
 
-    func cg_maxdep(let self, idx: u32, dep: [u32; 1024]) -> u32
-        requires idx < 1024
+    func cg_maxdep(let self, idx: u32, dep: [u32; 2048]) -> u32
+        requires idx < 2048
     {
         let best: u32 = 0
         for k in 0..64 {

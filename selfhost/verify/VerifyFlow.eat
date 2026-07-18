@@ -558,7 +558,7 @@ extend Verify {
     # переоценки аргумента, что замкнуло бы граф (правило 1; в гейте
     # одномодульных вызовов-тождеств нет). Полное — этап 4
     func apply_summary(let self, fi: u32, n: u32)
-        requires fi < 1024 and n < 131072
+        requires fi < 2048 and n < 131072
     {
         const ret: u32 = self.c.fret[fi]
         self.set_ty(ret)
@@ -586,7 +586,7 @@ extend Verify {
     # Эквивалентность полному _iv эталона на всём репозитории проверена
     # экспериментом (патч эталона, дампы байт-в-байт на 124 файлах)
     func apply_param_summary(let self, fi: u32, n: u32)
-        requires fi < 1024 and n < 131072
+        requires fi < 2048 and n < 131072
     {
         let arg: u32 = self.nfc(n)
         if self.nk(n) == 42 and arg != NONE {
@@ -632,7 +632,7 @@ extend Verify {
     }
 
     func apply_hive_summary(let self, fi: u32, n: u32, ret: u32)
-        requires fi < 1024 and n < 131072
+        requires fi < 2048 and n < 131072
     {
         # плотная часть (обрезанная типом) — в дырку
         self.kind_range(self.c.yk[ret])

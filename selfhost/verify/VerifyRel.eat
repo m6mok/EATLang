@@ -540,7 +540,7 @@ extend Verify {
 
     # индекс параметра функции fi с именем-span (a,l), либо NONE
     func param_index(let self, fi: u32, a: u32, l: u32) -> u32
-        requires fi < 1024
+        requires fi < 2048
     {
         const pbase: u32 = self.c.fps[fi]
         let r: u32 = NONE
@@ -915,7 +915,7 @@ extend Verify {
     # применить контракт ensures вызванной функции fi на месте вызова call:
     # bind — pid связываемого результата (или NONE), obj — pid получателя
     func assume_ensures(let self, fi: u32, call: u32, bind: u32, obj: u32)
-        requires fi < 1024 and call < 131072
+        requires fi < 2048 and call < 131072
     {
         const ens: u32 = self.func_clause(fi, 10)
         if ens == NONE {

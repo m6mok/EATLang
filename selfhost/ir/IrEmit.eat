@@ -854,7 +854,7 @@ extend Ir {
     }
 
     func e_ucall(let self, fi: u32, base: u32)
-        requires fi < 1024 and base < 256
+        requires fi < 2048 and base < 256
     {
         # ось -O: ребро на определённый вызываемый (extern — не ребро)
         if self.msr == 1 and not self.fn_ext(fi) {

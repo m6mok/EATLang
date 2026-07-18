@@ -313,7 +313,7 @@ extend Check {
     # конструкции (cnsc) — обход всего func-узла (параметры, контракты,
     # тело). extern и методы — негодны сразу.
     func ct_scan_func(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         const d: u32 = self.fnd[fi]
         if self.p.nk[d / 65536][d % 65536] == 50 {
@@ -359,9 +359,9 @@ extend Check {
     # агрегация в cimp/cnsc (приоритет impure > nonscalar — независим
     # от порядка обхода, §9.3). cgen — поколение пометок cseen.
     func ct_reason(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
-        let st: [u32; 1024] = [0; 1024]
+        let st: [u32; 2048] = [0; 2048]
         let sp: u32 = 1
         st[0] = fi
         for _ in 0..1048576 {
@@ -377,7 +377,7 @@ extend Check {
                     if i >= self.neg {
                         break
                     }
-                    if self.eg_c[i] == f and sp < 1024 {
+                    if self.eg_c[i] == f and sp < 2048 {
                         st[sp] = self.eg_d[i]
                         sp = sp + 1
                     }
@@ -989,7 +989,7 @@ extend Check {
     # Вход в кадр вызова fi: биндинг аргументов в локали, requires,
     # тело; fresh-бюджет на верхнеуровневом вызове (§9.2).
     func ct_enter_frame(let self, fi: u32, from_cx: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         if self.ncg >= 64 {
             self.ct_fail("comptime: превышена глубина вызовов (предел 64)")
@@ -1105,7 +1105,7 @@ extend Check {
     func ct_callx(let self, i: u32)
         requires i < 4096
     {
-        const fi: u32 = self.cw_n[i] & 1023
+        const fi: u32 = self.cw_n[i] & 2047
         const g: u32 = (self.ncg - 1) & 63
         if self.cw_p[i] == 0 {
             const d: u32 = self.fnd[fi] & 131071

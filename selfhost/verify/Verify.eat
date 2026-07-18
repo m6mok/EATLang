@@ -209,8 +209,8 @@ struct Verify {
     nck: u32
 
     # --- сайты requires по функциям -----------------------------------
-    rq_p: [u32; 1024]
-    rq_t: [u32; 1024]
+    rq_p: [u32; 2048]
+    rq_t: [u32; 2048]
 
     # --- отложенные вызовы для подсчёта requires ----------------------
     # (правило 1: машина выражений не может вызывать проверку requires —
@@ -229,9 +229,9 @@ struct Verify {
     # callee раньше caller: сводки (сбрасываются в begin_pass) должны быть
     # готовы к моменту анализа вызывающего в том же пассе. Пост-обход DFS
     # явным стеком (правило 1: рекурсии нет); считается один раз до пассов.
-    torder: [u32; 1024]
+    torder: [u32; 2048]
     tordn: u32
-    tseen: [u32; 1024]
+    tseen: [u32; 2048]
 
     # --- контекст анализируемой функции -------------------------------
     cur_fn: u32
@@ -482,14 +482,14 @@ struct Verify {
 
     # --- сводки функций (этап 3): результат вызова в одном модуле -------
     # tag: 0 нет, 1 iv-интервал, 2 тождество параметру, 3 hive(плотн∪сент)
-    sum_tag: [u32; 1024]
-    sum_ls: [u32; 1024]
-    sum_lm: [u64; 1024]
-    sum_hs: [u32; 1024]
-    sum_hm: [u64; 1024]
-    sum_ss: [u32; 1024]
-    sum_sm: [u64; 1024]
-    sum_pn: [u32; 1024]
+    sum_tag: [u32; 2048]
+    sum_ls: [u32; 2048]
+    sum_lm: [u64; 2048]
+    sum_hs: [u32; 2048]
+    sum_hm: [u64; 2048]
+    sum_ss: [u32; 2048]
+    sum_sm: [u64; 2048]
+    sum_pn: [u32; 2048]
     # аккумулятор возвратов анализируемой функции (для сводки)
     nret: u32
     racc_bad: u32
@@ -1467,7 +1467,7 @@ struct Verify {
         self.nck = 0
         self.npend = 0
         self.npk = 0
-        for fi in 0..1024 {
+        for fi in 0..2048 {
             if fi >= self.c.nfun {
                 break
             }
@@ -1773,9 +1773,9 @@ func verify_new(c: Check) -> Verify
         av_hs: 0, av_hm: 0, res_on: 0, res_kn: 0, res_ls: 0, res_lm: 0, res_hs: 0,
         res_hm: 0, ebn: [0; 64], ebp: [0; 64], ebval: [0; 64], neb: 0, nebv: 0, tb: 0,
         rf_n: [0; 128], rf_a: [0; 128], nrf: 0, ck_k: [0; 16384], ck_n: [0; 16384],
-        ck_o: [0; 16384], nck: 0, rq_p: [0; 1024], rq_t: [0; 1024], pend_n: [0; 64],
-        npend: 0, rec_off: 0, pk_n: [0; 32], npk: 0, torder: [0; 1024], tordn: 0,
-        tseen: [0; 1024], cur_fn: 0, cur_mod: 0, cur_own: 0, ret_ty: 0, ens_node: 0,
+        ck_o: [0; 16384], nck: 0, rq_p: [0; 2048], rq_t: [0; 2048], pend_n: [0; 64],
+        npend: 0, rec_off: 0, pk_n: [0; 32], npk: 0, torder: [0; 2048], tordn: 0,
+        tseen: [0; 2048], cur_fn: 0, cur_mod: 0, cur_own: 0, ret_ty: 0, ens_node: 0,
         ens_saw: 0, ens_all: 0, ac_p: [0; 32], ac_ds: [0; 32], ac_dm: [0; 32],
         ac_cond: [0; 32], ac_kind: [0; 32], ac_glk: [0; 32], ac_gls: [0; 32],
         ac_glm: [0; 32], ac_ghk: [0; 32], ac_ghs: [0; 32], ac_ghm: [0; 32], ac_bad: [0; 32],
@@ -1804,9 +1804,9 @@ func verify_new(c: Check) -> Verify
         fda_lm: [0; 2048], fda_hs: [0; 2048], fda_hm: [0; 2048], fda_dead: [0; 2048],
         pd_dst: [0; 256], pd_src: [0; 256], npd: 0, pd_kn: [0; 2048], npass: 0, ho_on: 0,
         hc_on: 0, hc_ls: 0, hc_lm: 0, hc_hs: 0, hc_hm: 0, hc_ss: 0, hc_sm: 0, ho_node: 0,
-        ho_ls: 0, ho_lm: 0, ho_hs: 0, ho_hm: 0, ho_ss: 0, ho_sm: 0, sum_tag: [0; 1024],
-        sum_ls: [0; 1024], sum_lm: [0; 1024], sum_hs: [0; 1024], sum_hm: [0; 1024],
-        sum_ss: [0; 1024], sum_sm: [0; 1024], sum_pn: [0; 1024], nret: 0, racc_bad: 0,
+        ho_ls: 0, ho_lm: 0, ho_hs: 0, ho_hm: 0, ho_ss: 0, ho_sm: 0, sum_tag: [0; 2048],
+        sum_ls: [0; 2048], sum_lm: [0; 2048], sum_hs: [0; 2048], sum_hm: [0; 2048],
+        sum_ss: [0; 2048], sum_sm: [0; 2048], sum_pn: [0; 2048], nret: 0, racc_bad: 0,
         rd_kn: 0, rd_ls: 0, rd_lm: 0, rd_hs: 0, rd_hm: 0, rs_has: 0, rs_multi: 0, rs_s: 0,
         rs_m: 0, rsym: 0, rsym_bad: 0, ri_kn: 0, ri_ls: 0, ri_lm: 0, ri_hs: 0, ri_hm: 0,
         rh_on: 0, rh_ls: 0, rh_lm: 0, rh_hs: 0, rh_hm: 0, rh_ss: 0, rh_sm: 0, probe: 0,

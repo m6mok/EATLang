@@ -40,7 +40,7 @@ extend Verify {
     # --- анализ функции ------------------------------------------------
 
     func analyze_func(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         const d: u32 = self.c.fnd[fi]
         if self.nk(d) == 50 {
@@ -91,14 +91,14 @@ extend Verify {
     # как отдельные корни (внешний цикл по всем fi)
     func topo_order(let self)
     {
-        for i in 0..1024 {
+        for i in 0..2048 {
             if i >= self.c.nfun {
                 break
             }
             self.tseen[i] = 0
         }
         self.tordn = 0
-        for start in 0..1024 {
+        for start in 0..2048 {
             if start >= self.c.nfun {
                 break
             }
@@ -109,9 +109,9 @@ extend Verify {
     }
 
     func topo_visit(let self, start: u32)
-        requires start < 1024
+        requires start < 2048
     {
-        let st: [u32; 1024] = [0; 1024]
+        let st: [u32; 2048] = [0; 2048]
         let sp: u32 = 1
         st[0] = start
         for _ in 0..1000000 {
@@ -124,7 +124,7 @@ extend Verify {
             } else {
                 self.tseen[node] = 1
                 const child: u32 = self.next_child(node)
-                if child != NONE and sp < 1024 {
+                if child != NONE and sp < 2048 {
                     st[sp] = child
                     sp = sp + 1
                 } else {
@@ -139,7 +139,7 @@ extend Verify {
 
     # первый ещё не посещённый callee-функция узла (code < nfun), либо NONE
     func next_child(let self, node: u32) -> u32
-        requires node < 1024
+        requires node < 2048
     {
         let found: u32 = NONE
         let done: bool = false
@@ -215,7 +215,7 @@ extend Verify {
     # интервал. Приоритет: param > hive > iv. Читается apply_summary на
     # месте вызова в том же модуле (иначе — SPARK-граница contract_iv)
     func finalize_summary(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.sum_tag[fi] = 0
         const ret: u32 = self.c.fret[fi]
@@ -258,7 +258,7 @@ extend Verify {
     }
 
     func seed_params(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         const pbase: u32 = self.c.fps[fi]
         for i in 0..6 {
@@ -302,7 +302,7 @@ extend Verify {
 
     func requires_pass(let self)
     {
-        for fi in 0..1024 {
+        for fi in 0..2048 {
             if fi >= self.c.nfun {
                 break
             }
@@ -311,7 +311,7 @@ extend Verify {
     }
 
     func requires_one(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         const req: u32 = self.func_clause(fi, 9)
         if req == NONE {
@@ -345,7 +345,7 @@ extend Verify {
             }
             self.npass = pass
             self.begin_pass()
-            for oi in 0..1024 {
+            for oi in 0..2048 {
                 if oi >= self.tordn {
                     break
                 }

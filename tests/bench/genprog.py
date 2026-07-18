@@ -106,7 +106,7 @@ def stress_tokens(n_tokens: int) -> str:
 
 
 def stress_funcs(n_funcs: int) -> str:
-    """n_funcs функций всего (включая main) — предел 1024."""
+    """n_funcs функций всего (включая main) — предел 2048."""
     parts = []
     for i in range(n_funcs - 1):
         parts.append(

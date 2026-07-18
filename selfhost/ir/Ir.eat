@@ -183,7 +183,7 @@ struct Ir {
     # (eat_trap_code + таблица p_trapmap; вход МК, IrCodesMain.eat)
     tmode: u32
     # ось -O, инлайн-хинты (OPTIMIZATIONS_PLAN §7.6, кандидат 2, этап 2):
-    # him — режим хинтов (1 в SelfIrOpt, 0 канон/коды). По fi (< 1024):
+    # him — режим хинтов (1 в SelfIrOpt, 0 канон/коды). По fi (< 2048):
     # isz размер тела (строк-инструкций эмитируемого IR), ist сайтов
     # вызова, itg метка alwaysinline, ihd голова списка вызываемых.
     # Список рёбер графа вызовов (вызывающий→вызываемый) — пул iec/ien;
@@ -195,11 +195,11 @@ struct Ir {
     him: u32
     msr: u32
     rsi: u32
-    isz: [u32; 1024]
-    ist: [u32; 1024]
-    itg: [u32; 1024]
-    ihd: [u32; 1024]
-    ils: [u32; 1024]
+    isz: [u32; 2048]
+    ist: [u32; 2048]
+    itg: [u32; 2048]
+    ihd: [u32; 2048]
+    ils: [u32; 2048]
     iln: u32
     iec: [u32; 32768]
     ien: [u32; 32768]
@@ -1255,7 +1255,7 @@ struct Ir {
     }
 
     func w_mangle(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.lb_lit("eat_")
         const own: u32 = self.c.fown[fi]
@@ -1317,8 +1317,8 @@ func ir_new(c: Check) -> Ir
         agb: [0; 256], agt: [0; 256], nag: 0, sk4: [0; 64], sn4: [0; 64], sp4: [0; 64],
         sa4: [0; 64], sb4: [0; 64], sc4: [0; 64], sd4: [0; 64], se4: [0; 64],
         sf4: [0; 64], sg4: [0; 64], ns4: 0, fst: 0, tmode: 0,
-        him: 0, msr: 0, rsi: NONE, isz: [0; 1024], ist: [0; 1024],
-        itg: [0; 1024], ihd: [NONE; 1024], ils: [0; 1024], iln: 0,
+        him: 0, msr: 0, rsi: NONE, isz: [0; 2048], ist: [0; 2048],
+        itg: [0; 2048], ihd: [NONE; 2048], ils: [0; 2048], iln: 0,
         iec: [0; 32768], ien: [0; 32768], ine: 0
     }
 }

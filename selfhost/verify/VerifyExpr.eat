@@ -1142,7 +1142,7 @@ extend Verify {
     # конъюнктами ensures (эталон _contract_iv через $result во временном
     # состоянии). obj — pid получателя (метод), либо NONE
     func contract_iv(let self, fi: u32, call: u32, obj: u32)
-        requires fi < 1024 and call < 131072
+        requires fi < 2048 and call < 131072
     {
         const ret: u32 = self.c.fret[fi]
         self.set_ty(ret)
@@ -1357,7 +1357,7 @@ extend Verify {
     # <- пути получателя obj из состояния вызывающего (эталон _call_env
     # с obj_path). obj — pid пути получателя, либо NONE.
     func build_method_env(let self, fi: u32, cn: u32, obj: u32)
-        requires fi < 1024 and cn < 131072
+        requires fi < 2048 and cn < 131072
     {
         let tk: [u32; 8] = [0; 8]
         let tls: [u32; 8] = [0; 8]
@@ -1448,7 +1448,7 @@ extend Verify {
 
     # call-env: параметры функции fi <- интервалы аргументов вызова cn
     func build_call_env(let self, fi: u32, cn: u32)
-        requires fi < 1024 and cn < 131072
+        requires fi < 2048 and cn < 131072
     {
         let tk: [u32; 8] = [0; 8]
         let tls: [u32; 8] = [0; 8]
@@ -1489,7 +1489,7 @@ extend Verify {
 
     # узел выражения клаузы вида kind (9 requires / 10 ensures) у функции
     func func_clause(let self, fi: u32, kind: u32) -> u32
-        requires fi < 1024
+        requires fi < 2048
     {
         const d: u32 = self.c.fnd[fi]
         let c: u32 = self.nfc(d)
@@ -1508,7 +1508,7 @@ extend Verify {
 
     # тело функции (первый ребёнок-блок), или NONE
     func func_body(let self, fi: u32) -> u32
-        requires fi < 1024
+        requires fi < 2048
     {
         const d: u32 = self.c.fnd[fi]
         let c: u32 = self.nfc(d)

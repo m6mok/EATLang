@@ -662,14 +662,14 @@ extend Ir {
 
     # Функция объявлена как extern (узел вида 50)?
     func fn_ext(let self, fi: u32) -> bool
-        requires fi < 1024
+        requires fi < 2048
     {
         const d: u32 = self.c.fnd[fi]
         return self.c.p.nk[d / 65536][d % 65536] == 50
     }
 
     func gen_fn(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.gen_body(fi)
         if not self.failed {
@@ -681,7 +681,7 @@ extend Ir {
     # реального и измерительного проходов (ось -O, §7.6). p_fn/учёт
     # размера — у вызывающего.
     func gen_body(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.reset_fn()
         self.fi2 = fi
@@ -748,7 +748,7 @@ extend Ir {
             self.fail("переполнен граф вызовов инлайн-хинтов")
             return
         }
-        if cf < 1024 and self.fi2 < 1024 {
+        if cf < 2048 and self.fi2 < 2048 {
             self.iec[self.ine] = cf
             self.ien[self.ine] = self.ihd[self.fi2]
             self.ihd[self.fi2] = self.ine
@@ -767,7 +767,7 @@ extend Ir {
         const lp: u32 = len(pfx)
         const ls: u32 = len(sfx)
         let res: u32 = NONE
-        for fi in 0..1024 {
+        for fi in 0..2048 {
             if fi >= self.c.nfun or res != NONE {
                 break
             }
@@ -794,14 +794,14 @@ extend Ir {
     # (бывшая im_ok) и обход списка вызываемых (бывшая im_leaf) встроены.
     func im_closure(let self)
     {
-        for _ in 0..1024 {
+        for _ in 0..2048 {
             let changed: bool = false
-            for q in 0..1024 {
+            for q in 0..2048 {
                 if q >= self.iln {
                     break
                 }
                 const fi: u32 = self.ils[q]
-                if fi < 1024 and self.itg[fi] == 0 and self.isz[fi] <= 384 {
+                if fi < 2048 and self.itg[fi] == 0 and self.isz[fi] <= 384 {
                     let gr: u32 = 0
                     if self.ist[fi] > 1 {
                         gr = self.isz[fi] * (self.ist[fi] - 1)
@@ -875,7 +875,7 @@ extend Ir {
     }
 
     func measure_fn(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.gen_body(fi)
         if self.failed {
@@ -894,7 +894,7 @@ extend Ir {
             }
         }
         self.isz[fi] = s
-        if self.iln < 1024 {
+        if self.iln < 2048 {
             self.ils[self.iln] = fi
             self.iln = self.iln + 1
         }
@@ -924,7 +924,7 @@ extend Ir {
     }
 
     func gen_prologue(let self, fi: u32, own: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.push_sc()
         let ai: u32 = 0
@@ -978,7 +978,7 @@ extend Ir {
     }
 
     func gen_req(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         const d: u32 = self.c.fnd[fi]
         const rq: u32 = self.find_child(d, 9)
@@ -1006,7 +1006,7 @@ extend Ir {
     }
 
     func gen_ens(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         const d: u32 = self.c.fnd[fi]
         const en: u32 = self.find_child(d, 10)
@@ -1092,7 +1092,7 @@ extend Ir {
     }
 
     func o_mangle(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         write("eat_")
         const own: u32 = self.c.fown[fi]
@@ -1104,7 +1104,7 @@ extend Ir {
     }
 
     func p_fn(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.p_sep()
         write("define ")
@@ -1135,7 +1135,7 @@ extend Ir {
     # extern: declare с именем как написано (без eat_-манглинга),
     # nounwind; массивы — указатель read-only (граница доверия v1).
     func p_extern(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         self.p_sep()
         write("declare ")
@@ -1165,7 +1165,7 @@ extend Ir {
     }
 
     func p_args(let self, fi: u32)
-        requires fi < 1024
+        requires fi < 2048
     {
         let i: u32 = 0
         if self.aggr == 1 {

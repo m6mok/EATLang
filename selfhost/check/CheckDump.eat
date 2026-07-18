@@ -106,7 +106,7 @@ extend Check {
     # --- дамп сигнатур (формат `eatc sig`) ---------------------------------
 
     func write_sig(let self, i: u32)
-        requires i < 1024
+        requires i < 2048
     {
         write("(")
         const ps: u32 = self.fps[i]
@@ -385,7 +385,7 @@ extend Check {
     # --- рёбра графа вызовов ------------------------------------------------
 
     func add_edge(let self, c: u32, d: u32)
-        requires d < 1024
+        requires d < 2048
     {
         let dup: bool = false
         for i in 0..4096 {
@@ -596,12 +596,12 @@ extend Check {
     # i-й байт ключа вызывающего/вызываемого; 999 — конец.
     func key_byte(let self, code: u32, i: u32) -> u32
     {
-        if code >= 2048 {
+        if code >= 4096 {
             const pre: str<8> = "test:"
             if i < 5 {
                 return u32(u8(pre[i]))
             }
-            const ti: u32 = code - 2048
+            const ti: u32 = code - 4096
             if i - 5 < self.tt_l[ti] {
                 return u32(self.p.lex.sb_at(self.tt_s[ti] + i - 5))
             }
@@ -663,7 +663,7 @@ extend Check {
     func rank_of(let self, code: u32) -> u32
     {
         let r: u32 = 0
-        for c2 in 0..1024 {
+        for c2 in 0..2048 {
             if c2 >= self.nfun {
                 break
             }
@@ -675,7 +675,7 @@ extend Check {
             if t2 >= self.ttn {
                 break
             }
-            if self.cmp_key(2048 + t2, code) == 0 {
+            if self.cmp_key(4096 + t2, code) == 0 {
                 r = r + 1
             }
         }
@@ -684,7 +684,7 @@ extend Check {
 
     func rank_build(let self)
     {
-        for c1 in 0..1024 {
+        for c1 in 0..2048 {
             if c1 >= self.nfun {
                 break
             }
@@ -694,19 +694,19 @@ extend Check {
             if t1 >= self.ttn {
                 break
             }
-            self.erk[2048 + t1] = self.rank_of(2048 + t1)
+            self.erk[4096 + t1] = self.rank_of(4096 + t1)
         }
     }
 
     func edge_gt(let self, i: u32, j: u32) -> bool
         requires i < 4096 and j < 4096
     {
-        const a1: u32 = self.erk[self.eg_c[i] & 4095]
-        const b1: u32 = self.erk[self.eg_c[j] & 4095]
+        const a1: u32 = self.erk[self.eg_c[i] & 8191]
+        const b1: u32 = self.erk[self.eg_c[j] & 8191]
         if a1 != b1 {
             return a1 > b1
         }
-        return self.erk[self.eg_d[i] & 4095] > self.erk[self.eg_d[j] & 4095]
+        return self.erk[self.eg_d[i] & 8191] > self.erk[self.eg_d[j] & 8191]
     }
 
     func dump_edges(let self)
