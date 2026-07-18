@@ -595,6 +595,9 @@ extend Ir {
         requires true
         ensures true
     {
+        if self.msr == 1 {
+            self.rec_edge(self.rt_mfi(nm, ""))
+        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__")
         self.lb_lit(nm)
@@ -793,6 +796,9 @@ extend Ir {
         requires true
         ensures true
     {
+        if self.msr == 1 {
+            self.rec_edge(self.rt_mfi("append_", nm))
+        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__append_")
         self.lb_lit(nm)
@@ -831,6 +837,9 @@ extend Ir {
         requires true
         ensures true
     {
+        if self.msr == 1 {
+            self.rec_edge(self.rt_mfi("append_str", ""))
+        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__append_str\"(")
         self.w_strty()
@@ -848,6 +857,9 @@ extend Ir {
         requires true
         ensures true
     {
+        if self.msr == 1 {
+            self.rec_edge(self.rt_mfi("eq", ""))
+        }
         self.rpre()
         self.lb_lit("call i1 @\"eat_RtStr__eq\"(")
         self.w_strty()
@@ -930,6 +942,10 @@ extend Ir {
         requires fi < 1024 and base < 256
         ensures true
     {
+        # ось -O: ребро на определённый вызываемый (extern — не ребро)
+        if self.msr == 1 and not self.fn_ext(fi) {
+            self.rec_edge(fi)
+        }
         const cnt: u32 = self.nag - base
         const rt2: u32 = self.c.fret[fi]
         let isv: bool = true
