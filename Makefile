@@ -52,7 +52,8 @@ check:
 	$(EATC) check --lib . $(HTTP_ROUTER_MAIN)
 	$(EATC) check --lib . $(HTTP_API_MAIN)
 	$(EATC) check --lib . $(HTTP_TODO_MAIN)
-	$(EATC) check --lib . $(LSP_MAIN)
+	$(MAKE) build/JsonFlat.eat
+	$(EATC) build $(LSP_FILES) -o build/LspCheck --no-bin > /dev/null
 
 # Библиотека lib/ (docs/MODULES_PLAN.md §7, этап 0 — конкатенация):
 # модули подключаются явным списком файлов после $(RT); LIB_FRONT —
@@ -107,10 +108,35 @@ HTTP_ROUTER_MAIN = examples/http/Router.eat
 HTTP_API_MAIN = examples/http/Api.eat
 HTTP_TODO_MAIN = examples/http/todo/Todo.eat
 
-# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md): JSON-RPC поверх stdio,
-# переиспользует lib/json (тело/ответ) и lib/fmt (Ascii). Клиент VSCode —
-# editor/vscode (запускает этот бинарник/интерпретатор по stdio).
+# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md, этап 1): JSON-RPC поверх
+# stdio, линкует фазы lex+parse+check как модули для живых диагностик.
+# Клиент VSCode — editor/vscode (запускает интерпретатор/бинарник по stdio).
+#
+# Линковка — ПЛОСКАЯ склейка (модуль 0), а не модульный драйвер: фазы
+# selfhost/ не экспортируют символы (они рассчитаны на конкатенацию), а
+# lib/json в модульном виде импортирует хелперы. Совместить два режима
+# нельзя: в потоке import-блок требует #module-границы драйвера, которой в
+# склейке нет. Поэтому lib/json подаётся «плоским» — build/JsonFlat.eat
+# (Json.eat со снятыми import-блоками; их символы hex_val/is_digit/
+# digit_value уже глобальны из LIB_FRONT), а файлы editor/lsp/ — без
+# import/export. Фазы byte-в-byte те же, что в SELFHOST_* (не тронуты).
 LSP_MAIN = editor/lsp/LspMain.eat
+LSP_PHASES = selfhost/lex/Tok.eat selfhost/lex/Lexer.eat selfhost/parse/Ast.eat \
+	selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
+	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat
+LSP_FILES = $(RT) $(LIB_FRONT) build/JsonFlat.eat $(LSP_PHASES) \
+	editor/lsp/Handlers.eat editor/lsp/Transport.eat $(LSP_MAIN)
+
+# Производный плоский lib/json (снятые import-блоки) для склейки LSP.
+build/JsonFlat.eat: lib/json/Json.eat tools/json_flat.py
+	@python3 tools/json_flat.py
+
+# Нативный бинарник LSP-сервера. Интерпретатор `eatc run` анализирует
+# замыкание модулей ~35 с на правку (лексер+парсер+чекер по всему потоку
+# исполняются интерпретируемо), нативный бинарник — ~0,01 с. serve.sh
+# собирает его один раз; make пересобирает при правке источников сервера.
+build/eat-lsp: $(LSP_FILES)
+	@$(EATC) build $(LSP_FILES) -o $@ > /dev/null
 
 run_http_echo:
 	EAT_NET=examples/http/echo_net.txt $(EATC) run --lib . $(HTTP_ECHO_MAIN)
@@ -172,11 +198,13 @@ run_lexer_probe:
 verify_suite:
 	uv run python tests/verify_suite.py
 
-# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md, этап 0): сверка
-# рукопожатия initialize/shutdown/exit транскриптом JSON-RPC по stdio
-# (аналог EAT_NET для HTTP). Вход строит скрипт (CRLF-обрамление),
-# выход нормализуется и diff'ается с tests/lsp/handshake.golden.
-verify_lsp:
+# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md, этап 1): сверка сессии
+# JSON-RPC по stdio транскриптом (аналог EAT_NET для HTTP) — рукопожатие
+# + живые диагностики (didOpen/didChange/didClose → publishDiagnostics на
+# синтаксической, лексической и типовой ошибке + чистом разборе). Вход
+# строит скрипт (CRLF-обрамление), выход нормализуется и diff'ается с
+# tests/lsp/session.golden. build/JsonFlat.eat — плоский lib/json.
+verify_lsp: build/JsonFlat.eat
 	@bash tests/lsp/verify.sh
 
 # Ярус B comptime (§11 COMPTIME_PLAN): свёртка вызовов `build --fold`.

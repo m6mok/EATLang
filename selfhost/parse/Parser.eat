@@ -22,6 +22,11 @@ struct Parser {
     ret: u32
     bdepth: u32
     failed: bool
+    # захват первой ошибки для LSP (docs/plans/LSP_PLAN.md, этап 1) —
+    # позиция токена и текст, рядом с eprint; вывод/паритет не тронуты
+    el: u32
+    ec: u32
+    em: str<128>
     done: bool
     # сегмент модуля (после #module): порядок блоков export? import* decl*;
     # в безымянном сегменте (склейка cat) позиции не проверяются
@@ -106,6 +111,9 @@ struct Parser {
     {
         if not self.failed {
             eprint("err: {self.lex.tok_l(self.cur)}:{self.lex.tok_c(self.cur)}: {m}")
+            self.el = self.lex.tok_l(self.cur)
+            self.ec = self.lex.tok_c(self.cur)
+            self.em = m
         }
         self.failed = true
     }
@@ -1616,7 +1624,8 @@ struct Parser {
 func parser_new(lex: Lexer) -> Parser
 {
     return Parser {
-        lex: lex, cur: 0, ret: NONE, bdepth: 0, failed: false, done: false, smod: false,
+        lex: lex, cur: 0, ret: NONE, bdepth: 0, failed: false, el: 0, ec: 0, em: "",
+        done: false, smod: false,
         sexp: false, simp: false, sdecl: false, nk: [[0; 65536]; 2], nl: [[0; 65536]; 2],
         nc: [[0; 65536]; 2], nss: [[0; 65536]; 2], nsl: [[0; 65536]; 2], nx: [[0; 65536]; 2],
         ny: [[0; 65536]; 2], nxh: [[0; 65536]; 2], nfc: [[0; 65536]; 2], nlc: [[0; 65536]; 2],

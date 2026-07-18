@@ -1,0 +1,37 @@
+Content-Length: 149
+
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"definitionProvider":true},"serverInfo":{"name":"eat-lsp","version":"0.0.1"}}}Content-Length: 266
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/lex.eat","diagnostics":[{"range":{"start":{"line":1,"character":14},"end":{"line":1,"character":15}},"severity":1,"source":"eatc","message":"незакрытая строка"}]}}Content-Length: 270
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/syn.eat","diagnostics":[{"range":{"start":{"line":1,"character":17},"end":{"line":1,"character":18}},"severity":1,"source":"eatc","message":"ожидалось выражение"}]}}Content-Length: 332
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/typ.eat","diagnostics":[{"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":21}},"severity":1,"source":"eatc","message":"тип значения не совпадает (неявных преобразований нет)"}]}}Content-Length: 314
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/utf.eat","diagnostics":[{"range":{"start":{"line":1,"character":16},"end":{"line":1,"character":17}},"severity":1,"source":"eatc","message":"конец строки (одна инструкция — одна строка)"}]}}Content-Length: 114
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/mod.eat","diagnostics":[]}}Content-Length: 113
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/ok.eat","diagnostics":[]}}Content-Length: 114
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/def.eat","diagnostics":[]}}Content-Length: 137
+
+{"jsonrpc":"2.0","id":10,"result":{"uri":"file:///t/def.eat","range":{"start":{"line":0,"character":5},"end":{"line":0,"character":11}}}}Content-Length: 114
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/use.eat","diagnostics":[]}}Content-Length: 138
+
+{"jsonrpc":"2.0","id":11,"result":{"uri":"file:///t/dep.eat","range":{"start":{"line":4,"character":10},"end":{"line":4,"character":13}}}}Content-Length: 115
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/diag.eat","diagnostics":[]}}Content-Length: 333
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/diag.eat","diagnostics":[{"range":{"start":{"line":6,"character":4},"end":{"line":6,"character":23}},"severity":1,"source":"eatc","message":"тип значения не совпадает (неявных преобразований нет)"}]}}Content-Length: 114
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/lib.eat","diagnostics":[]}}Content-Length: 332
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/lib.eat","diagnostics":[{"range":{"start":{"line":6,"character":4},"end":{"line":6,"character":21}},"severity":1,"source":"eatc","message":"тип значения не совпадает (неявных преобразований нет)"}]}}Content-Length: 331
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/ok.eat","diagnostics":[{"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":19}},"severity":1,"source":"eatc","message":"тип значения не совпадает (неявных преобразований нет)"}]}}Content-Length: 113
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/ok.eat","diagnostics":[]}}Content-Length: 38
+
+{"jsonrpc":"2.0","id":2,"result":null}

@@ -2,7 +2,7 @@
     "name": "eatlang",
     "displayName": "EATLang",
     "description": "Syntax highlighting and language server for the EAT language (EATLang)",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "publisher": "eatlang",
     "license": "MIT",
     "engines": {
@@ -42,8 +42,8 @@
             "properties": {
                 "eatlang.server.command": {
                     "type": "string",
-                    "default": "uv",
-                    "description": "Команда запуска LSP-сервера (по умолчанию интерпретатор eatc через uv)."
+                    "default": "bash",
+                    "description": "Команда запуска LSP-сервера (по умолчанию bash editor/lsp/serve.sh)."
                 },
                 "eatlang.server.args": {
                     "type": "array",
@@ -51,16 +51,9 @@
                         "type": "string"
                     },
                     "default": [
-                        "run",
-                        "python",
-                        "-m",
-                        "eatc",
-                        "run",
-                        "--lib",
-                        ".",
-                        "editor/lsp/LspMain.eat"
+                        "editor/lsp/serve.sh"
                     ],
-                    "description": "Аргументы запуска сервера. По умолчанию гоняет editor/lsp/LspMain.eat в корне репозитория EATLang."
+                    "description": "Аргументы запуска сервера. По умолчанию editor/lsp/serve.sh: линкует фазы плоской склейкой и пересобирает build/JsonFlat.eat в корне репозитория EATLang."
                 }
             }
         }

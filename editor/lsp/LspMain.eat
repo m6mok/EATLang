@@ -9,11 +9,6 @@
 # напрямую — только step(), чтобы состояние JSON-документа не текло
 # через границу модуля.
 
-import {
-    Lsp,
-    lsp_new,
-} from "editor/lsp/Transport.eat"
-
 func main()
 {
     let server: Lsp = lsp_new()

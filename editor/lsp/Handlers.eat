@@ -1,0 +1,950 @@
+# editor/lsp/Handlers.eat — реестр документов, анализ и диагностики LSP
+# (docs/plans/LSP_PLAN.md, этап 1). Файл идёт в склейке ПЕРЕД Transport.eat:
+# Lsp хранит поле store: DocStore, значит DocStore определяется раньше.
+#
+# Линковка — плоская конкатенация (модуль 0), НЕ модульный драйвер:
+# фазы selfhost/ (lex/parse/check) не экспортируют символы, а lib/json
+# в модульном виде импортирует хелперы. Совместить их можно только в
+# одном плоском потоке, где все имена глобальны. Поэтому в этом файле
+# НЕТ import/export (иначе проверка потребует #module-границы). JDoc/JOut
+# и фазовые lexer_new/parser_new/check_new видимы как глобальные.
+#
+# Инварианты (§11 плана): реестр — пул фикс. размера в кадре main
+# (переполнение → отказ-значение, не рост); анализ-кадр — транзитный
+# локал (как в TypedMain), один экземпляр за раз; циклы — for с границей.
+
+# «нет значения»: и для узла JDoc (id < 4096), и для слота (< 32), и для
+# Content-Length. Стражи сверяют с LSP_NONE, доступ к пулам — под стражей.
+constexpr LSP_NONE: u32 = 4294967295
+# реестр открытых документов (§4 плана): слотов и байт на документ.
+constexpr LSP_MAX_DOCS: u32 = 32
+constexpr LSP_DOC_CAP: u32 = 65536
+
+# --- отправка ответа ----------------------------------------------------
+
+# Кадр ответа: заголовок Content-Length + пустая строка + тело JOut.
+# '\r' в строковых литералах языка нет — CRLF байтами (как Resp.crlf).
+func lsp_send(o: JOut)
+{
+    write("Content-Length: {o.n}")
+    write_byte(13)
+    write_byte(10)
+    write_byte(13)
+    write_byte(10)
+    write_span(o.buf, 0, o.n)
+}
+
+# Ответ на initialize: capabilities (этап 1 — полная синхронизация текста
+# textDocumentSync: 1) + serverInfo. id эхом (numeric, VSCode).
+func reply_initialize(id: i64)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("result")
+    o.begin_obj()
+    o.field("capabilities")
+    o.begin_obj()
+    o.field("textDocumentSync")
+    o.ival(1)
+    o.field("definitionProvider")
+    o.bval(true)
+    o.end_obj()
+    o.field("serverInfo")
+    o.begin_obj()
+    o.field("name")
+    o.qval("eat-lsp")
+    o.field("version")
+    o.qval("0.0.1")
+    o.end_obj()
+    o.end_obj()
+    o.end_obj()
+    lsp_send(o)
+}
+
+# Ответ на shutdown: result null (билдер null-значения нет — word).
+func reply_shutdown(id: i64)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("result")
+    o.word("null")
+    o.end_obj()
+    lsp_send(o)
+}
+
+# Ответ-ошибка на неизвестный запрос: JSON-RPC code -32601.
+func reply_error(id: i64)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("error")
+    o.begin_obj()
+    o.field("code")
+    o.ival(-32601)
+    o.field("message")
+    o.qval("method not found")
+    o.end_obj()
+    o.end_obj()
+    lsp_send(o)
+}
+
+# Ответ на запрос (id) с result: null — промах go-to-definition без
+# открытого слота/позиции (клиент ждёт ответ на каждый запрос с id).
+func lsp_reply_null(id: i64)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("result")
+    o.word("null")
+    o.end_obj()
+    lsp_send(o)
+}
+
+# Уведомление publishDiagnostics с пустым списком: снять подчёркивания
+# (закрытие документа или чистый разбор без сохранённого слота).
+func publish_clear(uri: str<256>)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("method")
+    o.qval("textDocument/publishDiagnostics")
+    o.field("params")
+    o.begin_obj()
+    o.field("uri")
+    o.qval(uri)
+    o.field("diagnostics")
+    o.begin_array()
+    o.end_array()
+    o.end_obj()
+    o.end_obj()
+    lsp_send(o)
+}
+
+# Сообщение начинается с префикса pfx?
+func lsp_starts(m: str<128>, pfx: str<64>) -> bool
+{
+    if len(m) < len(pfx) {
+        return false
+    }
+    let ok: bool = true
+    for i in 0..64 {
+        if u32(i) >= len(pfx) {
+            break
+        }
+        if u8(m[i]) != u8(pfx[i]) {
+            ok = false
+        }
+    }
+    return ok
+}
+
+# Ложная для LSP ошибка контекста модуля/библиотеки — подавляем:
+# (1) «import: модуль не встретился» — файл с import анализируется в
+# одиночку (сервер без FS не резолвит модули; кросс-файл этапа 1c даёт
+# настоящую диагностику, но при неполном корпусе остаётся костыль);
+# (2) «нет функции main» — библиотечный модуль (lib/, фазы) законно без
+# main. Лексика/синтаксис/типы всё равно проверяются (fail-fast раньше).
+func lsp_suppress_err(m: str<128>) -> bool
+{
+    return lsp_starts(m, "import:") or lsp_starts(m, "нет функции main")
+}
+
+# --- диагностика одного прохода ----------------------------------------
+
+# Результат анализа документа: найдена ли ошибка + её позиция (1-based,
+# в байтах, как даёт компилятор) и текст (уже усечён до str<128> на fail).
+struct Diag {
+    found: bool
+    line: u32
+    col: u32
+    msg: str<128>
+}
+
+# Результат go-to-definition (docs/plans/LSP_PLAN.md, этапы 1a/1b): найдено
+# ли объявление + его позиция (кодпойнт, 1-based) и длина имени. uri пуст —
+# объявление в том же документе (uri берётся у слота); непуст — модуль
+# корпуса (кросс-файл). Имя объявления на строке всегда за ASCII-ключевым
+# словом, поэтому UTF-16 character = col - 1 (кодпойнты) без буфера.
+struct DefLoc {
+    found: bool
+    line: u32
+    col: u32
+    len: u32
+    uri: str<256>
+}
+
+# --- реестр документов --------------------------------------------------
+
+# Открытый документ: занят ли слот, URI (эхо в диагностиках; ≤ 256 —
+# честный отказ длиннее, этап 1), версия, полный текст и его длина.
+struct Doc {
+    live: bool
+    uri: str<256>
+    ver: i64
+    buf: [u8; 65536]
+    used: u32
+    # топологический порядок модулей потока (этап 1c): order[0] — Rt
+    # (модуль 0, без #module-маркера), далее зависимости в порядке
+    # «раньше по потоку». Клиент шлёт eat/order; пусто → анализ в одиночку.
+    order: [str<256>; 24]
+    norder: u32
+}
+
+# Модуль корпуса (этап 1b): содержимое зависимости, присланное клиентом
+# (eat/module). path — канонический путь (как в import `from "..."`, для
+# сопоставления), uri — file:// (для Location; сервер не знает abs-путь
+# воркспейса, клиент шлёт готовый uri), text — байты.
+struct Mod {
+    live: bool
+    path: str<256>
+    uri: str<256>
+    buf: [u8; 65536]
+    used: u32
+}
+
+# Реестр в кадре main (правило 3): массив слотов + линейный поиск по URI
+# (как Store.find в examples/http/todo). Полный реестр → отказ-значение.
+# mods — корпус зависимостей для кросс-файлового go-to-def (этап 1b).
+struct DocStore {
+    docs: [Doc; 32]
+    mods: [Mod; 24]
+
+    # слот с данным URI или LSP_NONE
+    func find(self, uri: str<256>) -> u32
+    {
+        let hit: u32 = LSP_NONE
+        for i in 0..32 {
+            if hit != LSP_NONE {
+                break
+            }
+            if self.docs[u32(i)].live and self.docs[u32(i)].uri == uri {
+                hit = u32(i)
+            }
+        }
+        return hit
+    }
+
+    # существующий слот URI, иначе первый свободный; LSP_NONE — реестр полон
+    func alloc(let self, uri: str<256>) -> u32
+    {
+        const ex: u32 = self.find(uri)
+        if ex != LSP_NONE {
+            return ex
+        }
+        let slot: u32 = LSP_NONE
+        for i in 0..32 {
+            if slot != LSP_NONE {
+                break
+            }
+            if not self.docs[u32(i)].live {
+                slot = u32(i)
+            }
+        }
+        if slot == LSP_NONE {
+            return LSP_NONE
+        }
+        self.docs[slot].live = true
+        self.docs[slot].uri = uri
+        self.docs[slot].used = 0
+        return slot
+    }
+
+    # освободить слот URI (didClose)
+    func free_uri(let self, uri: str<256>)
+    {
+        const s: u32 = self.find(uri)
+        if s != LSP_NONE {
+            self.docs[s].live = false
+        }
+    }
+
+    # --- корпус зависимостей (этап 1b) --------------------------------
+
+    # слот модуля с данным каноническим path или LSP_NONE
+    func mod_find(self, path: str<256>) -> u32
+    {
+        let hit: u32 = LSP_NONE
+        for i in 0..24 {
+            if hit != LSP_NONE {
+                break
+            }
+            if self.mods[u32(i)].live and self.mods[u32(i)].path == path {
+                hit = u32(i)
+            }
+        }
+        return hit
+    }
+
+    # существующий слот path, иначе первый свободный; LSP_NONE — корпус полон
+    func mod_alloc(let self, path: str<256>, uri: str<256>) -> u32
+    {
+        const ex: u32 = self.mod_find(path)
+        if ex != LSP_NONE {
+            self.mods[ex].uri = uri
+            self.mods[ex].used = 0
+            return ex
+        }
+        let slot: u32 = LSP_NONE
+        for i in 0..24 {
+            if slot != LSP_NONE {
+                break
+            }
+            if not self.mods[u32(i)].live {
+                slot = u32(i)
+            }
+        }
+        if slot == LSP_NONE {
+            return LSP_NONE
+        }
+        self.mods[slot].live = true
+        self.mods[slot].path = path
+        self.mods[slot].uri = uri
+        self.mods[slot].used = 0
+        return slot
+    }
+
+    # Поиск объявления имени nm (nn байт) в модуле корпуса mi: лекс буфера
+    # модуля и скан `<декл-кв> IDENT<nm>`. uri результата — mods[mi].uri.
+    func find_def_cross(self, mi: u32, nm: [u8; 256], nn: u32) -> DefLoc
+    {
+        if mi >= 24 {
+            return DefLoc { found: false, line: 0, col: 0, len: 0, uri: "" }
+        }
+        let lex: Lexer = lexer_new()
+        const un: u32 = self.mods[mi].used
+        for i in 0..65536 {
+            if u32(i) >= un or lex.failed {
+                break
+            }
+            lex.step(self.mods[mi].buf[u32(i)])
+        }
+        lex.finish()
+        if not lex.failed {
+            lex.sublex_pass()
+        }
+        let dti: u32 = LSP_NONE
+        for t in 0..262144 {
+            if u32(t) + 1 >= lex.ntok or dti != LSP_NONE {
+                break
+            }
+            const k: u32 = lex.tok_k(u32(t))
+            if (k == 4 or k == 7 or k == 8 or k == 9) and lex.tok_k(u32(t) + 1) == 3 {
+                if lex.tok_vl(u32(t) + 1) == nn {
+                    let eq: bool = true
+                    const cs: u32 = lex.tok_vs(u32(t) + 1)
+                    for i in 0..256 {
+                        if u32(i) >= nn or not eq {
+                            break
+                        }
+                        if cs + u32(i) < 262144 and lex.sb_at(cs + u32(i)) != nm[u32(i)] {
+                            eq = false
+                        }
+                    }
+                    if eq {
+                        dti = u32(t) + 1
+                    }
+                }
+            }
+        }
+        if dti == LSP_NONE {
+            return DefLoc { found: false, line: 0, col: 0, len: 0, uri: "" }
+        }
+        return DefLoc {
+            found: true, line: lex.tok_l(dti), col: lex.tok_c(dti),
+            len: lex.tok_vl(dti), uri: self.mods[mi].uri
+        }
+    }
+
+    # Прогон текста слота через lex+parse+check в транзитный анализ-кадр
+    # (как TypedMain, но источник — буфер слота, а не stdin, и вместо
+    # tdump читаем первую ошибку из полей el/ec/em фазы). fail-fast:
+    # первая же упавшая фаза даёт диагностику (решение пользователя).
+    func analyze(self, di: u32) -> Diag
+    {
+        let lex: Lexer = lexer_new()
+        const n: u32 = self.docs[di].used
+        for i in 0..65536 {
+            if u32(i) >= n or lex.failed {
+                break
+            }
+            lex.step(self.docs[di].buf[u32(i)])
+        }
+        lex.finish()
+        if not lex.failed {
+            lex.sublex_pass()
+        }
+        if lex.failed {
+            return Diag { found: true, line: lex.el, col: lex.ec, msg: lex.em }
+        }
+        let p: Parser = parser_new(lex)
+        p.parse()
+        if p.failed {
+            return Diag { found: true, line: p.el, col: p.ec, msg: p.em }
+        }
+        let c: Check = check_new(p)
+        c.run_typed()
+        if c.failed and not lsp_suppress_err(c.em) {
+            return Diag { found: true, line: c.el, col: c.ec, msg: c.em }
+        }
+        return Diag { found: false, line: 0, col: 0, msg: "" }
+    }
+
+    # Есть ли в буфере слота объявление `func main` (подстрока)? Check
+    # требует точку входа и бросает «нет функции main» ДО проверки тел —
+    # библиотечный модуль (lib/, фазы) без main иначе не тайпчекается.
+    func has_main(self, di: u32) -> bool
+    {
+        const n: u32 = self.docs[di].used
+        const pat: str<16> = "func main"
+        let found: bool = false
+        for i in 0..65536 {
+            if u32(i) + 9 > n or found {
+                break
+            }
+            let eq: bool = true
+            for a in 0..9 {
+                if not eq {
+                    break
+                }
+                if self.docs[di].buf[u32(i) + u32(a)] != u8(pat[a]) {
+                    eq = false
+                }
+            }
+            if eq {
+                found = true
+            }
+        }
+        return found
+    }
+
+    # Кросс-файловый анализ модульного файла (этап 1c): синтетический поток
+    # [Rt (order[0], без маркера) + deps (order[1..] за #module-маркерами) +
+    # открытый файл (маркер-заглушка)] лексируется целиком → Check резолвит
+    # границы модулей (реальная типовая диагностика вместо ложной «модуль не
+    # встретился»). Директива #module СБРАСЫВАЕТ счётчик строк на модуль,
+    # поэтому позиция ошибки уже локальна файлу — ремап не нужен. Зависимости
+    # — валидный код (ошибок нет), любая ошибка относится к открытому файлу;
+    # промах корпуса даёт import-ошибку — подавляем (как одиночный анализ).
+    func analyze_module(self, di: u32) -> Diag
+    {
+        let lex: Lexer = lexer_new()
+        const pre: str<16> = "#module "
+        for j in 0..24 {
+            if u32(j) >= self.docs[di].norder or lex.failed {
+                break
+            }
+            const mi: u32 = self.mod_find(self.docs[di].order[u32(j)])
+            if mi != LSP_NONE {
+                if j > 0 {
+                    for a in 0..16 {
+                        if u32(a) >= len(pre) {
+                            break
+                        }
+                        lex.step(u8(pre[a]))
+                    }
+                    lex.step(34)
+                    for a in 0..256 {
+                        if u32(a) >= len(self.docs[di].order[u32(j)]) {
+                            break
+                        }
+                        lex.step(u8(self.docs[di].order[u32(j)][a]))
+                    }
+                    lex.step(34)
+                    lex.step(10)
+                }
+                const un: u32 = self.mods[mi].used
+                for k in 0..65536 {
+                    if u32(k) >= un {
+                        break
+                    }
+                    lex.step(self.mods[mi].buf[u32(k)])
+                }
+                lex.step(10)
+            }
+        }
+        # маркер открытого файла: путь-заглушка (имя не важно — его никто
+        # не импортирует, но пустой путь #module лексер отвергает).
+        const fm: str<32> = "#module \"__open__.eat\""
+        for a in 0..32 {
+            if u32(a) >= len(fm) {
+                break
+            }
+            lex.step(u8(fm[a]))
+        }
+        lex.step(10)
+        const mainless: bool = not self.has_main(di)
+        const fn: u32 = self.docs[di].used
+        for k in 0..65536 {
+            if u32(k) >= fn or lex.failed {
+                break
+            }
+            lex.step(self.docs[di].buf[u32(k)])
+        }
+        # библиотечный файл (нет main) — дописать пустую точку входа, иначе
+        # Check бросит «нет функции main» до проверки тел (тела не проверятся)
+        if mainless {
+            const dm: str<24> = "\nfunc main() {{}}\n"
+            for a in 0..24 {
+                if u32(a) >= len(dm) {
+                    break
+                }
+                lex.step(u8(dm[a]))
+            }
+        }
+        lex.finish()
+        if not lex.failed {
+            lex.sublex_pass()
+        }
+        if lex.failed {
+            return Diag { found: true, line: lex.el, col: lex.ec, msg: lex.em }
+        }
+        let p: Parser = parser_new(lex)
+        p.parse()
+        if p.failed {
+            return Diag { found: true, line: p.el, col: p.ec, msg: p.em }
+        }
+        let c: Check = check_new(p)
+        c.run_typed()
+        if c.failed and not lsp_suppress_err(c.em) {
+            return Diag { found: true, line: c.el, col: c.ec, msg: c.em }
+        }
+        return Diag { found: false, line: 0, col: 0, msg: "" }
+    }
+
+    # Выбор анализа: модульный (есть порядок потока) или одиночный.
+    func analyze_any(self, di: u32) -> Diag
+    {
+        if self.docs[di].norder > 0 {
+            return self.analyze_module(di)
+        }
+        return self.analyze(di)
+    }
+
+    # --- конверсия позиций: 1-based байт line:col → 0-based UTF-16 -----
+
+    # смещение в буфере первого байта строки line1 (1-based)
+    func line_start(self, di: u32, line1: u32) -> u32
+    {
+        let cur: u32 = 1
+        let start: u32 = 0
+        const n: u32 = self.docs[di].used
+        for i in 0..65536 {
+            if u32(i) >= n or cur >= line1 {
+                break
+            }
+            if self.docs[di].buf[u32(i)] == 10 {
+                cur = cur + 1
+                start = u32(i) + 1
+            }
+        }
+        return start
+    }
+
+    # UTF-16 код-единиц до колонки col1 (1-based). Компилятор считает
+    # колонки в КОДПОЙНТАХ (continuation-байты UTF-8 колонку не двигают,
+    # см. Lexer.eat §колонки), поэтому идём (col1-1) кодпойнтов: ведущий
+    # байт BMP (< 0xF0) — 1 UTF-16 единица, ведущий 4-байтового (≥ 0xF0,
+    # суррогатная пара) — 2; continuation-байты (0x80..0xBF) пропускаем,
+    # они не отдельный кодпойнт.
+    func u16_upto(self, di: u32, start: u32, col1: u32) -> u32
+    {
+        let target: u32 = 0
+        if col1 > 1 {
+            target = col1 - 1
+        }
+        let cp: u32 = 0
+        let u16: u32 = 0
+        const n: u32 = self.docs[di].used
+        for k in 0..65536 {
+            if cp >= target or start + u32(k) >= n {
+                break
+            }
+            const b: u8 = self.docs[di].buf[start + u32(k)]
+            if b >= 128 and b < 192 {
+                u16 = u16 + 0
+            } elif b >= 240 {
+                u16 = u16 + 2
+                cp = cp + 1
+            } else {
+                u16 = u16 + 1
+                cp = cp + 1
+            }
+        }
+        return u16
+    }
+
+    # длина строки от start до перевода строки/конца, в UTF-16 единицах
+    func u16_line_len(self, di: u32, start: u32) -> u32
+    {
+        let u16: u32 = 0
+        let stop: bool = false
+        const n: u32 = self.docs[di].used
+        for k in 0..65536 {
+            if start + u32(k) >= n or stop {
+                break
+            }
+            const b: u8 = self.docs[di].buf[start + u32(k)]
+            if b == 10 {
+                stop = true
+            } elif b < 128 {
+                u16 = u16 + 1
+            } elif b < 192 {
+                u16 = u16 + 0
+            } elif b < 240 {
+                u16 = u16 + 1
+            } else {
+                u16 = u16 + 2
+            }
+        }
+        return u16
+    }
+
+    # --- go-to-definition (этап 1a) -----------------------------------
+
+    # Обратная конверсия: 0-based UTF-16 (line0, ch16) курсора → 1-based
+    # кодпойнт-колонка в буфере слота (для поиска токена под курсором).
+    func col_from_u16(self, di: u32, line0: u32, ch16: u32) -> u32
+    {
+        const ls: u32 = self.line_start(di, line0 + 1)
+        let u16: u32 = 0
+        let cp: u32 = 0
+        const n: u32 = self.docs[di].used
+        for k in 0..65536 {
+            if u16 >= ch16 or ls + u32(k) >= n {
+                break
+            }
+            const b: u8 = self.docs[di].buf[ls + u32(k)]
+            if b >= 128 and b < 192 {
+                cp = cp + 0
+            } elif b >= 240 {
+                u16 = u16 + 2
+                cp = cp + 1
+            } else {
+                u16 = u16 + 1
+                cp = cp + 1
+            }
+        }
+        return cp + 1
+    }
+
+    # Лекс слота di и поиск объявления под курсором (same-file, этап 1a).
+    # Токен IDENT (kind 3), накрывающий (cline, ccol) в кодпойнтах, — имя;
+    # затем первый `<func|constexpr|struct|enum> IDENT<то же имя>`. Позиция
+    # объявления — кодпойнт line:col; path пуст (тот же документ). Лексика
+    # только: областей видимости нет, разрешение по имени (пределы §1a).
+    # Аксессоры токенов (tok_k/…) объявлены `let self`, поэтому lex —
+    # изменяемый локал, а логика инлайнится сюда (не отдельный метод с
+    # const-параметром lex). Кросс-файл (этап 1b) добавит поиск в корпусе.
+    func find_def(self, di: u32, line0: u32, ch16: u32) -> DefLoc
+    {
+        const cline: u32 = line0 + 1
+        const ccol: u32 = self.col_from_u16(di, line0, ch16)
+        let lex: Lexer = lexer_new()
+        const n: u32 = self.docs[di].used
+        for i in 0..65536 {
+            if u32(i) >= n or lex.failed {
+                break
+            }
+            lex.step(self.docs[di].buf[u32(i)])
+        }
+        lex.finish()
+        if not lex.failed {
+            lex.sublex_pass()
+        }
+        # 1. токен IDENT под курсором
+        let nti: u32 = LSP_NONE
+        for t in 0..262144 {
+            if u32(t) >= lex.ntok or nti != LSP_NONE {
+                break
+            }
+            if lex.tok_k(u32(t)) == 3 {
+                const tl: u32 = lex.tok_l(u32(t))
+                const tc: u32 = lex.tok_c(u32(t))
+                const vl: u32 = lex.tok_vl(u32(t))
+                if tl == cline and ccol >= tc and ccol < tc + vl {
+                    nti = u32(t)
+                }
+            }
+        }
+        if nti == LSP_NONE {
+            return DefLoc { found: false, line: 0, col: 0, len: 0, uri: "" }
+        }
+        # 2. имя целевого токена в локальный буфер
+        let nm: [u8; 256] = [0; 256]
+        let nn: u32 = lex.tok_vl(nti)
+        if nn > 256 {
+            nn = 256
+        }
+        const ns: u32 = lex.tok_vs(nti)
+        for i in 0..256 {
+            if u32(i) >= nn {
+                break
+            }
+            if ns + u32(i) < 262144 {
+                nm[u32(i)] = lex.sb_at(ns + u32(i))
+            }
+        }
+        # 3. `<декл-кв> IDENT<nm>` — первое совпадение
+        let dti: u32 = LSP_NONE
+        for t in 0..262144 {
+            if u32(t) + 1 >= lex.ntok or dti != LSP_NONE {
+                break
+            }
+            const k: u32 = lex.tok_k(u32(t))
+            if (k == 4 or k == 7 or k == 8 or k == 9) and lex.tok_k(u32(t) + 1) == 3 {
+                if lex.tok_vl(u32(t) + 1) == nn {
+                    let eq: bool = true
+                    const cs: u32 = lex.tok_vs(u32(t) + 1)
+                    for i in 0..256 {
+                        if u32(i) >= nn or not eq {
+                            break
+                        }
+                        if cs + u32(i) < 262144 and lex.sb_at(cs + u32(i)) != nm[u32(i)] {
+                            eq = false
+                        }
+                    }
+                    if eq {
+                        dti = u32(t) + 1
+                    }
+                }
+            }
+        }
+        if dti != LSP_NONE {
+            return DefLoc {
+                found: true, line: lex.tok_l(dti), col: lex.tok_c(dti),
+                len: lex.tok_vl(dti), uri: ""
+            }
+        }
+        # 4. локальный промах → кросс-файл (этап 1b): import-путь имени в
+        # корпусе, поиск объявления там.
+        const pth: str<256> = self.resolve_import(di, nm, nn)
+        if pth == "" {
+            return DefLoc { found: false, line: 0, col: 0, len: 0, uri: "" }
+        }
+        const mi: u32 = self.mod_find(pth)
+        if mi == LSP_NONE {
+            return DefLoc { found: false, line: 0, col: 0, len: 0, uri: "" }
+        }
+        return self.find_def_cross(mi, nm, nn)
+    }
+
+    # Путь модуля (`from "path"`) import-блока, содержащего имя nm (nn байт),
+    # в документе di — или "" (нет такого импорта). Лекс слота + автомат
+    # `import { … nm … } from "path"`: import(63) начинает блок, IDENT(3) в
+    # скобках копит совпадение, RBRACE(33) закрывает, from(65) ждёт STRING(1).
+    func resolve_import(self, di: u32, nm: [u8; 256], nn: u32) -> str<256>
+    {
+        let lex: Lexer = lexer_new()
+        const n: u32 = self.docs[di].used
+        for i in 0..65536 {
+            if u32(i) >= n or lex.failed {
+                break
+            }
+            lex.step(self.docs[di].buf[u32(i)])
+        }
+        lex.finish()
+        if not lex.failed {
+            lex.sublex_pass()
+        }
+        let pth: str<256> = ""
+        let collecting: bool = false
+        let hasn: bool = false
+        let want_str: bool = false
+        for t in 0..262144 {
+            if u32(t) >= lex.ntok or pth != "" {
+                break
+            }
+            const k: u32 = lex.tok_k(u32(t))
+            if k == 63 {
+                collecting = true
+                hasn = false
+                want_str = false
+            } elif k == 33 and collecting {
+                collecting = false
+            } elif k == 3 and collecting and lex.tok_vl(u32(t)) == nn {
+                let eq: bool = true
+                const vs2: u32 = lex.tok_vs(u32(t))
+                for i in 0..256 {
+                    if u32(i) >= nn or not eq {
+                        break
+                    }
+                    if vs2 + u32(i) < 262144 and lex.sb_at(vs2 + u32(i)) != nm[u32(i)] {
+                        eq = false
+                    }
+                }
+                if eq {
+                    hasn = true
+                }
+            } elif k == 65 {
+                want_str = true
+            } elif k == 1 and want_str {
+                want_str = false
+                if hasn {
+                    const so: u32 = lex.tok_vs(u32(t))
+                    const sl: u32 = lex.tok_vl(u32(t))
+                    let tmp: str<256> = ""
+                    for i in 0..256 {
+                        if u32(i) >= sl {
+                            break
+                        }
+                        if so + u32(i) < 262144 {
+                            tmp = "{tmp}{char(lex.sb_at(so + u32(i)))}"
+                        }
+                    }
+                    pth = tmp
+                }
+                hasn = false
+            }
+        }
+        return pth
+    }
+
+    # Ответ на textDocument/definition (id): Location объявления, либо
+    # result: null при промахе. uri цели — dg.uri (кросс-файл) или URI
+    # слота (same-file). Имя декларации всегда за ASCII-ключевым словом,
+    # поэтому UTF-16 character = кодпойнт col - 1 (буфер не нужен).
+    func reply_def(self, di: u32, id: i64, dg: DefLoc)
+    {
+        let o: JOut = json_out()
+        o.begin_obj()
+        o.field("jsonrpc")
+        o.qval("2.0")
+        o.field("id")
+        o.ival(id)
+        o.field("result")
+        if not dg.found {
+            o.word("null")
+            o.end_obj()
+            lsp_send(o)
+            return
+        }
+        let turi: str<256> = self.docs[di].uri
+        if dg.uri != "" {
+            turi = dg.uri
+        }
+        let cs: u32 = 0
+        if dg.col > 0 {
+            cs = dg.col - 1
+        }
+        let lz: u32 = 0
+        if dg.line > 0 {
+            lz = dg.line - 1
+        }
+        o.begin_obj()
+        o.field("uri")
+        o.qval(turi)
+        o.field("range")
+        o.begin_obj()
+        o.field("start")
+        o.begin_obj()
+        o.field("line")
+        o.ival(i64(lz))
+        o.field("character")
+        o.ival(i64(cs))
+        o.end_obj()
+        o.field("end")
+        o.begin_obj()
+        o.field("line")
+        o.ival(i64(lz))
+        o.field("character")
+        o.ival(i64(cs + dg.len))
+        o.end_obj()
+        o.end_obj()
+        o.end_obj()
+        o.end_obj()
+        lsp_send(o)
+    }
+
+    # Уведомление textDocument/publishDiagnostics для слота di. При dg.found
+    # — один диагноз severity 1 (Error); иначе пустой список (снять прежние).
+    func publish(self, di: u32, dg: Diag)
+    {
+        let o: JOut = json_out()
+        o.begin_obj()
+        o.field("jsonrpc")
+        o.qval("2.0")
+        o.field("method")
+        o.qval("textDocument/publishDiagnostics")
+        o.field("params")
+        o.begin_obj()
+        o.field("uri")
+        o.qval(self.docs[di].uri)
+        o.field("diagnostics")
+        o.begin_array()
+        if dg.found {
+            const ls: u32 = self.line_start(di, dg.line)
+            const cs: u32 = self.u16_upto(di, ls, dg.col)
+            let ce: u32 = self.u16_line_len(di, ls)
+            if ce <= cs {
+                ce = cs + 1
+            }
+            let lz: u32 = 0
+            if dg.line > 0 {
+                lz = dg.line - 1
+            }
+            let mm: str<256> = dg.msg
+            o.begin_obj()
+            o.field("range")
+            o.begin_obj()
+            o.field("start")
+            o.begin_obj()
+            o.field("line")
+            o.ival(i64(lz))
+            o.field("character")
+            o.ival(i64(cs))
+            o.end_obj()
+            o.field("end")
+            o.begin_obj()
+            o.field("line")
+            o.ival(i64(lz))
+            o.field("character")
+            o.ival(i64(ce))
+            o.end_obj()
+            o.end_obj()
+            o.field("severity")
+            o.ival(1)
+            o.field("source")
+            o.qval("eatc")
+            o.field("message")
+            o.qval(mm)
+            o.end_obj()
+        }
+        o.end_array()
+        o.end_obj()
+        o.end_obj()
+        lsp_send(o)
+    }
+}
+
+# свежий реестр: все слоты свободны (вся память — в кадре вызывающего)
+func docstore_new() -> DocStore
+{
+    const es: str<256> = ""
+    return DocStore {
+        docs: [Doc {
+            live: false, uri: "", ver: 0, buf: [0; 65536], used: 0,
+            order: [es; 24], norder: 0
+        }; 32],
+        mods: [Mod {
+            live: false, path: "", uri: "", buf: [0; 65536], used: 0
+        }; 24]
+    }
+}

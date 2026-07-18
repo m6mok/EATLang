@@ -1,5 +1,0 @@
-Content-Length: 123
-
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1},"serverInfo":{"name":"eat-lsp","version":"0.0.1"}}}Content-Length: 38
-
-{"jsonrpc":"2.0","id":2,"result":null}

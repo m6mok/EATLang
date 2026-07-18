@@ -113,6 +113,12 @@ struct Lexer {
     vlen: u32
     depth: u32
     failed: bool
+    # захват первой ошибки для LSP (docs/plans/LSP_PLAN.md, этап 1):
+    # позиция и текст первого fail — рядом с eprint, без смены вывода.
+    # Дампы/IR не читают эти поля; паритет src/eatc байт-в-байт цел.
+    el: u32
+    ec: u32
+    em: str<128>
     ch: u8
     # пул токенов (262144 = 4 x 65536: вложенные массивы)
     tk: [[u32; 65536]; 4]
@@ -313,6 +319,9 @@ struct Lexer {
     {
         if not self.failed {
             eprint("err: {self.line}:{self.col}: {m}")
+            self.el = self.line
+            self.ec = self.col
+            self.em = m
         }
         self.failed = true
     }
@@ -321,6 +330,9 @@ struct Lexer {
     {
         if not self.failed {
             eprint("err: {self.tline}:{self.tcol}: неожиданный символ '{char(b)}'")
+            self.el = self.tline
+            self.ec = self.tcol
+            self.em = "неожиданный символ"
         }
         self.failed = true
     }
@@ -329,6 +341,9 @@ struct Lexer {
     {
         if not self.failed {
             eprint("err: {self.line}:{self.col}: неизвестная escape-последовательность \\{char(b)}")
+            self.el = self.line
+            self.ec = self.col
+            self.em = "неизвестная escape-последовательность"
         }
         self.failed = true
     }
@@ -1010,7 +1025,8 @@ func lexer_new() -> Lexer
 {
     return Lexer {
         state: 0, line: 1, col: 1, tline: 1, tcol: 1, val: [0; 256], vlen: 0, depth: 0,
-        failed: false, ch: 0, tk: [[0; 65536]; 4], tl: [[0; 65536]; 4], tc: [[0; 65536]; 4],
+        failed: false, el: 0, ec: 0, em: "", ch: 0, tk: [[0; 65536]; 4], tl: [[0; 65536]; 4],
+        tc: [[0; 65536]; 4],
         tvs: [[0; 65536]; 4], tvl: [[0; 65536]; 4], tsg: [[0; 65536]; 4], tns: [[0; 65536]; 4],
         ntok: 0, sbuf: [[0; 65536]; 4], sblen: 0, sgk: [0; 2048], sga: [0; 2048], sgb: [0; 2048],
         nseg: 0, hexv: 0, hexn: 0

@@ -1,53 +1,36 @@
-# editor/lsp/Transport.eat — транспорт LSP (docs/plans/LSP_PLAN.md,
-# этап 0): JSON-RPC поверх stdio с обрамлением Content-Length.
+# editor/lsp/Transport.eat — транспорт LSP + диспетч + хэндлеры документов
+# (docs/plans/LSP_PLAN.md, этап 1): JSON-RPC поверх stdio с обрамлением
+# Content-Length.
 #
 # Сервер на самом EATLang: реактивная модель SPEC §5.1 — один корневой
 # `loop` в main (LspMain.eat) зовёт Lsp.step() на каждом сообщении, как
 # Server.tick() зовётся на каждом витке HTTP. Источник байтов — аксиома
 # read_byte() (stdin), а не socket_read_byte. Тело сообщения копится в
-# JDoc (lib/json), ответ строится JOut-билдером; фаз компилятора этап 0
-# не линкует (только рукопожатие).
+# JDoc (lib/json), ответы строятся JOut-билдером.
 #
-# Транспорт самодостаточен: мини-парсер заголовков (без request-line,
-# в отличие от lib/http/Http.eat) читает строки до пустой и достаёт
-# Content-Length. Диспетч (dispatch) на этапе 0 живёт здесь; при росте
-# (этап 1+) переедет в Rpc.eat/Handlers.eat.
+# Линковка — плоская конкатенация (модуль 0): нет import/export (см.
+# шапку Handlers.eat). Символы lib/json (JDoc/JOut) и фаз (lexer_new…),
+# реестр DocStore и хелперы send/reply_* — глобальны в потоке. Этот файл
+# идёт ПОСЛЕ Handlers.eat (Lsp хранит store: DocStore).
 #
 # Инварианты (§11 плана): ни кучи, ни рекурсии, ни глобалов. Буферы —
 # фиксированного размера в кадре main; циклы — for со статической
 # границей; единственный loop — в main пользователя.
 
-export {
-    Lsp,
-    lsp_new,
-}
-
-import {
-    JDoc,
-    json_doc,
-    JOut,
-    json_out,
-} from "lib/json/Json.eat"
-
-import {
-    to_lower,
-} from "lib/fmt/Ascii.eat"
-
-# «нет значения» для Content-Length и позиции двоеточия (идиома SENT).
-constexpr LSP_NONE: u32 = 4294967295
 # потолок тела сообщения = потолок входа JDoc (§4 плана).
 constexpr LSP_MSG_CAP: u32 = 65536
 # потолок строки заголовка: имена/значения LSP короткие.
 constexpr LSP_LINE_CAP: u32 = 1024
 
 # Кадр сервера: буфер строки заголовка + разобранный Content-Length +
-# документ входящего сообщения. Живёт `let`-значением в кадре main
-# (как Store в Todo, Server в HTTP), НЕ глобал (правило 3).
+# документ входящего сообщения + реестр открытых документов. Живёт
+# `let`-значением в кадре main (как Store в Todo), НЕ глобал (правило 3).
 struct Lsp {
     line: [u8; 1024]   # LSP_LINE_CAP — текущая строка заголовка
     ln: u32
     clen: u32          # Content-Length текущего сообщения или LSP_NONE
     d: JDoc            # весь «heap» JSON-дерева — пул в кадре владельца
+    store: DocStore    # реестр открытых документов (bounded, §4)
 
     # --- транспорт: чтение сообщения -------------------------------
 
@@ -209,6 +192,298 @@ struct Lsp {
         return got >= self.clen
     }
 
+    # --- навигация по дереву входящего сообщения -------------------
+
+    # член объекта id по ключу или LSP_NONE (узлы JDoc — id < 4096;
+    # LSP_NONE вне диапазона, стражи не спутают со слотом/узлом).
+    func jget(self, id: u32, key: str<256>) -> u32
+    {
+        let r: u32 = LSP_NONE
+        if id < 4096 {
+            match self.d.get(id, key) {
+                Some(x) {
+                    if x < 4096 {
+                        r = x
+                    }
+                }
+                None {}
+            }
+        }
+        return r
+    }
+
+    # версия документа из узла textDocument (0 при отсутствии)
+    func jver(self, td: u32) -> i64
+    {
+        let v: i64 = 0
+        const vid: u32 = self.jget(td, "version")
+        if vid != LSP_NONE {
+            match self.d.as_i64(vid) {
+                Some(x) { v = x }
+                None {}
+            }
+        }
+        return v
+    }
+
+    # Скопировать строковое значение узла tid (текст документа) из арены
+    # JDoc в буфер слота. Длиннее LSP_DOC_CAP — усечь (диагностика по
+    # усечённому; правки не блокируются).
+    func load_text(let self, slot: u32, tid: u32)
+    {
+        if slot >= 32 or tid >= 4096 {
+            return
+        }
+        const off: u32 = self.d.nodes[tid].s_off
+        const ln: u32 = self.d.nodes[tid].s_len
+        let m: u32 = ln
+        if m > 65536 {
+            m = 65536
+        }
+        for i in 0..65536 {
+            if u32(i) >= m {
+                break
+            }
+            if off + u32(i) < 65536 {
+                self.store.docs[slot].buf[u32(i)] = self.d.arena[off + u32(i)]
+            }
+        }
+        self.store.docs[slot].used = m
+    }
+
+    # целое поле объекта obj по ключу (0 при отсутствии)
+    func jint(self, obj: u32, key: str<256>) -> i64
+    {
+        let v: i64 = 0
+        const nid: u32 = self.jget(obj, key)
+        if nid != LSP_NONE {
+            match self.d.as_i64(nid) {
+                Some(x) { v = x }
+                None {}
+            }
+        }
+        return v
+    }
+
+    # URI узла textDocument как str<256> или пусто (длиннее — не поддержан)
+    func uri_of(self, td: u32) -> str<256>
+    {
+        let uri: str<256> = ""
+        const uid: u32 = self.jget(td, "uri")
+        if uid != LSP_NONE {
+            match self.d.as_str(uid) {
+                Some(s) { uri = s }
+                None {}
+            }
+        }
+        return uri
+    }
+
+    # --- хэндлеры документов ---------------------------------------
+
+    # Общий путь открытия/изменения: занять слот URI, загрузить текст
+    # узла tid, проанализировать и опубликовать диагностики.
+    func ingest(let self, td: u32, tid: u32)
+    {
+        const uri: str<256> = self.uri_of(td)
+        if uri == "" {
+            return
+        }
+        const slot: u32 = self.store.alloc(uri)
+        if slot == LSP_NONE {
+            return
+        }
+        self.store.docs[slot].ver = self.jver(td)
+        self.load_text(slot, tid)
+        const dg: Diag = self.store.analyze_any(slot)
+        self.store.publish(slot, dg)
+    }
+
+    # didOpen: params.textDocument.{uri,text,version}
+    func on_open(let self, root: u32)
+    {
+        const params: u32 = self.jget(root, "params")
+        const td: u32 = self.jget(params, "textDocument")
+        const tid: u32 = self.jget(td, "text")
+        if td == LSP_NONE or tid == LSP_NONE {
+            return
+        }
+        self.ingest(td, tid)
+    }
+
+    # didChange (полная синхронизация): params.contentChanges[0].text
+    func on_change(let self, root: u32)
+    {
+        const params: u32 = self.jget(root, "params")
+        const td: u32 = self.jget(params, "textDocument")
+        const cc: u32 = self.jget(params, "contentChanges")
+        if td == LSP_NONE or cc == LSP_NONE {
+            return
+        }
+        let c0: u32 = LSP_NONE
+        if cc < 4096 {
+            match self.d.at(cc, 0) {
+                Some(x) {
+                    if x < 4096 {
+                        c0 = x
+                    }
+                }
+                None {}
+            }
+        }
+        const tid: u32 = self.jget(c0, "text")
+        if tid == LSP_NONE {
+            return
+        }
+        self.ingest(td, tid)
+    }
+
+    # eat/module (уведомление клиента, этап 1b): зависимость замыкания
+    # импортов {path, uri, text} → слот корпуса. path — канонический (как
+    # в import), uri — file:// (для Location). Текст копируется из арены.
+    func on_module(let self, root: u32)
+    {
+        const params: u32 = self.jget(root, "params")
+        if params == LSP_NONE {
+            return
+        }
+        let path: str<256> = ""
+        const pid: u32 = self.jget(params, "path")
+        if pid != LSP_NONE {
+            match self.d.as_str(pid) {
+                Some(s) { path = s }
+                None {}
+            }
+        }
+        let muri: str<256> = ""
+        const uid: u32 = self.jget(params, "uri")
+        if uid != LSP_NONE {
+            match self.d.as_str(uid) {
+                Some(s) { muri = s }
+                None {}
+            }
+        }
+        const tid: u32 = self.jget(params, "text")
+        if path == "" or tid == LSP_NONE {
+            return
+        }
+        const slot: u32 = self.store.mod_alloc(path, muri)
+        if slot == LSP_NONE {
+            return
+        }
+        self.load_mod(slot, tid)
+    }
+
+    # копия текста узла tid (арена JDoc) в буфер модуля корпуса slot
+    func load_mod(let self, slot: u32, tid: u32)
+    {
+        if slot >= 24 or tid >= 4096 {
+            return
+        }
+        const off: u32 = self.d.nodes[tid].s_off
+        const ln: u32 = self.d.nodes[tid].s_len
+        let m: u32 = ln
+        if m > 65536 {
+            m = 65536
+        }
+        for i in 0..65536 {
+            if u32(i) >= m {
+                break
+            }
+            if off + u32(i) < 65536 {
+                self.store.mods[slot].buf[u32(i)] = self.d.arena[off + u32(i)]
+            }
+        }
+        self.store.mods[slot].used = m
+    }
+
+    # eat/order (уведомление клиента, этап 1c): топологический порядок
+    # модулей потока для документа — params.uri + params.paths (массив
+    # канонических путей; paths[0] — Rt). Сохранить порядок в слоте и
+    # ПЕРЕсчитать диагностику (теперь модульным анализом — реальная
+    # типовая проверка через границы модулей). Гонка didOpen/eat/module
+    # лечится этим пересчётом: первый анализ (без корпуса) подавил ложную
+    # ошибку, второй (с потоком) даёт настоящую.
+    func on_order(let self, root: u32)
+    {
+        const params: u32 = self.jget(root, "params")
+        if params == LSP_NONE {
+            return
+        }
+        let uri: str<256> = ""
+        const uid: u32 = self.jget(params, "uri")
+        if uid != LSP_NONE {
+            match self.d.as_str(uid) {
+                Some(s) { uri = s }
+                None {}
+            }
+        }
+        const slot: u32 = self.store.find(uri)
+        const arr: u32 = self.jget(params, "paths")
+        if slot == LSP_NONE or arr == LSP_NONE {
+            return
+        }
+        self.store.docs[slot].norder = 0
+        for j in 0..24 {
+            match self.d.at(arr, u32(j)) {
+                Some(e) {
+                    if e < 4096 {
+                        match self.d.as_str(e) {
+                            Some(p) {
+                                self.store.docs[slot].order[u32(j)] = p
+                                self.store.docs[slot].norder = u32(j) + 1
+                            }
+                            None {}
+                        }
+                    }
+                }
+                None {}
+            }
+        }
+        const dg: Diag = self.store.analyze_any(slot)
+        self.store.publish(slot, dg)
+    }
+
+    # textDocument/definition (запрос, есть id): позиция курсора →
+    # объявление под ним. params.textDocument.uri + params.position
+    # {line, character} (0-based UTF-16). Ответ — Location или null.
+    func on_definition(let self, root: u32, id: i64)
+    {
+        const params: u32 = self.jget(root, "params")
+        const td: u32 = self.jget(params, "textDocument")
+        const pos: u32 = self.jget(params, "position")
+        if td == LSP_NONE or pos == LSP_NONE {
+            lsp_reply_null(id)
+            return
+        }
+        const uri: str<256> = self.uri_of(td)
+        const slot: u32 = self.store.find(uri)
+        if slot == LSP_NONE {
+            lsp_reply_null(id)
+            return
+        }
+        const line0: i64 = self.jint(pos, "line")
+        const ch16: i64 = self.jint(pos, "character")
+        const dg: DefLoc = self.store.find_def(slot, u32(line0), u32(ch16))
+        self.store.reply_def(slot, id, dg)
+    }
+
+    # didClose: освободить слот и снять подчёркивания (пустые диагностики)
+    func on_close(let self, root: u32)
+    {
+        const params: u32 = self.jget(root, "params")
+        const td: u32 = self.jget(params, "textDocument")
+        if td == LSP_NONE {
+            return
+        }
+        const uri: str<256> = self.uri_of(td)
+        if uri == "" {
+            return
+        }
+        self.store.free_uri(uri)
+        publish_clear(uri)
+    }
+
     # --- диспетч ----------------------------------------------------
 
     # Разобрать тело и обслужить одно сообщение. true — запрошен выход
@@ -228,8 +503,8 @@ struct Lsp {
         return quit
     }
 
-    # Метод + id сообщения (корень root) → ответ. true — выход.
-    func dispatch(self, root: u32) -> bool
+    # Метод + id сообщения (корень root) → ответ/действие. true — выход.
+    func dispatch(let self, root: u32) -> bool
         requires root < 4096
     {
         let m: str<256> = ""
@@ -270,6 +545,30 @@ struct Lsp {
             return true
         }
         if m == "initialized" {
+            return false
+        }
+        if m == "textDocument/didOpen" {
+            self.on_open(root)
+            return false
+        }
+        if m == "textDocument/didChange" {
+            self.on_change(root)
+            return false
+        }
+        if m == "textDocument/didClose" {
+            self.on_close(root)
+            return false
+        }
+        if m == "textDocument/definition" {
+            self.on_definition(root, id)
+            return false
+        }
+        if m == "eat/module" {
+            self.on_module(root)
+            return false
+        }
+        if m == "eat/order" {
+            self.on_order(root)
             return false
         }
         # прочие запросы (есть id) — method not found; уведомления молчим
@@ -322,85 +621,8 @@ func lsp_new() -> Lsp
         ln: 0,
         clen: LSP_NONE,
         d: json_doc(),
+        store: docstore_new(),
     }
-}
-
-# --- отправка ответа ----------------------------------------------------
-
-# Кадр ответа: заголовок Content-Length + пустая строка + тело JOut.
-# '\r' в строковых литералах языка нет — CRLF байтами (как Resp.crlf).
-func send(o: JOut)
-{
-    write("Content-Length: {o.n}")
-    write_byte(13)
-    write_byte(10)
-    write_byte(13)
-    write_byte(10)
-    write_span(o.buf, 0, o.n)
-}
-
-# Ответ на initialize: capabilities (этап 0 — только textDocumentSync
-# полной синхронизацией) + serverInfo. id эхом (numeric, VSCode).
-func reply_initialize(id: i64)
-{
-    let o: JOut = json_out()
-    o.begin_obj()
-    o.field("jsonrpc")
-    o.qval("2.0")
-    o.field("id")
-    o.ival(id)
-    o.field("result")
-    o.begin_obj()
-    o.field("capabilities")
-    o.begin_obj()
-    o.field("textDocumentSync")
-    o.ival(1)
-    o.end_obj()
-    o.field("serverInfo")
-    o.begin_obj()
-    o.field("name")
-    o.qval("eat-lsp")
-    o.field("version")
-    o.qval("0.0.1")
-    o.end_obj()
-    o.end_obj()
-    o.end_obj()
-    send(o)
-}
-
-# Ответ на shutdown: result null (билдер null-значения нет — word).
-func reply_shutdown(id: i64)
-{
-    let o: JOut = json_out()
-    o.begin_obj()
-    o.field("jsonrpc")
-    o.qval("2.0")
-    o.field("id")
-    o.ival(id)
-    o.field("result")
-    o.word("null")
-    o.end_obj()
-    send(o)
-}
-
-# Ответ-ошибка на неизвестный запрос: JSON-RPC code -32601.
-func reply_error(id: i64)
-{
-    let o: JOut = json_out()
-    o.begin_obj()
-    o.field("jsonrpc")
-    o.qval("2.0")
-    o.field("id")
-    o.ival(id)
-    o.field("error")
-    o.begin_obj()
-    o.field("code")
-    o.ival(-32601)
-    o.field("message")
-    o.qval("method not found")
-    o.end_obj()
-    o.end_obj()
-    send(o)
 }
 
 # scan_clen: разбор заголовка без чтения stdin (чистый, детерминирован).

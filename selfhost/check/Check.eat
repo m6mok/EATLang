@@ -15,6 +15,11 @@
 struct Check {
     p: Parser
     failed: bool
+    # захват первой ошибки для LSP (docs/plans/LSP_PLAN.md, этап 1) —
+    # позиция и текст из fail_at, рядом с eprint; вывод/паритет не тронуты
+    el: u32
+    ec: u32
+    em: str<128>
     # пул типов
     yk: [u32; 512]
     ya: [u32; 512]
@@ -273,6 +278,9 @@ struct Check {
     {
         if not self.failed {
             eprint("err: {ln}:{cl}: {m}")
+            self.el = ln
+            self.ec = cl
+            self.em = m
         }
         self.failed = true
     }
@@ -1971,7 +1979,8 @@ func is_stmt_kind(k: u32) -> bool
 func check_new(p: Parser) -> Check
 {
     return Check {
-        p: p, failed: false, yk: [0; 512], ya: [0; 512], yb: [0; 512], ys: [0; 512],
+        p: p, failed: false, el: 0, ec: 0, em: "", yk: [0; 512], ya: [0; 512],
+        yb: [0; 512], ys: [0; 512],
         yl: [0; 512], ntype: 0, cn_s: [0; 128], cn_l: [0; 128], cty: [0; 128],
         cvs: [0; 128], cvm: [0; 128], ncon: 0, fn_s: [0; 2048], fn_l: [0; 2048],
         fown: [0; 2048], fps: [0; 2048], fpc: [0; 2048], fret: [0; 2048], fvs: [0; 2048],
