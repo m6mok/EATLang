@@ -555,6 +555,9 @@ extend Ir {
     # call void @"eat_{nm}"({STR}* v1)
     func e_rt_s(let self, nm: str<16>)
     {
+        if self.msr == 1 {
+            self.rec_edge(self.rt_mfi(nm, ""))
+        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__")
         self.lb_lit(nm)
@@ -721,6 +724,9 @@ extend Ir {
     # call void @"eat_str_append_{nm}"({STR}* v1, {at} v2)
     func e_rt_si(let self, nm: str<8>, at: str<8>)
     {
+        if self.msr == 1 {
+            self.rec_edge(self.rt_mfi("append_", nm))
+        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__append_")
         self.lb_lit(nm)
@@ -755,6 +761,9 @@ extend Ir {
     # call void @"eat_str_append_str"({STR}* v1, {STR}* v2)
     func e_as(let self)
     {
+        if self.msr == 1 {
+            self.rec_edge(self.rt_mfi("append_str", ""))
+        }
         self.vpre()
         self.lb_lit("call void @\"eat_RtStr__append_str\"(")
         self.w_strty()
@@ -770,6 +779,9 @@ extend Ir {
 
     func e_streq(let self)
     {
+        if self.msr == 1 {
+            self.rec_edge(self.rt_mfi("eq", ""))
+        }
         self.rpre()
         self.lb_lit("call i1 @\"eat_RtStr__eq\"(")
         self.w_strty()
@@ -844,6 +856,10 @@ extend Ir {
     func e_ucall(let self, fi: u32, base: u32)
         requires fi < 1024 and base < 256
     {
+        # ось -O: ребро на определённый вызываемый (extern — не ребро)
+        if self.msr == 1 and not self.fn_ext(fi) {
+            self.rec_edge(fi)
+        }
         const cnt: u32 = self.nag - base
         const rt2: u32 = self.c.fret[fi]
         let isv: bool = true
