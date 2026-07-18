@@ -1775,7 +1775,17 @@ def compile_binary(
         pass  # новые llvmlite инициализируются сами
     ref = llvm.parse_assembly(str(module))
     ref.verify()
-    machine = llvm.Target.from_default_triple().create_target_machine(opt=2)
+    # reloc='pic': llvmlite по умолчанию (reloc='default', abs/small code
+    # model) эмитит на aarch64 абсолютные релокации R_AARCH64_MOVW_UABS_G0_NC;
+    # mach-O/ld64 их принимает, но GNU ld на Linux при PIE-линковке (дефолт
+    # Debian) отвергает абсолютные MOVW против локальных символов. PIC-объект
+    # линкуется дефолтным PIE и не меняет поведения на macOS (там код и так
+    # PIC). Затрагивает только путь emit_object ниже: канонный .ll (пишется из
+    # str(module) выше), §8-отчёт (target_data) и clang-прямые пути (--release
+    # LTO, MCU --no-bin, bootstrap) не зависят от модели релокаций.
+    machine = llvm.Target.from_default_triple().create_target_machine(
+        opt=2, reloc="pic"
+    )
     report = _memory_report(cg, checker, machine)
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
