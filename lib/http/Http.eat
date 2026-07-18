@@ -47,6 +47,15 @@ import {
     fmt_u32,
 } from "lib/fmt/Fmt.eat"
 
+import {
+    hex_val,
+} from "lib/fmt/Hex.eat"
+
+import {
+    is_digit,
+    digit_value,
+} from "lib/fmt/Ascii.eat"
+
 # Потолки этапа 1 (решение H3, план §4): размеры зашиты в типы —
 # массив фиксированного размера есть часть типа (правило 3).
 constexpr HTTP_REQ_CAP: u32 = 8192
@@ -389,12 +398,12 @@ struct Req {
                 break
             }
             const b: u8 = self.raw[s + u32(i)]
-            if b < 48 or b > 57 {
+            if not is_digit(b) {
                 ok = false
             } elif v > HTTP_MAX_BODY {
                 v = HTTP_MAX_BODY + 1
             } else {
-                v = v * 10 + u32(b - 48)
+                v = v * 10 + u32(digit_value(b))
             }
         }
         if not ok {
@@ -603,21 +612,6 @@ struct Body {
         return true
     }
 
-    # hex-цифра -> 0..15; иначе 99 (как lib/Hex.hex_val).
-    func hexv(self, b: u8) -> u32
-    {
-        if b >= 48 and b <= 57 {
-            return u32(b - 48)
-        }
-        if b >= 97 and b <= 102 {
-            return u32(b - 87)
-        }
-        if b >= 65 and b <= 70 {
-            return u32(b - 55)
-        }
-        return 99
-    }
-
     # Конец size-строки chunked: нет hex-цифр — 400; нулевой размер —
     # последний чанк (ждём финальный CRLF), иначе — читаем данные.
     func size_end(let self) -> u32
@@ -656,7 +650,7 @@ struct Body {
         if b == 10 {
             return self.size_end()
         }
-        const h: u32 = self.hexv(b)
+        const h: u32 = hex_val(b)
         if h >= 16 {
             self.state = 2
             self.err = 400
