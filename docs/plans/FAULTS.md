@@ -9,6 +9,53 @@
 
 ---
 
+## 2026-07-18 · CONTAINERS_PLAN · этап 0 (гейт в контейнере — ЭСКАЛАЦИЯ)
+
+1. **Linux-тулчейн НЕ линкует объекты llvmlite — PIE против абсолютных
+   релокаций (не версия LLVM).** Симптом: полный гейт в пиннутом образе
+   (debian:13-slim + clang 22.1.8) падает на первом же шаге `make check`
+   → `build_all_examples`, на КАЖДОМ примере на линковке:
+   `/usr/bin/ld: build/HelloWorld.o: relocation R_AARCH64_MOVW_UABS_G0_NC
+   against 'a local symbol' can not be used when making a shared object;
+   recompile with -fPIC` → `clang: error: linker command failed`.
+   Нативно (macOS, Apple clang 21, mach-O) те же объекты линкуются и
+   гейт зелёный целиком. Причина (доказана в контейнере, не гипотеза):
+   `src/eatc/codegen.py:1778` — `create_target_machine(opt=2)` БЕЗ
+   `reloc='pic'`; llvmlite по умолчанию (`reloc='default'`,
+   small/abs code model) эмитит на aarch64 абсолютные релокации
+   `R_AARCH64_MOVW_UABS_G0_NC` в объект (`emit_object`, :1830). Затем
+   `clang -O2 obj runtime -o out` (:1835): на Debian trixie clang
+   линкует **PIE по умолчанию**, а GNU ld отвергает абсолютные MOVW-
+   релокации против локальных символов. mach-O/ld64 их принимает —
+   отсюда расхождение, специфичное для Linux/ELF. Ключевое
+   разграничение: это НЕ дрейф версии LLVM (промт закладывал её как
+   вероятный источник) — канонный `.ll` идентичен; при `clang -c`
+   (кодоген делает сам clang) объект получает PIE-совместимые релокации
+   (`R_AARCH64_ADR_PRE`/`CALL26`) и линкуется И PIE, И `-no-pie`.
+   Виновник — модель релокаций объекта, эмитируемого llvmlite, а не IR
+   и не clang. Минимальное репро (в контейнере, чисто):
+   `PYTHONPATH=src uv run python -m eatc build selfhost/Rt.eat
+   examples/hello_world/HelloWorld.eat -o /tmp/hw` → та же ошибка;
+   `readelf -r build/HelloWorld.o | grep MOVW_UABS` — присутствует.
+   Оба кандидата-фикса проверены зелёными в контейнере (Hello, world!):
+   (а) `create_target_machine(opt=2, reloc='pic')` — PIC-объекты,
+   дефолтный PIE-линк проходит; (б) `-no-pie` в clang-линковке. ОБА —
+   в `src/eatc/codegen.py` (плюс зеркальные `clang`-строки Makefile
+   345/515/523/587/607), т. е. эталонная/языковая поверхность, ВНЕ
+   рамок этапа 0 (запрет трогать `src/eatc/`). Обойдено: НЕ обойдено —
+   по п.3 промта это находка, не «поправить молча»; этап
+   ЭСКАЛИРОВАН (репро здесь, промт-передача выше — фикс кодогена
+   отдельным решением пользователя, §5). Контейнерная обвязка
+   (Containerfile/run-gate.sh/.gitignore) доставлена и корректна:
+   образ собирается, весь тулчейн на месте (clang 22.1.8, go 1.24.3,
+   rustc/cargo 1.84.0 в PATH — §0б закрыт, uv 0.9.13, llvmlite 0.48),
+   нативный гейт зелёный. Урок: «расхождение Linux-тулчейна» ≠
+   «версия LLVM» по умолчанию — сначала локализовать слой (IR? объект?
+   линк?) одноручечным диффом (`clang -c` того же `.ll` против
+   llvmlite `emit_object`), потом называть причину; PIE/PIC — первый
+   подозреваемый при переносе кодогена с mach-O на ELF, не версия
+   компилятора.
+
 ## 2026-07-17 · TODO_REST_PLAN · этап 5 (полный гейт)
 
 1. **Полный гейт красен из-за чужого незакоммиченного эксперимента.**

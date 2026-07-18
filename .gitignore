@@ -210,3 +210,11 @@ src/proto/*.py
 src/proto/*.pyi
 
 .vscode
+
+# Контейнеры (Podman) и worktree-каталоги гейта — docs/plans/CONTAINERS_PLAN.md
+# worktree-стенды гейта (монтируются в образ; вне git-истории)
+/EATLang-gate/
+/EATLang-container-gate/
+EATLang-gate-*/
+# логи прогонов контейнерного гейта
+containers/*.log

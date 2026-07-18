@@ -1,0 +1,107 @@
+# Containerfile — пиннутый образ разработки EATLang (Podman, rootless).
+# План: docs/plans/CONTAINERS_PLAN.md, этап 0/0б.
+#
+# Единый источник правды по тулчейну: clang/llvm, go, rust, uv+llvmlite.
+# Пины (решение пользователя §10.1) — точные версии, не latest:
+#   - база           debian:13-slim (trixie) — clang-22 на apt.llvm.org
+#                        публикуется только для trixie/noble, для bookworm
+#                        (Debian 12) его нет; см. FAULTS 2026-07-18
+#   - clang/llvm     22  (apt.llvm.org, 22.1.x; совпадает с LLVM 22.1.0,
+#                        который несёт llvmlite 0.48 — build-путь
+#                        llvmlite .ll → clang версионно согласован,
+#                        минимум риска паритета)
+#   - go             1.24.3
+#   - rust           1.84.0 (rustup minimal; rustc/cargo в PATH — чинит
+#                            дыру §0б, из-за которой bench_crosslang падал)
+#   - uv             0.9.13
+#   - llvmlite       0.48.0 (из uv.lock, через `uv sync --frozen` при
+#                            прогоне гейта; не в образ — ставится в venv
+#                            смонтированного репозитория)
+#
+# Собрать (на macOS — сначала `podman machine start`):
+#   podman build -f containers/Containerfile -t eatlang-dev:etap0 containers
+#
+# Прогнать полный гейт против репозитория — см. docs/plans/CONTAINERS_PLAN.md
+# и containers/run-gate.sh.
+
+FROM debian:13-slim
+
+# --- пины версий тулчейна (одним местом) ---------------------------------
+ARG LLVM_VERSION=22
+ARG GO_VERSION=1.24.3
+ARG RUST_VERSION=1.84.0
+ARG UV_VERSION=0.9.13
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# --- базовые пакеты + заголовки для линковки runtime.c -------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg \
+        git make xz-utils \
+        build-essential libc6-dev \
+        python3 python3-venv python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- clang/LLVM ${LLVM_VERSION} через apt.llvm.org, пиннутая версия ------
+# Репозиторий добавляем вручную (без add-apt-repository /
+# software-properties-common — их нет в trixie): ключ + строка deb для
+# llvm-toolchain-<codename>-<version>; codename берём из /etc/os-release,
+# чтобы шаг не ломался при смене базы. Ставим clang и lld нужной версии;
+# short-имена (clang, ld.lld) — codegen.py вызывает бинарник строго как
+# `clang`, линковка идёт системным ld (binutils из build-essential).
+RUN . /etc/os-release \
+    && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/llvm.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] \
+http://apt.llvm.org/${VERSION_CODENAME}/ \
+llvm-toolchain-${VERSION_CODENAME}-${LLVM_VERSION} main" \
+        > /etc/apt/sources.list.d/llvm.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        clang-${LLVM_VERSION} lld-${LLVM_VERSION} \
+    && ln -sf /usr/bin/clang-${LLVM_VERSION}    /usr/local/bin/clang \
+    && ln -sf /usr/bin/clang++-${LLVM_VERSION}  /usr/local/bin/clang++ \
+    && ln -sf /usr/bin/lld-${LLVM_VERSION}      /usr/local/bin/lld \
+    && ln -sf /usr/bin/ld.lld-${LLVM_VERSION}   /usr/local/bin/ld.lld \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Go (пиннутый тарбол go.dev; арх берём из dpkg: amd64/arm64) ---------
+RUN arch="$(dpkg --print-architecture)" \
+    && curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+        "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" \
+        -o /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm -f /tmp/go.tar.gz
+ENV PATH=/usr/local/go/bin:${PATH}
+
+# --- Rust (rustup, пиннутый minimal-профиль; rustc/cargo в PATH §0б) -----
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo
+RUN curl --proto '=https' --tlsv1.2 -sSf --retry 5 --retry-delay 3 \
+        --retry-all-errors https://sh.rustup.rs \
+        | sh -s -- -y --no-modify-path --profile minimal \
+              --default-toolchain ${RUST_VERSION} \
+    && chmod -R a+rX /opt/rust
+ENV PATH=/opt/rust/cargo/bin:${PATH}
+
+# --- uv (пиннутая версия установщика Astral) -----------------------------
+ENV UV_INSTALL_DIR=/usr/local/bin
+RUN curl -LsSf --retry 5 --retry-delay 3 --retry-all-errors \
+        "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+
+# --- rustc/cargo/go в /usr/local/bin (§0б: rustc в PATH при ЛЮБОМ шелле) -
+# ENV PATH выше виден `bash -c`, но login-шелл (`bash -lc`) пересобирает
+# PATH из /etc/profile и теряет go/cargo. Симлинки в /usr/local/bin — на
+# PATH всегда; rustup-шимы находят тулчейн через RUSTUP_HOME/CARGO_HOME
+# (они ENV, наследуются и login-шеллом), go — GOROOT по реальному пути.
+RUN ln -sf /usr/local/go/bin/go       /usr/local/bin/go \
+    && ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt \
+    && ln -sf /opt/rust/cargo/bin/rustc /usr/local/bin/rustc \
+    && ln -sf /opt/rust/cargo/bin/cargo /usr/local/bin/cargo
+
+# Репозиторий монтируется при запуске (bind-mount), в образ не копируется:
+# venv (linux-llvmlite) и build/ создаются в смонтированном дереве.
+WORKDIR /work
+CMD ["bash"]
