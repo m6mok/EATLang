@@ -87,7 +87,8 @@ up)
     ;;
 shell)
     # worktree и хаб — по хостовым путям: .git worktree'а указывает на
-    # $HUB/worktrees/<имя> абсолютным путём, git внутри контейнера работает
+    # $HUB/worktrees/<имя> абсолютным путём, git внутри контейнера работает;
+    # safe.directory — rootless-маппинг uid выглядит для git чужим владельцем
     exec podman run -it --rm \
         -v "$WT":"$WT" \
         -v "$HUB":"$HUB" \
@@ -95,7 +96,8 @@ shell)
         -e UV_FROZEN=1 \
         -e UV_PROJECT_ENVIRONMENT=/root/eat-venv \
         "$IMAGE" \
-        bash -c "ulimit -s 262144 && uv sync --frozen && exec bash"
+        bash -c "git config --global --add safe.directory '*' \
+            && ulimit -s 262144 && uv sync --frozen && exec bash"
     ;;
 gate)
     exec podman run --rm \
