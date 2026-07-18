@@ -62,7 +62,7 @@ class Dumper:
                 self.emit(d + 1, f"variant name={vname}")
                 if payload is not None:
                     self.type_(d + 2, payload)
-        elif isinstance(node, ast.ConstDecl):
+        elif isinstance(node, ast.ConstexprDecl):
             self.emit(d, f"const {node.line}:{node.col} name={node.name}")
             self.type_(d + 1, node.type)
             self.expr(d + 1, node.value)
@@ -145,7 +145,7 @@ class Dumper:
 
     def stmt(self, d: int, node) -> None:
         pos = f"{node.line}:{node.col}"
-        if isinstance(node, ast.LetStmt):
+        if isinstance(node, ast.LocalDecl):
             mut = 1 if node.mutable else 0
             self.emit(d, f"let {pos} name={node.name} mut={mut}{self.ann(node)}")
             self.type_(d + 1, node.type)

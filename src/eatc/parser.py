@@ -139,12 +139,12 @@ class Parser:
         if tok.type == T.ENUM:
             return self.parse_enum()
         if tok.type == T.CONST:
-            return self.parse_const()
+            return self.parse_constexpr()
         if tok.type == T.TEST:
             return self.parse_test()
         raise self.error(
             "на верхнем уровне допустимы только func, struct, enum, "
-            "const, test (правило 6: мутабельных глобалов нет)"
+            "constexpr, test (правило 6: мутабельных глобалов нет)"
         )
 
     # --- модули (docs/MODULES_PLAN.md §2, §4) -----------------------------
@@ -208,15 +208,15 @@ class Parser:
         self.seg_export = True
         return ast.ExportBlock(tok.line, tok.col, binds)
 
-    def parse_const(self) -> ast.ConstDecl:
-        tok = self.expect(T.CONST, "const")
+    def parse_constexpr(self) -> ast.ConstexprDecl:
+        tok = self.expect(T.CONST, "constexpr")
         name = self.expect(T.IDENT, "имя константы")
         self.expect(T.COLON, "':'")
         type_ = self.parse_type()
         self.expect(T.ASSIGN, "'='")
         value = self.parse_expr()
         self.end_of_stmt()
-        return ast.ConstDecl(tok.line, tok.col, name.value, type_, value)
+        return ast.ConstexprDecl(tok.line, tok.col, name.value, type_, value)
 
     def parse_enum(self) -> ast.EnumDecl:
         tok = self.expect(T.ENUM, "enum")
@@ -365,8 +365,8 @@ class Parser:
                     MAX_PARAMS,
                 )
             if self.at(T.SELF) or self.at(T.VAR):
-                mutable = bool(self.accept(T.VAR))  # var self
-                tok = self.expect(T.SELF, "self (var в параметрах — "
+                mutable = bool(self.accept(T.VAR))  # let self
+                tok = self.expect(T.SELF, "self (let в параметрах — "
                                           "только у self)")
                 if not in_struct or params:
                     raise self.error(
@@ -388,7 +388,7 @@ class Parser:
 
     # --- типы ----------------------------------------------------------------
 
-    def parse_const_expr(self) -> ast.Expr:
+    def parse_constexpr_expr(self) -> ast.Expr:
         # константа в типе: без сравнений, иначе `>` в str<N> съедался бы
         # как оператор
         return self.parse_add()
@@ -398,13 +398,13 @@ class Parser:
         if self.accept(T.LBRACKET):
             elem = self.parse_type()
             self.expect(T.SEMI, "';' (тип массива: [T; N])")
-            size = self.parse_const_expr()
+            size = self.parse_constexpr_expr()
             self.expect(T.RBRACKET, "']'")
             return ast.ArrayType(tok.line, tok.col, elem, size)
         name = self.expect(T.IDENT, "имя типа")
         if name.value == "str":
             self.expect(T.LT, "'<' (ёмкость строки: str<N>)")
-            capacity = self.parse_const_expr()
+            capacity = self.parse_constexpr_expr()
             self.expect_gt()
             return ast.StrType(name.line, name.col, capacity)
         if name.value == "Result":
@@ -446,7 +446,7 @@ class Parser:
     def parse_stmt(self) -> ast.Stmt:
         tok = self.peek()
         if tok.type in (T.LET, T.VAR):
-            return self.parse_let()
+            return self.parse_local()
         if tok.type == T.IF:
             return self.parse_if()
         if tok.type == T.FOR:
@@ -483,8 +483,8 @@ class Parser:
             return ast.DiscardStmt(tok.line, tok.col, expr)
         return self.parse_expr_or_assign()
 
-    def parse_let(self) -> ast.LetStmt:
-        tok = self.advance()  # let | var
+    def parse_local(self) -> ast.LocalDecl:
+        tok = self.advance()  # const | let
         mutable = tok.type == T.VAR
         name = self.expect(T.IDENT, "имя переменной")
         self.expect(T.COLON, "':' (тип обязателен)")
@@ -492,7 +492,7 @@ class Parser:
         self.expect(T.ASSIGN, "'=' (инициализация обязательна)")
         value = self.parse_expr()
         self.end_of_stmt()
-        return ast.LetStmt(
+        return ast.LocalDecl(
             tok.line, tok.col, name.value, type_, value, mutable
         )
 
@@ -790,7 +790,7 @@ class Parser:
             elems.append(self.parse_expr())
             # [значение; N] — литерал заполнения (пулы)
             if len(elems) == 1 and self.accept(T.SEMI):
-                count = self.parse_const_expr()
+                count = self.parse_constexpr_expr()
                 self.expect(T.RBRACKET, "']'")
                 return ast.ArrayFill(tok.line, tok.col, elems[0], count)
             if not self.accept(T.COMMA):

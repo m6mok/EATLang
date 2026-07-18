@@ -3,7 +3,7 @@
 Исполняет типизированный AST. Нарушение контракта, переполнение,
 деление на ноль, выход за границы — trap (аварийная остановка с
 координатами). Семантика передачи — by-value: копия на каждой точке
-связывания (аргумент, let, присваивание, return).
+связывания (аргумент, const, присваивание, return).
 """
 
 import operator
@@ -160,7 +160,7 @@ class Interpreter:
         # сокеты (HTTP_PLAN §5): транскрипт EAT_NET либо живой режим,
         # ленивое состояние как у часов ticks
         self._net = None
-        self.consts: dict[str, Slot] = {}
+        self.constexprs: dict[str, Slot] = {}
         self.funcs: dict[str, ast.FuncDecl] = {}
         self.structs: dict[str, StructRT] = {}
         self.enums: dict[str, list] = {
@@ -174,13 +174,13 @@ class Interpreter:
         self.step_budget: int | None = None
         self.steps: int = 0
         # comptime-режим: аксиомы ОС недоступны (trap); ставится вокруг
-        # вычисления const-из-вызовов (§5). _const_pending — comptime-
+        # вычисления constexpr-из-вызовов (§5). _constexpr_pending — comptime-
         # константы (значение содержит вызов): вычисляются лениво по
         # обращению, чтобы порядок объявлений не влиял.
         self._comptime_mode: bool = False
         self._comptime_depth: int = 0
-        self._const_pending: dict = {}
-        self._const_resolving: set = set()
+        self._constexpr_pending: dict = {}
+        self._constexpr_resolving: set = set()
         self._collect()
 
     # --- подготовка -----------------------------------------------------
@@ -199,17 +199,17 @@ class Interpreter:
             elif isinstance(decl, ast.FuncDecl):
                 self.funcs[decl.name] = decl
         for decl in self.program.decls:
-            if isinstance(decl, ast.ConstDecl):
+            if isinstance(decl, ast.ConstexprDecl):
                 # comptime-константа (значение через вызов) — отложить:
                 # тела функций читаются как есть, порядок объявлений не
-                # должен влиять; вычисляется лениво (_resolve_pending_const)
+                # должен влиять; вычисляется лениво (_resolve_pending_constexpr)
                 if _expr_has_call(decl.value):
-                    self._const_pending[decl.name] = decl
+                    self._constexpr_pending[decl.name] = decl
                     continue
-                value = self._const_eval(decl.value)
+                value = self._constexpr_eval(decl.value)
                 kind = self._kind(decl.type)
                 self._fit(decl, kind, value)
-                self.consts[decl.name] = Slot(value, kind)
+                self.constexprs[decl.name] = Slot(value, kind)
 
     def _kind(self, tnode) -> str | None:
         if isinstance(tnode, ast.TypeName) and tnode.name in INT_RANGES:
@@ -218,12 +218,12 @@ class Interpreter:
 
     def _cap(self, tnode) -> int | None:
         if isinstance(tnode, ast.StrType):
-            return self._const_eval(tnode.capacity)
+            return self._constexpr_eval(tnode.capacity)
         return None
 
     def _meta(self, tnode) -> tuple:
         """(kind, cap) типа — кэш на самом узле: узлы типов
-        перечитываются на каждый вызов/let горячего пути."""
+        перечитываются на каждый вызов/const горячего пути."""
         if tnode is None:
             return (None, None)
         meta = getattr(tnode, "interp_meta", None)
@@ -232,21 +232,21 @@ class Interpreter:
             tnode.interp_meta = meta
         return meta
 
-    def _const_eval(self, expr: ast.Expr) -> int:
+    def _constexpr_eval(self, expr: ast.Expr) -> int:
         if isinstance(expr, ast.IntLit):
             return expr.value
         if isinstance(expr, ast.Name):
             name = expr.ident
-            if name in self._const_resolving:
+            if name in self._constexpr_resolving:
                 raise self.trap(expr, f"цикл в comptime-константе {name}")
-            if name not in self.consts and name in self._const_pending:
-                self._resolve_pending_const(name)
-            return self.consts[name].value
+            if name not in self.constexprs and name in self._constexpr_pending:
+                self._resolve_pending_constexpr(name)
+            return self.constexprs[name].value
         if isinstance(expr, ast.UnaryOp):
-            return -self._const_eval(expr.operand)
+            return -self._constexpr_eval(expr.operand)
         if isinstance(expr, ast.BinOp):
-            left = self._const_eval(expr.left)
-            right = self._const_eval(expr.right)
+            left = self._constexpr_eval(expr.left)
+            right = self._constexpr_eval(expr.right)
             return {
                 "+": lambda: left + right,
                 "-": lambda: left - right,
@@ -258,51 +258,51 @@ class Interpreter:
             # comptime-вызов (§5): чистая функция с константными
             # аргументами — вычисляется в comptime-режиме (бюджет шагов +
             # аксиомы недоступны). Ярус A: только скаляр.
-            args = [self._const_eval(a) for a in expr.args]
+            args = [self._constexpr_eval(a) for a in expr.args]
             return self._comptime_call(self.funcs[expr.name], args, expr)
         raise self.trap(expr, "не константа")
 
-    def _resolve_pending_const(self, name: str) -> None:
+    def _resolve_pending_constexpr(self, name: str) -> None:
         """Ленивое вычисление отложенной comptime-константы. Cycle-guard:
-        значение const во время вычисления помечено None — повторный
-        вход по имени = цикл const->...->const (правило 1 покрывает
+        значение constexpr во время вычисления помечено None — повторный
+        вход по имени = цикл constexpr->...->constexpr (правило 1 покрывает
         только func->func)."""
-        decl = self._const_pending.pop(name)
+        decl = self._constexpr_pending.pop(name)
         kind = self._kind(decl.type)
-        self._const_resolving.add(name)
+        self._constexpr_resolving.add(name)
         try:
-            value = self._const_eval_ct(decl.value, kind)
+            value = self._constexpr_eval_ct(decl.value, kind)
         finally:
-            self._const_resolving.discard(name)
+            self._constexpr_resolving.discard(name)
         self._fit(decl, kind, value)
-        self.consts[name] = Slot(value, kind)
+        self.constexprs[name] = Slot(value, kind)
 
-    def _const_eval_ct(self, expr: ast.Expr, kind: str | None):
-        """const-выражение comptime-константы (§9 COMPTIME_PLAN):
+    def _constexpr_eval_ct(self, expr: ast.Expr, kind: str | None):
+        """constexpr-выражение comptime-константы (§9 COMPTIME_PLAN):
         строгая по-операционная семантика — каждая операция фитится к
-        типу объявляемой константы (узлы const-значений не типизированы,
+        типу объявляемой константы (узлы constexpr-значений не типизированы,
         гомогенность к типу константы), деление trunc, шаги не
-        считаются. Обычные const'ы (без вызовов) идут прежним путём."""
+        считаются. Обычные constexpr'ы (без вызовов) идут прежним путём."""
         if isinstance(expr, ast.IntLit):
             return expr.value
         if isinstance(expr, ast.Name):
             name = expr.ident
-            if name in self._const_resolving:
+            if name in self._constexpr_resolving:
                 raise self.trap(
                     expr, f"цикл в comptime-константе {name}"
                 )
-            if name not in self.consts and name in self._const_pending:
-                self._resolve_pending_const(name)
-            return self.consts[name].value
+            if name not in self.constexprs and name in self._constexpr_pending:
+                self._resolve_pending_constexpr(name)
+            return self.constexprs[name].value
         if isinstance(expr, ast.UnaryOp):
             if expr.op != "-":
                 raise self.trap(expr, "не константа")
-            value = -self._const_eval_ct(expr.operand, kind)
+            value = -self._constexpr_eval_ct(expr.operand, kind)
             self._fit_ct(expr, kind, value)
             return value
         if isinstance(expr, ast.BinOp):
-            left = self._const_eval_ct(expr.left, kind)
-            right = self._const_eval_ct(expr.right, kind)
+            left = self._constexpr_eval_ct(expr.left, kind)
+            right = self._constexpr_eval_ct(expr.right, kind)
             op = expr.op
             if op in ("+", "-", "*"):
                 value = {"+": left + right, "-": left - right,
@@ -319,8 +319,8 @@ class Interpreter:
                         else left - self._tdiv(left, right) * right)
         if isinstance(expr, ast.Call):
             if expr.name in INT_RANGES:
-                # каст в const-выражении: чек диапазона, текст кодогена
-                value = self._const_eval_ct(expr.args[0], kind)
+                # каст в constexpr-выражении: чек диапазона, текст кодогена
+                value = self._constexpr_eval_ct(expr.args[0], kind)
                 lo, hi = INT_RANGES[expr.name]
                 if not lo <= value <= hi:
                     raise self.trap(
@@ -337,7 +337,7 @@ class Interpreter:
                     expr,
                     "функция ничего не возвращает — это не значение",
                 )
-            args = [self._const_eval_ct(a, kind) for a in expr.args]
+            args = [self._constexpr_eval_ct(a, kind) for a in expr.args]
             return self._comptime_call(func, args, expr)
         raise self.trap(expr, "не константа")
 
@@ -351,7 +351,7 @@ class Interpreter:
     def _comptime_call(self, func: ast.FuncDecl, args: list, site):
         """Вызов чистой функции на компиляции: бюджет шагов + запрет
         аксиом. Бюджет — на верхнеуровневый вызов (§9.2): вложенный
-        _comptime_call (ленивая резолюция const внутри тела) НЕ
+        _comptime_call (ленивая резолюция constexpr внутри тела) НЕ
         сбрасывает счётчик — шаги копятся в бюджете корня."""
         prev_mode = self._comptime_mode
         fresh = self.step_budget is None
@@ -409,12 +409,12 @@ class Interpreter:
         for scope in reversed(self.frames[-1]):
             if name in scope:
                 return scope[name]
-        if name in self._const_resolving:
+        if name in self._constexpr_resolving:
             raise self.trap(node, f"цикл в comptime-константе {name}")
-        if name not in self.consts and name in self._const_pending:
-            self._resolve_pending_const(name)  # comptime-const по доступу
-        if name in self.consts:
-            return self.consts[name]
+        if name not in self.constexprs and name in self._constexpr_pending:
+            self._resolve_pending_constexpr(name)  # comptime-constexpr по доступу
+        if name in self.constexprs:
+            return self.constexprs[name]
         raise self.trap(node, f"нет переменной {name}")
 
     # --- запуск -----------------------------------------------------------
@@ -530,7 +530,7 @@ class Interpreter:
             raise self.trap(stmt, "неизвестная инструкция")
         handler(self, stmt)
 
-    def _exec_let(self, stmt: ast.LetStmt) -> None:
+    def _exec_let(self, stmt: ast.LocalDecl) -> None:
         value = _copy_value(self.eval(stmt.value))
         kind, cap = self._meta(stmt.type)
         if kind is not None:
@@ -604,8 +604,8 @@ class Interpreter:
 
     def exec_for(self, stmt: ast.ForStmt) -> None:
         if isinstance(stmt.iterable, ast.RangeExpr):
-            start = self._const_eval(stmt.iterable.start)
-            end = self._const_eval(stmt.iterable.end)
+            start = self._constexpr_eval(stmt.iterable.start)
+            end = self._constexpr_eval(stmt.iterable.end)
             items = range(start, end)
         else:
             items = self.eval(stmt.iterable)
@@ -694,9 +694,9 @@ class Interpreter:
         assert isinstance(obj, StructValue)
         method = self.structs[obj.name].methods[node.name]
         args = [self.eval(a) for a in node.args]
-        # получатель без копии: без var self тайпчекер запрещает мутацию
+        # получатель без копии: без let self тайпчекер запрещает мутацию
         # self и параметров — на время вызова вся достижимая память
-        # вызывающего заморожена, копия ненаблюдаема. При var self
+        # вызывающего заморожена, копия ненаблюдаема. При let self
         # аргументы копируются: аргумент может алиасить внутренности
         # мутируемого self (s.m(s.arr))
         var_self = bool(method.params) and method.params[0].mutable
@@ -1007,7 +1007,7 @@ class Interpreter:
     }
 
     _EXEC = {
-        ast.LetStmt: _exec_let,
+        ast.LocalDecl: _exec_let,
         ast.AssignStmt: exec_assign,
         ast.IfStmt: _exec_if,
         ast.ForStmt: exec_for,

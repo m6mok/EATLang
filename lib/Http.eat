@@ -40,16 +40,16 @@ import {
 
 # Потолки этапа 1 (решение H3, план §4): размеры зашиты в типы —
 # массив фиксированного размера есть часть типа (правило 3).
-const HTTP_REQ_CAP: u32 = 8192
-const HTTP_RESP_CAP: u32 = 16384
-const HTTP_MAX_HEADERS: u32 = 64
+constexpr HTTP_REQ_CAP: u32 = 8192
+constexpr HTTP_RESP_CAP: u32 = 16384
+constexpr HTTP_MAX_HEADERS: u32 = 64
 # суммарный потолок тела (в т.ч. сумма чанков) -> 413 (план §4)
-const HTTP_MAX_BODY: u32 = 65536
+constexpr HTTP_MAX_BODY: u32 = 65536
 
-const PARSE_MORE: u32 = 0
-const PARSE_DONE: u32 = 1
+constexpr PARSE_MORE: u32 = 0
+constexpr PARSE_DONE: u32 = 1
 # «нет такого» для поисков по заголовкам (идиома SENT-сентинела)
-const HTTP_NONE: u32 = 4294967295
+constexpr HTTP_NONE: u32 = 4294967295
 
 # ASCII в нижний регистр — для регистронезависимых имён заголовков
 # (RFC 9110: имена case-insensitive, значения сравниваем так же для
@@ -90,7 +90,7 @@ struct Req {
     err: u32
 
     # Очередной принятый байт. PARSE_MORE / PARSE_DONE / 400|413|431.
-    func push_byte(var self, b: u8) -> u32
+    func push_byte(let self, b: u8) -> u32
         requires true
         ensures true
     {
@@ -111,18 +111,18 @@ struct Req {
         if b != 10 {
             return PARSE_MORE
         }
-        let lb: u32 = self.ls
+        const lb: u32 = self.ls
         self.ls = self.n
         return self.line_end(lb, self.n - 1)
     }
 
     # Завершение строки [lb..e0): e0 — позиция съеденного LF,
     # CR перед ним откусывается; диспетч по текущему состоянию.
-    func line_end(var self, lb: u32, e0: u32) -> u32
+    func line_end(let self, lb: u32, e0: u32) -> u32
         requires e0 < 8192
         ensures true
     {
-        var le: u32 = e0
+        let le: u32 = e0
         if le > lb and le >= 1 and self.raw[le - 1] == 13 {
             le = le - 1
         }
@@ -139,12 +139,12 @@ struct Req {
 
     # SP-позиция в raw[b0..e0) или HTTP_NONE. Скан прямо от b0
     # (§8.1): без холостого прохода [0..b0) идиомы констант-диапазона.
-    func find_sp(var self, b0: u32, e0: u32) -> u32
+    func find_sp(let self, b0: u32, e0: u32) -> u32
         requires e0 <= 8192
         ensures true
     {
-        var at: u32 = HTTP_NONE
-        var j: u32 = b0
+        let at: u32 = HTTP_NONE
+        let j: u32 = b0
         for _ in 0..8192 {
             if j >= e0 or at != HTTP_NONE {
                 break
@@ -158,13 +158,13 @@ struct Req {
     }
 
     # METHOD SP PATH SP VERSION; пустые компоненты и лишние формы — 400.
-    func parse_reqline(var self, ls2: u32, le: u32) -> u32
+    func parse_reqline(let self, ls2: u32, le: u32) -> u32
         requires le <= 8192
         ensures true
     {
-        let sp1: u32 = self.find_sp(ls2, le)
-        var bad: bool = sp1 == HTTP_NONE
-        var sp2: u32 = HTTP_NONE
+        const sp1: u32 = self.find_sp(ls2, le)
+        let bad: bool = sp1 == HTTP_NONE
+        let sp2: u32 = HTTP_NONE
         if not bad {
             sp2 = self.find_sp(sp1 + 1, le)
             bad = sp2 == HTTP_NONE
@@ -191,7 +191,7 @@ struct Req {
 
     # Name: value; OWS вокруг значения срезается, имя непустое.
     # Скан двоеточия прямо от ls2 (§8.1) — как find_sp.
-    func parse_header(var self, ls2: u32, le: u32) -> u32
+    func parse_header(let self, ls2: u32, le: u32) -> u32
         requires le <= 8192
         ensures true
     {
@@ -201,8 +201,8 @@ struct Req {
             self.err = 431
             return 431
         }
-        var colon: u32 = HTTP_NONE
-        var j: u32 = ls2
+        let colon: u32 = HTTP_NONE
+        let j: u32 = ls2
         for _ in 0..8192 {
             if j >= le or colon != HTTP_NONE {
                 break
@@ -217,8 +217,8 @@ struct Req {
             self.err = 400
             return 400
         }
-        var vs2: u32 = colon + 1
-        var vl2: u32 = le - vs2
+        let vs2: u32 = colon + 1
+        let vl2: u32 = le - vs2
         for _ in 0..8192 {
             if vl2 == 0 or (self.raw[vs2] != 32 and self.raw[vs2] != 9) {
                 break
@@ -226,12 +226,12 @@ struct Req {
             vs2 = vs2 + 1
             vl2 = vl2 - 1
         }
-        var stop: bool = false
+        let stop: bool = false
         for _ in 0..8192 {
             if vl2 == 0 or stop {
                 break
             }
-            let tb: u8 = self.raw[vs2 + vl2 - 1]
+            const tb: u8 = self.raw[vs2 + vl2 - 1]
             if tb != 32 and tb != 9 {
                 stop = true
             } else {
@@ -251,7 +251,7 @@ struct Req {
         if l != len(kw) {
             return false
         }
-        var ok2: bool = true
+        let ok2: bool = true
         for i in 0..64 {
             if u32(i) >= l or not ok2 {
                 break
@@ -271,7 +271,7 @@ struct Req {
         if l != len(kw) {
             return false
         }
-        var ok2: bool = true
+        let ok2: bool = true
         for i in 0..64 {
             if u32(i) >= l or not ok2 {
                 break
@@ -309,7 +309,7 @@ struct Req {
         requires true
         ensures true
     {
-        var at: u32 = HTTP_NONE
+        let at: u32 = HTTP_NONE
         for i in 0..64 {
             if u32(i) >= self.nh or at != HTTP_NONE {
                 break
@@ -350,7 +350,7 @@ struct Req {
         if self.pl <= skip or self.pl - skip > 64 {
             return None
         }
-        var out: str<64> = ""
+        let out: str<64> = ""
         for i in 0..64 {
             if u32(i) >= self.pl - skip {
                 break
@@ -367,7 +367,7 @@ struct Req {
         requires true
         ensures true
     {
-        let c: u32 = self.find_header("connection")
+        const c: u32 = self.find_header("connection")
         if c != HTTP_NONE and c < 64 {
             if self.header_val_is(c, "close") {
                 return true
@@ -389,13 +389,13 @@ struct Req {
         if l == 0 {
             return None
         }
-        var v: u32 = 0
-        var ok: bool = true
+        let v: u32 = 0
+        let ok: bool = true
         for i in 0..20 {
             if u32(i) >= l or not ok {
                 break
             }
-            let b: u8 = self.raw[s + u32(i)]
+            const b: u8 = self.raw[s + u32(i)]
             if b < 48 or b > 57 {
                 ok = false
             } elif v > HTTP_MAX_BODY {
@@ -415,7 +415,7 @@ struct Req {
         requires true
         ensures true
     {
-        let i: u32 = self.find_header("content-length")
+        const i: u32 = self.find_header("content-length")
         if i == HTTP_NONE or i >= 64 {
             return None
         }
@@ -428,7 +428,7 @@ struct Req {
         requires true
         ensures true
     {
-        let i: u32 = self.find_header("transfer-encoding")
+        const i: u32 = self.find_header("transfer-encoding")
         if i == HTTP_NONE or i >= 64 {
             return false
         }
@@ -441,7 +441,7 @@ struct Req {
     # парсер пишет и читает только raw[0..n) — байты, принятые ПОСЛЕ
     # сброса; срезы Header — в пределах нового n (nh = 0); старые
     # байты недостижимы, разбор после reset чистый.
-    func reset(var self)
+    func reset(let self)
         requires true
         ensures true
     {
@@ -463,17 +463,17 @@ struct Req {
     # or-свёрткой. Поля не трогает; LF найден -> false (вызывающий
     # уходит на точный побайтовый путь push_byte). Вызывается
     # только при fits: n+ln до потолка.
-    func span_copy(var self, s: str<256>, ln: u32) -> bool
+    func span_copy(let self, s: str<256>, ln: u32) -> bool
         requires true
         ensures true
     {
-        var w: u32 = self.n
-        var lf: bool = false
+        let w: u32 = self.n
+        let lf: bool = false
         for i in 0..256 {
             if u32(i) >= ln or w >= 8192 {
                 break
             }
-            let b: u8 = u8(s[i])
+            const b: u8 = u8(s[i])
             self.raw[w] = b
             w = w + 1
             lf = lf or b == 10
@@ -487,7 +487,7 @@ struct Req {
     # line_end; редкость (LF в строке, переполнение на границе 413)
     # — точный побайтовый путь push_byte. Байты за пределом n после
     # отката спан-копии не читаются парсером (raw[0..n) — контракт).
-    func feed_line(var self, s: str<256>) -> u32
+    func feed_line(let self, s: str<256>) -> u32
         requires true
         ensures true
     {
@@ -497,13 +497,13 @@ struct Req {
         if self.state == 3 {
             return self.err
         }
-        let ln: u32 = len(s)
-        var fits: bool = false
+        const ln: u32 = len(s)
+        let fits: bool = false
         if self.n < 8192 {
             fits = HTTP_REQ_CAP - self.n >= ln + 2
         }
         if fits and self.span_copy(s, ln) {
-            var w: u32 = self.n + ln
+            let w: u32 = self.n + ln
             if w < 8192 {
                 self.raw[w] = 13
                 w = w + 1
@@ -513,11 +513,11 @@ struct Req {
                 w = w + 1
             }
             self.n = w
-            let lb: u32 = self.ls
+            const lb: u32 = self.ls
             self.ls = w
             return self.line_end(lb, w - 1)
         }
-        var st: u32 = PARSE_MORE
+        let st: u32 = PARSE_MORE
         for i in 0..256 {
             if u32(i) >= ln {
                 break
@@ -532,7 +532,7 @@ struct Req {
     # Батч-метод: байты строки без CRLF (набор запроса частями);
     # тот же быстрый спан-путь, что feed_line. Без LF смена
     # состояния невозможна — результат всегда PARSE_MORE.
-    func feed_str(var self, s: str<256>) -> u32
+    func feed_str(let self, s: str<256>) -> u32
         requires true
         ensures true
     {
@@ -542,8 +542,8 @@ struct Req {
         if self.state == 3 {
             return self.err
         }
-        let ln: u32 = len(s)
-        var fits: bool = false
+        const ln: u32 = len(s)
+        let fits: bool = false
         if self.n < 8192 {
             fits = HTTP_REQ_CAP - self.n >= ln
         }
@@ -551,7 +551,7 @@ struct Req {
             self.n = self.n + ln
             return PARSE_MORE
         }
-        var st: u32 = PARSE_MORE
+        let st: u32 = PARSE_MORE
         for i in 0..256 {
             if u32(i) >= ln {
                 break
@@ -594,7 +594,7 @@ struct Body {
 
     # Тело по Content-Length: n байт (n > MAX_BODY — сразу 413, тело не
     # читается; n == 0 — пустое тело, сразу готово).
-    func begin_cl(var self, n: u32)
+    func begin_cl(let self, n: u32)
         requires true
         ensures true
     {
@@ -609,7 +609,7 @@ struct Body {
     }
 
     # Тело chunked: автомат размеров/данных ведёт push.
-    func begin_chunked(var self)
+    func begin_chunked(let self)
         requires true
         ensures true
     {
@@ -618,7 +618,7 @@ struct Body {
     }
 
     # Байт в буфер тела; false — потолок HTTP_MAX_BODY (413).
-    func store(var self, b: u8) -> bool
+    func store(let self, b: u8) -> bool
         requires true
         ensures true
     {
@@ -649,7 +649,7 @@ struct Body {
 
     # Конец size-строки chunked: нет hex-цифр — 400; нулевой размер —
     # последний чанк (ждём финальный CRLF), иначе — читаем данные.
-    func size_end(var self) -> u32
+    func size_end(let self) -> u32
         requires true
         ensures true
     {
@@ -669,7 +669,7 @@ struct Body {
     }
 
     # size-строка chunked: hex-размер (+ расширение ;… до LF).
-    func chunk_size(var self, b: u8) -> u32
+    func chunk_size(let self, b: u8) -> u32
         requires true
         ensures true
     {
@@ -689,7 +689,7 @@ struct Body {
         if b == 10 {
             return self.size_end()
         }
-        let h: u32 = self.hexv(b)
+        const h: u32 = self.hexv(b)
         if h >= 16 {
             self.state = 2
             self.err = 400
@@ -705,7 +705,7 @@ struct Body {
     }
 
     # Разделители chunked после данных (cs 2/3) и финальный CRLF (cs 4/5).
-    func chunk_delim(var self, b: u8) -> u32
+    func chunk_delim(let self, b: u8) -> u32
         requires true
         ensures true
     {
@@ -742,7 +742,7 @@ struct Body {
     }
 
     # Байт тела в режиме chunked: диспетч по подсостоянию cs.
-    func chunk(var self, b: u8) -> u32
+    func chunk(let self, b: u8) -> u32
         requires true
         ensures true
     {
@@ -766,7 +766,7 @@ struct Body {
 
     # Очередной байт тела. PARSE_MORE / PARSE_DONE / 413 / 400.
     # После готовности/ошибки идемпотентен (как Req.push_byte).
-    func push(var self, b: u8) -> u32
+    func push(let self, b: u8) -> u32
         requires true
         ensures true
     {
@@ -816,7 +816,7 @@ struct Body {
         if self.bn != len(s) {
             return false
         }
-        var ok: bool = true
+        let ok: bool = true
         for i in 0..64 {
             if u32(i) >= self.bn or not ok {
                 break
@@ -847,7 +847,7 @@ struct Resp {
     n: u32
     of: bool
 
-    func put_byte(var self, b: u8)
+    func put_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -859,7 +859,7 @@ struct Resp {
         }
     }
 
-    func put_str(var self, s: str<256>)
+    func put_str(let self, s: str<256>)
         requires true
         ensures true
     {
@@ -871,11 +871,11 @@ struct Resp {
         }
     }
 
-    func put_dec(var self, v: u32)
+    func put_dec(let self, v: u32)
         requires true
         ensures true
     {
-        let d: Dec = fmt_u32(v)
+        const d: Dec = fmt_u32(v)
         for i in 0..20 {
             if u32(i) >= d.ln {
                 break
@@ -885,7 +885,7 @@ struct Resp {
     }
 
     # CRLF: '\r' в строковых литералах языка нет — байтами.
-    func crlf(var self)
+    func crlf(let self)
         requires true
         ensures true
     {
@@ -894,7 +894,7 @@ struct Resp {
     }
 
     # "HTTP/1.1 <code> <text>" CRLF
-    func status_line(var self, code: u32, text: str<64>)
+    func status_line(let self, code: u32, text: str<64>)
         requires true
         ensures true
     {
@@ -911,7 +911,7 @@ struct Resp {
     }
 
     # "<name>: <val>" CRLF
-    func header_line(var self, name: str<64>, val: str<128>)
+    func header_line(let self, name: str<64>, val: str<128>)
         requires true
         ensures true
     {
@@ -933,7 +933,7 @@ struct Resp {
     }
 
     # Content-Length + пустая строка + тело: ответ завершён.
-    func body(var self, s: str<256>)
+    func body(let self, s: str<256>)
         requires true
         ensures true
     {
@@ -946,7 +946,7 @@ struct Resp {
 
     # "Content-Length: n" CRLF — для тела произвольной длины (байты
     # шлёт вызывающий отдельным socket_write_span из своего буфера).
-    func content_length(var self, n: u32)
+    func content_length(let self, n: u32)
         requires true
         ensures true
     {
@@ -956,7 +956,7 @@ struct Resp {
     }
 
     # Пустая строка — конец заголовков (дальше идёт тело).
-    func end_headers(var self)
+    func end_headers(let self)
         requires true
         ensures true
     {
@@ -972,7 +972,7 @@ func resp_new() -> Resp
 }
 
 test http_reqline_ok {
-    var r: Req = req_new()
+    let r: Req = req_new()
     assert r.feed_line("GET /hi HTTP/1.1") == PARSE_MORE
     assert r.feed_line("Host: example.com") == PARSE_MORE
     assert r.feed_line("") == PARSE_DONE
@@ -989,13 +989,13 @@ test http_reqline_ok {
 }
 
 test http_header_ows_ci {
-    var r: Req = req_new()
+    let r: Req = req_new()
     discard r.feed_line("POST /a HTTP/1.1")
     discard r.feed_line("Connection:   close  ")
     discard r.feed_line("X-N:")
     assert r.feed_line("") == PARSE_DONE
     assert r.method_is("POST")
-    let c: u32 = r.find_header("connection")
+    const c: u32 = r.find_header("connection")
     assert c == 0
     assert r.header_val_is(c, "close")
     assert r.header_val_is(c, "CLOSE")
@@ -1005,7 +1005,7 @@ test http_header_ows_ci {
 }
 
 test http_feed_str_batch {
-    var r: Req = req_new()
+    let r: Req = req_new()
     assert r.feed_str("GET /hi HT") == PARSE_MORE
     assert r.feed_str("TP/1.1") == PARSE_MORE
     assert r.feed_line("") == PARSE_MORE
@@ -1016,28 +1016,28 @@ test http_feed_str_batch {
 }
 
 test http_bad_reqline_400 {
-    var r: Req = req_new()
+    let r: Req = req_new()
     assert r.feed_line("BROKEN") == 400
     assert r.push_byte(65) == 400
-    var r2: Req = req_new()
+    let r2: Req = req_new()
     assert r2.feed_line("GET /x HTTP/1.1 extra") == 400
-    var r3: Req = req_new()
+    let r3: Req = req_new()
     assert r3.feed_line("GET  HTTP/1.1") == 400
 }
 
 test http_bad_header_400 {
-    var r: Req = req_new()
+    let r: Req = req_new()
     discard r.feed_line("GET / HTTP/1.1")
     assert r.feed_line("no-colon-here") == 400
-    var r2: Req = req_new()
+    let r2: Req = req_new()
     discard r2.feed_line("GET / HTTP/1.1")
     assert r2.feed_line(": empty-name") == 400
 }
 
 test http_too_many_headers_431 {
-    var r: Req = req_new()
+    let r: Req = req_new()
     discard r.feed_line("GET / HTTP/1.1")
-    var st: u32 = PARSE_MORE
+    let st: u32 = PARSE_MORE
     for i in 0..65 {
         st = r.feed_line("H{i}: v")
     }
@@ -1045,12 +1045,12 @@ test http_too_many_headers_431 {
 }
 
 test http_path_param {
-    var r: Req = req_new()
+    let r: Req = req_new()
     discard r.feed_line("GET /greet/mir HTTP/1.1")
     discard r.feed_line("")
     assert r.path_starts("/greet/")
     assert not r.path_starts("/user/")
-    var got: bool = false
+    let got: bool = false
     match r.path_param(7) {
         Some(name) {
             got = name == "mir"
@@ -1059,10 +1059,10 @@ test http_path_param {
     }
     assert got
     # хвоста нет — None
-    var r2: Req = req_new()
+    let r2: Req = req_new()
     discard r2.feed_line("GET /greet/ HTTP/1.1")
     discard r2.feed_line("")
-    var none2: bool = false
+    let none2: bool = false
     match r2.path_param(7) {
         Some(_) {}
         None { none2 = true }
@@ -1071,20 +1071,20 @@ test http_path_param {
 }
 
 test http_wants_close {
-    var r: Req = req_new()
+    let r: Req = req_new()
     discard r.feed_line("GET / HTTP/1.1")
     discard r.feed_line("Connection: close")
     discard r.feed_line("")
     assert r.wants_close()
-    var r2: Req = req_new()
+    let r2: Req = req_new()
     discard r2.feed_line("GET / HTTP/1.1")
     discard r2.feed_line("")
     assert not r2.wants_close()
-    var r3: Req = req_new()
+    let r3: Req = req_new()
     discard r3.feed_line("GET / HTTP/1.0")
     discard r3.feed_line("")
     assert r3.wants_close()
-    var r4: Req = req_new()
+    let r4: Req = req_new()
     discard r4.feed_line("GET / HTTP/1.0")
     discard r4.feed_line("Connection: Keep-Alive")
     discard r4.feed_line("")
@@ -1092,7 +1092,7 @@ test http_wants_close {
 }
 
 test http_reset_reuse {
-    var r: Req = req_new()
+    let r: Req = req_new()
     discard r.feed_line("GET /greet/somebody HTTP/1.1")
     discard r.feed_line("X-Old: secret")
     assert r.feed_line("") == PARSE_DONE
@@ -1116,7 +1116,7 @@ test http_reset_reuse {
 }
 
 test http_resp_build {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(200, "OK")
     w.header_line("Connection", "close")
     w.body("hi")
@@ -1129,11 +1129,11 @@ test http_resp_build {
 
 # Content-Length из заголовка (срез raw как u32).
 test http_content_length {
-    var r: Req = req_new()
+    let r: Req = req_new()
     discard r.feed_line("POST /a HTTP/1.1")
     discard r.feed_line("Content-Length: 27")
     assert r.feed_line("") == PARSE_DONE
-    var got: bool = false
+    let got: bool = false
     match r.content_length() {
         Some(n) { got = n == 27 }
         None {}
@@ -1141,7 +1141,7 @@ test http_content_length {
     assert got
     assert not r.is_chunked()
     # нет заголовка — None
-    var r2: Req = req_new()
+    let r2: Req = req_new()
     discard r2.feed_line("GET / HTTP/1.1")
     discard r2.feed_line("")
     match r2.content_length() {
@@ -1149,7 +1149,7 @@ test http_content_length {
         None { assert true }
     }
     # chunked распознаётся без регистра
-    var r3: Req = req_new()
+    let r3: Req = req_new()
     discard r3.feed_line("POST /a HTTP/1.1")
     discard r3.feed_line("Transfer-Encoding: Chunked")
     discard r3.feed_line("")
@@ -1158,10 +1158,10 @@ test http_content_length {
 
 # Тело по Content-Length: подать ровно need байт.
 test http_body_cl {
-    var b: Body = body_new()
+    let b: Body = body_new()
     b.begin_cl(11)
-    var st: u32 = PARSE_MORE
-    let s: str<16> = "hello world"
+    let st: u32 = PARSE_MORE
+    const s: str<16> = "hello world"
     for i in 0..16 {
         if u32(i) >= len(s) {
             break
@@ -1175,14 +1175,14 @@ test http_body_cl {
     # идемпотентность после готовности
     assert b.push(65) == PARSE_DONE
     # пустое тело — сразу готово
-    var e: Body = body_new()
+    let e: Body = body_new()
     e.begin_cl(0)
     assert e.is_done()
 }
 
 # Content-Length больше потолка -> 413 без чтения тела.
 test http_body_cl_413 {
-    var b: Body = body_new()
+    let b: Body = body_new()
     b.begin_cl(HTTP_MAX_BODY + 1)
     assert not b.is_done()
     assert b.err == 413
@@ -1191,13 +1191,13 @@ test http_body_cl_413 {
 
 # Тело chunked: два чанка + завершающий 0-чанк.
 test http_body_chunked {
-    var b: Body = body_new()
+    let b: Body = body_new()
     b.begin_chunked()
     # "5" CRLF "hello" CRLF "6" CRLF " world" CRLF "0" CRLF CRLF
     discard b.push(53)
     discard b.push(13)
     discard b.push(10)
-    let s1: str<8> = "hello"
+    const s1: str<8> = "hello"
     for i in 0..8 {
         if u32(i) >= len(s1) {
             break
@@ -1209,7 +1209,7 @@ test http_body_chunked {
     discard b.push(54)
     discard b.push(13)
     discard b.push(10)
-    let s2: str<8> = " world"
+    const s2: str<8> = " world"
     for i in 0..8 {
         if u32(i) >= len(s2) {
             break
@@ -1222,7 +1222,7 @@ test http_body_chunked {
     discard b.push(13)
     discard b.push(10)
     discard b.push(13)
-    let last: u32 = b.push(10)
+    const last: u32 = b.push(10)
     assert last == PARSE_DONE
     assert b.is_done()
     assert b.bn == 11
@@ -1231,7 +1231,7 @@ test http_body_chunked {
 
 # Кривой размер чанка (не-hex) -> 400.
 test http_body_chunked_400 {
-    var b: Body = body_new()
+    let b: Body = body_new()
     b.begin_chunked()
     assert b.push(122) == 400
     assert not b.is_done()

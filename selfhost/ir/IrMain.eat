@@ -3,8 +3,8 @@
 # `eatc ir` (сверка в make verify_selfhost).
 
 func main() {
-    var lex: Lexer = lexer_new()
-    var eof: bool = false
+    let lex: Lexer = lexer_new()
+    let eof: bool = false
     loop {
         match read_byte() {
             Ok(b) {
@@ -22,15 +22,15 @@ func main() {
     if not lex.failed {
         lex.sublex_pass()
     }
-    var bad: bool = lex.failed
+    let bad: bool = lex.failed
     if not bad {
-        var p: Parser = parser_new(lex)
+        let p: Parser = parser_new(lex)
         p.parse()
         if not p.failed {
-            var c: Check = check_new(p)
+            let c: Check = check_new(p)
             c.run_typed()
             if not c.failed {
-                var ir: Ir = ir_new(c)
+                let ir: Ir = ir_new(c)
                 ir.emit()
                 if ir.failed {
                     bad = true

@@ -16,12 +16,12 @@
 
 Три механизма, работающих вместе:
   1. Интервалы: путь (имя, self.поле, переменная.поле) → [lo, hi].
-     Циклы: путь с единственным обновлением `p = p ± const` за
+     Циклы: путь с единственным обновлением `p = p ± constexpr` за
      итерацию ускоряется (значение на итерации k равно v0 + k*d —
      точный интервал в теле и после цикла); остальные присваивания
      в цикле расширяются до диапазона типа (грубо, но корректно).
   2. Отношения: разностные ограничения p <= q + d между путями
-     (условия ветвей, requires, присваивания `let j = i + 1`,
+     (условия ветвей, requires, присваивания `const j = i + 1`,
      счётчики в ногу с переменной цикла) с транзитивным замыканием
      Флойда–Уоршелла. На return `result` символически связывается
      с возвращаемым выражением — так доказывается
@@ -756,9 +756,9 @@ class Verifier:
         return env
 
     def _flow_stmt(self, stmt, env: State) -> State:
-        if isinstance(stmt, ast.LetStmt):
+        if isinstance(stmt, ast.LocalDecl):
             value = self._iv(stmt.value, env)
-            if isinstance(getattr(stmt, "var_ty", None), ArrayType):
+            if isinstance(getattr(stmt, "local_ty", None), ArrayType):
                 self._store_array(
                     (":local:" + self.cur_fn_key, stmt.name),
                     stmt.value, env,
@@ -766,7 +766,7 @@ class Verifier:
             if self._hole is not None and self._hole[0] == id(stmt.value):
                 env.holes[stmt.name] = (self._hole[1], self._hole[2])
                 self._hole = None
-            clamp = _ty_iv(stmt.var_ty)
+            clamp = _ty_iv(stmt.local_ty)
             if clamp is not None:
                 env.ivs[stmt.name] = (
                     (_inter(value, clamp) or clamp)
@@ -774,7 +774,7 @@ class Verifier:
                     else clamp
                 )
                 # отношение через присваивание выражения:
-                # let j = i + 1 даёт факт j == i + 1
+                # const j = i + 1 даёт факт j == i + 1
                 vdec = self._decompose(stmt.value)
                 if vdec is not None:
                     env.relate_offset(stmt.name, "==", vdec[0], vdec[1])
@@ -1214,7 +1214,7 @@ class Verifier:
         значения и всех значений, присвоенных телу за один символический
         виток (каждое над-приближает свою итерацию). Сентинел даёт явная
         дырка записи либо точечное значение максимума типа (smax) — так
-        `var f = NONE; в цикле f = fi` даёт «плотное ∪ {NONE}».
+        `let f = NONE; в цикле f = fi` даёт «плотное ∪ {NONE}».
         Возвращает (интервал | None, дырка (dense, sent) | None);
         None-интервал — неизвестно (полный диапазон, без дырки)."""
         cands = [(v0_iv, v0_hole)] + list(recs)
@@ -1263,7 +1263,7 @@ class Verifier:
                 body_env.relate_offset(p, ">=", stmt.target, v0[0] - start)
 
     def _accelerate(self, block: ast.Block) -> dict:
-        """Пути с единственным обновлением `p = p ± const` за итерацию:
+        """Пути с единственным обновлением `p = p ± constexpr` за итерацию:
         p -> (дельта, условное ли, вид целого, охрана снизу/сверху)."""
         updates: dict = {}
         self._collect_updates(block, False, updates, [])
@@ -1315,7 +1315,7 @@ class Verifier:
 
     def _guard_bounds(self, guards: list, path: str):
         """Границы path из охраняющих условий: `path < C` даёт верх,
-        `path > C` — низ (C — литерал или const)."""
+        `path > C` — низ (C — литерал или constexpr)."""
         lo = None
         hi = None
         for guard in guards:
@@ -1334,7 +1334,7 @@ class Verifier:
                 ):
                     if _path_of(target) != path:
                         continue
-                    c = self._const_of(other)
+                    c = self._constexpr_of(other)
                     if c is None:
                         continue
                     if op == "<":
@@ -1347,11 +1347,11 @@ class Verifier:
                         lo = c if lo is None else max(lo, c)
         return lo, hi
 
-    def _const_of(self, node) -> int | None:
+    def _constexpr_of(self, node) -> int | None:
         if isinstance(node, ast.IntLit):
             return node.value
-        if isinstance(node, ast.Name) and node.ident in self.checker.consts:
-            return self.checker.consts[node.ident][1]
+        if isinstance(node, ast.Name) and node.ident in self.checker.constexprs:
+            return self.checker.constexprs[node.ident][1]
         return None
 
     def _delta_of(self, value, path: str) -> int | None:
@@ -1363,7 +1363,7 @@ class Verifier:
             step = value.left
         else:
             return None
-        c = self._const_of(step)
+        c = self._constexpr_of(step)
         if c is None:
             return None
         return c if value.op == "+" else -c
@@ -1673,7 +1673,7 @@ class Verifier:
                 step = node.left
             if base is None:
                 return None
-            c = self._const_of(step)
+            c = self._constexpr_of(step)
             if c is None:
                 return None
             return (base, c if node.op == "+" else -c)
@@ -1770,9 +1770,9 @@ class Verifier:
                 return env.ivs.get("result") or self._ty_range(ty)
             if (
                 isinstance(node, ast.Name)
-                and node.ident in self.checker.consts
+                and node.ident in self.checker.constexprs
             ):
-                _, value = self.checker.consts[node.ident]
+                _, value = self.checker.constexprs[node.ident]
                 return (value, value)
             if isinstance(node, ast.FieldAccess) and isinstance(
                 node.obj, ast.Name
@@ -2131,8 +2131,8 @@ class Verifier:
             if e.ident == "result":
                 # bind is None — вызов без связывания результата
                 return ("off", bind, 0) if bind is not None else None
-            if e.ident in self.checker.consts:
-                v = self.checker.consts[e.ident][1]
+            if e.ident in self.checker.constexprs:
+                v = self.checker.constexprs[e.ident][1]
                 return ("iv", (v, v))
             if e.ident in subst:
                 arg = subst[e.ident]

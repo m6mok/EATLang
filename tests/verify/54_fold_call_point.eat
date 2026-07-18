@@ -16,6 +16,6 @@ func pick(a: bool) -> i32
 }
 
 func main() {
-    let x: i32 = pick(true) * 10000000
+    const x: i32 = pick(true) * 10000000
     assert x == 30000000
 }

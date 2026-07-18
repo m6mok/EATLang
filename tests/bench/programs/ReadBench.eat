@@ -4,11 +4,11 @@
 # останов — Err (EOF). Нагрузку задаёт размер stdin (раннер генерирует
 # файл); REPEAT не используется, но маркер оставлен для единообразия.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func main() {
-    var acc: u32 = 0
-    var n: u32 = 0
+    let acc: u32 = 0
+    let n: u32 = 0
     loop {
         match read_byte() {
             Ok(b) {

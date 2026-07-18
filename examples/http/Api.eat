@@ -40,11 +40,11 @@ import {
     parse_i32,
 } from "lib/Parse.eat"
 
-const NO_CONN: u32 = 4294967295
-const SENT: u32 = 4294967295
-const PORT_DEFAULT: u32 = 8080
+constexpr NO_CONN: u32 = 4294967295
+constexpr SENT: u32 = 4294967295
+constexpr PORT_DEFAULT: u32 = 8080
 # детерминированный останов для сверки по транскрипту
-const SERVE_CONNS: u32 = 6
+constexpr SERVE_CONNS: u32 = 6
 
 # --- ответы ---------------------------------------------------------
 
@@ -55,7 +55,7 @@ func send_resp(fd: u32, w: Resp)
     if w.of {
         return
     }
-    var sent: u32 = 0
+    let sent: u32 = 0
     for _ in 0..64 {
         if sent >= w.n {
             break
@@ -69,7 +69,7 @@ func send_bytes(fd: u32, o: JOut, n: u32)
     requires true
     ensures true
 {
-    var sent: u32 = 0
+    let sent: u32 = 0
     for _ in 0..70000 {
         if sent >= n {
             break
@@ -82,7 +82,7 @@ func info_page() -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(200, "OK")
     w.header_line("Content-Type", "text/plain; charset=utf-8")
     w.header_line("Connection", "close")
@@ -94,7 +94,7 @@ func not_found() -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(404, "Not Found")
     w.header_line("Connection", "close")
     w.body("no such route\n")
@@ -105,7 +105,7 @@ func bad_request() -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(400, "Bad Request")
     w.header_line("Connection", "close")
     w.body("bad json\n")
@@ -116,7 +116,7 @@ func too_large() -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(413, "Payload Too Large")
     w.header_line("Connection", "close")
     w.body("body too large\n")
@@ -142,10 +142,10 @@ func echo(fd: u32, d: JDoc, root: u32)
     requires root < 4096
     ensures true
 {
-    var o: JOut = json_out()
+    let o: JOut = json_out()
     match o.ser(d, root) {
         Ok(n) {
-            var w: Resp = resp_new()
+            let w: Resp = resp_new()
             w.status_line(200, "OK")
             w.header_line("Content-Type", "application/json")
             w.header_line("Connection", "close")
@@ -165,9 +165,9 @@ func sum(fd: u32, d: JDoc, root: u32)
     requires root < 4096
     ensures true
 {
-    var a: i64 = 0
-    var b: i64 = 0
-    var ok: bool = true
+    let a: i64 = 0
+    let b: i64 = 0
+    let ok: bool = true
     match d.get(root, "a") {
         Some(id) {
             match d.as_int(id) {
@@ -190,8 +190,8 @@ func sum(fd: u32, d: JDoc, root: u32)
         send_resp(fd, bad_request())
         return
     }
-    let s: i64 = a + b
-    var w: Resp = resp_new()
+    const s: i64 = a + b
+    let w: Resp = resp_new()
     w.status_line(200, "OK")
     w.header_line("Content-Type", "application/json")
     w.header_line("Connection", "close")
@@ -204,7 +204,7 @@ func post_json(fd: u32, req: Req, body: Body)
     requires true
     ensures true
 {
-    var d: JDoc = json_doc()
+    let d: JDoc = json_doc()
     for i in 0..65536 {
         if u32(i) >= body.bn {
             break
@@ -282,7 +282,7 @@ func after_head(fd: u32, req: Req)
     requires true
     ensures true
 {
-    let bk: u32 = body_kind(req)
+    const bk: u32 = body_kind(req)
     if bk == 413 {
         send_resp(fd, too_large())
         return
@@ -291,14 +291,14 @@ func after_head(fd: u32, req: Req)
         handle_nobody(fd, req)
         return
     }
-    var body: Body = body_new()
+    let body: Body = body_new()
     if bk == 1 {
         body.begin_cl(body_len(req))
     } else {
         body.begin_chunked()
     }
-    var bst: u32 = PARSE_MORE
-    var eof: bool = false
+    let bst: u32 = PARSE_MORE
+    let eof: bool = false
     for _ in 0..70000 {
         if bst != PARSE_MORE or eof or socket_avail(fd) == 0 {
             break
@@ -322,9 +322,9 @@ func serve_one(fd: u32)
     requires true
     ensures true
 {
-    var req: Req = req_new()
-    var st: u32 = PARSE_MORE
-    var eof: bool = false
+    let req: Req = req_new()
+    let st: u32 = PARSE_MORE
+    let eof: bool = false
     for _ in 0..8900 {
         if st != PARSE_MORE or eof or socket_avail(fd) == 0 {
             break
@@ -363,8 +363,8 @@ func port_arg() -> u32
 }
 
 func main() {
-    var lst: u32 = 0
-    var live: bool = false
+    let lst: u32 = 0
+    let live: bool = false
     match socket_listen(u16(port_arg())) {
         Ok(fd) {
             lst = fd
@@ -375,11 +375,11 @@ func main() {
         }
     }
     if live {
-        var conn: u32 = SENT
-        var served: u32 = 0
+        let conn: u32 = SENT
+        let served: u32 = 0
         loop {
             if conn == SENT {
-                let c: u32 = socket_accept(lst)
+                const c: u32 = socket_accept(lst)
                 if c != NO_CONN {
                     conn = c
                 }
@@ -412,8 +412,8 @@ func price_str(mant: i64) -> str<32>
     requires true
     ensures true
 {
-    let d: i64 = mant / 100
-    let c: i64 = mant % 100
+    const d: i64 = mant / 100
+    const c: i64 = mant % 100
     if c < 10 {
         return "{d}.0{c}"
     }
@@ -425,9 +425,9 @@ func item_json(it: Item) -> str<256>
     requires true
     ensures true
 {
-    let q: i32 = it.qty
-    let ps: str<32> = price_str(it.price_mant)
-    let f: bool = it.ok
+    const q: i32 = it.qty
+    const ps: str<32> = price_str(it.price_mant)
+    const f: bool = it.ok
     return "{{\"qty\":{q},\"price\":{ps},\"ok\":{f}}}"
 }
 
@@ -436,9 +436,9 @@ func item_of(d: JDoc, r: u32) -> Item
     requires r < 4096
     ensures true
 {
-    var q: i32 = 0
-    var p: i64 = 0
-    var ok: bool = false
+    let q: i32 = 0
+    let p: i64 = 0
+    let ok: bool = false
     match d.get(r, "qty") {
         Some(id) {
             match d.as_int(id) {
@@ -471,12 +471,12 @@ func item_of(d: JDoc, r: u32) -> Item
 
 test api_roundtrip {
     # struct -> JSON -> разбор -> struct: поля совпадают байт-в-байт
-    let it: Item = Item { qty: 3, price_mant: 314, ok: true }
-    var d: JDoc = json_doc()
+    const it: Item = Item { qty: 3, price_mant: 314, ok: true }
+    let d: JDoc = json_doc()
     d.load(item_json(it))
     match d.parse() {
         Ok(r) {
-            let back: Item = item_of(d, r)
+            const back: Item = item_of(d, r)
             assert back.qty == it.qty
             assert back.price_mant == it.price_mant
             assert back.ok == it.ok
@@ -484,12 +484,12 @@ test api_roundtrip {
         Err(_) { assert false }
     }
     # цена с нулём в сотых: 305 -> "3.05" -> 305
-    let it2: Item = Item { qty: 1, price_mant: 305, ok: false }
+    const it2: Item = Item { qty: 1, price_mant: 305, ok: false }
     d.clear()
     d.load(item_json(it2))
     match d.parse() {
         Ok(r) {
-            let back: Item = item_of(d, r)
+            const back: Item = item_of(d, r)
             assert back.price_mant == 305
             assert not back.ok
         }

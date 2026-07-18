@@ -5,16 +5,16 @@
 # не может ни сфолдить, ни вынести сравнение из цикла. Базовая
 # порция — 20 000 сборок+сравнений; REPEAT масштабирует.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func main() {
-    let t: str<256> = "common-prefix-the-quick-brown-fox-jumps-tail-00000"
-    var acc: u32 = 0
+    const t: str<256> = "common-prefix-the-quick-brown-fox-jumps-tail-00000"
+    let acc: u32 = 0
     for _ in 0..REPEAT {
         for k in 0..20 {
             for i in 0..1000 {
                 acc = (acc * 31 + i + k) % 65536
-                var s: str<256> = "common-prefix-the-quick-brown-fox-jumps-tail-{acc}"
+                let s: str<256> = "common-prefix-the-quick-brown-fox-jumps-tail-{acc}"
                 if s == t {
                     acc = acc + 7
                 }

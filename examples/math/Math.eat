@@ -2,8 +2,8 @@
 # Переполнение i32 — это trap, а не молчаливый wrap.
 
 func main() {
-    let a: i32 = 10
-    let b: i32 = 5
-    let result: i32 = (a + b) * 2
+    const a: i32 = 10
+    const b: i32 = 5
+    const result: i32 = (a + b) * 2
     print("Result is: {result}")
 }

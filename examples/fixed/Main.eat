@@ -14,16 +14,16 @@ import {
 
 func main() {
     # 1.25 точен в двоичной сетке 1/65536 — произведение без потерь
-    let step: Q16 = q16_ratio(5, 4)
-    let total: Q16 = step.mul(q16(3))
+    const step: Q16 = q16_ratio(5, 4)
+    const total: Q16 = step.mul(q16(3))
     print("{step.repr(2)} x 3 = {total.repr(2)}")
 
     # десятичная дробь в двоичной сетке усекается: 1/3 = 0.333328…
-    let third: Q16 = q16(1).div(q16(3))
+    const third: Q16 = q16(1).div(q16(3))
     print("1/3 = {third.repr(6)}")
 
     # округления обеими сторонами нуля (пин плана §7.3)
-    let x: Q16 = q16_ratio(-3, 2)
+    const x: Q16 = q16_ratio(-3, 2)
     print("x = {x.repr(2)}: to_int {x.to_int()} round {x.round()}")
     print("floor {x.floor().repr(2)} ceil {x.ceil().repr(2)}")
 
@@ -32,15 +32,15 @@ func main() {
 
     # Q32.32 (активирован планом U128): промежуток mul/div — 128 бит,
     # 1.0 * 1.0 больше не переполняет произведение raw
-    let one: Q32 = q32(1)
+    const one: Q32 = q32(1)
     print("Q32: 1.0 x 1.0 = {one.mul(one).repr(1)}")
 
     # диапазон, недоступный Q16 (±32768): 40000^2 = 1.6e9
-    let big: Q32 = q32(40000)
+    const big: Q32 = q32(40000)
     print("Q32: 40000 x 40000 = {big.mul(big).repr(0)}")
 
     # шаг ~2.3e-10: девять точных дробных цифр
-    let t3: Q32 = q32(1).div(q32(3))
+    const t3: Q32 = q32(1).div(q32(3))
     print("Q32: 1/3 = {t3.repr(9)}")
     print("Q32: -19.99 = {q32_ratio(-1999, 100).repr(4)}")
 }

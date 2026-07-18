@@ -5,19 +5,19 @@
 # для аффинной по-банковой формы (трек 4, lb_tp). Базовая порция —
 # 200 000 итераций (запись + чтение); REPEAT масштабирует.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func work(seed: u32) -> u32
     requires seed < 65536
     ensures true
 {
-    var pool: [[u32; 4096]; 8] = [[0; 4096]; 8]
-    var acc: u32 = seed
+    let pool: [[u32; 4096]; 8] = [[0; 4096]; 8]
+    let acc: u32 = seed
     for _ in 0..200 {
         for i in 0..1000 {
-            let a: u32 = (acc + i * 37) % 32768
+            const a: u32 = (acc + i * 37) % 32768
             pool[a / 4096][a % 4096] = (acc + i) % 65536
-            let b: u32 = (a * 17 + 5) % 32768
+            const b: u32 = (a * 17 + 5) % 32768
             acc = (acc + pool[b / 4096][b % 4096]) % 65536
         }
     }
@@ -25,7 +25,7 @@ func work(seed: u32) -> u32
 }
 
 func main() {
-    var acc: u32 = 7
+    let acc: u32 = 7
     for _ in 0..REPEAT {
         acc = work(acc)
     }

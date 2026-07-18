@@ -10,8 +10,8 @@ extern func spi_write(data: [u8; 16], n: u32)
 
 func main() {
     gpio_set(25, true)
-    let t: u32 = systick_ms()
-    let buf: [u8; 16] = [0; 16]
+    const t: u32 = systick_ms()
+    const buf: [u8; 16] = [0; 16]
     spi_write(buf, 4)
     print("{t}")
 }

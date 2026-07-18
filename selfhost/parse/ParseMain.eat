@@ -5,8 +5,8 @@
 # (сверка в make verify_selfhost_parser).
 
 func main() {
-    var lex: Lexer = lexer_new()
-    var eof: bool = false
+    let lex: Lexer = lexer_new()
+    let eof: bool = false
     loop {
         match read_byte() {
             Ok(b) {
@@ -24,9 +24,9 @@ func main() {
     if not lex.failed {
         lex.sublex_pass()
     }
-    var bad: bool = lex.failed
+    let bad: bool = lex.failed
     if not bad {
-        var p: Parser = parser_new(lex)
+        let p: Parser = parser_new(lex)
         p.parse()
         if not p.failed {
             p.dump()

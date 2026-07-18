@@ -8,14 +8,14 @@
 # решений элизии идёт ДО сверки эмиссии (урок SELFHOST_OPT_PLAN §9).
 
 func main() {
-    var opt: bool = false
+    let opt: bool = false
     if arg_count() >= 1 {
         if arg_len(0) == 2 and arg_byte(0, 0) == 45 and arg_byte(0, 1) == 79 {
             opt = true
         }
     }
-    var lex: Lexer = lexer_new()
-    var eof: bool = false
+    let lex: Lexer = lexer_new()
+    let eof: bool = false
     loop {
         match read_byte() {
             Ok(b) {
@@ -33,13 +33,13 @@ func main() {
     if not lex.failed {
         lex.sublex_pass()
     }
-    var bad: bool = lex.failed
+    let bad: bool = lex.failed
     if not bad {
-        var p: Parser = parser_new(lex)
+        let p: Parser = parser_new(lex)
         p.parse()
         if not p.failed {
-            var c: Check = check_new(p)
-            var v: Verify = verify_new(c)
+            let c: Check = check_new(p)
+            let v: Verify = verify_new(c)
             v.c.run_typed()
             if not v.c.failed {
                 if opt {

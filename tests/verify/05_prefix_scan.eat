@@ -2,8 +2,8 @@
 # Чтение префикса пула: индекс ограничен размером массива.
 
 func main() {
-    let pool: [i32; 8] = [1, 2, 3, 0, 0, 0, 0, 0]
-    let count: u32 = 3
+    const pool: [i32; 8] = [1, 2, 3, 0, 0, 0, 0, 0]
+    const count: u32 = 3
     for i in 0..8 {
         if i < count {
             print("{pool[i]}")

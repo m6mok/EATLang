@@ -1,8 +1,8 @@
 # RESTful TODO-list (docs/plans/TODO_REST_PLAN.md): настоящий REST-ресурс
 # поверх наличного HTTP-стека. Коллекция задач — bounded-пул `Store` в
-# кадре `var` в `main`, переживающий соединения через единственный `loop`
-# (мутация — только через `var self`-методы, правило «единственный
-# писатель — var self»). Полный CRUD + PATCH над /todos[/{id}]; тела и
+# кадре `let` в `main`, переживающий соединения через единственный `loop`
+# (мутация — только через `let self`-методы, правило «единственный
+# писатель — let self»). Полный CRUD + PATCH над /todos[/{id}]; тела и
 # ответы — JSON через lib/Json.eat. Переполнение любого потолка — штатный
 # HTTP-код (507/413/400/404), не trap и не рост структуры.
 #
@@ -42,25 +42,25 @@ import {
     parse_i32,
 } from "lib/Parse.eat"
 
-const NO_CONN: u32 = 4294967295
-const SENT: u32 = 4294967295
-const PORT_DEFAULT: u32 = 8080
+constexpr NO_CONN: u32 = 4294967295
+constexpr SENT: u32 = 4294967295
+constexpr PORT_DEFAULT: u32 = 8080
 # потолок коллекции: полный пул -> 507, не рост (правила 3/8)
-const TODO_CAP: u32 = 256
+constexpr TODO_CAP: u32 = 256
 # индекс «не найдено» (мимо пула)
-const NO_IDX: u32 = 4294967295
+constexpr NO_IDX: u32 = 4294967295
 # детерминированный останов для сверки по транскрипту
-const SERVE_CONNS: u32 = 8
+constexpr SERVE_CONNS: u32 = 8
 
 # --- буфер JSON-ответа произвольной длины (список задач) ------------
-# Мутирует только `var self`; переполнение -> флаг over (не рост).
+# Мутирует только `let self`; переполнение -> флаг over (не рост).
 
 struct Out {
     buf: [u8; 65536]
     n: u32
     over: bool
 
-    func put_byte(var self, b: u8)
+    func put_byte(let self, b: u8)
         requires true
         ensures true
     {
@@ -72,7 +72,7 @@ struct Out {
         }
     }
 
-    func put_str(var self, s: str<256>)
+    func put_str(let self, s: str<256>)
         requires true
         ensures true
     {
@@ -84,14 +84,14 @@ struct Out {
         }
     }
 
-    func put_dec(var self, v: u32)
+    func put_dec(let self, v: u32)
         requires true
         ensures true
     {
         # цифры в обратном порядке, потом разворот
-        var t: [u8; 10] = [0; 10]
-        var c: u32 = 0
-        var m: u32 = v
+        let t: [u8; 10] = [0; 10]
+        let c: u32 = 0
+        let m: u32 = v
         for _ in 0..10 {
             if c > 0 and m == 0 {
                 break
@@ -109,11 +109,11 @@ struct Out {
     }
 
     # один hex-разряд младшего полубайта b
-    func put_hex1(var self, b: u8)
+    func put_hex1(let self, b: u8)
         requires true
         ensures true
     {
-        let v: u32 = u32(b) % 16
+        const v: u32 = u32(b) % 16
         if v < 10 {
             self.put_byte(u8(v) + 48)
         } else {
@@ -122,7 +122,7 @@ struct Out {
     }
 
     # JSON-строка: кавычки + экранирование " \ и управляющих (< 32)
-    func put_json_str(var self, s: str<128>)
+    func put_json_str(let self, s: str<128>)
         requires true
         ensures true
     {
@@ -131,7 +131,7 @@ struct Out {
             if u32(i) >= len(s) {
                 break
             }
-            let ch: u8 = u8(s[i])
+            const ch: u8 = u8(s[i])
             if ch == 34 {
                 self.put_byte(92)
                 self.put_byte(34)
@@ -153,7 +153,7 @@ struct Out {
     }
 
     # {"id":N,"title":"...","done":bool}
-    func put_todo(var self, id: u32, title: str<128>, done: bool)
+    func put_todo(let self, id: u32, title: str<128>, done: bool)
         requires true
         ensures true
     {
@@ -197,7 +197,7 @@ struct Store {
         requires true
         ensures true
     {
-        var idx: u32 = NO_IDX
+        let idx: u32 = NO_IDX
         for i in 0..256 {
             if idx != NO_IDX {
                 break
@@ -210,11 +210,11 @@ struct Store {
     }
 
     # создать задачу; возвращает id или 0 при полном пуле.
-    func create(var self, title: str<128>, done: bool) -> u32
+    func create(let self, title: str<128>, done: bool) -> u32
         requires true
         ensures true
     {
-        var slot: u32 = TODO_CAP
+        let slot: u32 = TODO_CAP
         for i in 0..256 {
             if slot != TODO_CAP {
                 break
@@ -226,14 +226,14 @@ struct Store {
         if slot >= TODO_CAP {
             return 0
         }
-        let id: u32 = self.next_id
+        const id: u32 = self.next_id
         self.items[slot] = Todo { id: id, title: title, done: done, used: true }
         self.next_id = self.next_id + 1
         self.count = self.count + 1
         return id
     }
 
-    func replace(var self, idx: u32, title: str<128>, done: bool)
+    func replace(let self, idx: u32, title: str<128>, done: bool)
         requires idx < 256
         ensures true
     {
@@ -241,14 +241,14 @@ struct Store {
         self.items[idx].done = done
     }
 
-    func toggle(var self, idx: u32)
+    func toggle(let self, idx: u32)
         requires idx < 256
         ensures true
     {
         self.items[idx].done = not self.items[idx].done
     }
 
-    func remove(var self, idx: u32)
+    func remove(let self, idx: u32)
         requires idx < 256
         ensures true
     {
@@ -263,9 +263,9 @@ struct Store {
         requires true
         ensures true
     {
-        var o: Out = out_new()
+        let o: Out = out_new()
         o.put_byte(91)
-        var first: bool = true
+        let first: bool = true
         for i in 0..256 {
             if self.items[i].used {
                 if not first {
@@ -286,7 +286,7 @@ struct Store {
         requires idx < 256
         ensures true
     {
-        var o: Out = out_new()
+        let o: Out = out_new()
         o.put_todo(self.items[idx].id, self.items[idx].title,
                    self.items[idx].done)
         send_resp(fd, json_head(code, text, o.n))
@@ -299,7 +299,7 @@ struct Store {
         requires true
         ensures true
     {
-        let idx: u32 = self.find(id)
+        const idx: u32 = self.find(id)
         if idx >= 256 {
             send_resp(fd, not_found())
         } else {
@@ -307,16 +307,16 @@ struct Store {
         }
     }
 
-    func post_create(var self, fd: u32, req: Req)
+    func post_create(let self, fd: u32, req: Req)
         requires true
         ensures true
     {
-        let br: BodyRes = slurp(fd, req)
+        const br: BodyRes = slurp(fd, req)
         if not br.ok {
             send_resp(fd, err_resp(br.st))
             return
         }
-        var d: JDoc = json_doc()
+        let d: JDoc = json_doc()
         for i in 0..65536 {
             if u32(i) >= br.body.bn {
                 break
@@ -329,17 +329,17 @@ struct Store {
                     send_resp(fd, bad_request())
                     return
                 }
-                let p: Parsed = parse_todo_body(d, root)
+                const p: Parsed = parse_todo_body(d, root)
                 if not p.ok {
                     send_resp(fd, bad_request())
                     return
                 }
-                let id: u32 = self.create(p.title, p.done)
+                const id: u32 = self.create(p.title, p.done)
                 if id == 0 {
                     send_resp(fd, store_full())
                     return
                 }
-                let idx: u32 = self.find(id)
+                const idx: u32 = self.find(id)
                 if idx < 256 {
                     self.respond_todo(fd, 201, "Created", idx)
                 }
@@ -350,23 +350,23 @@ struct Store {
         }
     }
 
-    func put_replace(var self, fd: u32, req: Req, id: u32)
+    func put_replace(let self, fd: u32, req: Req, id: u32)
         requires true
         ensures true
     {
-        let idx: u32 = self.find(id)
+        const idx: u32 = self.find(id)
         if idx >= 256 {
             # тело всё равно вычитываем, чтобы не сбить keep-alive;
             # здесь соединение закрывается — достаточно 404.
             send_resp(fd, not_found())
             return
         }
-        let br: BodyRes = slurp(fd, req)
+        const br: BodyRes = slurp(fd, req)
         if not br.ok {
             send_resp(fd, err_resp(br.st))
             return
         }
-        var d: JDoc = json_doc()
+        let d: JDoc = json_doc()
         for i in 0..65536 {
             if u32(i) >= br.body.bn {
                 break
@@ -379,7 +379,7 @@ struct Store {
                     send_resp(fd, bad_request())
                     return
                 }
-                let p: Parsed = parse_todo_body(d, root)
+                const p: Parsed = parse_todo_body(d, root)
                 if not p.ok {
                     send_resp(fd, bad_request())
                     return
@@ -393,11 +393,11 @@ struct Store {
         }
     }
 
-    func patch_toggle(var self, fd: u32, id: u32)
+    func patch_toggle(let self, fd: u32, id: u32)
         requires true
         ensures true
     {
-        let idx: u32 = self.find(id)
+        const idx: u32 = self.find(id)
         if idx >= 256 {
             send_resp(fd, not_found())
             return
@@ -406,11 +406,11 @@ struct Store {
         self.respond_todo(fd, 200, "OK", idx)
     }
 
-    func delete_one(var self, fd: u32, id: u32)
+    func delete_one(let self, fd: u32, id: u32)
         requires true
         ensures true
     {
-        let idx: u32 = self.find(id)
+        const idx: u32 = self.find(id)
         if idx >= 256 {
             send_resp(fd, not_found())
             return
@@ -420,7 +420,7 @@ struct Store {
     }
 
     # диспетч готового запроса: метод + путь -> обработчик.
-    func handle(var self, fd: u32, req: Req)
+    func handle(let self, fd: u32, req: Req)
         requires true
         ensures true
     {
@@ -442,12 +442,12 @@ struct Store {
     }
 
     # /todos/{id}: разобрать id и диспетчировать по методу.
-    func handle_id(var self, fd: u32, req: Req)
+    func handle_id(let self, fd: u32, req: Req)
         requires true
         ensures true
     {
-        var id: u32 = 0
-        var ok: bool = false
+        let id: u32 = 0
+        let ok: bool = false
         match req.path_param(7) {
             Some(ps) {
                 match parse_i32(ps) {
@@ -505,9 +505,9 @@ func parse_todo_body(d: JDoc, root: u32) -> Parsed
     requires root < 4096
     ensures true
 {
-    var title: str<128> = ""
-    var done: bool = false
-    var ok: bool = false
+    let title: str<128> = ""
+    let done: bool = false
+    let ok: bool = false
     match d.get(root, "title") {
         Some(tid) {
             match d.as_str(tid) {
@@ -587,7 +587,7 @@ func slurp(fd: u32, r: Req) -> BodyRes
     requires true
     ensures true
 {
-    let bk: u32 = body_kind(r)
+    const bk: u32 = body_kind(r)
     if bk == 413 {
         return BodyRes { body: body_new(), ok: false, st: 413 }
     }
@@ -595,14 +595,14 @@ func slurp(fd: u32, r: Req) -> BodyRes
         # POST/PUT без тела — нечего разбирать -> 400.
         return BodyRes { body: body_new(), ok: false, st: 400 }
     }
-    var body: Body = body_new()
+    let body: Body = body_new()
     if bk == 1 {
         body.begin_cl(body_len(r))
     } else {
         body.begin_chunked()
     }
-    var bst: u32 = PARSE_MORE
-    var eof: bool = false
+    let bst: u32 = PARSE_MORE
+    let eof: bool = false
     for _ in 0..70000 {
         if bst != PARSE_MORE or eof or socket_avail(fd) == 0 {
             break
@@ -627,7 +627,7 @@ func json_head(code: u32, text: str<64>, n: u32) -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(code, text)
     w.header_line("Content-Type", "application/json")
     w.header_line("Connection", "close")
@@ -640,7 +640,7 @@ func simple(code: u32, text: str<64>, msg: str<256>) -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(code, text)
     w.header_line("Content-Type", "text/plain; charset=utf-8")
     w.header_line("Connection", "close")
@@ -697,7 +697,7 @@ func resp_204() -> Resp
     requires true
     ensures true
 {
-    var w: Resp = resp_new()
+    let w: Resp = resp_new()
     w.status_line(204, "No Content")
     w.header_line("Connection", "close")
     w.content_length(0)
@@ -712,7 +712,7 @@ func send_resp(fd: u32, w: Resp)
     if w.of {
         return
     }
-    var sent: u32 = 0
+    let sent: u32 = 0
     for _ in 0..64 {
         if sent >= w.n {
             break
@@ -726,7 +726,7 @@ func send_bytes(fd: u32, o: Out, n: u32)
     requires true
     ensures true
 {
-    var sent: u32 = 0
+    let sent: u32 = 0
     for _ in 0..70000 {
         if sent >= n {
             break
@@ -757,8 +757,8 @@ func port_arg() -> u32
 }
 
 func main() {
-    var lst: u32 = 0
-    var live: bool = false
+    let lst: u32 = 0
+    let live: bool = false
     match socket_listen(u16(port_arg())) {
         Ok(fd) {
             lst = fd
@@ -769,17 +769,17 @@ func main() {
         }
     }
     if live {
-        var conn: u32 = SENT
-        var served: u32 = 0
+        let conn: u32 = SENT
+        let served: u32 = 0
         # store — до цикла: переживает соединения (состояние копится),
         # НЕ сбрасывается между запросами (в отличие от req.reset)
-        var store: Store = store_new()
-        var req: Req = req_new()
-        var st: u32 = PARSE_MORE
-        var eof: bool = false
+        let store: Store = store_new()
+        let req: Req = req_new()
+        let st: u32 = PARSE_MORE
+        let eof: bool = false
         loop {
             if conn == SENT {
-                let c: u32 = socket_accept(lst)
+                const c: u32 = socket_accept(lst)
                 if c != NO_CONN {
                     conn = c
                     req.reset()

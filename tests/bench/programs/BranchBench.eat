@@ -2,16 +2,16 @@
 # битам loop-carried acc (профиль эмулятора 6502: выбор опкода данными).
 # Базовая порция — 500 000 итераций; REPEAT масштабирует нагрузку.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func work(seed: u32) -> u32
     requires seed < 65536
     ensures true
 {
-    var acc: u32 = seed + 1
+    let acc: u32 = seed + 1
     for _ in 0..500 {
         for i in 0..1000 {
-            let t: u32 = (acc >> (i & 7)) & 3
+            const t: u32 = (acc >> (i & 7)) & 3
             if t == 0 {
                 acc = (acc + i + 1) % 65536
             } elif t == 1 {
@@ -27,7 +27,7 @@ func work(seed: u32) -> u32
 }
 
 func main() {
-    var acc: u32 = 7
+    let acc: u32 = 7
     for _ in 0..REPEAT {
         acc = work(acc)
     }

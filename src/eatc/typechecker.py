@@ -49,10 +49,10 @@ from .types import (
 
 
 class _Deferred(Exception):
-    """const_eval встретил вызов или ещё не вычисленную comptime-
-    константу (§5). В const-декларации — сигнал отложить до фазы 3.5;
+    """constexpr_eval встретил вызов или ещё не вычисленную comptime-
+    константу (§5). В constexpr-декларации — сигнал отложить до фазы 3.5;
     в размере/границе массива — ловится и переводится в ошибку (ярус A
-    разрешает вызовы только в const-декларациях)."""
+    разрешает вызовы только в constexpr-декларациях)."""
 
 
 _INT_CASTS = {
@@ -76,7 +76,7 @@ class FuncSig:
     params: list  # [(имя, Type)]
     ret: Type | None
     node: ast.FuncDecl | None = None
-    var_self: bool = False  # метод с var self — мутирует получателя
+    var_self: bool = False  # метод с let self — мутирует получателя
 
 
 @dataclass
@@ -163,12 +163,12 @@ class TypeChecker:
     def __init__(self, program: ast.Program, filename: str):
         self.program = program
         self.filename = filename
-        self.consts: dict[str, tuple] = {}  # имя -> (Type, int|None)
+        self.constexprs: dict[str, tuple] = {}  # имя -> (Type, int|None)
         # comptime-константы (§5, ярус A): значение через вызов —
         # вычисляется в фазе 3.5 (после типизации всех тел). До того в
-        # self.consts лежит (Type, None) — использование в размере/границе
-        # массива (const_eval вне const-декларации) даёт _Deferred → ошибка.
-        self._deferred_consts: list = []
+        # self.constexprs лежит (Type, None) — использование в размере/границе
+        # массива (constexpr_eval вне constexpr-декларации) даёт _Deferred → ошибка.
+        self._deferred_constexprs: list = []
         self.funcs: dict[str, FuncSig] = {}
         self.structs: dict[str, StructInfo] = {}
         self.enums: dict[str, list] = dict(BUILTIN_ENUMS)
@@ -228,7 +228,7 @@ class TypeChecker:
                     f"имя {name} уже объявлено: shadowing запрещён "
                     "(правило 6)",
                 )
-        if name in self.consts or name in self.funcs or name in BUILTINS:
+        if name in self.constexprs or name in self.funcs or name in BUILTINS:
             raise self.err(
                 node,
                 f"имя {name} затеняет объявление верхнего уровня (правило 6)",
@@ -362,7 +362,7 @@ class TypeChecker:
                         node,
                         f"export {internal}: в модуле "
                         f"{self.module_paths[mod - 1]} нет такого "
-                        "объявления (func/struct/enum/const)",
+                        "объявления (func/struct/enum/constexpr)",
                     )
                 self._check_export_closure(mod, internal, node)
         for key in list(self.imports):
@@ -534,7 +534,7 @@ class TypeChecker:
                 "main не принимает параметров и ничего не возвращает",
             )
         self.check_bodies()
-        self._eval_deferred_consts()
+        self._eval_deferred_constexprs()
         self._check_unused_imports()
         depth = self.check_call_graph()
         return CheckResult(
@@ -563,20 +563,20 @@ class TypeChecker:
         # проход 2: сигнатуры, поля, константы
         for decl in self.program.decls:
             self.current_module = self.decl_module.get(id(decl), 0)
-            if isinstance(decl, ast.ConstDecl):
+            if isinstance(decl, ast.ConstexprDecl):
                 self._declare_top(decl, decl.name)
                 ctype = self.resolve(decl.type)
                 try:
-                    value = self.const_eval(decl.value)
+                    value = self.constexpr_eval(decl.value)
                 except _Deferred:
                     # comptime-константа (§5): значение вычисляется в
                     # фазе 3.5, когда тела функций типизированы. Тип уже
-                    # известен — выражения, читающие const, типизируются.
-                    self.consts[decl.name] = (ctype, None)
-                    self._deferred_consts.append((decl, ctype))
+                    # известен — выражения, читающие constexpr, типизируются.
+                    self.constexprs[decl.name] = (ctype, None)
+                    self._deferred_constexprs.append((decl, ctype))
                 else:
                     self._check_int_fits(decl, ctype, value)
-                    self.consts[decl.name] = (ctype, value)
+                    self.constexprs[decl.name] = (ctype, value)
             elif isinstance(decl, ast.FuncDecl):
                 self._declare_top(decl, decl.name)
                 self.funcs[decl.name] = self._signature(decl)
@@ -607,7 +607,7 @@ class TypeChecker:
             name in self.funcs
             or name in self.structs
             or name in self.enums
-            or name in self.consts
+            or name in self.constexprs
             or name in BUILTINS
             or name in _INT_CASTS
             or name in ("len", "str", "char", "Result", "Option")
@@ -692,14 +692,14 @@ class TypeChecker:
                 return EnumType(node.name)
             raise self.err(node, f"неизвестный тип {node.name}")
         if isinstance(node, ast.ArrayType):
-            size = self._const_size(node.size, "размер массива")
+            size = self._constexpr_size(node.size, "размер массива")
             if not 0 < size <= MAX_ARRAY_ELEMS:
                 raise self.err(
                     node, f"размер массива {size} вне (0, {MAX_ARRAY_ELEMS}]"
                 )
             return ArrayType(self.resolve(node.elem), size)
         if isinstance(node, ast.StrType):
-            cap = self._const_size(node.capacity, "ёмкость строки")
+            cap = self._constexpr_size(node.capacity, "ёмкость строки")
             if not 0 < cap <= MAX_STR_CAPACITY:
                 raise self.err(
                     node, f"ёмкость строки {cap} вне (0, {MAX_STR_CAPACITY}]"
@@ -731,17 +731,17 @@ class TypeChecker:
                 self.check_test(decl)
         self.current_module = 0
 
-    def _eval_deferred_consts(self) -> None:
+    def _eval_deferred_constexprs(self) -> None:
         """Фаза 3.5 (§5, ярус A): вычислить comptime-константы после
         типизации всех тел (тела типизированы, граф вызовов построен).
         Годность — статически до любого вычисления (нечистые не
         исполняются); значения — интерпретатором-эталоном (единый
         вычислитель, зеркалится в selfhost/Eval.eat)."""
-        if not self._deferred_consts:
+        if not self._deferred_constexprs:
             return
         from .comptime import Comptime, _call_names
         ct = Comptime(self.program, self, self.filename)
-        for decl, _ctype in self._deferred_consts:
+        for decl, _ctype in self._deferred_constexprs:
             names: set = set()
             _call_names(decl.value, names)
             for callee in sorted(names):
@@ -758,36 +758,36 @@ class TypeChecker:
                         f"{callee} не comptime-годна: тело вне "
                         "скалярного подмножества (ярус A)",
                     )
-        for decl, ctype in self._deferred_consts:
-            value = ct.eval_const(decl, decl)
-            self._check_const_fits(decl, ctype, value)
-            self.consts[decl.name] = (ctype, value)
+        for decl, ctype in self._deferred_constexprs:
+            value = ct.eval_constexpr(decl, decl)
+            self._check_constexpr_fits(decl, ctype, value)
+            self.constexprs[decl.name] = (ctype, value)
 
-    def _const_size(self, expr: ast.Expr, what: str) -> int:
-        """const_eval в контексте размера/границы (не const-декларация):
+    def _constexpr_size(self, expr: ast.Expr, what: str) -> int:
+        """constexpr_eval в контексте размера/границы (не constexpr-декларация):
         вызов или невычисленная comptime-константа здесь — ошибка (ярус A
-        разрешает comptime-вызовы только в const-декларациях, §5)."""
+        разрешает comptime-вызовы только в constexpr-декларациях, §5)."""
         try:
-            return self.const_eval(expr)
+            return self.constexpr_eval(expr)
         except _Deferred:
             raise self.err(
                 expr,
-                f"{what}: comptime-вызовы разрешены только в const-"
-                "декларациях (ярус A); объявите промежуточный const",
+                f"{what}: comptime-вызовы разрешены только в constexpr-"
+                "декларациях (ярус A); объявите промежуточный constexpr",
             )
 
-    def const_eval(self, expr: ast.Expr) -> int:
+    def constexpr_eval(self, expr: ast.Expr) -> int:
         """Константное выражение (правило 2: границы известны до запуска)."""
         if isinstance(expr, ast.IntLit):
             return expr.value
         if isinstance(expr, ast.Name):
             if not self._is_local(expr.ident):
                 expr.ident = self.vis_name(expr, expr.ident)
-            if expr.ident in self.consts:
-                value = self.consts[expr.ident][1]
+            if expr.ident in self.constexprs:
+                value = self.constexprs[expr.ident][1]
                 if value is None:
                     # comptime-константа ещё не вычислена (фаза 3.5):
-                    # значит используется вне const-декларации
+                    # значит используется вне constexpr-декларации
                     raise _Deferred()
                 return value
             raise self.err(
@@ -795,10 +795,10 @@ class TypeChecker:
                 f"{expr.ident} — не константа времени компиляции (правило 2)",
             )
         if isinstance(expr, ast.UnaryOp) and expr.op == "-":
-            return -self.const_eval(expr.operand)
+            return -self.constexpr_eval(expr.operand)
         if isinstance(expr, ast.BinOp):
-            left = self.const_eval(expr.left)
-            right = self.const_eval(expr.right)
+            left = self.constexpr_eval(expr.left)
+            right = self.constexpr_eval(expr.right)
             if expr.op == "+":
                 return left + right
             if expr.op == "-":
@@ -810,9 +810,9 @@ class TypeChecker:
                     raise self.err(expr, "деление на ноль в константе")
                 return left // right if expr.op == "/" else left % right
         if isinstance(expr, (ast.Call, ast.MethodCall)):
-            # comptime-вызов (§5): в const-декларации — отложить до
+            # comptime-вызов (§5): в constexpr-декларации — отложить до
             # фазы 3.5; в размере/границе массива — _Deferred поймается
-            # и станет ошибкой (ярус A: вызовы только в const)
+            # и станет ошибкой (ярус A: вызовы только в constexpr)
             raise _Deferred()
         raise self.err(
             expr, "ожидалась константа времени компиляции (правило 2)"
@@ -918,9 +918,9 @@ class TypeChecker:
             self.pop_scope()
 
     def check_stmt(self, stmt: ast.Stmt) -> None:
-        if isinstance(stmt, ast.LetStmt):
+        if isinstance(stmt, ast.LocalDecl):
             declared = self.resolve(stmt.type)
-            stmt.var_ty = declared  # для кодогенерации
+            stmt.local_ty = declared  # для кодогенерации
             actual = self.expr_ctor(stmt.value, declared)
             self._require_compatible(stmt, declared, actual)
             self.declare(
@@ -1010,7 +1010,7 @@ class TypeChecker:
                 raise self.err(
                     stmt,
                     "self неизменяем: мутирующий метод объявляется "
-                    "как func имя(var self, ...)",
+                    "как func имя(let self, ...)",
                 )
             value = self.expr(stmt.value, expected=target_type)
             self._require_compatible(stmt, target_type, value)
@@ -1023,16 +1023,16 @@ class TypeChecker:
         if not info.mutable:
             raise self.err(
                 stmt,
-                f"{base.ident} объявлена как let — неизменяема "
-                "(мутабельность — это var, осознанно)",
+                f"{base.ident} объявлена как const — неизменяема "
+                "(мутабельность — это let, осознанно)",
             )
         value = self.expr(stmt.value, expected=target_type)
         self._require_compatible(stmt, target_type, value)
 
     def check_for(self, stmt: ast.ForStmt) -> None:
         if isinstance(stmt.iterable, ast.RangeExpr):
-            start = self._const_size(stmt.iterable.start, "граница цикла")
-            end = self._const_size(stmt.iterable.end, "граница цикла")
+            start = self._constexpr_size(stmt.iterable.start, "граница цикла")
+            end = self._constexpr_size(stmt.iterable.end, "граница цикла")
             if end < start:
                 raise self.err(
                     stmt.iterable, f"пустой диапазон {start}..{end}"
@@ -1160,7 +1160,7 @@ class TypeChecker:
     def expr_ctor(self, node: ast.Expr, expected: Type | None) -> Type:
         """Контекст конструкторов Ok/Err/Some/None (решение 2026-07-14):
         разрешены только там, где ожидаемый тип известен точно —
-        выражение return, let с аннотацией и payload вложенного
+        выражение return, const с аннотацией и payload вложенного
         конструктора. Общего вывода типов нет."""
         if isinstance(node, ast.Call) and node.name in ("Ok", "Err", "Some"):
             return self._tagged_ctor(node, expected)
@@ -1173,7 +1173,7 @@ class TypeChecker:
                 raise self.err(
                     node,
                     "None допустим только там, где ожидается Option: "
-                    "в return и в let с аннотацией",
+                    "в return и в const с аннотацией",
                 )
             node.ctor = "None"
             node.ty = expected
@@ -1187,7 +1187,7 @@ class TypeChecker:
                 raise self.err(
                     node,
                     "Some допустим только там, где ожидается Option: "
-                    "в return и в let с аннотацией",
+                    "в return и в const с аннотацией",
                 )
             payload = expected.inner
         else:
@@ -1195,7 +1195,7 @@ class TypeChecker:
                 raise self.err(
                     node,
                     f"{name} допустим только там, где ожидается Result: "
-                    "в return и в let с аннотацией",
+                    "в return и в const с аннотацией",
                 )
             payload = expected.ok if name == "Ok" else expected.err
         if len(node.args) != 1:
@@ -1296,11 +1296,11 @@ class TypeChecker:
             raise self.err(
                 node,
                 "None допустим только там, где ожидается Option: "
-                "в return и в let с аннотацией",
+                "в return и в const с аннотацией",
             )
         node.ident = self.vis_name(node, node.ident)
-        if node.ident in self.consts:
-            return self.consts[node.ident][0]
+        if node.ident in self.constexprs:
+            return self.constexprs[node.ident][0]
         if node.ident in self.funcs or node.ident in BUILTINS:
             raise self.err(
                 node,
@@ -1428,13 +1428,13 @@ class TypeChecker:
             raise self.err(
                 node,
                 f"{node.name} допустим только там, где ожидается Result: "
-                "в return и в let с аннотацией",
+                "в return и в const с аннотацией",
             )
         if node.name == "Some":
             raise self.err(
                 node,
                 "Some допустим только там, где ожидается Option: "
-                "в return и в let с аннотацией",
+                "в return и в const с аннотацией",
             )
         if node.name == "None":
             raise self.err(
@@ -1568,7 +1568,7 @@ class TypeChecker:
         return sig.ret if sig.ret is not None else VOID
 
     def _check_mutable_receiver(self, node: ast.MethodCall) -> None:
-        """Метод с var self мутирует получателя — получатель обязан
+        """Метод с let self мутирует получателя — получатель обязан
         быть изменяемым lvalue."""
         base = node.obj
         while isinstance(base, (ast.FieldAccess, ast.Index)):
@@ -1579,7 +1579,7 @@ class TypeChecker:
                 return
             raise self.err(
                 node,
-                f"{node.name}(var self) внутри немутирующего метода",
+                f"{node.name}(let self) внутри немутирующего метода",
             )
         if isinstance(base, ast.Name):
             info = self.lookup(base, base.ident)
@@ -1587,12 +1587,12 @@ class TypeChecker:
                 return
             raise self.err(
                 node,
-                f"{node.name} объявлен с var self, а получатель "
-                f"{base.ident} — let (неизменяем)",
+                f"{node.name} объявлен с let self, а получатель "
+                f"{base.ident} — const (неизменяем)",
             )
         raise self.err(
             node,
-            f"{node.name} объявлен с var self: получатель обязан быть "
+            f"{node.name} объявлен с let self: получатель обязан быть "
             "изменяемой переменной, а не временным значением",
         )
 
@@ -1723,7 +1723,7 @@ class TypeChecker:
         return ArrayType(first, len(node.elems))
 
     def _array_fill(self, node: ast.ArrayFill, expected: Type | None) -> Type:
-        n = self._const_size(node.count, "размер массива")
+        n = self._constexpr_size(node.count, "размер массива")
         if not 0 < n <= MAX_ARRAY_ELEMS:
             raise self.err(
                 node, f"размер массива {n} вне (0, {MAX_ARRAY_ELEMS}]"
@@ -1764,7 +1764,7 @@ class TypeChecker:
                 node, f"{value} не помещается в {t.kind} [{lo}, {hi}]"
             )
 
-    def _check_const_fits(self, node: ast.Node, t: Type, value) -> None:
+    def _check_constexpr_fits(self, node: ast.Node, t: Type, value) -> None:
         """Проверка результата comptime-константы (§5, ярус A). Скаляр —
         как _check_int_fits; массив (A2) — форма и поэлементный фит.
         Вычислитель уже фитит каждую операцию к типу результата, но

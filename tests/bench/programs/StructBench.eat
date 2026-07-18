@@ -1,7 +1,7 @@
 # Нагрузочный тест: доступ к полям структуры и вызов метода.
 # Базовая порция — 500 000 итераций с двумя записями полей; REPEAT масштабирует.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 struct Cell {
     a: u32
@@ -16,7 +16,7 @@ struct Cell {
 }
 
 func main() {
-    var c: Cell = Cell { a: 1, b: 2 }
+    let c: Cell = Cell { a: 1, b: 2 }
     for _ in 0..REPEAT {
         for _ in 0..500 {
             for i in 0..1000 {

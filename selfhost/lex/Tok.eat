@@ -114,10 +114,10 @@ func kw_code(w: [u8; 16], n: u32) -> u32
     requires n <= 16
     ensures result <= 29 or (result >= 62 and result <= 66) or result == 68
 {
-    if n < 2 or n > 8 {
+    if n < 2 or n > 9 {
         return 3
     }
-    let k1: u32 = kw_code_af(w, n)
+    const k1: u32 = kw_code_af(w, n)
     if k1 != 3 {
         return k1
     }
@@ -128,14 +128,15 @@ func kw_code_af(w: [u8; 16], n: u32) -> u32
     requires n <= 16
     ensures result <= 29 or (result >= 62 and result <= 65) or result == 68
 {
-    let c: u8 = w[0]
+    const c: u8 = w[0]
     if c == 97 { # a
         if same(w, n, "and") { return 27 }
         if same(w, n, "assert") { return 20 }
     } elif c == 98 { # b
         if same(w, n, "break") { return 19 }
     } elif c == 99 { # c
-        if same(w, n, "const") { return 7 }
+        if same(w, n, "constexpr") { return 7 }
+        if same(w, n, "const") { return 5 }
     } elif c == 100 { # d
         if same(w, n, "discard") { return 23 }
     } elif c == 101 { # e
@@ -159,7 +160,7 @@ func kw_code_iv(w: [u8; 16], n: u32) -> u32
     requires n <= 16
     ensures result <= 29 or result == 63 or result == 66
 {
-    let c: u8 = w[0]
+    const c: u8 = w[0]
     if c == 97 { # a
         if same(w, n, "as") { return 66 }
     } elif c == 105 { # i
@@ -167,7 +168,7 @@ func kw_code_iv(w: [u8; 16], n: u32) -> u32
         if same(w, n, "import") { return 63 }
         if same(w, n, "in") { return 15 }
     } elif c == 108 { # l
-        if same(w, n, "let") { return 5 }
+        if same(w, n, "let") { return 6 }
         if same(w, n, "loop") { return 16 }
     } elif c == 109 { # m
         if same(w, n, "match") { return 17 }
@@ -184,8 +185,6 @@ func kw_code_iv(w: [u8; 16], n: u32) -> u32
     } elif c == 116 { # t
         if same(w, n, "test") { return 10 }
         if same(w, n, "true") { return 25 }
-    } elif c == 118 { # v
-        if same(w, n, "var") { return 6 }
     }
     return 3
 }

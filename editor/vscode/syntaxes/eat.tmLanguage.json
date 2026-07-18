@@ -93,7 +93,7 @@
                 },
                 {
                     "name": "storage.type.eat",
-                    "match": "\\b(let|var|const|func|struct|extend|enum|test)\\b"
+                    "match": "\\b(constexpr|const|let|func|struct|extend|enum|test)\\b"
                 },
                 {
                     "name": "keyword.operator.logical.eat",

@@ -15,8 +15,8 @@ func mask(x: u32) -> u32
 import { mask } from "m.eat"
 
 func main() {
-    let a: [u8; 16] = [0; 16]
-    let i: u32 = mask(4070)
-    let b: u8 = a[i]
+    const a: [u8; 16] = [0; 16]
+    const i: u32 = mask(4070)
+    const b: u8 = a[i]
     print("{b}")
 }

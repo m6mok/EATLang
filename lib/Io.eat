@@ -12,12 +12,12 @@ func read_line() -> Result<str<256>, IoError>
     requires true
     ensures true
 {
-    var r: RtStr = RtStr { ln: 0, buf: [0; 256] }
-    let st: u32 = r.read_line()
+    let r: RtStr = RtStr { ln: 0, buf: [0; 256] }
+    const st: u32 = r.read_line()
     if st == 1 {
         return Err(IoError.Eof)
     }
-    var out: str<256> = ""
+    let out: str<256> = ""
     for i in 0..256 {
         if i >= r.ln {
             break

@@ -44,8 +44,8 @@ import {
     i128_make,
 } from "lib/U128.eat"
 
-const Q16_SCALE: i32 = 65536
-const Q32_SCALE: i64 = 4294967296
+constexpr Q16_SCALE: i32 = 65536
+constexpr Q32_SCALE: i64 = 4294967296
 
 struct Q16 {
     v: i32
@@ -173,7 +173,7 @@ struct Q16 {
         requires true
         ensures true
     {
-        var q: i32 = self.v / 65536
+        let q: i32 = self.v / 65536
         if self.v % 65536 < 0 {
             q = q - 1
         }
@@ -185,7 +185,7 @@ struct Q16 {
         requires true
         ensures true
     {
-        var q: i32 = self.v / 65536
+        let q: i32 = self.v / 65536
         if self.v % 65536 > 0 {
             q = q + 1
         }
@@ -200,16 +200,16 @@ struct Q16 {
         requires digits <= 6
         ensures true
     {
-        var out: str<32> = ""
+        let out: str<32> = ""
         if self.v < 0 {
             out = "-"
         }
-        let w: i64 = i64(self.v)
-        var m: i64 = w
+        const w: i64 = i64(self.v)
+        let m: i64 = w
         if w < 0 {
             m = 0 - w
         }
-        let d: Dec = fmt_u32(u32(m / 65536))
+        const d: Dec = fmt_u32(u32(m / 65536))
         for i in 0..10 {
             if i >= d.ln {
                 break
@@ -220,8 +220,8 @@ struct Q16 {
             return out
         }
         out = "{out}."
-        var fr: i64 = m % 65536
-        var k: u32 = 0
+        let fr: i64 = m % 65536
+        let k: u32 = 0
         for _ in 0..6 {
             if k >= digits {
                 break
@@ -267,8 +267,8 @@ test q16_ctor {
 }
 
 test q16_arith {
-    let a: Q16 = q16_ratio(3, 2)  # 1.5
-    let b: Q16 = q16_ratio(1, 4)  # 0.25
+    const a: Q16 = q16_ratio(3, 2)  # 1.5
+    const b: Q16 = q16_ratio(1, 4)  # 0.25
     assert a.add(b).v == 114688   # 1.75
     assert a.sub(b).v == 81920    # 1.25
     assert a.neg().v == -98304
@@ -283,8 +283,8 @@ test q16_arith {
 }
 
 test q16_cmp_util {
-    let a: Q16 = q16(1)
-    let b: Q16 = q16(2)
+    const a: Q16 = q16(1)
+    const b: Q16 = q16(2)
     assert a.eq(a)
     assert not a.eq(b)
     assert a.lt(b)
@@ -303,8 +303,8 @@ test q16_cmp_util {
 
 # Округления — обеими сторонами нуля (пин §7.3).
 test q16_round {
-    let p: Q16 = q16_ratio(3, 2)   # 1.5
-    let n: Q16 = q16_ratio(-3, 2)  # -1.5
+    const p: Q16 = q16_ratio(3, 2)   # 1.5
+    const n: Q16 = q16_ratio(-3, 2)  # -1.5
     assert p.to_int() == 1
     assert n.to_int() == -1
     assert p.round() == 2
@@ -368,8 +368,8 @@ struct Q32 {
         requires true
         ensures true
     {
-        let p: I128 = i128(self.v).mul(i128(o.v))
-        let t: I128 = i128_make(p.sgn, p.mag.shr(32))
+        const p: I128 = i128(self.v).mul(i128(o.v))
+        const t: I128 = i128_make(p.sgn, p.mag.shr(32))
         return Q32 { v: t.to_i64() }
     }
 
@@ -379,8 +379,8 @@ struct Q32 {
         requires o.v != 0
         ensures true
     {
-        let na: I128 = i128(self.v)
-        let sc: I128 = i128_make(na.sgn, na.mag.shl(32))
+        const na: I128 = i128(self.v)
+        const sc: I128 = i128_make(na.sgn, na.mag.shl(32))
         return Q32 { v: sc.div(i128(o.v)).to_i64() }
     }
 
@@ -473,7 +473,7 @@ struct Q32 {
         requires true
         ensures true
     {
-        var q: i64 = self.v / 4294967296
+        let q: i64 = self.v / 4294967296
         if self.v % 4294967296 < 0 {
             q = q - 1
         }
@@ -485,7 +485,7 @@ struct Q32 {
         requires true
         ensures true
     {
-        var q: i64 = self.v / 4294967296
+        let q: i64 = self.v / 4294967296
         if self.v % 4294967296 > 0 {
             q = q + 1
         }
@@ -499,15 +499,15 @@ struct Q32 {
         requires digits <= 9
         ensures true
     {
-        var out: str<32> = ""
-        var m: u64 = 0
+        let out: str<32> = ""
+        let m: u64 = 0
         if self.v < 0 {
             out = "-"
             m = u64(i64(0) - (self.v + i64(1))) + 1
         } else {
             m = u64(self.v)
         }
-        let d: Dec = fmt_u32(u32(m / 4294967296))
+        const d: Dec = fmt_u32(u32(m / 4294967296))
         for i in 0..10 {
             if i >= d.ln {
                 break
@@ -518,8 +518,8 @@ struct Q32 {
             return out
         }
         out = "{out}."
-        var fr: u64 = m % 4294967296
-        var k: u32 = 0
+        let fr: u64 = m % 4294967296
+        let k: u32 = 0
         for _ in 0..9 {
             if k >= digits {
                 break
@@ -548,8 +548,8 @@ func q32_ratio(num: i64, den: i64) -> Q32
     requires den != 0
     ensures true
 {
-    let nn: I128 = i128(num)
-    let sc: I128 = i128_make(nn.sgn, nn.mag.shl(32))
+    const nn: I128 = i128(num)
+    const sc: I128 = i128_make(nn.sgn, nn.mag.shl(32))
     return Q32 { v: sc.div(i128(den)).to_i64() }
 }
 
@@ -558,7 +558,7 @@ test q32_ctor {
     assert q32(1).v == 4294967296
     assert q32(-1).v == -4294967296
     assert q32(2147483647).v == 9223372032559808512
-    let mn: i64 = -9223372036854775807 - i64(1)
+    const mn: i64 = -9223372036854775807 - i64(1)
     assert q32(-2147483648).v == mn
     assert q32_ratio(3, 2).v == 6442450944
     assert q32_ratio(-3, 2).v == -6442450944
@@ -571,8 +571,8 @@ test q32_ctor {
 # 128-битного промежутка — произведение raw ровно 2^64.
 test q32_arith {
     assert q32(1).mul(q32(1)).eq(q32(1))
-    let a: Q32 = q32_ratio(3, 2)   # 1.5
-    let b: Q32 = q32_ratio(1, 4)   # 0.25
+    const a: Q32 = q32_ratio(3, 2)   # 1.5
+    const b: Q32 = q32_ratio(1, 4)   # 0.25
     assert a.add(b).v == 7516192768    # 1.75
     assert a.sub(b).v == 5368709120    # 1.25
     assert a.neg().v == -6442450944
@@ -587,8 +587,8 @@ test q32_arith {
 }
 
 test q32_cmp_util {
-    let a: Q32 = q32(1)
-    let b: Q32 = q32(2)
+    const a: Q32 = q32(1)
+    const b: Q32 = q32(2)
     assert a.eq(a) and not a.eq(b)
     assert a.lt(b) and not b.lt(a)
     assert a.le(a) and a.le(b) and not b.le(a)
@@ -602,8 +602,8 @@ test q32_cmp_util {
 
 # Округления — обеими сторонами нуля (пин §7.3).
 test q32_round {
-    let p: Q32 = q32_ratio(3, 2)   # 1.5
-    let n: Q32 = q32_ratio(-3, 2)  # -1.5
+    const p: Q32 = q32_ratio(3, 2)   # 1.5
+    const n: Q32 = q32_ratio(-3, 2)  # -1.5
     assert p.to_int() == 1 and n.to_int() == -1
     assert p.round() == 2 and n.round() == -2
     assert q32_ratio(1, 4).round() == 0

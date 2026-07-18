@@ -8,15 +8,15 @@ func work(seed: u32) -> u32
     requires seed < 65536
     ensures true
 {
-    var tbl: [u32; 64] = [0; 64]
-    var idx: [u32; 64] = [0; 64]
+    let tbl: [u32; 64] = [0; 64]
+    let idx: [u32; 64] = [0; 64]
     for k in 0..64 {
         tbl[k] = (k * 40503) % 251
         idx[k] = (k * 7 + 3) % 64
     }
-    var acc: u32 = seed
+    let acc: u32 = seed
     for i in 0..1000 {
-        let j: u32 = idx[i & 63]
+        const j: u32 = idx[i & 63]
         acc = (acc + tbl[j] + tbl[i & 63] / (j + 1) + u32(u8(j))) % 65536
     }
     return acc

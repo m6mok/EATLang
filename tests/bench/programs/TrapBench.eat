@@ -11,24 +11,24 @@
 # Когда трек 3 научится интервалам пулов — бенч должен ускориться
 # без правок кодогена. Базовая порция — 200 000 итераций.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func work(seed: u32) -> u32
     requires seed < 65536
     ensures true
 {
-    var tbl: [u32; 64] = [0; 64]
-    var idx: [u32; 64] = [0; 64]
+    let tbl: [u32; 64] = [0; 64]
+    let idx: [u32; 64] = [0; 64]
     for k in 0..64 {
         tbl[k] = (k * 40503) % 251
         idx[k] = (k * 7 + 3) % 64
     }
-    var acc: u32 = seed
+    let acc: u32 = seed
     for _ in 0..200 {
         for i in 0..1000 {
-            let j: u32 = idx[(i + acc) & 63]
+            const j: u32 = idx[(i + acc) & 63]
             acc = acc + tbl[j]
-            let d: u32 = idx[j & 63] + 1
+            const d: u32 = idx[j & 63] + 1
             acc = acc + tbl[(i + acc) & 63] / d
             acc = acc + u32(u8(idx[(i + j) & 63]))
         }
@@ -39,7 +39,7 @@ func work(seed: u32) -> u32
 }
 
 func main() {
-    var acc: u32 = 7
+    let acc: u32 = 7
     for _ in 0..REPEAT {
         acc = work(acc)
     }

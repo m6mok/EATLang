@@ -10,7 +10,7 @@ func to_u16(x: u32) -> u16
 }
 
 func main() {
-    var n: u32 = 0
+    let n: u32 = 0
     match read_byte() {
         Ok(v) {
             n = u32(v) * 300
@@ -19,7 +19,7 @@ func main() {
             n = 0
         }
     }
-    let a: u16 = to_u16(n & 0xFFFF)
-    let b: u16 = u16(n)
+    const a: u16 = to_u16(n & 0xFFFF)
+    const b: u16 = u16(n)
     print("{a} {b}")
 }

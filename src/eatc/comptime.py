@@ -114,7 +114,7 @@ def _is_extern(checker, key: str) -> bool:
 # множества (char/str/self/struct/enum/match/loop/2D-массивы …) — не
 # годно в ярусе A.
 _SCALAR_STMTS = (
-    ast.Block, ast.LetStmt, ast.AssignStmt, ast.IfStmt, ast.ForStmt,
+    ast.Block, ast.LocalDecl, ast.AssignStmt, ast.IfStmt, ast.ForStmt,
     ast.ReturnStmt, ast.BreakStmt, ast.AssertStmt, ast.ExprStmt,
     ast.DiscardStmt,
 )
@@ -146,7 +146,7 @@ def _scalar_walk(node, bad: list) -> None:
             bad.append(node)
         return
     if isinstance(node, ast.ArrayType):
-        # A2: [скаляр; N] — элемент скалярный, размер — const-выражение;
+        # A2: [скаляр; N] — элемент скалярный, размер — constexpr-выражение;
         # вложенные массивы (2D) вне яруса A
         if not (isinstance(node.elem, ast.TypeName)
                 and node.elem.name in _SCALAR_TYPE_NAMES):
@@ -262,16 +262,16 @@ class Comptime:
             key, self.checker, self.graph, self.decls, set()
         )
 
-    def eval_const(self, decl, site):
+    def eval_constexpr(self, decl, site):
         """Вычислить отложенную comptime-константу через интерпретатор
-        (ленивое разрешение _const_pending: бюджет + запрет аксиом внутри
+        (ленивое разрешение _constexpr_pending: бюджет + запрет аксиом внутри
         _comptime_call). trap/бюджет → ошибка компиляции с координатами
         объявления."""
         interp = self.interp
         try:
-            if decl.name in interp._const_pending:
-                interp._resolve_pending_const(decl.name)
-            slot = interp.consts.get(decl.name)
+            if decl.name in interp._constexpr_pending:
+                interp._resolve_pending_constexpr(decl.name)
+            slot = interp.constexprs.get(decl.name)
             return slot.value if slot is not None else None
         except ComptimeBudget:
             raise EatError(
@@ -354,18 +354,18 @@ class Comptime:
             return result
         return None  # не скаляр (массив/др.) — ярус B сворачивает скаляры
 
-    def _const_of(self, node):
+    def _constexpr_of(self, node):
         """Значение выражения-аргумента, если оно compile-time константа
-        яруса B: целый/bool литерал, скалярная const-имя или уже
+        яруса B: целый/bool литерал, скалярная constexpr-имя или уже
         свёрнутый вызов (post-order). Иначе None. Ограничение v1:
         арифметика/касты как аргумент не считаются константой (их
-        вычисление могло бы trap'нуть) — объявите промежуточный const."""
+        вычисление могло бы trap'нуть) — объявите промежуточный constexpr."""
         if isinstance(node, ast.IntLit):
             return node.value
         if isinstance(node, ast.BoolLit):
             return 1 if node.value else 0
         if isinstance(node, ast.Name):
-            slot = self.checker.consts.get(getattr(node, "ident", None))
+            slot = self.checker.constexprs.get(getattr(node, "ident", None))
             if slot is not None and isinstance(slot[1], (int, bool)):
                 return int(slot[1])
             return None
@@ -377,7 +377,7 @@ class Comptime:
         """Post-order обход: сворачивает годные вызовы с константными
         аргументами в литерал (аннотация `folded`/`fold_value` на узле —
         читается кодогеном/верификатором, как флаги снятия проверок).
-        Возврат не значение — константность аргументов берёт `_const_of`
+        Возврат не значение — константность аргументов берёт `_constexpr_of`
         уже после свёртки детей."""
         if node is None or isinstance(node, (str, int, bool)):
             return
@@ -391,7 +391,7 @@ class Comptime:
                 and isinstance(ret, (IntType, BoolType))
                 and self._elig(node.name)
             ):
-                values = [self._const_of(a) for a in node.args]
+                values = [self._constexpr_of(a) for a in node.args]
                 if all(v is not None for v in values):
                     func = self.decls.get(node.name)
                     if func is not None:

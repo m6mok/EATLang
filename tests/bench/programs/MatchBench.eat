@@ -2,7 +2,7 @@
 # диспетчеризация по тегу (идиома машин selfhost-компилятора).
 # Базовая порция — 200 000 итераций; REPEAT масштабирует нагрузку.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 enum Op {
     AddSmall,
@@ -15,7 +15,7 @@ func pick(k: u32) -> Op
     requires true
     ensures true
 {
-    let t: u32 = k & 3
+    const t: u32 = k & 3
     if t == 0 {
         return Op.AddSmall
     } elif t == 1 {
@@ -45,7 +45,7 @@ test match_step {
 }
 
 func main() {
-    var acc: u32 = 7
+    let acc: u32 = 7
     for _ in 0..REPEAT {
         for k in 0..200 {
             for i in 0..1000 {

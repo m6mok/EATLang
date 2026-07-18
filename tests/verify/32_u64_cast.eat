@@ -10,7 +10,7 @@ func to_u32(x: u64) -> u32
 }
 
 func main() {
-    var n: u64 = 0
+    let n: u64 = 0
     match read_byte() {
         Ok(v) {
             n = u64(v) * 4294967296
@@ -19,7 +19,7 @@ func main() {
             n = 0
         }
     }
-    let a: u32 = to_u32(n & 0xFFFFFFFF)
-    let b: u32 = u32(n)
+    const a: u32 = to_u32(n & 0xFFFFFFFF)
+    const b: u32 = u32(n)
     print("{a} {b}")
 }

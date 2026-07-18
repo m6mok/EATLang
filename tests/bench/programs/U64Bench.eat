@@ -3,13 +3,13 @@
 # профиль crypto/МК (на ARM32 уходит в хелперы eabi64). Базовая
 # порция — 200 000 итераций; REPEAT масштабирует нагрузку.
 
-const REPEAT: u32 = 1
+constexpr REPEAT: u32 = 1
 
 func work(seed: u64) -> u64
     requires seed < 65536
     ensures true
 {
-    var acc: u64 = seed
+    let acc: u64 = seed
     for _ in 0..200 {
         for i in 0..1000 {
             acc = (acc * 31 + u64(i)) % 281474976710656
@@ -21,10 +21,10 @@ func work(seed: u64) -> u64
 }
 
 func main() {
-    var acc: u64 = 7
+    let acc: u64 = 7
     for _ in 0..REPEAT {
         acc = work(acc)
     }
-    let c: u32 = u32(acc)
+    const c: u32 = u32(acc)
     print("checksum {c}")
 }

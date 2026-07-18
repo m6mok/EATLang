@@ -13,5 +13,5 @@ export {
     U32_MAX,
 }
 
-const NONE: u32 = 4294967295
-const U32_MAX: u32 = 4294967295
+constexpr NONE: u32 = 4294967295
+constexpr U32_MAX: u32 = 4294967295

@@ -5,7 +5,7 @@
 extend Verify {
     # --- отметки -------------------------------------------------------
 
-    func mark(var self, kind: u32, node: u32, ok: u32)
+    func mark(let self, kind: u32, node: u32, ok: u32)
         requires true
         ensures true
     {
@@ -14,7 +14,7 @@ extend Verify {
         if self.probe == 1 {
             return
         }
-        var f: u32 = NONE
+        let f: u32 = NONE
         for i in 0..16384 {
             if i >= self.nck or f != NONE {
                 break
@@ -32,7 +32,7 @@ extend Verify {
             eprint("DBGFAIL 1710")
             return
         }
-        let j: u32 = self.nck
+        const j: u32 = self.nck
         self.ck_k[j] = kind
         self.ck_n[j] = node
         self.ck_o[j] = ok
@@ -41,15 +41,15 @@ extend Verify {
 
     # --- анализ функции ------------------------------------------------
 
-    func analyze_func(var self, fi: u32)
+    func analyze_func(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        let d: u32 = self.c.fnd[fi]
+        const d: u32 = self.c.fnd[fi]
         if self.nk(d) == 50 {
             return
         }
-        let body: u32 = self.func_body(fi)
+        const body: u32 = self.func_body(fi)
         if body == NONE {
             return
         }
@@ -74,7 +74,7 @@ extend Verify {
         self.rs_has = 0
         self.rs_multi = 0
         self.seed_params(fi)
-        let req: u32 = self.func_clause(fi, 9)
+        const req: u32 = self.func_clause(fi, 9)
         if req != NONE {
             self.eval_bool(req, 1)
             # flush ДО refine: сайты из оценки requires — в env до сужения
@@ -92,7 +92,7 @@ extend Verify {
     # caller. Пост-обход DFS явным стеком, считается один раз (порядок не
     # меняется между пассами). Функции недостижимые из вершин обходятся
     # как отдельные корни (внешний цикл по всем fi)
-    func topo_order(var self)
+    func topo_order(let self)
         requires true
         ensures true
     {
@@ -113,23 +113,23 @@ extend Verify {
         }
     }
 
-    func topo_visit(var self, start: u32)
+    func topo_visit(let self, start: u32)
         requires start < 1024
         ensures true
     {
-        var st: [u32; 1024] = [0; 1024]
-        var sp: u32 = 1
+        let st: [u32; 1024] = [0; 1024]
+        let sp: u32 = 1
         st[0] = start
         for _ in 0..1000000 {
             if sp == 0 {
                 break
             }
-            let node: u32 = st[sp - 1]
+            const node: u32 = st[sp - 1]
             if self.tseen[node] == 2 {
                 sp = sp - 1
             } else {
                 self.tseen[node] = 1
-                let child: u32 = self.next_child(node)
+                const child: u32 = self.next_child(node)
                 if child != NONE and sp < 1024 {
                     st[sp] = child
                     sp = sp + 1
@@ -144,17 +144,17 @@ extend Verify {
     }
 
     # первый ещё не посещённый callee-функция узла (code < nfun), либо NONE
-    func next_child(var self, node: u32) -> u32
+    func next_child(let self, node: u32) -> u32
         requires node < 1024
         ensures true
     {
-        var found: u32 = NONE
-        var done: bool = false
+        let found: u32 = NONE
+        let done: bool = false
         for k in 0..4096 {
             if done {
                 break
             }
-            let c: u32 = self.c.cg_callee(node, k)
+            const c: u32 = self.c.cg_callee(node, k)
             if c == NONE {
                 done = true
             } elif c < self.c.nfun and self.tseen[c] == 0 {
@@ -169,18 +169,18 @@ extend Verify {
     # теста — по счётчику #module-директив (kind 51) в порядке деклараций;
     # ti — индекс теста (уникальный own пулов). Тесту не нужны параметры,
     # requires/ensures, сводка — только поток тела (assert/границы/…).
-    func analyze_tests(var self)
+    func analyze_tests(let self)
         requires true
         ensures true
     {
-        var d: u32 = self.nfc(0)
-        var mod: u32 = 0
-        var ti: u32 = 0
+        let d: u32 = self.nfc(0)
+        let mod: u32 = 0
+        let ti: u32 = 0
         for _ in 0..131072 {
             if d == NONE {
                 break
             }
-            let k: u32 = self.nk(d)
+            const k: u32 = self.nk(d)
             if k == 51 {
                 mod = mod + 1
             } elif k == 11 and ti < 64 {
@@ -191,7 +191,7 @@ extend Verify {
         }
     }
 
-    func analyze_test(var self, d: u32, ti: u32, mod: u32)
+    func analyze_test(let self, d: u32, ti: u32, mod: u32)
         requires d < 131072 and ti < 64
         ensures true
     {
@@ -215,7 +215,7 @@ extend Verify {
         self.rs_has = 0
         self.rs_multi = 0
         # тело теста — дочерний блок (kind 12), как decl.body у эталона
-        let body: u32 = self.nfc(d)
+        const body: u32 = self.nfc(d)
         if body != NONE {
             self.run_flow(body)
         }
@@ -224,12 +224,12 @@ extend Verify {
     # сводка функции fi (эталон _summary): тождество параметру | hive |
     # интервал. Приоритет: param > hive > iv. Читается apply_summary на
     # месте вызова в том же модуле (иначе — SPARK-граница contract_iv)
-    func finalize_summary(var self, fi: u32)
+    func finalize_summary(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
         self.sum_tag[fi] = 0
-        let ret: u32 = self.c.fret[fi]
+        const ret: u32 = self.c.fret[fi]
         if ret == NONE or not self.int_kind(self.c.yk[ret]) or self.nret == 0 {
             return
         }
@@ -268,17 +268,17 @@ extend Verify {
         }
     }
 
-    func seed_params(var self, fi: u32)
+    func seed_params(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        let pbase: u32 = self.c.fps[fi]
+        const pbase: u32 = self.c.fps[fi]
         for i in 0..6 {
             if i >= self.c.fpc[fi] {
                 break
             }
-            let ty: u32 = self.c.pty[pbase + i]
-            let pid: u32 = self.path_intern(self.c.pn_s[pbase + i], self.c.pn_l[pbase + i])
+            const ty: u32 = self.c.pty[pbase + i]
+            const pid: u32 = self.path_intern(self.c.pn_s[pbase + i], self.c.pn_l[pbase + i])
             self.set_ty(ty)
             if self.rk == 1 {
                 self.env.kn[pid] = 1
@@ -290,7 +290,7 @@ extend Verify {
         }
     }
 
-    func finish_ensures(var self, d: u32)
+    func finish_ensures(let self, d: u32)
         requires d < 131072
         ensures true
     {
@@ -306,14 +306,14 @@ extend Verify {
             # сайты requires вызовов в ensures — синхронно (см. flow_return)
             self.flush_requires()
         }
-        var prov: u32 = 0
+        let prov: u32 = 0
         if self.ens_saw == 1 and self.ens_all == 1 and not self.has_call(self.ens_node) {
             prov = 1
         }
         self.mark(6, d, prov)
     }
 
-    func requires_pass(var self)
+    func requires_pass(let self)
         requires true
         ensures true
     {
@@ -325,23 +325,23 @@ extend Verify {
         }
     }
 
-    func requires_one(var self, fi: u32)
+    func requires_one(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        let req: u32 = self.func_clause(fi, 9)
+        const req: u32 = self.func_clause(fi, 9)
         if req == NONE {
             return
         }
-        let no_calls: bool = not self.has_call(req)
-        var saved: St = self.env
+        const no_calls: bool = not self.has_call(req)
+        let saved: St = self.env
         self.env = self.fresh_st()
         self.eval_bool(req, 0)
-        let taut: bool = self.tb == 1
+        const taut: bool = self.tb == 1
         self.env = saved
-        let proven: u32 = self.rq_p[fi]
-        let total: u32 = self.rq_t[fi]
-        var ok: u32 = 0
+        const proven: u32 = self.rq_p[fi]
+        const total: u32 = self.rq_t[fi]
+        let ok: u32 = 0
         if no_calls and (taut or (total > 0 and proven == total)) {
             ok = 1
         }
@@ -351,12 +351,12 @@ extend Verify {
     # итеративные пассы-фикспойнт инвариантов пулов/полей (эталон run):
     # пасс k использует карты пасса k−1; отметки — последнего пасса
     # (перед ним карты стабилизировались либо исчерпан лимит в 3 пасса)
-    func analyze(var self)
+    func analyze(let self)
         requires true
         ensures true
     {
         self.topo_order()
-        var stable: bool = false
+        let stable: bool = false
         for pass in 0..3 {
             if stable {
                 break
@@ -375,7 +375,7 @@ extend Verify {
         }
     }
 
-    func verify(var self)
+    func verify(let self)
         requires true
         ensures true
     {
@@ -389,7 +389,7 @@ extend Verify {
     # (requires/ensures лежат на узле декларации функции, эталон
     # func.requires_proven/ensures_proven). Ir читает маску зеркально
     # codegen.py: элизия trap-блоков, nsw/nuw.
-    func annotate(var self)
+    func annotate(let self)
         requires true
         ensures true
     {
@@ -398,8 +398,8 @@ extend Verify {
                 break
             }
             if self.ck_o[i] == 1 {
-                let n: u32 = self.ck_n[i]
-                let bit: u32 = 1 << self.ck_k[i]
+                const n: u32 = self.ck_n[i]
+                const bit: u32 = 1 << self.ck_k[i]
                 self.c.nvm[n / 65536][n % 65536] = self.c.nvm[n / 65536][n % 65536] | bit
             }
         }
@@ -407,12 +407,12 @@ extend Verify {
 
     # --- дамп ----------------------------------------------------------
 
-    func ck_less(var self, i: u32, j: u32) -> bool
+    func ck_less(let self, i: u32, j: u32) -> bool
         requires i < 16384 and j < 16384
         ensures true
     {
-        let a: u32 = self.ck_n[i]
-        let b: u32 = self.ck_n[j]
+        const a: u32 = self.ck_n[i]
+        const b: u32 = self.ck_n[j]
         if self.nl(a) != self.nl(b) {
             return self.nl(a) < self.nl(b)
         }
@@ -427,7 +427,7 @@ extend Verify {
         return self.ck_o[i] < self.ck_o[j]
     }
 
-    func kname(var self, k: u32) -> str<16>
+    func kname(let self, k: u32) -> str<16>
         requires true
         ensures true
     {
@@ -455,11 +455,11 @@ extend Verify {
         return "assert"
     }
 
-    func emit_line(var self, kind: u32, ln: u32, cl: u32, ok: u32)
+    func emit_line(let self, kind: u32, ln: u32, cl: u32, ok: u32)
         requires true
         ensures true
     {
-        let nm: str<16> = self.kname(kind)
+        const nm: str<16> = self.kname(kind)
         if ok == 1 {
             write("{nm} {ln}:{cl} proven\n")
         } else {
@@ -467,7 +467,7 @@ extend Verify {
         }
     }
 
-    func dump(var self)
+    func dump(let self)
         requires true
         ensures true
     {
@@ -481,7 +481,7 @@ extend Verify {
             if out >= self.nck {
                 break
             }
-            var best: u32 = NONE
+            let best: u32 = NONE
             for i in 0..16384 {
                 if i >= self.nck {
                     break
@@ -498,23 +498,23 @@ extend Verify {
         self.footer()
     }
 
-    func footer(var self)
+    func footer(let self)
         requires true
         ensures true
     {
-        var tp: [u32; 8] = [0; 8]
-        var tt: [u32; 8] = [0; 8]
-        var proven: u32 = 0
+        let tp: [u32; 8] = [0; 8]
+        let tt: [u32; 8] = [0; 8]
+        let proven: u32 = 0
         for i in 0..16384 {
             if i >= self.nck {
                 break
             }
-            let k: u32 = self.ck_k[i]
+            const k: u32 = self.ck_k[i]
             tt[k] = tt[k] + 1
             tp[k] = tp[k] + self.ck_o[i]
             proven = proven + self.ck_o[i]
         }
-        let total: u32 = self.nck
+        const total: u32 = self.nck
         write("verify proven={proven} total={total}")
         write(" bounds={tp[0]}/{tt[0]} overflow={tp[1]}/{tt[1]} div={tp[2]}/{tt[2]}")
         write(" cast={tp[3]}/{tt[3]} shift={tp[4]}/{tt[4]} requires={tp[5]}/{tt[5]}")

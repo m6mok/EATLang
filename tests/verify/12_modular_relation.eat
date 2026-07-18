@@ -9,8 +9,8 @@ func addk(x: i32, k: i32) -> i32
 }
 
 func main() {
-    let base: i32 = 10
-    let y: i32 = addk(base, 3)
+    const base: i32 = 10
+    const y: i32 = addk(base, 3)
     assert y >= base
     print("{y}")
 }

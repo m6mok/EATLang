@@ -1,7 +1,7 @@
 #! expect: error=не comptime-годна: транзитивно вызывает аксиому ОС или extern (§5)
 # Негатив: функция с выводом (аксиома ОС) не comptime-годна.
 
-const X: u32 = noisy(1)
+constexpr X: u32 = noisy(1)
 
 func noisy(a: u32) -> u32
     requires true

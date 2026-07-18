@@ -6,7 +6,7 @@
 extend Ir {
     # --- машина инструкций ------------------------------------------------------
 
-    func spush(var self, k: u32, nd: u32, cur: u32)
+    func spush(let self, k: u32, nd: u32, cur: u32)
         requires k <= 4 and nd < 131072
         ensures true
     {
@@ -27,7 +27,7 @@ extend Ir {
         self.ns4 = self.ns4 + 1
     }
 
-    func start_blk(var self, body: u32)
+    func start_blk(let self, body: u32)
         requires body < 131072
         ensures true
     {
@@ -35,7 +35,7 @@ extend Ir {
         self.spush(0, body, self.c.p.nfc[body / 65536][body % 65536])
     }
 
-    func st_run(var self, body: u32)
+    func st_run(let self, body: u32)
         requires body < 131072
         ensures true
     {
@@ -52,11 +52,11 @@ extend Ir {
         }
     }
 
-    func sstep(var self)
+    func sstep(let self)
         requires self.ns4 >= 1
         ensures true
     {
-        let k: u32 = self.sk4[self.ns4 - 1]
+        const k: u32 = self.sk4[self.ns4 - 1]
         if k == 0 {
             self.s_blk()
         } elif k == 1 {
@@ -70,17 +70,17 @@ extend Ir {
         }
     }
 
-    func s_blk(var self)
+    func s_blk(let self)
         requires self.ns4 >= 1
         ensures true
     {
-        let f: u32 = self.ns4 - 1
+        const f: u32 = self.ns4 - 1
         if self.bkt[self.cb] == 1 {
             self.pop_sc()
             self.ns4 = f
             return
         }
-        let cur: u32 = self.sp4[f]
+        const cur: u32 = self.sp4[f]
         if cur == NONE {
             self.pop_sc()
             self.ns4 = f
@@ -90,11 +90,11 @@ extend Ir {
         self.s_stmt(cur)
     }
 
-    func s_stmt(var self, cur: u32)
+    func s_stmt(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
-        let k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
+        const k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
         if k == 13 {
             self.s_let(cur)
         } elif k == 14 {
@@ -118,11 +118,11 @@ extend Ir {
         }
     }
 
-    func s_let(var self, cur: u32)
+    func s_let(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
-        let t: u32 = self.c.nty[cur / 65536][cur % 65536]
+        const t: u32 = self.c.nty[cur / 65536][cur % 65536]
         self.expr_run(
             self.c.p.nns[self.c.p.nfc[cur / 65536][cur % 65536] / 65536][
                 self.c.p.nfc[cur / 65536][cur % 65536] % 65536
@@ -139,25 +139,25 @@ extend Ir {
         )
     }
 
-    func s_assign(var self, cur: u32)
+    func s_assign(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
-        let tgt: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
+        const tgt: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         self.expr_run(self.c.p.nns[tgt / 65536][tgt % 65536])
         if self.failed {
             return
         }
-        let vk: u32 = self.erk
-        let va: u32 = self.era
-        let vb: u32 = self.erb
+        const vk: u32 = self.erk
+        const va: u32 = self.era
+        const vb: u32 = self.erb
         self.lvalue(tgt)
         self.set1(self.lvk, self.lva, self.lvb)
         self.set2(vk, va, vb)
         self.copy_into(self.c.nty[tgt / 65536][tgt % 65536])
     }
 
-    func s_assert(var self, cur: u32)
+    func s_assert(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
@@ -178,11 +178,11 @@ extend Ir {
         )
     }
 
-    func s_ret(var self, cur: u32)
+    func s_ret(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
-        let v: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
+        const v: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         if v != NONE {
             self.expr_run(v)
             if self.failed {
@@ -195,22 +195,22 @@ extend Ir {
         self.e_br(self.exb)
     }
 
-    func s_if_start(var self, cur: u32)
+    func s_if_start(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
-        let mrg: u32 = self.blk_new("if.end")
+        const mrg: u32 = self.blk_new("if.end")
         self.spush(1, cur, self.c.p.nfc[cur / 65536][cur % 65536])
         self.sa4[self.ns4 - 1] = mrg
         self.sb4[self.ns4 - 1] = NONE
     }
 
-    func s_if(var self)
+    func s_if(let self)
         requires self.ns4 >= 1
         ensures true
     {
-        let f: u32 = self.ns4 - 1
-        let stage: u32 = self.sc4[f]
+        const f: u32 = self.ns4 - 1
+        const stage: u32 = self.sc4[f]
         if stage == 1 {
             self.ensure_br(self.sa4[f])
             self.cb = self.sb4[f]
@@ -223,22 +223,22 @@ extend Ir {
             self.ns4 = f
             return
         }
-        let cur: u32 = self.sp4[f]
+        const cur: u32 = self.sp4[f]
         if cur == NONE {
             self.ensure_br(self.sa4[f])
             self.cb = self.sa4[f]
             self.ns4 = f
             return
         }
-        let k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
+        const k: u32 = self.c.p.nk[cur / 65536][cur % 65536]
         if k == 17 {
             self.sc4[f] = 2
             self.sp4[f] = NONE
             self.start_blk(self.c.p.nfc[cur / 65536][cur % 65536])
             return
         }
-        var cnd: u32 = cur
-        var blk2: u32 = 0
+        let cnd: u32 = cur
+        let blk2: u32 = 0
         if k == 16 {
             cnd = self.c.p.nfc[cur / 65536][cur % 65536]
             blk2 = self.c.p.nns[cnd / 65536][cnd % 65536]
@@ -247,8 +247,8 @@ extend Ir {
             blk2 = self.c.p.nns[cur / 65536][cur % 65536]
             self.sp4[f] = self.c.p.nns[blk2 / 65536][blk2 % 65536]
         }
-        let tb: u32 = self.blk_new("if.then")
-        let eb: u32 = self.blk_new("if.else")
+        const tb: u32 = self.blk_new("if.then")
+        const eb: u32 = self.blk_new("if.else")
         self.expr_run(cnd)
         if self.failed {
             return
@@ -262,12 +262,12 @@ extend Ir {
     }
 
     # Тип счётчика диапазона: 0 (i32) или интернированный u64/i64.
-    func for_cty(var self, cur: u32, it: u32) -> u32
+    func for_cty(let self, cur: u32, it: u32) -> u32
         requires cur < 131072 and it < 131072
         ensures result < 512
     {
         if self.c.p.nk[it / 65536][it % 65536] == 49 {
-            let ek: u32 = self.c.yk[self.c.nty[cur / 65536][cur % 65536]]
+            const ek: u32 = self.c.yk[self.c.nty[cur / 65536][cur % 65536]]
             if ek == 13 or ek == 14 {
                 return self.c.nty[cur / 65536][cur % 65536]
             }
@@ -275,24 +275,24 @@ extend Ir {
         return 0
     }
 
-    func s_for_start(var self, cur: u32)
+    func s_for_start(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
-        let it: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
-        let cty: u32 = self.for_cty(cur, it)
+        const it: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
+        const cty: u32 = self.for_cty(cur, it)
         self.nm_lit("for.i")
         self.e_alloca_n(cty)
-        let is2: u32 = self.rra
-        let il2: u32 = self.rrb
+        const is2: u32 = self.rra
+        const il2: u32 = self.rrb
         # предел -> u1, источник -> u2 (uty), s_for_src ставит store старта
         self.s_for_src(cur, it, is2, il2)
         if self.failed {
             return
         }
-        let condb: u32 = self.blk_new("for.cond")
-        let bodyb: u32 = self.blk_new("for.body")
-        let afterb: u32 = self.blk_new("for.end")
+        const condb: u32 = self.blk_new("for.cond")
+        const bodyb: u32 = self.blk_new("for.body")
+        const afterb: u32 = self.blk_new("for.end")
         if self.nlx >= 8 {
             self.fail("слишком глубокие циклы")
             return
@@ -303,13 +303,13 @@ extend Ir {
         self.cb = condb
         self.set1(1, is2, il2)
         self.e_load(cty)
-        let ck: u32 = self.rrk
-        let ca: u32 = self.rra
-        let cb2: u32 = self.rrb
+        const ck: u32 = self.rrk
+        const ca: u32 = self.rra
+        const cb2: u32 = self.rrb
         self.set1(ck, ca, cb2)
         self.set2(self.u1k, self.u1a, self.u1b)
         # u64-диапазон сравнивается беззнаково (2^63.. читались бы < 0)
-        var oc: u32 = 3
+        let oc: u32 = 3
         if self.c.yk[cty] == 13 {
             oc = 7
         }
@@ -330,18 +330,18 @@ extend Ir {
     }
 
     # Инициализация счётчика и предел (u1) / источник (u2, uty).
-    func s_for_src(var self, cur: u32, it: u32, is2: u32, il2: u32)
+    func s_for_src(let self, cur: u32, it: u32, is2: u32, il2: u32)
         requires cur < 131072 and it < 131072
         ensures true
     {
         if self.c.p.nk[it / 65536][it % 65536] == 49 {
-            let ri: u32 = self.c.range_of(cur)
-            let cty: u32 = self.for_cty(cur, it)
-            let sm: u64 = self.c.rb_sm[ri]
+            const ri: u32 = self.c.range_of(cur)
+            const cty: u32 = self.for_cty(cur, it)
+            const sm: u64 = self.c.rb_sm[ri]
             self.set1(self.cw_k(sm), self.c.rb_ss[ri], self.cw_b(sm))
             self.set2(1, is2, il2)
             self.e_store(cty)
-            let em: u64 = self.c.rb_em[ri]
+            const em: u64 = self.c.rb_em[ri]
             self.u1k = self.cw_k(em)
             self.u1a = self.c.rb_es[ri]
             self.u1b = self.cw_b(em)
@@ -375,7 +375,7 @@ extend Ir {
     }
 
     # Слот переменной цикла; w1 — текущее значение счётчика (i32).
-    func s_for_slot(var self, cur: u32, it: u32)
+    func s_for_slot(let self, cur: u32, it: u32)
         requires cur < 131072 and it < 131072
         ensures true
     {
@@ -384,12 +384,12 @@ extend Ir {
         ) {
             return
         }
-        let ck: u32 = self.w1k
-        let ca: u32 = self.w1a
-        let cb2: u32 = self.w1b
-        let elem: u32 = self.c.nty[cur / 65536][cur % 65536]
+        const ck: u32 = self.w1k
+        const ca: u32 = self.w1a
+        const cb2: u32 = self.w1b
+        const elem: u32 = self.c.nty[cur / 65536][cur % 65536]
         if self.c.p.nk[it / 65536][it % 65536] == 49 {
-            let cty: u32 = self.for_cty(cur, it)
+            const cty: u32 = self.for_cty(cur, it)
             self.nm_sb(
                 self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536]
             )
@@ -405,8 +405,8 @@ extend Ir {
         }
         self.nm_sb(self.c.p.nss[cur / 65536][cur % 65536], self.c.p.nsl[cur / 65536][cur % 65536])
         self.e_alloca_n(elem)
-        let ss2: u32 = self.rra
-        let sl2: u32 = self.rrb
+        const ss2: u32 = self.rra
+        const sl2: u32 = self.rrb
         self.set1(self.u2k, self.u2a, self.u2b)
         self.set2(ck, ca, cb2)
         if self.c.yk[self.uty] == 7 {
@@ -431,15 +431,15 @@ extend Ir {
         )
     }
 
-    func s_for(var self)
+    func s_for(let self)
         requires self.ns4 >= 1
         ensures true
     {
-        let f: u32 = self.ns4 - 1
+        const f: u32 = self.ns4 - 1
         self.nlx = self.nlx - 1
         self.pop_sc()
         if self.bkt[self.cb] == 0 {
-            let cty: u32 = self.se4[f]
+            const cty: u32 = self.se4[f]
             self.set1(1, self.sa4[f], self.sb4[f])
             self.e_load(cty)
             self.set1rr()
@@ -454,12 +454,12 @@ extend Ir {
         self.ns4 = f
     }
 
-    func s_loop_start(var self, cur: u32)
+    func s_loop_start(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
-        let bodyb: u32 = self.blk_new("loop")
-        let afterb: u32 = self.blk_new("loop.end")
+        const bodyb: u32 = self.blk_new("loop")
+        const afterb: u32 = self.blk_new("loop.end")
         self.e_br(bodyb)
         self.cb = bodyb
         if self.nlx >= 8 {
@@ -474,34 +474,34 @@ extend Ir {
         self.start_blk(self.c.p.nfc[cur / 65536][cur % 65536])
     }
 
-    func s_loop(var self)
+    func s_loop(let self)
         requires self.ns4 >= 1
         ensures true
     {
-        let f: u32 = self.ns4 - 1
+        const f: u32 = self.ns4 - 1
         self.nlx = self.nlx - 1
         self.ensure_br(self.sa4[f])
         self.cb = self.sb4[f]
         self.ns4 = f
     }
 
-    func s_match_start(var self, cur: u32)
+    func s_match_start(let self, cur: u32)
         requires cur < 131072
         ensures true
     {
-        let subj: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
+        const subj: u32 = self.c.p.nfc[cur / 65536][cur % 65536]
         self.expr_run(subj)
         if self.failed {
             return
         }
-        let dom: u32 = self.ert
-        let sk2: u32 = self.erk
-        let sa2: u32 = self.era
-        let sb2: u32 = self.erb
-        var tk2: u32 = sk2
-        var ta2: u32 = sa2
-        var tb2: u32 = sb2
-        var scalar: bool = false
+        const dom: u32 = self.ert
+        const sk2: u32 = self.erk
+        const sa2: u32 = self.era
+        const sb2: u32 = self.erb
+        let tk2: u32 = sk2
+        let ta2: u32 = sa2
+        let tb2: u32 = sb2
+        let scalar: bool = false
         if self.c.yk[dom] == 9 {
             if not self.enum_pay(dom) {
                 scalar = true
@@ -516,10 +516,10 @@ extend Ir {
             ta2 = self.rra
             tb2 = self.rrb
         }
-        let mrg: u32 = self.blk_new("match.end")
-        let dead: u32 = self.blk_new("match.dead")
+        const mrg: u32 = self.blk_new("match.end")
+        const dead: u32 = self.blk_new("match.dead")
         self.set1(tk2, ta2, tb2)
-        let si2: u32 = self.e_switch(dead)
+        const si2: u32 = self.e_switch(dead)
         self.cb = dead
         self.e_unr()
         self.spush(3, cur, self.c.p.nns[subj / 65536][subj % 65536])
@@ -531,18 +531,18 @@ extend Ir {
         self.sf4[self.ns4 - 1] = si2
     }
 
-    func s_match(var self)
+    func s_match(let self)
         requires self.ns4 >= 1
         ensures true
     {
-        let f: u32 = self.ns4 - 1
+        const f: u32 = self.ns4 - 1
         if self.sg4[f] == 1 {
             self.pop_sc()
             self.ensure_br(self.se4[f])
             self.sg4[f] = 0
             return
         }
-        let cur: u32 = self.sp4[f]
+        const cur: u32 = self.sp4[f]
         if cur == NONE {
             self.cb = self.se4[f]
             self.ns4 = f
@@ -553,13 +553,13 @@ extend Ir {
     }
 
     # Значение кейса варианта арма в домене dom.
-    func arm_tag(var self, dom: u32, arm: u32) -> u32
+    func arm_tag(let self, dom: u32, arm: u32) -> u32
         requires dom < 512 and arm < 131072
         ensures true
     {
-        let dk: u32 = self.c.yk[dom]
-        let va: u32 = self.c.p.nss[arm / 65536][arm % 65536]
-        let vl: u32 = self.c.p.nsl[arm / 65536][arm % 65536]
+        const dk: u32 = self.c.yk[dom]
+        const va: u32 = self.c.p.nss[arm / 65536][arm % 65536]
+        const vl: u32 = self.c.p.nsl[arm / 65536][arm % 65536]
         if dk == 10 {
             if self.c.span_is(va, vl, "Ok") {
                 return 0
@@ -572,20 +572,20 @@ extend Ir {
             }
             return 1
         }
-        let ei: u32 = self.enum_of(dom)
+        const ei: u32 = self.enum_of(dom)
         if ei == NONE {
             return self.builtin_vtag(va, vl)
         }
-        let w: u32 = self.c.variant_of(self.c.ys[dom], self.c.yl[dom], va, vl)
+        const w: u32 = self.c.variant_of(self.c.ys[dom], self.c.yl[dom], va, vl)
         return w - self.c.evs[ei]
     }
 
     # Слот нагрузки варианта арма в домене dom.
-    func arm_slot(var self, dom: u32, arm: u32) -> u32
+    func arm_slot(let self, dom: u32, arm: u32) -> u32
         requires dom < 512 and arm < 131072
         ensures true
     {
-        let dk: u32 = self.c.yk[dom]
+        const dk: u32 = self.c.yk[dom]
         if dk == 10 {
             if self.c.span_is(
                 self.c.p.nss[arm / 65536][arm % 65536], self.c.p.nsl[arm / 65536][arm % 65536], "Ok"
@@ -597,26 +597,26 @@ extend Ir {
         if dk == 11 {
             return 1
         }
-        let w: u32 = self.c.variant_of(
+        const w: u32 = self.c.variant_of(
             self.c.ys[dom], self.c.yl[dom], self.c.p.nss[arm / 65536][arm % 65536],
             self.c.p.nsl[arm / 65536][arm % 65536]
         )
         return self.slot_of(dom, w)
     }
 
-    func s_arm(var self, f: u32, arm: u32)
+    func s_arm(let self, f: u32, arm: u32)
         requires f < 64 and arm < 131072
         ensures true
     {
-        let dom: u32 = self.sd4[f]
-        let ab: u32 = self.blk_arm(
+        const dom: u32 = self.sd4[f]
+        const ab: u32 = self.blk_arm(
             self.c.p.nss[arm / 65536][arm % 65536], self.c.p.nsl[arm / 65536][arm % 65536]
         )
         self.case_add(self.sf4[f], self.arm_tag(dom, arm), ab)
         self.cb = ab
         self.push_sc()
-        let payload: u32 = self.c.nty[arm / 65536][arm % 65536]
-        let bind: u32 = self.c.p.nx[arm / 65536][arm % 65536]
+        const payload: u32 = self.c.nty[arm / 65536][arm % 65536]
+        const bind: u32 = self.c.p.nx[arm / 65536][arm % 65536]
         if payload != NONE and bind != NONE {
             if not self.c.span_is(bind, self.c.p.ny[arm / 65536][arm % 65536], "_") {
                 self.s_arm_bind(f, arm, dom, payload, bind)
@@ -626,7 +626,7 @@ extend Ir {
         self.start_blk(self.c.p.nfc[arm / 65536][arm % 65536])
     }
 
-    func s_arm_bind(var self, f: u32, arm: u32, dom: u32, payload: u32, bind: u32)
+    func s_arm_bind(let self, f: u32, arm: u32, dom: u32, payload: u32, bind: u32)
         requires f < 64 and arm < 131072 and dom < 512 and payload < 512
         ensures true
     {
@@ -646,7 +646,7 @@ extend Ir {
 
     # --- генерация функции ------------------------------------------------------
 
-    func reset_fn(var self)
+    func reset_fn(let self)
         requires true
         ensures true
     {
@@ -669,12 +669,12 @@ extend Ir {
     }
 
     # k-й ребёнок вида kind у декларации d; NONE.
-    func find_child(var self, d: u32, kind: u32) -> u32
+    func find_child(let self, d: u32, kind: u32) -> u32
         requires d < 131072
         ensures true
     {
-        var cc: u32 = self.c.p.nfc[d / 65536][d % 65536]
-        var found: u32 = NONE
+        let cc: u32 = self.c.p.nfc[d / 65536][d % 65536]
+        let found: u32 = NONE
         for _ in 0..64 {
             if cc == NONE {
                 break
@@ -688,15 +688,15 @@ extend Ir {
     }
 
     # Функция объявлена как extern (узел вида 50)?
-    func fn_ext(var self, fi: u32) -> bool
+    func fn_ext(let self, fi: u32) -> bool
         requires fi < 1024
         ensures true
     {
-        let d: u32 = self.c.fnd[fi]
+        const d: u32 = self.c.fnd[fi]
         return self.c.p.nk[d / 65536][d % 65536] == 50
     }
 
-    func gen_fn(var self, fi: u32)
+    func gen_fn(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
@@ -709,7 +709,7 @@ extend Ir {
     # Генерация тела функции в буферы (lb/блоки) без печати — общий шаг
     # реального и измерительного проходов (ось -O, §7.6). p_fn/учёт
     # размера — у вызывающего.
-    func gen_body(var self, fi: u32)
+    func gen_body(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
@@ -722,23 +722,23 @@ extend Ir {
                 self.aggr = 1
             }
         }
-        let own: u32 = self.c.fown[fi]
-        var nargs: u32 = self.aggr + self.c.fpc[fi]
+        const own: u32 = self.c.fown[fi]
+        let nargs: u32 = self.aggr + self.c.fpc[fi]
         if own != NONE {
             nargs = nargs + 1
         }
         self.ctr = nargs + 1
         # entry держит только alloca и br на body (блоки 0 и 1)
-        let entry: u32 = self.blk_new("entry")
+        const entry: u32 = self.blk_new("entry")
         self.cb = entry
-        let body2: u32 = self.blk_new("body")
+        const body2: u32 = self.blk_new("body")
         discard self.bump()
         self.bkt[entry] = 1
         self.cb = body2
         self.gen_prologue(fi, own)
         self.exb = self.blk_new("exit")
         self.gen_req(fi)
-        let body: u32 = self.find_child(self.c.fnd[fi], 12)
+        const body: u32 = self.find_child(self.c.fnd[fi], 12)
         if not self.failed {
             self.st_run(body)
         }
@@ -769,7 +769,7 @@ extend Ir {
     # встроенные RtStr-вызовы (print/write/append/eq) одинаково.
 
     # --- карта мангл-имя → fi (хелперы слиты в вызывающие: потолок §6) ----
-    func mq_lit(var self, s: str<16>)
+    func mq_lit(let self, s: str<16>)
         requires true
         ensures true
     {
@@ -784,7 +784,7 @@ extend Ir {
         }
     }
 
-    func mq_sb(var self, a: u32, l: u32)
+    func mq_sb(let self, a: u32, l: u32)
         requires true
         ensures true
     {
@@ -800,13 +800,13 @@ extend Ir {
     }
 
     # Мангл-имя функции fi в imq — зеркало o_mangle (eat_[Owner__]name).
-    func mn_gen(var self, fi: u32)
+    func mn_gen(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
         self.imql = 0
         self.mq_lit("eat_")
-        let own: u32 = self.c.fown[fi]
+        const own: u32 = self.c.fown[fi]
         if own != NONE {
             self.mq_sb(self.c.sn_s[own], self.c.sn_l[own])
             self.mq_lit("__")
@@ -819,7 +819,7 @@ extend Ir {
         requires true
         ensures true
     {
-        var h: u32 = 0
+        let h: u32 = 0
         for i in 0..256 {
             if i >= self.imql {
                 break
@@ -831,11 +831,11 @@ extend Ir {
 
     # Вставить fi в карту: имя из imq копируется в imnp, слот по хешу
     # (open addressing, линейное пробирование; ≤1 break на цикл).
-    func mn_insert(var self, fi: u32)
+    func mn_insert(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        let base: u32 = self.imnpl
+        const base: u32 = self.imnpl
         self.imns[fi] = base
         self.imnc[fi] = self.imql
         for i in 0..256 {
@@ -847,8 +847,8 @@ extend Ir {
             }
         }
         self.imnpl = base + self.imql
-        var slot: u32 = self.mn_hash() & 2047
-        var placed: bool = false
+        let slot: u32 = self.mn_hash() & 2047
+        let placed: bool = false
         for _ in 0..2048 {
             if placed {
                 break
@@ -868,19 +868,19 @@ extend Ir {
         requires true
         ensures true
     {
-        var slot: u32 = self.mn_hash() & 2047
-        var res: u32 = NONE
-        var done: bool = false
+        let slot: u32 = self.mn_hash() & 2047
+        let res: u32 = NONE
+        let done: bool = false
         for _ in 0..2048 {
             if done {
                 break
             }
-            let fi: u32 = self.imh[slot]
+            const fi: u32 = self.imh[slot]
             if fi == NONE {
                 done = true
             } elif fi < 1024 and self.imnc[fi] == self.imql {
-                var eq: bool = true
-                let base: u32 = self.imns[fi]
+                let eq: bool = true
+                const base: u32 = self.imns[fi]
                 for i in 0..256 {
                     if i >= self.imql or not eq {
                         break
@@ -908,19 +908,19 @@ extend Ir {
     # Зеркало Python: первое `@"` после `call ` — вызываемое (тип до него
     # `@` не содержит; аргументы-глобалы идут после). "call "
     # (99 97 108 108 32) и '@"'(64 34) — байтами; ≤1 break на цикл.
-    func line_callee(var self, li: u32) -> bool
+    func line_callee(let self, li: u32) -> bool
         requires li < 65536
         ensures true
     {
-        let a: u32 = self.lns[li]
-        let l: u32 = self.lnl[li]
-        var ci: u32 = NONE
+        const a: u32 = self.lns[li]
+        const l: u32 = self.lnl[li]
+        let ci: u32 = NONE
         for i in 0..65536 {
             if i + 5 > l or ci != NONE {
                 break
             }
             if (a + i + 4) < 4194304 {
-                var m: bool = self.lb_at(a + i) == 99
+                let m: bool = self.lb_at(a + i) == 99
                 m = m and self.lb_at(a + i + 1) == 97
                 m = m and self.lb_at(a + i + 2) == 108
                 m = m and self.lb_at(a + i + 3) == 108
@@ -933,7 +933,7 @@ extend Ir {
         if ci == NONE {
             return false
         }
-        var qi: u32 = NONE
+        let qi: u32 = NONE
         for i in 0..65536 {
             if i + 1 >= l or qi != NONE {
                 break
@@ -948,13 +948,13 @@ extend Ir {
             return false
         }
         self.imql = 0
-        var stop: bool = false
+        let stop: bool = false
         for i in 0..256 {
             if qi + i >= l or stop {
                 break
             }
             if (a + qi + i) < 4194304 {
-                let b: u8 = self.lb_at(a + qi + i)
+                const b: u8 = self.lb_at(a + qi + i)
                 if b == 34 {
                     stop = true
                 } elif self.imql < 256 {
@@ -970,7 +970,7 @@ extend Ir {
     # каждого разрешённого вызываемого cf — ребро fi2→cf и +сайт cf
     # (бывший rec_edge встроен; дубли допускаются, замыкание проверяет
     # «все помечены»).
-    func scan_calls(var self, fi: u32)
+    func scan_calls(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
@@ -979,7 +979,7 @@ extend Ir {
                 break
             }
             if self.line_callee(li) {
-                let cf: u32 = self.mn_find()
+                const cf: u32 = self.mn_find()
                 if cf != NONE and cf < 1024 and self.fi2 < 1024 {
                     self.iec[self.ine] = cf
                     self.ien[self.ine] = self.ihd[self.fi2]
@@ -995,25 +995,25 @@ extend Ir {
     # помечаем fi, если тело ≤ T=384, рост размер×(сайтов−1) ≤ B=768 и
     # все определённые вызываемые помечены (fi станет листом). Пригодность
     # (бывшая im_ok) и обход списка вызываемых (бывшая im_leaf) встроены.
-    func im_closure(var self)
+    func im_closure(let self)
         requires true
         ensures true
     {
         for _ in 0..1024 {
-            var changed: bool = false
+            let changed: bool = false
             for q in 0..1024 {
                 if q >= self.iln {
                     break
                 }
-                let fi: u32 = self.ils[q]
+                const fi: u32 = self.ils[q]
                 if fi < 1024 and self.itg[fi] == 0 and self.isz[fi] <= 384 {
-                    var gr: u32 = 0
+                    let gr: u32 = 0
                     if self.ist[fi] > 1 {
                         gr = self.isz[fi] * (self.ist[fi] - 1)
                     }
                     if gr <= 768 {
-                        var e: u32 = self.ihd[fi]
-                        var leaf: bool = true
+                        let e: u32 = self.ihd[fi]
+                        let leaf: bool = true
                         for _ in 0..32768 {
                             if e == NONE or not leaf {
                                 break
@@ -1040,7 +1040,7 @@ extend Ir {
     # функций (в порядке emit), записывает размер и рёбра; печати нет.
     # Порядок деклараций — как в emit (k==6 функция, k==4 методы struct;
     # extern k==50 — declare, не измеряется, как и у Python: не в define).
-    func measure(var self)
+    func measure(let self)
         requires true
         ensures true
     {
@@ -1055,16 +1055,16 @@ extend Ir {
                 self.mn_insert(fi)
             }
         }
-        var d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
+        let d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
             if d == NONE or self.failed {
                 break
             }
-            let k: u32 = self.c.p.nk[d / 65536][d % 65536]
+            const k: u32 = self.c.p.nk[d / 65536][d % 65536]
             if k == 6 {
                 self.measure_fn(self.c.func_by_node(d))
             } elif k == 4 {
-                var m: u32 = self.c.p.nfc[d / 65536][d % 65536]
+                let m: u32 = self.c.p.nfc[d / 65536][d % 65536]
                 for _ in 0..512 {
                     if m == NONE or self.failed {
                         break
@@ -1079,7 +1079,7 @@ extend Ir {
         }
     }
 
-    func measure_fn(var self, fi: u32)
+    func measure_fn(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
@@ -1089,7 +1089,7 @@ extend Ir {
         }
         # размер тела = строки-инструкции (nln) + вводный br entry (1) +
         # по строке на switch; метки не в счёт (был fn_isz)
-        var s: u32 = self.nln + 1
+        let s: u32 = self.nln + 1
         for b in 0..16384 {
             if b >= self.nbk {
                 break
@@ -1111,7 +1111,7 @@ extend Ir {
     # константы, мемо типов. Нумерация @"str.N" и порядок хвоста
     # восстанавливаются с нуля — реальный проход канонен (tyl обнуляет
     # цикл в начале emit).
-    func reset_mod(var self)
+    func reset_mod(let self)
         requires true
         ensures true
     {
@@ -1131,12 +1131,12 @@ extend Ir {
         }
     }
 
-    func gen_prologue(var self, fi: u32, own: u32)
+    func gen_prologue(let self, fi: u32, own: u32)
         requires fi < 1024
         ensures true
     {
         self.push_sc()
-        var ai: u32 = 0
+        let ai: u32 = 0
         if self.aggr == 1 {
             self.rsk = 0
             self.rsa = 1
@@ -1152,8 +1152,8 @@ extend Ir {
         if own != NONE {
             self.sty2 = self.c.intern(8, NONE, NONE, self.c.sn_s[own], self.c.sn_l[own])
             ai = ai + 1
-            # получатель — по указателю вызывающего, без копии: не-var
-            # self неизменяем, перекрытие var self с аргументом
+            # получатель — по указателю вызывающего, без копии: не-let
+            # self неизменяем, перекрытие let self с аргументом
             # закрывает caller-копия на месте вызова (xmeth)
             self.set1(0, ai, 0)
             self.bindv(NONE, 0, self.sty2)
@@ -1167,11 +1167,11 @@ extend Ir {
         }
     }
 
-    func gen_param(var self, pi: u32, ai: u32)
+    func gen_param(let self, pi: u32, ai: u32)
         requires pi < 1024
         ensures true
     {
-        let pt: u32 = self.c.pty[pi]
+        const pt: u32 = self.c.pty[pi]
         if self.is_agg(pt) {
             # агрегатный параметр читается по ссылке (см. xmeth)
             self.set1(0, ai, 0)
@@ -1187,12 +1187,12 @@ extend Ir {
         self.bindv(self.c.pn_s[pi], self.c.pn_l[pi], pt)
     }
 
-    func gen_req(var self, fi: u32)
+    func gen_req(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        let d: u32 = self.c.fnd[fi]
-        let rq: u32 = self.find_child(d, 9)
+        const d: u32 = self.c.fnd[fi]
+        const rq: u32 = self.find_child(d, 9)
         if rq == NONE {
             return
         }
@@ -1216,12 +1216,12 @@ extend Ir {
         )
     }
 
-    func gen_ens(var self, fi: u32)
+    func gen_ens(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        let d: u32 = self.c.fnd[fi]
-        let en: u32 = self.find_child(d, 10)
+        const d: u32 = self.c.fnd[fi]
+        const en: u32 = self.find_child(d, 10)
         if en == NONE {
             return
         }
@@ -1249,7 +1249,7 @@ extend Ir {
 
     # --- печать модуля -----------------------------------------------------------
 
-    func p_sep(var self)
+    func p_sep(let self)
         requires true
         ensures true
     {
@@ -1262,19 +1262,19 @@ extend Ir {
 
     # Строка-инструкция из банкованного буфера батчами по банкам:
     # длинная строка (инлайн-типы) может пересечь до 64 границ.
-    func o_lb(var self, a: u32, l: u32)
+    func o_lb(let self, a: u32, l: u32)
         requires a <= 4194304 and l <= 4194304
         ensures true
     {
-        var pos: u32 = a
-        var left: u32 = l
+        let pos: u32 = a
+        let left: u32 = l
         for _ in 0..65 {
             if left == 0 {
                 break
             }
-            let bk: u32 = (pos >> 16) & 63
-            let off: u32 = pos & 65535
-            var run: u32 = 65536 - off
+            const bk: u32 = (pos >> 16) & 63
+            const off: u32 = pos & 65535
+            let run: u32 = 65536 - off
             if left < run {
                 run = left
             }
@@ -1284,28 +1284,28 @@ extend Ir {
         }
     }
 
-    func o_nb(var self, a: u32, l: u32)
+    func o_nb(let self, a: u32, l: u32)
         requires true
         ensures true
     {
         write_span(self.nb, a, l)
     }
 
-    func o_tp(var self, a: u32, l: u32)
+    func o_tp(let self, a: u32, l: u32)
         requires true
         ensures true
     {
         write_span(self.tp, a, l)
     }
 
-    func o_sb(var self, a: u32, l: u32)
+    func o_sb(let self, a: u32, l: u32)
         requires true
         ensures true
     {
         self.c.p.lex.w_span(a, l)
     }
 
-    func o_ty(var self, t: u32)
+    func o_ty(let self, t: u32)
         requires t < 512
         ensures true
     {
@@ -1313,12 +1313,12 @@ extend Ir {
         self.o_tp(self.tys[t], self.tyl[t])
     }
 
-    func o_mangle(var self, fi: u32)
+    func o_mangle(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
         write("eat_")
-        let own: u32 = self.c.fown[fi]
+        const own: u32 = self.c.fown[fi]
         if own != NONE {
             self.o_sb(self.c.sn_s[own], self.c.sn_l[own])
             write("__")
@@ -1326,7 +1326,7 @@ extend Ir {
         self.o_sb(self.c.fn_s[fi], self.c.fn_l[fi])
     }
 
-    func p_fn(var self, fi: u32)
+    func p_fn(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
@@ -1358,7 +1358,7 @@ extend Ir {
 
     # extern: declare с именем как написано (без eat_-манглинга),
     # nounwind; массивы — указатель read-only (граница доверия v1).
-    func p_extern(var self, fi: u32)
+    func p_extern(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
@@ -1379,7 +1379,7 @@ extend Ir {
             if k > 0 {
                 write(", ")
             }
-            let pt: u32 = self.c.pty[self.c.fps[fi] + k]
+            const pt: u32 = self.c.pty[self.c.fps[fi] + k]
             self.o_ty(pt)
             if self.is_agg(pt) {
                 write("* noalias nocapture nofree nonnull readonly")
@@ -1389,11 +1389,11 @@ extend Ir {
         write(") nounwind\n")
     }
 
-    func p_args(var self, fi: u32)
+    func p_args(let self, fi: u32)
         requires fi < 1024
         ensures true
     {
-        var i: u32 = 0
+        let i: u32 = 0
         if self.aggr == 1 {
             self.o_ty(self.rett)
             write("* noalias nocapture nofree nonnull %\".1\"")
@@ -1419,7 +1419,7 @@ extend Ir {
                 write(", ")
             }
             i = i + 1
-            let pt: u32 = self.c.pty[self.c.fps[fi] + k]
+            const pt: u32 = self.c.pty[self.c.fps[fi] + k]
             self.o_ty(pt)
             if self.is_agg(pt) {
                 write("* noalias nocapture nofree nonnull readonly")
@@ -1428,13 +1428,13 @@ extend Ir {
         }
     }
 
-    func p_blocks(var self)
+    func p_blocks(let self)
         requires true
         ensures true
     {
-        var b: u32 = 0
-        var li: u32 = 0
-        var hdr: bool = true
+        let b: u32 = 0
+        let li: u32 = 0
+        let hdr: bool = true
         for _ in 0..131072 {
             if b >= self.nbk or self.failed {
                 break
@@ -1464,7 +1464,7 @@ extend Ir {
         }
     }
 
-    func o_ref(var self, k: u32, a: u32, b: u32)
+    func o_ref(let self, k: u32, a: u32, b: u32)
         requires true
         ensures true
     {
@@ -1491,7 +1491,7 @@ extend Ir {
         }
     }
 
-    func p_switch(var self, s: u32)
+    func p_switch(let self, s: u32)
         requires s < 512
         ensures true
     {
@@ -1500,8 +1500,8 @@ extend Ir {
         write(", label %\"")
         self.o_nb(self.bns[self.swd[s]], self.bnl[self.swd[s]])
         write("\" [")
-        var ci: u32 = self.swf[s]
-        var frs: bool = true
+        let ci: u32 = self.swf[s]
+        let frs: bool = true
         for _ in 0..4096 {
             if ci == NONE {
                 break
@@ -1518,7 +1518,7 @@ extend Ir {
         write("]\n")
     }
 
-    func p_esc(var self, b: u8)
+    func p_esc(let self, b: u8)
         requires true
         ensures true
     {
@@ -1530,11 +1530,11 @@ extend Ir {
         write_hex8(u32(b))
     }
 
-    func p_glob(var self, g: u32)
+    func p_glob(let self, g: u32)
         requires g < 65536
         ensures true
     {
-        let l: u32 = self.gsl[g]
+        const l: u32 = self.gsl[g]
         if self.gvk[g] == 1 {
             # ужатый литерал: буфер по фактической длине, без добивки
             write("@\"str.{g}\" = private constant {{i32, [{l} x i8]}} {{i32 {l}, [{l} x i8] c\"")
@@ -1553,7 +1553,7 @@ extend Ir {
                 break
             }
             for j in 0..256 {
-                let i: u32 = h * 256 + j
+                const i: u32 = h * 256 + j
                 if i < l {
                     self.p_esc(self.g_at(self.gss[g] + i))
                 }
@@ -1562,7 +1562,7 @@ extend Ir {
         write("\"")
     }
 
-    func p_it(var self, id: u32)
+    func p_it(let self, id: u32)
         requires id >= 1 and id <= 18
         ensures true
     {
@@ -1577,7 +1577,7 @@ extend Ir {
         }
     }
 
-    func p_iname(var self, id: u32)
+    func p_iname(let self, id: u32)
         requires id >= 1 and id <= 18
         ensures true
     {
@@ -1596,7 +1596,7 @@ extend Ir {
         }
     }
 
-    func p_intr(var self, id: u32)
+    func p_intr(let self, id: u32)
         requires id < 32
         ensures true
     {
@@ -1618,7 +1618,7 @@ extend Ir {
         write(" %\".2\")\n")
     }
 
-    func p_tail(var self)
+    func p_tail(let self)
         requires true
         ensures true
     {
@@ -1635,7 +1635,7 @@ extend Ir {
         }
     }
 
-    func p_head(var self)
+    func p_head(let self)
         requires true
         ensures true
     {
@@ -1687,7 +1687,7 @@ extend Ir {
         }
     }
 
-    func p_main(var self)
+    func p_main(let self)
         requires true
         ensures true
     {
@@ -1706,36 +1706,36 @@ extend Ir {
     # A2: readonly-глобалы массивов-констант @"const.ИМЯ" — после
     # declare'ов, до функций (порядок объявления). Строка без хвостового
     # \n: завершит её следующий p_sep (соглашение p_glob).
-    func p_const_globals(var self)
+    func p_constexpr_globals(let self)
         requires true
         ensures true
     {
-        var d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
+        let d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
             if d == NONE {
                 break
             }
             if self.c.p.nk[d / 65536][d % 65536] == 1 {
-                let a: u32 = self.c.p.nss[d / 65536][d % 65536]
-                let l: u32 = self.c.p.nsl[d / 65536][d % 65536]
-                let ci: u32 = self.c.find_const(a, l)
+                const a: u32 = self.c.p.nss[d / 65536][d % 65536]
+                const l: u32 = self.c.p.nsl[d / 65536][d % 65536]
+                const ci: u32 = self.c.find_constexpr(a, l)
                 if self.c.yk[self.c.cty[ci]] == 7 {
-                    self.p_one_const(ci, a, l)
+                    self.p_one_constexpr(ci, a, l)
                 }
             }
             d = self.c.p.nns[d / 65536][d % 65536]
         }
     }
 
-    func p_one_const(var self, ci: u32, na: u32, nl: u32)
+    func p_one_constexpr(let self, ci: u32, na: u32, nl: u32)
         requires ci < 128
         ensures true
     {
-        let ty: u32 = self.c.cty[ci]
-        let et: u32 = self.c.ya[ty]
-        let ek: u32 = self.c.yk[et]
-        let ln: u32 = self.c.yb[ty]
-        let base: u32 = self.c.cca_bs[ci & 127]
+        const ty: u32 = self.c.cty[ci]
+        const et: u32 = self.c.ya[ty]
+        const ek: u32 = self.c.yk[et]
+        const ln: u32 = self.c.yb[ty]
+        const base: u32 = self.c.cca_bs[ci & 127]
         self.p_sep()
         write("@\"const.")
         self.o_sb(na, nl)
@@ -1751,7 +1751,7 @@ extend Ir {
             }
             self.o_ty(et)
             write(" ")
-            let sl: u32 = (base + q) & 4095
+            const sl: u32 = (base + q) & 4095
             if ek == 0 or ek == 14 {
                 write("{self.c.cca_i[sl]}")
             } else {
@@ -1761,7 +1761,7 @@ extend Ir {
         write("]")
     }
 
-    func emit(var self)
+    func emit(let self)
         requires true
         ensures true
     {
@@ -1777,19 +1777,19 @@ extend Ir {
             self.tyl[t] = NONE
         }
         self.p_head()
-        self.p_const_globals()
-        var d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
+        self.p_constexpr_globals()
+        let d: u32 = self.c.p.nfc[0 / 65536][0 % 65536]
         for _ in 0..131072 {
             if d == NONE or self.failed {
                 break
             }
-            let k: u32 = self.c.p.nk[d / 65536][d % 65536]
+            const k: u32 = self.c.p.nk[d / 65536][d % 65536]
             if k == 6 {
                 self.gen_fn(self.c.func_by_node(d))
             } elif k == 50 {
                 self.p_extern(self.c.func_by_node(d))
             } elif k == 4 {
-                var m: u32 = self.c.p.nfc[d / 65536][d % 65536]
+                let m: u32 = self.c.p.nfc[d / 65536][d % 65536]
                 for _ in 0..512 {
                     if m == NONE or self.failed {
                         break
@@ -1813,7 +1813,7 @@ extend Ir {
 
     # Таблица режима trap-кодов: `; trap <код>: <сообщение>` —
     # комментарии в самом хвосте .ll (во флеш не попадают).
-    func p_trapmap(var self)
+    func p_trapmap(let self)
         requires true
         ensures true
     {
@@ -1824,13 +1824,13 @@ extend Ir {
             if self.gvk[g] == 0 {
                 write("; trap {g}: ")
                 # без завершающего NUL пула (последний байт)
-                let l: u32 = self.gsl[g] - 1
+                const l: u32 = self.gsl[g] - 1
                 for h in 0..2 {
                     if h * 256 >= l {
                         break
                     }
                     for j in 0..256 {
-                        let i: u32 = h * 256 + j
+                        const i: u32 = h * 256 + j
                         if i < l {
                             write_byte(self.g_at(self.gss[g] + i))
                         }

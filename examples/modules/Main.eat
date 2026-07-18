@@ -12,7 +12,7 @@ import {
 } from "lib/Num.eat"
 
 func main() {
-    let c: char = '7'
+    const c: char = '7'
     if is_digit(u8(c)) {
         print("цифра {c} = {digit(u8(c))}")
     } else {

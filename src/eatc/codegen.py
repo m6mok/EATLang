@@ -3,8 +3,8 @@
 Модель значений: скаляры (целые, bool, char, enum) — регистры LLVM;
 агрегаты (str, массивы, struct, Result, Option) живут в alloca на
 стеке, выражение возвращает указатель. Копия — на точках связывания
-(let/присваивание); параметры и не-var self читаются по ссылке без
-копии, перекрытие с var self-получателем закрывает копия на месте
+(const/присваивание); параметры и не-let self читаются по ссылке без
+копии, перекрытие с let self-получателем закрывает копия на месте
 вызова (наблюдаемая семантика — by-value, SPEC §5.4). Кучи нет:
 ни одного malloc.
 
@@ -142,7 +142,7 @@ class Codegen:
         # comptime-константы-массивы (§5, ярус A2): readonly-глобал
         # @"const.ИМЯ" на каждую, эмитятся до функций (детерминированный
         # порядок = порядок объявления) — таблица во флеш вместо кода
-        self.const_globals: dict[str, ir.GlobalVariable] = {}
+        self.constexpr_globals: dict[str, ir.GlobalVariable] = {}
         # declare_intrinsic ищет глобал по манглированному имени на
         # каждый арифметический оператор — кэшируем результат
         self.intr_cache: dict[tuple, ir.Function] = {}
@@ -257,12 +257,12 @@ class Codegen:
             self.strlit_cache[data] = g
         return self.strlit_cache[data].bitcast(STRP)
 
-    def const_array_global(self, name: str, cty: ArrayType, values: list):
+    def constexpr_array_global(self, name: str, cty: ArrayType, values: list):
         """Глобал readonly-массива для comptime-константы (§5, A2).
         Инициализатор — литерал из вычисленных значений; линковка
         private (как строковые литералы). Читатели индексируют глобал
         по ссылке — данные в `__const`, кода инициализации нет."""
-        g = self.const_globals.get(name)
+        g = self.constexpr_globals.get(name)
         if g is None:
             llty = self.ll(cty)
             elem_ll = self.ll(cty.elem)
@@ -271,7 +271,7 @@ class Codegen:
             g.global_constant = True
             g.linkage = "private"
             g.initializer = init
-            self.const_globals[name] = g
+            self.constexpr_globals[name] = g
         return g
 
     def rtm(self, name: str):
@@ -398,9 +398,9 @@ class Codegen:
             }
         # ярус A2: константы-массивы — readonly-глобалы до функций,
         # в порядке объявления (детерминированно, зеркалируемо)
-        for cname, (cty, cval) in self.checker.consts.items():
+        for cname, (cty, cval) in self.checker.constexprs.items():
             if isinstance(cty, ArrayType):
-                self.const_array_global(cname, cty, cval)
+                self.constexpr_array_global(cname, cty, cval)
         decls = []
         for decl in self.program.decls:
             if isinstance(decl, ast.FuncDecl):
@@ -481,8 +481,8 @@ class Codegen:
         # указательные аргументы — всегда alloca вызывающего: не null,
         # кучи нет (nofree); слот агрегатного возврата — свежая alloca
         # на каждый вызов. Агрегаты идут по ссылке без копии у
-        # вызываемого: параметры и не-var self неизменяемы (readonly),
-        # единственный писатель в чужую память — var self, а его
+        # вызываемого: параметры и не-let self неизменяемы (readonly),
+        # единственный писатель в чужую память — let self, а его
         # перекрытие с аргументом (s.append_str(s)) закрывает копия
         # на месте вызова (emit_call) — поэтому noalias корректен на
         # всех указательных аргументах. nocapture — в языке нет
@@ -536,8 +536,8 @@ class Codegen:
             self.ret_slot = None
         if struct is not None:
             self_ty = StructType(struct)
-            # получатель — по указателю вызывающего, без копии: не-var
-            # self неизменяем, перекрытие var self с аргументами
+            # получатель — по указателю вызывающего, без копии: не-let
+            # self неизменяем, перекрытие let self с аргументами
             # закрывает caller-копия в emit_call
             self.bind("self", self_ty, fn.args[arg_i])
             arg_i += 1
@@ -611,10 +611,10 @@ class Codegen:
         self.pop()
 
     def gen_stmt(self, stmt: ast.Stmt) -> None:
-        if isinstance(stmt, ast.LetStmt):
+        if isinstance(stmt, ast.LocalDecl):
             value = self.expr(stmt.value)
             self.bind(
-                stmt.name, stmt.var_ty, self.materialize(stmt.var_ty, value)
+                stmt.name, stmt.local_ty, self.materialize(stmt.local_ty, value)
             )
             return
         if isinstance(stmt, ast.AssignStmt):
@@ -932,11 +932,11 @@ class Codegen:
         if found is not None:
             ty, ptr = found
             return ptr if self.is_agg(ty) else self.b.load(ptr)
-        cty, cval = self.checker.consts[node.ident]
+        cty, cval = self.checker.constexprs[node.ident]
         if isinstance(cty, ArrayType):
             # константа-массив (A2) — агрегат: возвращаем указатель на
             # readonly-глобал (индексация/чтение — по ссылке)
-            return self.const_array_global(cty=cty, name=node.ident, values=cval)
+            return self.constexpr_array_global(cty=cty, name=node.ident, values=cval)
         return self.ll(cty)(cval)
 
     def gen_strlit(self, node: ast.StrLit):
@@ -1237,7 +1237,7 @@ class Codegen:
             out = self.alloca(self.ll(sig.ret), name="call.ret")
             args.insert(0, out)
         # агрегаты передаются по ссылке без копии; перекрытие аргумента
-        # с var self-получателем (общий корень lvalue-пути) страхует
+        # с let self-получателем (общий корень lvalue-пути) страхует
         # копия здесь — наблюдаемая семантика остаётся by-value
         recv_root = None
         if sig.var_self and isinstance(node, ast.MethodCall):
@@ -1577,7 +1577,7 @@ def _memory_report(cg: Codegen, checker, machine) -> dict:
     ) * len(cg.strlit_cache)
     # константы-массивы (A2): count * ширина элемента в байтах —
     # ровно эти данные лежат в `__const` (флеш)
-    for g in cg.const_globals.values():
+    for g in cg.constexpr_globals.values():
         arr = g.value_type
         globals_bytes += arr.count * (arr.element.width // 8)
     return {

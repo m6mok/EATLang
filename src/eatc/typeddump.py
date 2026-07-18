@@ -4,7 +4,7 @@
 Дамп `eatc parse` + аннотации тайпчекера:
 
 - каждое типизированное выражение — суффикс ` :: {тип}`;
-- let — тип переменной, for — тип элемента (и `bounds=a..b` у
+- const — тип переменной, for — тип элемента (и `bounds=a..b` у
   диапазона), arm — тип нагрузки варианта;
 - футер: `stack {глубина}` и рёбра графа вызовов
   `edge {вызывающий} -> {вызываемый}` (сортированы).
@@ -25,8 +25,8 @@ class TypedDumper(Dumper):
             self.lines[i] += f" :: {show(node.ty)}"
 
     def ann(self, node) -> str:
-        if isinstance(node, ast.LetStmt):
-            return f" :: {show(node.var_ty)}"
+        if isinstance(node, ast.LocalDecl):
+            return f" :: {show(node.local_ty)}"
         if isinstance(node, ast.ForStmt):
             text = f" :: {show(node.elem_ty)}"
             if node.bounds is not None:

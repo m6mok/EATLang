@@ -84,7 +84,7 @@ func show_flags(d: JDoc, root: u32)
 }
 
 func main() {
-    var d: JDoc = json_doc()
+    let d: JDoc = json_doc()
     d.load("{{\"lang\": \"EATLang\", \"total\": true, \"rules\": [10, 4, 2026], \"heap\": null}}")
     match d.validate() {
         Ok(t) { print("валиден, токенов: {t}") }
@@ -95,7 +95,7 @@ func main() {
             show_lang(d, root)
             show_rules(d, root)
             show_flags(d, root)
-            var o: JOut = json_out()
+            let o: JOut = json_out()
             match o.ser(d, root) {
                 Ok(ln) {
                     write("минифицировано: ")
