@@ -1,0 +1,488 @@
+# editor/lsp/Hover.eat — hover (docs/plans/LSP_PLAN.md, этап 3): тип
+# выражения под курсором, сигнатура функции с эффективным контрактом
+# (омиссия клаузы ≡ true), учительский разбор недоказанного обязательства
+# верификатора («какого requires/инварианта не хватило»).
+#
+# Идёт в плоской склейке ПОСЛЕ фаз (Check/Verify уже определены — блоки
+# extend сливают методы в их типы) и ПЕРЕД Handlers (struct Hover читает
+# DocStore.reply_hover). Правок фаз НЕТ: эти методы живут только в сборке
+# LSP — в списках SELFHOST_* этого файла нет, паритет src/eatc ↔ selfhost
+# не затронут (extend-часть компилируется лишь здесь). Всё прикладное — с
+# префиксом lsp_ (плоский модуль 0, имена глобальны).
+#
+# Никаких новых аксиом/куч/рекурсий: чтение таблиц фаз (типы узлов nty,
+# таблица функций Check, обязательства v.ck_*) — те же пулы, что у inlay;
+# обходы деревьев — for со статической границей, строки — str<N> в кадре.
+
+# Результат hover для DocStore.reply_hover. Диапазон подсветки — в
+# кодпойнтах (1-based, локально открытому файлу; #module сбрасывает строки).
+# Ёмкость строк ≤ 256 (предел языка), поэтому markdown-значение собирается
+# из СЕГМЕНТОВ (reply_hover эмитит их подряд с разделителем «\n\n») — ни
+# одна строка не превышает потолок. kind:
+#   0 — сегменты body/body2/body3 (тип · учительский разбор обязательства);
+#   1 — заголовок ЛОКАЛЬНОЙ функции: reply_hover достаёт строки [hf..ht] из
+#       буфера и досинтезирует опущенные клаузы (rq/en — заданы ли);
+#   2 — ИМПОРТИРОВАННАЯ функция: сигнатура из таблицы (nm имя + sig хвост).
+struct Hover {
+    found: bool
+    kind: u32
+    line: u32
+    col: u32
+    endcol: u32
+    body: str<256>
+    body2: str<256>
+    body3: str<256>
+    nm: str<64>
+    sig: str<256>
+    hf: u32
+    ht: u32
+    rq: bool
+    en: bool
+}
+
+# --- рендер типа в строку (extend Check: читает пул типов по self) --------
+
+extend Check {
+    # Имя скалярного вида (копия write_scalar_kind, но в строку).
+    func lsp_scalar_str(let self, k: u32) -> str<8>
+    {
+        if k == 0 {
+            return "i32"
+        } elif k == 1 {
+            return "u32"
+        } elif k == 2 {
+            return "u8"
+        } elif k == 12 {
+            return "u16"
+        } elif k == 13 {
+            return "u64"
+        } elif k == 14 {
+            return "i64"
+        } elif k == 3 {
+            return "bool"
+        } elif k == 4 {
+            return "char"
+        }
+        return "void"
+    }
+
+    # Спан имени (struct/enum) из под-лекс-буфера в строку.
+    func lsp_span_str(let self, a: u32, l: u32) -> str<64>
+    {
+        let s: str<64> = ""
+        for i in 0..64 {
+            if u32(i) >= l {
+                break
+            }
+            s = "{s}{char(self.p.lex.sb_at(a + u32(i)))}"
+        }
+        return s
+    }
+
+    # Тип по индексу пула → строка (итеративный принтер, как write_type,
+    # но в str<128>). Явный стек кадров — рекурсии нет. Неверный индекс
+    # (NONE/за пределом пула) → «?».
+    func lsp_type_str(let self, root: u32) -> str<128>
+    {
+        if root >= 512 {
+            return "?"
+        }
+        let acc: str<128> = ""
+        let s1: [u32; 32] = [0; 32]
+        let s2: [u32; 32] = [0; 32]
+        let sp: u32 = 1
+        s1[0] = root
+        s2[0] = 0
+        for _ in 0..128 {
+            if sp == 0 {
+                break
+            }
+            const f: u32 = sp - 1
+            const t: u32 = s1[f]
+            const ph: u32 = s2[f]
+            const k: u32 = self.yk[t]
+            if k <= 5 or k >= 12 {
+                acc = "{acc}{self.lsp_scalar_str(k)}"
+                sp = f
+            } elif k == 6 {
+                if self.ya[t] == NONE {
+                    acc = "{acc}str<?>"
+                } else {
+                    acc = "{acc}str<{self.ya[t]}>"
+                }
+                sp = f
+            } elif k == 7 {
+                if ph == 0 {
+                    acc = "{acc}["
+                    s2[f] = 1
+                    s1[sp] = self.ty_a(t)
+                    s2[sp] = 0
+                    sp = sp + 1
+                } else {
+                    acc = "{acc}; {self.yb[t]}]"
+                    sp = f
+                }
+            } elif k == 8 or k == 9 {
+                acc = "{acc}{self.lsp_span_str(self.ys[t], self.yl[t])}"
+                sp = f
+            } elif k == 10 {
+                if ph == 0 {
+                    acc = "{acc}Result<"
+                    s2[f] = 1
+                    s1[sp] = self.ty_a(t)
+                    s2[sp] = 0
+                    sp = sp + 1
+                } elif ph == 1 {
+                    acc = "{acc}, "
+                    s2[f] = 2
+                    s1[sp] = self.ty_b(t)
+                    s2[sp] = 0
+                    sp = sp + 1
+                } else {
+                    acc = "{acc}>"
+                    sp = f
+                }
+            } else {
+                if ph == 0 {
+                    acc = "{acc}Option<"
+                    s2[f] = 1
+                    s1[sp] = self.ty_a(t)
+                    s2[sp] = 0
+                    sp = sp + 1
+                } else {
+                    acc = "{acc}>"
+                    sp = f
+                }
+            }
+        }
+        return acc
+    }
+
+    # Сигнатура функции i в строку (как write_sig, для импортированных
+    # функций — контракт при этом не показываем, он в другом модуле).
+    func lsp_sig_str(let self, i: u32) -> str<256>
+        requires i < 2048
+    {
+        let s: str<256> = "("
+        const ps: u32 = self.fps[i]
+        for k in 0..8 {
+            if k >= self.fpc[i] {
+                break
+            }
+            if k > 0 {
+                s = "{s}, "
+            }
+            s = "{s}{self.lsp_span_str(self.pn_s[ps + k], self.pn_l[ps + k])}: "
+            s = "{s}{self.lsp_type_str(self.pty[ps + k])}"
+        }
+        s = "{s})"
+        if self.fvs[i] == 1 {
+            s = "{s} var_self"
+        }
+        if self.fret[i] != NONE {
+            s = "{s} -> {self.lsp_type_str(self.fret[i])}"
+        }
+        return s
+    }
+}
+
+# Учительский разбор недоказанного обязательства (вид kv 0..7): чего не
+# хватило верификатору и как это исправить В РАМКАХ ЯЗЫКА (requires, маска,
+# проверка, инвариант) — не обход правил, а способ дать доказательство.
+func lsp_teach(kv: u32) -> str<256>
+{
+    let t: str<256> = "Утверждение не доказано статически."
+    t = "{t} Свяжите его с доказанными проверками или интервалами."
+    if kv == 0 {
+        t = "Индекс не доказан в границах массива."
+        t = "{t} Добавьте `requires i < N` или проверку `if i < N` до доступа."
+    } elif kv == 1 {
+        t = "Результат может переполнить тип."
+        t = "{t} Сузьте интервал операндов (`requires`/маска `& M`) или возьмите тип шире."
+    } elif kv == 2 {
+        t = "Делитель может быть нулём."
+        t = "{t} Добавьте `requires d != 0` или проверку `if d != 0` перед делением."
+    } elif kv == 3 {
+        t = "Значение может не поместиться в целевой тип."
+        t = "{t} Ограничьте интервал источника до каста."
+    } elif kv == 4 {
+        t = "Сдвиг может превысить ширину типа."
+        t = "{t} Ограничьте величину (`requires s < W` или маска)."
+    } elif kv == 5 {
+        t = "Предусловие вызова не доказано здесь."
+        t = "{t} Обеспечьте его из контекста: проверка или инвариант цикла."
+    } elif kv == 6 {
+        t = "Постусловие не доказано в теле."
+        t = "{t} Усильте инвариант цикла или проверьте условие перед `return`."
+    }
+    return t
+}
+
+# --- поиск под курсором и сборка тела (extend Verify: читает фазы по self) -
+
+extend Verify {
+    # Порог узлов открытого файла: id последней #module-директивы (узлы
+    # растут в порядке разбора; маркер открытого файла — последний). 0 —
+    # одиночный поток (директив нет), берём всё. Копия логики reply_inlay.
+    func lsp_node_thr(let self) -> u32
+    {
+        let thr: u32 = 0
+        let d: u32 = self.nfc(0)
+        for _ in 0..131072 {
+            if d == NONE {
+                break
+            }
+            if self.nk(d) == 51 {
+                thr = d
+            }
+            d = self.nns(d)
+        }
+        return thr
+    }
+
+    # Первый индекс токена ОТКРЫТОГО файла: после последнего MODULE-токена
+    # (kind 67). Нет модулей → 0 (берём все токены). Токены deps идут до
+    # маркера открытого файла — их позиции по строкам могут совпасть с
+    # открытым файлом (#module сбрасывает нумерацию), потому порог нужен.
+    func lsp_tok_start(let self) -> u32
+    {
+        let found: bool = false
+        let thr: u32 = 0
+        for t in 0..262144 {
+            if u32(t) >= self.c.p.lex.ntok {
+                break
+            }
+            if self.c.p.lex.tok_k(u32(t)) == 67 {
+                thr = u32(t)
+                found = true
+            }
+        }
+        if found {
+            return thr + 1
+        }
+        return 0
+    }
+
+    # Индекс IDENT-токена (kind 3), накрывающего (cline, ccol) в кодпойнтах,
+    # среди токенов открытого файла (индекс >= tstart); иначе NONE.
+    func lsp_tok_under(let self, cline: u32, ccol: u32, tstart: u32) -> u32
+    {
+        let hit: u32 = NONE
+        for t in 0..262144 {
+            if u32(t) >= self.c.p.lex.ntok or hit != NONE {
+                break
+            }
+            if u32(t) >= tstart and self.c.p.lex.tok_k(u32(t)) == 3 {
+                const tl: u32 = self.c.p.lex.tok_l(u32(t))
+                const tc: u32 = self.c.p.lex.tok_c(u32(t))
+                const vl: u32 = self.c.p.lex.tok_vl(u32(t))
+                if tl == cline and ccol >= tc and ccol < tc + vl {
+                    hit = u32(t)
+                }
+            }
+        }
+        return hit
+    }
+
+    # Узел-выражение (виды 32..49), начинающийся ровно на (cline, tcol) —
+    # позиция идентификатора: имя/вызов/член/метод создаются в этой точке.
+    # С типом (nty != NONE), из открытого файла (id > nthr). Иначе NONE.
+    func lsp_node_typed_at(let self, cline: u32, tcol: u32, nthr: u32) -> u32
+    {
+        let hit: u32 = NONE
+        for n in 0..131072 {
+            if u32(n) >= self.c.p.nnode or hit != NONE {
+                break
+            }
+            if nthr == 0 or u32(n) > nthr {
+                const k: u32 = self.nk(u32(n))
+                if (k >= 32 and k <= 49 and self.nl(u32(n)) == cline
+                        and self.nc(u32(n)) == tcol) {
+                    if self.c.nty[u32(n) / 65536][u32(n) % 65536] != NONE {
+                        hit = u32(n)
+                    }
+                }
+            }
+        }
+        return hit
+    }
+
+    # Обязательство верификатора на строке cline, ближайшее по колонке к
+    # ccol (учитель показывает разбор проверки под/рядом с курсором). 0 —
+    # на строке проверок нет; иначе индекс+1 в ck_*. Порог nthr отсекает
+    # чужие модули потока (как inlay).
+    func lsp_obl_near(let self, cline: u32, ccol: u32, nthr: u32) -> u32
+    {
+        let best: u32 = 0
+        let bestd: u32 = NONE
+        for i in 0..16384 {
+            if u32(i) >= self.nck {
+                break
+            }
+            const n: u32 = self.ck_n[u32(i)]
+            if (nthr == 0 or n > nthr) and self.nl(n) == cline {
+                const c: u32 = self.nc(n)
+                let d: u32 = 0
+                if c >= ccol {
+                    d = c - ccol
+                } else {
+                    d = ccol - c
+                }
+                if d < bestd {
+                    bestd = d
+                    best = u32(i) + 1
+                }
+            }
+        }
+        return best
+    }
+
+    # Строка блока (kind 12) функции — первая после заголовка (сигнатура +
+    # контракты). 0 — блока нет (extern).
+    func lsp_block_line(let self, fnode: u32) -> u32
+        requires fnode < 131072
+    {
+        let bl: u32 = 0
+        let c: u32 = self.nfc(fnode)
+        for _ in 0..64 {
+            if c == NONE or bl != 0 {
+                break
+            }
+            if self.nk(c) == 12 {
+                bl = self.nl(c)
+            }
+            c = self.nns(c)
+        }
+        return bl
+    }
+
+    # Есть ли у функции fnode прямой потомок вида ck (9 requires / 10 ensures)?
+    func lsp_has_clause(let self, fnode: u32, ck: u32) -> bool
+        requires fnode < 131072
+    {
+        let f: bool = false
+        let c: u32 = self.nfc(fnode)
+        for _ in 0..64 {
+            if c == NONE or f {
+                break
+            }
+            if self.nk(c) == ck {
+                f = true
+            }
+            c = self.nns(c)
+        }
+        return f
+    }
+
+    # Заглавная строка hover обязательства oi (индекс+1): ✓ доказано /
+    # ⚠ не доказано. Учительский разбор (для ⚠) — отдельным сегментом
+    # через lsp_teach(kv), чтобы уложиться в потолок строки.
+    func lsp_obl_head(let self, oi: u32) -> str<256>
+        requires oi >= 1
+    {
+        const kv: u32 = self.ck_k[oi - 1]
+        const ov: u32 = self.ck_o[oi - 1]
+        const nm: str<16> = lsp_kname(kv)
+        if ov == 1 {
+            return "✓ Проверка `{nm}` доказана на компиляции — trap снят из бинарника."
+        }
+        return "⚠ Проверка `{nm}` не доказана — останется trap в рантайме."
+    }
+
+    # Hover для функции fi под курсором. Локальная (узел в открытом файле)
+    # → kind 1: reply_hover достаёт заголовок из буфера и досинтезирует
+    # опущенные клаузы. Импортированная → kind 0: сигнатура из таблицы.
+    func lsp_hover_func(let self, fi: u32, nthr: u32, h0: Hover) -> Hover
+        requires fi < 2048
+    {
+        let h: Hover = h0
+        h.found = true
+        const fnode: u32 = self.c.fnd[fi]
+        if fnode < 131072 and (nthr == 0 or fnode > nthr) {
+            const bl: u32 = self.lsp_block_line(fnode)
+            h.kind = 1
+            h.hf = self.nl(fnode)
+            if bl > 1 {
+                h.ht = bl - 1
+            } else {
+                h.ht = self.nl(fnode)
+            }
+            h.rq = self.lsp_has_clause(fnode, 9)
+            h.en = self.lsp_has_clause(fnode, 10)
+            return h
+        }
+        h.kind = 2
+        h.nm = self.c.lsp_span_str(self.c.fn_s[fi], self.c.fn_l[fi])
+        h.sig = self.c.lsp_sig_str(fi)
+        return h
+    }
+
+    # Обязательство-only hover (нет идентификатора под курсором, но на
+    # строке есть проверка верификатора). Диапазон — узел обязательства.
+    func lsp_hover_obl(let self, cline: u32, ccol: u32, nthr: u32, h0: Hover) -> Hover
+    {
+        let h: Hover = h0
+        const oi: u32 = self.lsp_obl_near(cline, ccol, nthr)
+        if oi == 0 {
+            return h
+        }
+        const n: u32 = self.ck_n[oi - 1]
+        h.found = true
+        h.line = self.nl(n)
+        h.col = self.nc(n)
+        h.endcol = self.nc(n) + 1
+        h.body = self.lsp_obl_head(oi)
+        if self.ck_o[oi - 1] != 1 {
+            h.body2 = lsp_teach(self.ck_k[oi - 1])
+        }
+        return h
+    }
+
+    # Главный вход hover: (cline, ccol) — 1-based кодпойнт. Приоритет:
+    # функция (сигнатура+контракт) → тип выражения + учительский разбор
+    # обязательства → обязательство без идентификатора.
+    func lsp_hover(let self, cline: u32, ccol: u32) -> Hover
+    {
+        const nthr: u32 = self.lsp_node_thr()
+        const tstart: u32 = self.lsp_tok_start()
+        const nti: u32 = self.lsp_tok_under(cline, ccol, tstart)
+        let h: Hover = Hover {
+            found: false, kind: 0, line: 0, col: 0, endcol: 0,
+            body: "", body2: "", body3: "", nm: "", sig: "",
+            hf: 0, ht: 0, rq: false, en: false
+        }
+        if nti == NONE {
+            return self.lsp_hover_obl(cline, ccol, nthr, h)
+        }
+        const tcol: u32 = self.c.p.lex.tok_c(nti)
+        const tvl: u32 = self.c.p.lex.tok_vl(nti)
+        h.line = self.c.p.lex.tok_l(nti)
+        h.col = tcol
+        h.endcol = tcol + tvl
+        const fi: u32 = self.c.find_func(self.c.p.lex.tok_vs(nti), tvl)
+        if fi != NONE and fi < 2048 {
+            return self.lsp_hover_func(fi, nthr, h)
+        }
+        const tn: u32 = self.lsp_node_typed_at(h.line, tcol, nthr)
+        const oi: u32 = self.lsp_obl_near(cline, ccol, nthr)
+        # сегменты: обязательство (заглавие + учительский разбор), затем тип
+        if oi != 0 {
+            h.found = true
+            h.body = self.lsp_obl_head(oi)
+            if self.ck_o[oi - 1] != 1 {
+                h.body2 = lsp_teach(self.ck_k[oi - 1])
+            }
+        }
+        if tn != NONE {
+            const ty: u32 = self.c.nty[tn / 65536][tn % 65536]
+            const ts: str<128> = self.c.lsp_type_str(ty)
+            if h.found {
+                h.body3 = "**тип:** `{ts}`"
+            } else {
+                h.found = true
+                h.body = "**тип:** `{ts}`"
+            }
+        }
+        return h
+    }
+}

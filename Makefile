@@ -129,7 +129,7 @@ LSP_PHASES = selfhost/lex/Tok.eat selfhost/lex/Lexer.eat selfhost/parse/Ast.eat 
 	selfhost/verify/Verify.eat selfhost/verify/VerifyExpr.eat selfhost/verify/VerifyRel.eat \
 	selfhost/verify/VerifyFlow.eat selfhost/verify/VerifyClamp.eat selfhost/verify/VerifyDump.eat
 LSP_FILES = $(RT) $(LIB_FRONT) build/JsonFlat.eat $(LSP_PHASES) \
-	editor/lsp/Handlers.eat editor/lsp/Transport.eat $(LSP_MAIN)
+	editor/lsp/Hover.eat editor/lsp/Handlers.eat editor/lsp/Transport.eat $(LSP_MAIN)
 
 # Производный плоский lib/json (снятые import-блоки) для склейки LSP.
 build/JsonFlat.eat: lib/json/Json.eat tools/json_flat.py

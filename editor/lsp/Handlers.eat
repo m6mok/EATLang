@@ -54,6 +54,8 @@ func reply_initialize(id: i64)
     o.bval(true)
     o.field("inlayHintProvider")
     o.bval(true)
+    o.field("hoverProvider")
+    o.bval(true)
     o.end_obj()
     o.field("serverInfo")
     o.begin_obj()
@@ -285,6 +287,22 @@ func lsp_starts(m: str<128>, pfx: str<64>) -> bool
 func lsp_suppress_err(m: str<128>) -> bool
 {
     return lsp_starts(m, "import:") or lsp_starts(m, "нет функции main")
+}
+
+# Дописать str<256> в JOut с JSON-экранированием (без кавычек): сегмент
+# markdown-значения hover. eb — метод JOut, x — изменяемая копия, возврат
+# обновлённого билдера (паттерн lsp_hint). Строки-сегменты ≤ 256 (потолок
+# языка); значение целиком собирается из нескольких сегментов подряд.
+func lsp_qesc(o: JOut, s: str<256>) -> JOut
+{
+    let x: JOut = o
+    for i in 0..256 {
+        if u32(i) >= len(s) {
+            break
+        }
+        x.eb(u8(s[i]))
+    }
+    return x
 }
 
 # --- диагностика одного прохода ----------------------------------------
@@ -1104,6 +1122,174 @@ struct DocStore {
             }
         }
         emit_inlays(id, hl, hc, hkv, cnt)
+    }
+
+    # Текст строки L (1-based) буфера слота di как str<256> (без перевода
+    # строки). Заголовки функций короткие — ASCII, укладываются.
+    func line_text(self, di: u32, L: u32) -> str<256>
+    {
+        const ls: u32 = self.line_start(di, L)
+        let s: str<256> = ""
+        let stop: bool = false
+        const n: u32 = self.docs[di].used
+        for k in 0..256 {
+            if ls + u32(k) >= n or stop {
+                break
+            }
+            const b: u8 = self.docs[di].buf[ls + u32(k)]
+            if b == 10 {
+                stop = true
+            } else {
+                s = "{s}{char(b)}"
+            }
+        }
+        return s
+    }
+
+    # Значение hover-markdown в JOut по kind (сегменты ≤ 256, склейка «\n\n»):
+    #   0 — тип/учительский разбор (body · body2 · body3);
+    #   1 — заголовок ЛОКАЛЬНОЙ функции ВЕРБАТИМ из буфера [hf..ht] в
+    #       ```eat-блоке + досинтез опущенных клауз как `true`
+    #       (эффективный контракт: омиссия ≡ true);
+    #   2 — сигнатура ИМПОРТИРОВАННОЙ функции из таблицы.
+    func emit_hover_value(self, o: JOut, di: u32, h: Hover) -> JOut
+    {
+        let x: JOut = o
+        if h.kind == 1 {
+            x = lsp_qesc(x, "```eat\n")
+            for k in 0..24 {
+                const cl: u32 = h.hf + u32(k)
+                if cl > h.ht {
+                    break
+                }
+                x = lsp_qesc(x, self.line_text(di, cl))
+                x = lsp_qesc(x, "\n")
+            }
+            x = lsp_qesc(x, "```")
+            if not h.rq {
+                x = lsp_qesc(x, "\nrequires true")
+            }
+            if not h.en {
+                x = lsp_qesc(x, "\nensures true")
+            }
+            return x
+        }
+        if h.kind == 2 {
+            x = lsp_qesc(x, "```eat\nfunc ")
+            x = lsp_qesc(x, h.nm)
+            x = lsp_qesc(x, h.sig)
+            x = lsp_qesc(x, "\n```\n\n_(импортирован — контракт в модуле)_")
+            return x
+        }
+        x = lsp_qesc(x, h.body)
+        if h.body2 != "" {
+            x = lsp_qesc(x, "\n\n")
+            x = lsp_qesc(x, h.body2)
+        }
+        if h.body3 != "" {
+            x = lsp_qesc(x, "\n\n")
+            x = lsp_qesc(x, h.body3)
+        }
+        return x
+    }
+
+    # Собрать и отправить ответ hover: MarkupContent markdown (значение по
+    # kind) + диапазон подсветки (0-based UTF-16 из h.line/col/endcol —
+    # кодпойнты, 1-based). Переполнение JOut → null.
+    func emit_hover(self, di: u32, id: i64, h: Hover)
+    {
+        const ls: u32 = self.line_start(di, h.line)
+        const cs: u32 = self.u16_upto(di, ls, h.col)
+        const ce: u32 = self.u16_upto(di, ls, h.endcol)
+        let lz: u32 = 0
+        if h.line > 0 {
+            lz = h.line - 1
+        }
+        let o: JOut = json_out()
+        o.begin_obj()
+        o.field("jsonrpc")
+        o.qval("2.0")
+        o.field("id")
+        o.ival(id)
+        o.field("result")
+        o.begin_obj()
+        o.field("contents")
+        o.begin_obj()
+        o.field("kind")
+        o.qval("markdown")
+        o.field("value")
+        o.byte(34)
+        o = self.emit_hover_value(o, di, h)
+        o.byte(34)
+        o.end_obj()
+        o.field("range")
+        o.begin_obj()
+        o.field("start")
+        o.begin_obj()
+        o.field("line")
+        o.ival(i64(lz))
+        o.field("character")
+        o.ival(i64(cs))
+        o.end_obj()
+        o.field("end")
+        o.begin_obj()
+        o.field("line")
+        o.ival(i64(lz))
+        o.field("character")
+        o.ival(i64(ce))
+        o.end_obj()
+        o.end_obj()
+        o.end_obj()
+        o.end_obj()
+        if o.over {
+            lsp_reply_null(id)
+            return
+        }
+        lsp_send(o)
+    }
+
+    # Ответ на textDocument/hover (этап 3): прогон потока слота
+    # lex+parse+check[+fold]+verify (как reply_inlay), поиск сущности под
+    # курсором (Verify.lsp_hover: тип выражения / сигнатура функции с
+    # эффективным контрактом / учительский разбор недоказанного
+    # обязательства). Любая упавшая фаза → null (диагностику несёт
+    # publishDiagnostics). dump() не зовём — stdout занят протоколом.
+    func reply_hover(self, di: u32, id: i64, line0: u32, ch16: u32, opt: bool)
+    {
+        let lex: Lexer = self.lex_any(di)
+        if lex.failed {
+            lsp_reply_null(id)
+            return
+        }
+        let p: Parser = parser_new(lex)
+        p.parse()
+        if p.failed {
+            lsp_reply_null(id)
+            return
+        }
+        let c: Check = check_new(p)
+        c.run_typed()
+        if c.failed {
+            lsp_reply_null(id)
+            return
+        }
+        if opt {
+            c.ct_fold_pass()
+        }
+        let v: Verify = verify_new(c)
+        v.analyze()
+        if v.failed {
+            lsp_reply_null(id)
+            return
+        }
+        const cline: u32 = line0 + 1
+        const ccol: u32 = self.col_from_u16(di, line0, ch16)
+        let h: Hover = v.lsp_hover(cline, ccol)
+        if not h.found {
+            lsp_reply_null(id)
+            return
+        }
+        self.emit_hover(di, id, h)
     }
 
     # Уведомление textDocument/publishDiagnostics для слота di. При dg.found

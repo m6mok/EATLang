@@ -118,6 +118,39 @@ frame({"jsonrpc":"2.0","method":"eat/opt","params":{"on":True}})
 frame({"jsonrpc":"2.0","id":22,"method":"textDocument/inlayHint","params":{
     "textDocument":{"uri":"file:///t/inlay.eat"},
     "range":{"start":{"line":0,"character":0},"end":{"line":30,"character":0}}}})
+# hover (этап 3): тип выражения · сигнатура функции с эффективным
+# контрактом (омиссия клаузы ≡ true) · учительский разбор недоказанного
+# обязательства верификатора. Файл: pick(a,i) с недоказанным a[i] (i —
+# свободный параметр → bounds ⚠) и main с локалями.
+did_open("file:///t/hov.eat",
+         'func pick(a: [u8; 4], i: u32) -> u8\n{\n    return a[i]\n}\n\n'
+         'func main()\n{\n    let n: u32 = 3\n    let m: u32 = n + 1\n'
+         '    print("{m}")\n}\n')
+# hover на объявлении pick → заголовок вербатим + досинтез requires/ensures
+# true (контракт опущен ≡ true)
+frame({"jsonrpc":"2.0","id":30,"method":"textDocument/hover","params":{
+    "textDocument":{"uri":"file:///t/hov.eat"},"position":{"line":0,"character":5}}})
+# hover на a в `return a[i]` → ⚠ учительский разбор bounds + тип `[u8; 4]`
+frame({"jsonrpc":"2.0","id":31,"method":"textDocument/hover","params":{
+    "textDocument":{"uri":"file:///t/hov.eat"},"position":{"line":2,"character":11}}})
+# hover на n в `n + 1` → ✓ overflow доказан + тип `u32`
+frame({"jsonrpc":"2.0","id":32,"method":"textDocument/hover","params":{
+    "textDocument":{"uri":"file:///t/hov.eat"},"position":{"line":8,"character":17}}})
+# hover на пустом месте (открывающая скобка) → null
+frame({"jsonrpc":"2.0","id":33,"method":"textDocument/hover","params":{
+    "textDocument":{"uri":"file:///t/hov.eat"},"position":{"line":1,"character":0}}})
+# hover на ИМПОРТИРОВАННОМ вызове inc(3) → сигнатура из таблицы модуля
+frame({"jsonrpc":"2.0","method":"eat/module","params":{
+    "path":"t/dep3.eat","uri":"file:///t/dep3.eat",
+    "text":"export {\n    inc,\n}\n\nfunc inc(x: u32) -> u32\n    requires x < 10\n"
+           "{\n    return x + 1\n}\n"}})
+did_open("file:///t/mh.eat",
+         'import {\n    inc,\n} from "t/dep3.eat"\n\nfunc main()\n{\n'
+         '    let y: u32 = inc(3)\n    print("{y}")\n}\n')
+frame({"jsonrpc":"2.0","method":"eat/order","params":{
+    "uri":"file:///t/mh.eat","paths":["rt0","t/dep3.eat"]}})
+frame({"jsonrpc":"2.0","id":34,"method":"textDocument/hover","params":{
+    "textDocument":{"uri":"file:///t/mh.eat"},"position":{"line":6,"character":17}}})
 # didChange ok.eat → внести ошибку (полная синхронизация)
 frame({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
     "textDocument": {"uri": "file:///t/ok.eat", "version": 2},
