@@ -63,6 +63,11 @@ func reply_initialize(id: i64)
     o.qval(".")
     o.end_array()
     o.end_obj()
+    o.field("codeLensProvider")
+    o.begin_obj()
+    o.field("resolveProvider")
+    o.bval(false)
+    o.end_obj()
     o.end_obj()
     o.field("serverInfo")
     o.begin_obj()
@@ -294,6 +299,40 @@ func lsp_starts(m: str<128>, pfx: str<64>) -> bool
 func lsp_suppress_err(m: str<128>) -> bool
 {
     return lsp_starts(m, "import:") or lsp_starts(m, "нет функции main")
+}
+
+# Один пункт CodeLens (этап 5): пустой диапазон в начале строки l
+# (0-based), команда-пустышка — ленза-надпись без действия.
+func lsp_lens_item(o: JOut, l: u32, t: str<256>) -> JOut
+{
+    let x: JOut = o
+    x.begin_obj()
+    x.field("range")
+    x.begin_obj()
+    x.field("start")
+    x.begin_obj()
+    x.field("line")
+    x.ival(i64(l))
+    x.field("character")
+    x.ival(0)
+    x.end_obj()
+    x.field("end")
+    x.begin_obj()
+    x.field("line")
+    x.ival(i64(l))
+    x.field("character")
+    x.ival(0)
+    x.end_obj()
+    x.end_obj()
+    x.field("command")
+    x.begin_obj()
+    x.field("title")
+    x.qval(t)
+    x.field("command")
+    x.qval("")
+    x.end_obj()
+    x.end_obj()
+    return x
 }
 
 # Дописать str<256> в JOut с JSON-экранированием (без кавычек): сегмент
@@ -1485,6 +1524,158 @@ struct DocStore {
             return
         }
         c.lsp_reply_members(id, si)
+    }
+
+    # Число строк документа слота di (для отсечения строк лензы за
+    # пределами файла — синтетическая main модульного потока).
+    func doc_lines(self, di: u32) -> u32
+    {
+        let n: u32 = 1
+        const u: u32 = self.docs[di].used
+        for i in 0..65536 {
+            if u32(i) >= u {
+                break
+            }
+            if self.docs[di].buf[u32(i)] == 10 {
+                n = n + 1
+            }
+        }
+        return n
+    }
+
+    # Кадр 1 лензы (этап 5): обязательства верификатора + маска nvm.
+    # Конвейер как eatc build (IrOptMain): verify_new ДО run_typed, затем
+    # [fold при -O] → analyze → annotate. Ir здесь НЕ живёт — раздельные
+    # кадры держат худшую цепочку стека сервера под потолком 256 МБ.
+    func lens_obl(self, di: u32, opt: bool) -> LensObl
+    {
+        let bad: LensObl = LensObl {
+            ok: false, pn: 0, pd: 0,
+            fp: [0; 2048], fo: [0; 2048], nvm: [0; 32768]
+        }
+        let lex: Lexer = self.lex_any(di)
+        if lex.failed {
+            return bad
+        }
+        let p: Parser = parser_new(lex)
+        p.parse()
+        if p.failed {
+            return bad
+        }
+        let c: Check = check_new(p)
+        let v: Verify = verify_new(c)
+        v.c.run_typed()
+        if v.c.failed {
+            return bad
+        }
+        if opt {
+            v.c.ct_fold_pass()
+        }
+        v.analyze()
+        v.annotate()
+        if v.failed {
+            return bad
+        }
+        return v.lsp_obl_pack()
+    }
+
+    # Кадр 2 лензы: свежий lex+parse+check того же потока (узлы идентичны
+    # — детерминизм), маска nvm первого кадра разливается перед эмиссией
+    # (элизия как в build: без неё глобалы разойдутся с отчётом §8),
+    # затем measure-проход Ir и сборка отчёта памяти.
+    func lens_mem(self, di: u32, opt: bool, ob: LensObl) -> Lens
+    {
+        let bad: Lens = Lens {
+            ok: false, stk: 0, glob: 0, nfun: 0, tstm: 0, cnt: 0,
+            fl: [0; 256], ffi: [0; 256], ffr: [0; 256], fwc: [0; 256],
+            fst: [0; 256]
+        }
+        let lex: Lexer = self.lex_any(di)
+        if lex.failed {
+            return bad
+        }
+        let p: Parser = parser_new(lex)
+        p.parse()
+        if p.failed {
+            return bad
+        }
+        let c: Check = check_new(p)
+        c.run_typed()
+        if c.failed {
+            return bad
+        }
+        if opt {
+            c.ct_fold_pass()
+        }
+        c.lsp_nvm_set(ob.nvm)
+        let ir: Ir = ir_new(c)
+        return ir.lsp_lens()
+    }
+
+    # Собрать и отправить ответ codeLens: сводная ленза §8 на строке 0 +
+    # ленза каждой функции открытого файла (кадр, цепочка, правило 4,
+    # доказанность). Строки за пределами файла отсекаются (синтетика).
+    func emit_codelens(self, di: u32, id: i64, lz: Lens, ob: LensObl)
+    {
+        const nl2: u32 = self.doc_lines(di)
+        let o: JOut = json_out()
+        o.begin_obj()
+        o.field("jsonrpc")
+        o.qval("2.0")
+        o.field("id")
+        o.ival(id)
+        o.field("result")
+        o.begin_array()
+        let t: str<256> = "§8: функций {lz.nfun}/2048 · стмтов {lz.tstm}"
+        t = "{t} · стек ≤ {lz.stk} Б · глобалы {lz.glob} Б"
+        t = "{t} · доказано {ob.pn}/{ob.pd}"
+        o = lsp_lens_item(o, 0, t)
+        for i in 0..256 {
+            if u32(i) >= lz.cnt {
+                break
+            }
+            const ln: u32 = lz.fl[u32(i)]
+            if ln >= 1 and ln <= nl2 {
+                const fi: u32 = lz.ffi[u32(i)]
+                const fr: u64 = lz.ffr[u32(i)]
+                const wc: u64 = lz.fwc[u32(i)]
+                const st: u32 = lz.fst[u32(i)]
+                let t2: str<256> = "кадр {fr} Б · цепочка ≤ {wc} Б"
+                t2 = "{t2} · стмтов {st}/60"
+                if fi < 2048 {
+                    const fp: u32 = ob.fp[fi]
+                    const fo: u32 = ob.fo[fi]
+                    t2 = "{t2} · доказано {fp}/{fo}"
+                }
+                o = lsp_lens_item(o, ln - 1, t2)
+            }
+        }
+        o.end_array()
+        o.end_obj()
+        if o.over {
+            lsp_reply_null(id)
+            return
+        }
+        lsp_send(o)
+    }
+
+    # Ответ на textDocument/codeLens (этап 5): бюджет §8 над main и
+    # функциями. Два последовательных кадра анализа (см. lens_obl /
+    # lens_mem); любая упавшая фаза → честный null (одиночный файл без
+    # корпуса Rt не эмитится — модульный поток клиента несёт Rt первым).
+    func reply_codelens(self, di: u32, id: i64, opt: bool)
+    {
+        const ob: LensObl = self.lens_obl(di, opt)
+        if not ob.ok {
+            lsp_reply_null(id)
+            return
+        }
+        const lz: Lens = self.lens_mem(di, opt, ob)
+        if not lz.ok {
+            lsp_reply_null(id)
+            return
+        }
+        self.emit_codelens(di, id, lz, ob)
     }
 
     # Уведомление textDocument/publishDiagnostics для слота di. При dg.found

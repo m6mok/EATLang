@@ -1,6 +1,6 @@
-Content-Length: 244
+Content-Length: 289
 
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"definitionProvider":true,"inlayHintProvider":true,"hoverProvider":true,"completionProvider":{"triggerCharacters":["."]}},"serverInfo":{"name":"eat-lsp","version":"0.0.1"}}}Content-Length: 266
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"definitionProvider":true,"inlayHintProvider":true,"hoverProvider":true,"completionProvider":{"triggerCharacters":["."]},"codeLensProvider":{"resolveProvider":false}},"serverInfo":{"name":"eat-lsp","version":"0.0.1"}}}Content-Length: 266
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/lex.eat","diagnostics":[{"range":{"start":{"line":1,"character":14},"end":{"line":1,"character":15}},"severity":1,"source":"eatc","message":"незакрытая строка"}]}}Content-Length: 270
 
@@ -78,7 +78,19 @@ Content-Length: 244
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/cmx.eat","diagnostics":[{"range":{"start":{"line":7,"character":13},"end":{"line":7,"character":14}},"severity":1,"source":"eatc","message":"ожидалось имя поля или метода"}]}}Content-Length: 120
 
-{"jsonrpc":"2.0","id":45,"result":[{"label":"b","kind":5,"detail":"u32"},{"label":"inc","kind":2,"detail":"() -> u32"}]}Content-Length: 331
+{"jsonrpc":"2.0","id":45,"result":[{"label":"b","kind":5,"detail":"u32"},{"label":"inc","kind":2,"detail":"() -> u32"}]}Content-Length: 115
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/lens.eat","diagnostics":[]}}Content-Length: 115
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/lens.eat","diagnostics":[]}}Content-Length: 658
+
+{"jsonrpc":"2.0","id":50,"result":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"command":{"title":"§8: функций 2/2048 · стмтов 5 · стек ≤ 25 Б · глобалы 65 Б · доказано 3/4","command":""}},{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"command":{"title":"кадр 5 Б · цепочка ≤ 5 Б · стмтов 1/60 · доказано 0/1","command":""}},{"range":{"start":{"line":5,"character":0},"end":{"line":5,"character":0}},"command":{"title":"кадр 20 Б · цепочка ≤ 25 Б · стмтов 4/60 · доказано 3/3","command":""}}]}Content-Length: 39
+
+{"jsonrpc":"2.0","id":51,"result":null}Content-Length: 115
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/lens.eat","diagnostics":[]}}Content-Length: 658
+
+{"jsonrpc":"2.0","id":52,"result":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"command":{"title":"§8: функций 2/2048 · стмтов 6 · стек ≤ 29 Б · глобалы 65 Б · доказано 4/5","command":""}},{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"command":{"title":"кадр 5 Б · цепочка ≤ 5 Б · стмтов 1/60 · доказано 0/1","command":""}},{"range":{"start":{"line":5,"character":0},"end":{"line":5,"character":0}},"command":{"title":"кадр 24 Б · цепочка ≤ 29 Б · стмтов 5/60 · доказано 4/4","command":""}}]}Content-Length: 331
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/ok.eat","diagnostics":[{"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":19}},"severity":1,"source":"eatc","message":"тип значения не совпадает (неявных преобразований нет)"}]}}Content-Length: 113
 

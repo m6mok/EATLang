@@ -108,10 +108,12 @@ HTTP_ROUTER_MAIN = examples/http/Router.eat
 HTTP_API_MAIN = examples/http/Api.eat
 HTTP_TODO_MAIN = examples/http/todo/Todo.eat
 
-# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md, этапы 1–2): JSON-RPC поверх
-# stdio, линкует фазы lex+parse+check+verify как модули: живые диагностики
-# + inlay-хинты вердиктов верификатора (✓/⚠; CheckFold — ось -O по eat/opt).
-# Клиент VSCode — editor/vscode (запускает интерпретатор/бинарник по stdio).
+# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md, этапы 1–5): JSON-RPC поверх
+# stdio, линкует фазы lex+parse+check+verify+ir как модули: живые диагностики
+# + inlay-хинты вердиктов верификатора (✓/⚠; CheckFold — ось -O по eat/opt)
+# + hover/completion (Hover/Complete.eat) + CodeLens бюджета §8 (Lens.eat:
+# кадры из alloca measure-прогона ir, худшая цепочка по DAG Check; Fmt.eat —
+# зависимость ir). Клиент VSCode — editor/vscode (запускает бинарник по stdio).
 #
 # Линковка — ПЛОСКАЯ склейка (модуль 0), а не модульный драйвер: фазы
 # selfhost/ не экспортируют символы (они рассчитаны на конкатенацию), а
@@ -122,14 +124,15 @@ HTTP_TODO_MAIN = examples/http/todo/Todo.eat
 # digit_value уже глобальны из LIB_FRONT), а файлы editor/lsp/ — без
 # import/export. Фазы byte-в-byte те же, что в SELFHOST_* (не тронуты).
 LSP_MAIN = editor/lsp/LspMain.eat
-LSP_PHASES = selfhost/lex/Tok.eat selfhost/lex/Lexer.eat selfhost/parse/Ast.eat \
+LSP_PHASES = lib/fmt/Fmt.eat selfhost/lex/Tok.eat selfhost/lex/Lexer.eat selfhost/parse/Ast.eat \
 	selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
 	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
 	selfhost/check/CheckFold.eat \
 	selfhost/verify/Verify.eat selfhost/verify/VerifyExpr.eat selfhost/verify/VerifyRel.eat \
-	selfhost/verify/VerifyFlow.eat selfhost/verify/VerifyClamp.eat selfhost/verify/VerifyDump.eat
+	selfhost/verify/VerifyFlow.eat selfhost/verify/VerifyClamp.eat selfhost/verify/VerifyDump.eat \
+	selfhost/ir/Ir.eat selfhost/ir/IrEmit.eat selfhost/ir/IrExpr.eat selfhost/ir/IrStmt.eat
 LSP_FILES = $(RT) $(LIB_FRONT) build/JsonFlat.eat $(LSP_PHASES) \
-	editor/lsp/Hover.eat editor/lsp/Complete.eat \
+	editor/lsp/Hover.eat editor/lsp/Complete.eat editor/lsp/Lens.eat \
 	editor/lsp/Handlers.eat editor/lsp/Transport.eat $(LSP_MAIN)
 
 # Производный плоский lib/json (снятые import-блоки) для склейки LSP.

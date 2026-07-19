@@ -1,0 +1,715 @@
+# editor/lsp/Lens.eat — CodeLens бюджета §8 (docs/plans/LSP_PLAN.md, этап 5):
+# отчёт памяти и Power of 10 над функциями открытого файла. Зеркало
+# codegen._memory_report: кадры функций — из фактических alloca (ABI-размеры
+# LLVM), худшая цепочка — по рёбрам DAG вызовов Check (eg_c/eg_d), статические
+# данные — глобалы-строки + массивы-константы A2; плюс счётчики правила 4
+# (total_stmts) и доля доказанного верификатором (v.ck_*, как inlay).
+#
+# Механизм кадров: measure-прогон эмиссии (gen_body при msr==1 — печати нет,
+# stdout занят протоколом; та же машинерия, что ось -O §7.6), затем скан
+# alloca-строк entry-блока (блок 0 держит только alloca и br) и обратный
+# поиск интернированного типа по ТЕКСТУ (мемо tys/tyl — канонический принтер:
+# равный текст ⇒ равный ABI-размер). Правок фаз НЕТ: методы в extend Check/
+# Verify/Ir компилируются ТОЛЬКО в сборке LSP (файла нет в списках
+# SELFHOST_*), паритет src/eatc ↔ selfhost не затронут (шаблон Hover.eat).
+#
+# Раздельные кадры анализа (FAULTS этапа 5): Verify и Ir не живут в одном
+# кадре — цепочка стека сервера превысила бы потолок 256 МБ. lens_obl
+# (Handlers) собирает обязательства и упакованную маску nvm; lens_mem гонит
+# свежий lex+parse+check, разливает маску (элизия как в eatc build — иначе
+# глобалы разойдутся с отчётом) и меряет кадры. Узлы обоих прогонов
+# идентичны: поток детерминирован.
+#
+# Идёт в склейке ПОСЛЕ фаз и Hover/Complete, ПЕРЕД Handlers (методы
+# DocStore читают структуры Lens/LensObl). Всё прикладное — префикс lsp_.
+
+# «нет значения» для u64-величин (размеры, худшие цепочки)
+constexpr LSP_NONE64: u64 = 18446744073709551615
+
+# --- результаты двух кадров анализа ---------------------------------------
+
+# Обязательства верификатора: суммарно и по функциям + упакованная маска
+# nvm (8 бит на узел) — переносится в кадр эмиссии (элизия как в build).
+struct LensObl {
+    ok: bool
+    pn: u32
+    pd: u32
+    fp: [u32; 2048]
+    fo: [u32; 2048]
+    nvm: [u32; 32768]
+}
+
+# Отчёт памяти §8 + строки лензы функций открытого файла (порядок emit).
+struct Lens {
+    ok: bool
+    stk: u64
+    glob: u64
+    nfun: u32
+    tstm: u32
+    cnt: u32
+    fl: [u32; 256]
+    ffi: [u32; 256]
+    ffr: [u64; 256]
+    fwc: [u64; 256]
+    fst: [u32; 256]
+}
+
+# --- ABI-размеры типов (зеркало codegen.ll + target_data.get_abi_size) ----
+
+# Таблица размеров/выравниваний интернированных типов: al[t] == 0 — ещё
+# не вычислен (готовый тип имеет выравнивание >= 1, включая void).
+struct LSz {
+    sz: [u64; 512]
+    al: [u32; 512]
+}
+
+# Поля-компоненты составного типа (порядок лейаута LLVM).
+struct LFld {
+    n: u32
+    f: [u32; 1026]
+}
+
+# Результат лейаута: ok=false — зависимость ещё не готова.
+struct LLay {
+    ok: bool
+    sz: u64
+    al: u32
+}
+
+# Размер и выравнивание скалярного вида k, упакованные size*16+align;
+# NONE — не скаляр. str<N> всегда {i32, [256 x i8]} → 260, align 4.
+func lsp_scal_pack(k: u32) -> u32
+{
+    if k == 0 or k == 1 {
+        return 4 * 16 + 4
+    }
+    if k == 2 or k == 3 or k == 4 {
+        return 1 * 16 + 1
+    }
+    if k == 5 {
+        return 0 * 16 + 1
+    }
+    if k == 6 {
+        return 260 * 16 + 4
+    }
+    if k == 12 {
+        return 2 * 16 + 2
+    }
+    if k == 13 or k == 14 {
+        return 8 * 16 + 8
+    }
+    return NONE
+}
+
+extend Check {
+    # enum типа t несёт нагрузку хотя бы в одном варианте?
+    func lsp_enum_pl(let self, t: u32) -> bool
+        requires t < 512
+    {
+        const ei: u32 = self.find_enum(self.ys[t], self.yl[t])
+        if ei == NONE or ei >= 64 {
+            return false
+        }
+        let has: bool = false
+        const vs: u32 = self.evs[ei]
+        for i in 0..256 {
+            if u32(i) >= self.evc[ei] {
+                break
+            }
+            if vs + u32(i) < 256 and self.wpl[vs + u32(i)] != NONE {
+                has = true
+            }
+        }
+        return has
+    }
+
+    # Поля-компоненты составного типа t: Result {i32, ok, err}; Option
+    # {i32, inner}; struct — поля таблицы; enum с нагрузкой — {i32 тег,
+    # нагрузки в порядке вариантов}. Индекс 0 пула — прединтернированный i32.
+    func lsp_ty_fields(let self, t: u32) -> LFld
+        requires t < 512
+    {
+        let r: LFld = LFld { n: 0, f: [0; 1026] }
+        const k: u32 = self.yk[t]
+        if k == 10 {
+            r.f[0] = 0
+            r.f[1] = self.ya[t]
+            r.f[2] = self.yb[t]
+            r.n = 3
+            return r
+        }
+        if k == 11 {
+            r.f[0] = 0
+            r.f[1] = self.ya[t]
+            r.n = 2
+            return r
+        }
+        if k == 8 {
+            const si: u32 = self.find_struct(self.ys[t], self.yl[t])
+            if si == NONE or si >= 128 {
+                return r
+            }
+            const gs: u32 = self.sgs[si]
+            for i in 0..1024 {
+                if u32(i) >= self.sgc[si] {
+                    break
+                }
+                if gs + u32(i) < 1024 and r.n < 1026 {
+                    r.f[r.n] = self.gty[gs + u32(i)]
+                    r.n = r.n + 1
+                }
+            }
+            return r
+        }
+        const ei: u32 = self.find_enum(self.ys[t], self.yl[t])
+        if ei == NONE or ei >= 64 {
+            return r
+        }
+        r.f[0] = 0
+        r.n = 1
+        const vs: u32 = self.evs[ei]
+        for i in 0..256 {
+            if u32(i) >= self.evc[ei] {
+                break
+            }
+            if vs + u32(i) < 256 and r.n < 1026 {
+                if self.wpl[vs + u32(i)] != NONE {
+                    r.f[r.n] = self.wpl[vs + u32(i)]
+                    r.n = r.n + 1
+                }
+            }
+        }
+        return r
+    }
+
+    # Лейаут списка полей по готовым размерам s: смещение выравнивается
+    # по полю, итог — по максимальному выравниванию (правила ABI LLVM).
+    func lsp_layout(let self, fl: LFld, s: LSz) -> LLay
+    {
+        let off: u64 = 0
+        let mx: u32 = 1
+        let bad: bool = fl.n == 0
+        for i in 0..1026 {
+            if u32(i) >= fl.n or bad {
+                break
+            }
+            const ft: u32 = fl.f[u32(i)]
+            if ft >= 512 or s.al[ft] == 0 {
+                bad = true
+            } else {
+                const a: u64 = u64(s.al[ft])
+                off = ((off + a - 1) / a) * a + s.sz[ft]
+                if s.al[ft] > mx {
+                    mx = s.al[ft]
+                }
+            }
+        }
+        if bad {
+            return LLay { ok: false, sz: 0, al: 1 }
+        }
+        const am: u64 = u64(mx)
+        return LLay { ok: true, sz: ((off + am - 1) / am) * am, al: mx }
+    }
+
+    # Размер одного типа t по готовым зависимостям (ok=false — ждать).
+    func lsp_ty_pack(let self, t: u32, s: LSz) -> LLay
+        requires t < 512
+    {
+        const k: u32 = self.yk[t]
+        const sp: u32 = lsp_scal_pack(k)
+        if sp != NONE {
+            return LLay { ok: true, sz: u64(sp / 16), al: sp % 16 }
+        }
+        if k == 7 {
+            const e: u32 = self.ya[t]
+            if e >= 512 or s.al[e] == 0 {
+                return LLay { ok: false, sz: 0, al: 1 }
+            }
+            return LLay { ok: true, sz: u64(self.yb[t]) * s.sz[e], al: s.al[e] }
+        }
+        if k == 9 and not self.lsp_enum_pl(t) {
+            return LLay { ok: true, sz: 4, al: 4 }
+        }
+        return self.lsp_layout(self.lsp_ty_fields(t), s)
+    }
+
+    # Фикспойнт размеров всех интернированных типов: вложенность —
+    # DAG (циклы типов отклонены), проходов нужно не больше глубины.
+    func lsp_ty_sizes(let self) -> LSz
+    {
+        let s: LSz = LSz { sz: [0; 512], al: [0; 512] }
+        for _ in 0..512 {
+            let ch: bool = false
+            for t in 0..512 {
+                if u32(t) >= self.ntype {
+                    break
+                }
+                if s.al[t] == 0 {
+                    const r: LLay = self.lsp_ty_pack(u32(t), s)
+                    if r.ok {
+                        s.sz[t] = r.sz
+                        s.al[t] = r.al
+                        ch = true
+                    }
+                }
+            }
+            if not ch {
+                break
+            }
+        }
+        return s
+    }
+
+    # Разлить упакованную маску nvm (8 бит/узел) в пул фазы: кадр эмиссии
+    # получает решения верификатора первого прогона (узлы идентичны —
+    # поток детерминирован), элизия trap-блоков как в eatc build.
+    func lsp_nvm_set(let self, m: [u32; 32768])
+    {
+        for n in 0..131072 {
+            const w: u32 = u32(n) / 4
+            const v: u32 = (m[w] >> ((u32(n) % 4) * 8)) % 256
+            self.nvm[n / 65536][n % 65536] = v
+        }
+    }
+}
+
+# --- обязательства по функциям (extend Verify) ----------------------------
+
+# Список узлов-деклараций в порядке разбора — границы атрибуции.
+struct LDecls {
+    n: u32
+    d: [u32; 4096]
+}
+
+extend Verify {
+    # Все декларации потока: топ-уровень + методы struct/extend (id узлов
+    # растут в порядке разбора — годятся как границы тел).
+    func lsp_decl_list(let self) -> LDecls
+    {
+        let r: LDecls = LDecls { n: 0, d: [0; 4096] }
+        let d: u32 = self.nfc(0)
+        for _ in 0..131072 {
+            if d == NONE {
+                break
+            }
+            if r.n < 4096 {
+                r.d[r.n] = d
+                r.n = r.n + 1
+            }
+            const k: u32 = self.nk(d)
+            if k == 4 or k == 55 {
+                let m: u32 = self.nfc(d)
+                for _ in 0..512 {
+                    if m == NONE {
+                        break
+                    }
+                    if r.n < 4096 {
+                        r.d[r.n] = m
+                        r.n = r.n + 1
+                    }
+                    m = self.nns(m)
+                }
+            }
+            d = self.nns(d)
+        }
+        return r
+    }
+
+    # Функция-владелец узла n: максимальный fnd <= n, причём n раньше
+    # следующей декларации (test-блоки и топ-уровень не атрибуцируются).
+    func lsp_obl_owner(let self, n: u32, dl: LDecls) -> u32
+    {
+        let fi: u32 = NONE
+        let bf: u32 = 0
+        for i in 0..2048 {
+            if u32(i) >= self.c.nfun {
+                break
+            }
+            const d: u32 = self.c.fnd[u32(i)]
+            if d <= n and d >= bf {
+                bf = d
+                fi = u32(i)
+            }
+        }
+        if fi == NONE {
+            return NONE
+        }
+        let nx: u32 = NONE
+        for i in 0..4096 {
+            if u32(i) >= dl.n {
+                break
+            }
+            const d2: u32 = dl.d[u32(i)]
+            if d2 > bf and d2 < nx {
+                nx = d2
+            }
+        }
+        if n >= nx {
+            return NONE
+        }
+        return fi
+    }
+
+    # Сборка LensObl: суммарные и пофункциональные счётчики доказанного
+    # (как inlay: ck_k/ck_n/ck_o напрямую) + упакованная маска nvm.
+    func lsp_obl_pack(let self) -> LensObl
+    {
+        let r: LensObl = LensObl {
+            ok: true, pn: 0, pd: 0,
+            fp: [0; 2048], fo: [0; 2048], nvm: [0; 32768]
+        }
+        const dl: LDecls = self.lsp_decl_list()
+        for i in 0..16384 {
+            if u32(i) >= self.nck {
+                break
+            }
+            r.pd = r.pd + 1
+            r.pn = r.pn + self.ck_o[u32(i)]
+            const fi: u32 = self.lsp_obl_owner(self.ck_n[u32(i)], dl)
+            if fi != NONE and fi < 2048 {
+                r.fo[fi] = r.fo[fi] + 1
+                r.fp[fi] = r.fp[fi] + self.ck_o[u32(i)]
+            }
+        }
+        for n in 0..131072 {
+            const m: u32 = self.c.nvm[n / 65536][n % 65536] % 256
+            const w: u32 = u32(n) / 4
+            r.nvm[w] = r.nvm[w] + (m << ((u32(n) % 4) * 8))
+        }
+        return r
+    }
+}
+
+# --- кадры, худшая цепочка, глобалы (extend Ir) ---------------------------
+
+# Кадры функций (байты alloca) по индексу fi.
+struct LFab {
+    f: [u64; 2048]
+}
+
+# Худшая цепочка стека от каждой функции.
+struct LWm {
+    w: [u64; 2048]
+}
+
+extend Ir {
+    # Интернированный тип по тексту [a, a+l) буфера строки функции —
+    # обратный поиск в мемо принтера типов (tys/tyl). Канонический текст
+    # уникален с точностью до ABI-размера (все str — {i32, [256 x i8]}).
+    func lsp_ty_by_text(let self, a: u32, l: u32) -> u32
+    {
+        let hit: u32 = NONE
+        for t in 0..512 {
+            if hit != NONE {
+                break
+            }
+            if self.tyl[t] == l and a + l <= 4194304 {
+                let eq: bool = true
+                for i in 0..65536 {
+                    if u32(i) >= l or not eq {
+                        break
+                    }
+                    const b: u8 = self.tp[(self.tys[t] + u32(i)) & 65535]
+                    if self.lb_at(a + u32(i)) != b {
+                        eq = false
+                    }
+                }
+                if eq {
+                    hit = u32(t)
+                }
+            }
+        }
+        return hit
+    }
+
+    # Байты кадра текущей сгенерированной функции: скан alloca-строк
+    # entry-блока (блок 0 держит только alloca и br), тип — по тексту
+    # после « = alloca », размер — из таблицы s (зеркало frame_types).
+    func lsp_frame_scan(let self, s: LSz) -> u64
+    {
+        let tot: u64 = 0
+        let li: u32 = self.bkf[0]
+        const pat: str<16> = " = alloca "
+        for _ in 0..65536 {
+            if li == NONE or li >= 65536 {
+                break
+            }
+            const st2: u32 = self.lns[li]
+            const ll: u32 = self.lnl[li]
+            let o: u32 = NONE
+            for i in 0..256 {
+                if u32(i) + 10 > ll or o != NONE {
+                    break
+                }
+                let eq: bool = true
+                for j in 0..10 {
+                    if not eq {
+                        break
+                    }
+                    const p: u32 = st2 + u32(i) + u32(j)
+                    if p >= 4194304 or self.lb_at(p) != u8(pat[j]) {
+                        eq = false
+                    }
+                }
+                if eq {
+                    o = u32(i) + 10
+                }
+            }
+            if o != NONE and o <= ll {
+                const t: u32 = self.lsp_ty_by_text(st2 + o, ll - o)
+                if t != NONE and t < 512 {
+                    tot = tot + s.sz[t]
+                }
+            }
+            li = self.lnn[li]
+        }
+        return tot
+    }
+
+    # Генерация тела fi измерительным проходом + скан кадра.
+    func lsp_gen_scan(let self, fi: u32, s: LSz) -> u64
+    {
+        if fi >= 2048 or self.failed {
+            return 0
+        }
+        self.gen_body(fi)
+        if self.failed {
+            return 0
+        }
+        return self.lsp_frame_scan(s)
+    }
+
+    # Кадры всех функций: measure-проход (msr==1, печати нет) в порядке
+    # emit — k6 функции, k4 методы struct; extern (50) не эмитится.
+    func lsp_frames(let self, s: LSz) -> LFab
+    {
+        let r: LFab = LFab { f: [0; 2048] }
+        for t in 0..512 {
+            self.tyl[t] = NONE
+        }
+        self.rsi = NONE
+        for si in 0..128 {
+            if si >= self.c.nstr or self.rsi != NONE {
+                break
+            }
+            if self.c.span_is(self.c.sn_s[si], self.c.sn_l[si], "RtStr") {
+                self.rsi = si
+            }
+        }
+        self.msr = 1
+        let d: u32 = self.c.p.nfc[0][0]
+        for _ in 0..131072 {
+            if d == NONE or self.failed {
+                break
+            }
+            const k: u32 = self.c.p.nk[d / 65536][d % 65536]
+            if k == 6 {
+                const fi: u32 = self.c.func_by_node(d)
+                if fi < 2048 {
+                    r.f[fi] = self.lsp_gen_scan(fi, s)
+                }
+            } elif k == 4 {
+                let m: u32 = self.c.p.nfc[d / 65536][d % 65536]
+                for _ in 0..512 {
+                    if m == NONE or self.failed {
+                        break
+                    }
+                    if self.c.p.nk[m / 65536][m % 65536] == 6 {
+                        const f2: u32 = self.c.func_by_node(m)
+                        if f2 < 2048 {
+                            r.f[f2] = self.lsp_gen_scan(f2, s)
+                        }
+                    }
+                    m = self.c.p.nns[m / 65536][m % 65536]
+                }
+            }
+            d = self.c.p.nns[d / 65536][d % 65536]
+        }
+        self.msr = 0
+        return r
+    }
+
+    # Худшая цепочка стека от каждой функции: зеркало worst() отчёта §8 —
+    # DFS с мемо по рёбрам Check (eg_c код вызывающего, eg_d fi
+    # вызываемого); ребро учитывается, если вызываемый получил кадр
+    # (оговорка «callee not in frames» эталона). Граф — DAG (правило 1).
+    func lsp_worst(let self, fab: LFab) -> LWm
+    {
+        let r: LWm = LWm { w: [LSP_NONE64; 2048] }
+        let st2: [u32; 2048] = [0; 2048]
+        let sp: u32 = 0
+        for root in 0..2048 {
+            if u32(root) >= self.c.nfun {
+                break
+            }
+            if r.w[root] == LSP_NONE64 {
+                st2[0] = u32(root)
+                sp = 1
+            }
+            for _ in 0..1048576 {
+                if sp == 0 {
+                    break
+                }
+                const top: u32 = st2[sp - 1]
+                if top >= 2048 or r.w[top] != LSP_NONE64 {
+                    sp = sp - 1
+                } else {
+                    let pend: u32 = NONE
+                    let mx: u64 = 0
+                    for e in 0..4096 {
+                        if u32(e) >= self.c.neg {
+                            break
+                        }
+                        const dd: u32 = self.c.eg_d[u32(e)]
+                        if (self.c.eg_c[u32(e)] == top and dd < 2048
+                                and fab.f[dd] > 0) {
+                            const wd: u64 = r.w[dd]
+                            if wd == LSP_NONE64 and pend == NONE {
+                                pend = dd
+                            } elif wd != LSP_NONE64 and wd > mx {
+                                mx = wd
+                            }
+                        }
+                    }
+                    if pend != NONE and sp < 2048 {
+                        st2[sp] = pend
+                        sp = sp + 1
+                    } else {
+                        r.w[top] = fab.f[top] + mx
+                        sp = sp - 1
+                    }
+                }
+            }
+        }
+        return r
+    }
+
+    # Статические данные §8: глобалы-строки measure-прохода (trap-тексты —
+    # длина с NUL; строковые литералы — 4+256, как в отчёте) + массивы-
+    # константы A2 (элементов × ширина элемента).
+    func lsp_globals(let self, s: LSz) -> u64
+    {
+        let g: u64 = 0
+        for gi in 0..65536 {
+            if u32(gi) >= self.ngl {
+                break
+            }
+            if self.gvk[u32(gi)] == 0 {
+                g = g + u64(self.gsl[u32(gi)])
+            } else {
+                g = g + 260
+            }
+        }
+        let d: u32 = self.c.p.nfc[0][0]
+        for _ in 0..131072 {
+            if d == NONE {
+                break
+            }
+            if self.c.p.nk[d / 65536][d % 65536] == 1 {
+                const a: u32 = self.c.p.nss[d / 65536][d % 65536]
+                const l: u32 = self.c.p.nsl[d / 65536][d % 65536]
+                const ci: u32 = self.c.find_constexpr(a, l)
+                if ci != NONE and ci < 128 {
+                    const ty: u32 = self.c.cty[ci]
+                    if ty < 512 and self.c.yk[ty] == 7 {
+                        const et: u32 = self.c.ya[ty]
+                        if et < 512 {
+                            g = g + u64(self.c.yb[ty]) * s.sz[et]
+                        }
+                    }
+                }
+            }
+            d = self.c.p.nns[d / 65536][d % 65536]
+        }
+        return g
+    }
+
+    # Строка лензы для декларации d (вид 6, из открытого файла — за
+    # порогом thr), дописанная в r0. Позиция — строка декларации
+    # (локальна файлу: #module сбрасывает нумерацию).
+    func lsp_row(let self, r0: Lens, fab: LFab, wm: LWm, thr: u32, d: u32) -> Lens
+    {
+        let r: Lens = r0
+        if d >= 131072 or r.cnt >= 256 {
+            return r
+        }
+        if thr != 0 and d <= thr {
+            return r
+        }
+        if self.c.p.nk[d / 65536][d % 65536] != 6 {
+            return r
+        }
+        const fi: u32 = self.c.func_by_node(d)
+        if fi >= 2048 {
+            return r
+        }
+        r.fl[r.cnt] = self.c.p.nl[d / 65536][d % 65536]
+        r.ffi[r.cnt] = fi
+        r.ffr[r.cnt] = fab.f[fi]
+        if wm.w[fi] != LSP_NONE64 {
+            r.fwc[r.cnt] = wm.w[fi]
+        }
+        r.fst[r.cnt] = self.c.count_stmts(d)
+        r.cnt = r.cnt + 1
+        return r
+    }
+
+    # Сборка лензы: размеры типов → measure-кадры → худшая цепочка →
+    # глобалы → строки функций открытого файла (порог — последняя
+    # #module-директива, как inlay).
+    func lsp_lens(let self) -> Lens
+    {
+        const s: LSz = self.c.lsp_ty_sizes()
+        const fab: LFab = self.lsp_frames(s)
+        let r: Lens = Lens {
+            ok: false, stk: 0, glob: 0, nfun: self.c.nfun,
+            tstm: self.c.total_stmts, cnt: 0, fl: [0; 256], ffi: [0; 256],
+            ffr: [0; 256], fwc: [0; 256], fst: [0; 256]
+        }
+        # без рантайм-модуля (struct RtStr первым в потоке) программа не
+        # собирается (страж rt_method кодогена) — отчёт был бы фикцией;
+        # живой клиент всегда шлёт Rt в корпусе (eat/order), null — только
+        # у одиночного файла без корпуса
+        if self.failed or self.rsi == NONE {
+            return r
+        }
+        const wm: LWm = self.lsp_worst(fab)
+        r.glob = self.lsp_globals(s)
+        if self.c.main_fi < 2048 and wm.w[self.c.main_fi] != LSP_NONE64 {
+            r.stk = wm.w[self.c.main_fi]
+        }
+        let thr: u32 = 0
+        let d: u32 = self.c.p.nfc[0][0]
+        for _ in 0..131072 {
+            if d == NONE {
+                break
+            }
+            if self.c.p.nk[d / 65536][d % 65536] == 51 {
+                thr = d
+            }
+            d = self.c.p.nns[d / 65536][d % 65536]
+        }
+        d = self.c.p.nfc[0][0]
+        for _ in 0..131072 {
+            if d == NONE {
+                break
+            }
+            const k: u32 = self.c.p.nk[d / 65536][d % 65536]
+            if k == 6 {
+                r = self.lsp_row(r, fab, wm, thr, d)
+            } elif k == 4 or k == 55 {
+                let m: u32 = self.c.p.nfc[d / 65536][d % 65536]
+                for _ in 0..512 {
+                    if m == NONE {
+                        break
+                    }
+                    r = self.lsp_row(r, fab, wm, thr, m)
+                    m = self.c.p.nns[m / 65536][m % 65536]
+                }
+            }
+            d = self.c.p.nns[d / 65536][d % 65536]
+        }
+        r.ok = true
+        return r
+    }
+}

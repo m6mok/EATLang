@@ -542,6 +542,26 @@ struct Lsp {
         self.store.reply_completion(slot, id, u32(line0), u32(ch16))
     }
 
+    # textDocument/codeLens (запрос, этап 5): бюджет §8 над main и
+    # функциями открытого документа — «функций N/2048», статистика
+    # правила 4, стек худшей цепочки, глобалы, доля доказанного.
+    func on_codelens(let self, root: u32, id: i64)
+    {
+        const params: u32 = self.jget(root, "params")
+        const td: u32 = self.jget(params, "textDocument")
+        if td == LSP_NONE {
+            lsp_reply_null(id)
+            return
+        }
+        const uri: str<256> = self.uri_of(td)
+        const slot: u32 = self.store.find(uri)
+        if slot == LSP_NONE {
+            lsp_reply_null(id)
+            return
+        }
+        self.store.reply_codelens(slot, id, self.opt)
+    }
+
     # eat/opt (уведомление клиента, этап 2): переключение оси -O для
     # вердиктов инлеев — params.on. После смены сервер просит клиента
     # перезапросить хинты (workspace/inlayHint/refresh): вердикты
@@ -669,6 +689,10 @@ struct Lsp {
         }
         if m == "textDocument/completion" {
             self.on_completion(root, id)
+            return false
+        }
+        if m == "textDocument/codeLens" {
+            self.on_codelens(root, id)
             return false
         }
         if m == "eat/module" {

@@ -189,6 +189,39 @@ did_open("file:///t/cmx.eat",
          '        self.\n        return 1\n    }\n}\n')
 frame({"jsonrpc":"2.0","id":45,"method":"textDocument/completion","params":{
     "textDocument":{"uri":"file:///t/cmx.eat"},"position":{"line":7,"character":13}}})
+# CodeLens бюджета §8 (этап 5): корпус несёт стаб Rt (struct RtStr —
+# эмиссия требует рантайм-модуль первым), открытый файл — программа с
+# недоказанной границей. Ленза: сводка §8 (функции/стмты/стек/глобалы/
+# доказанность) на строке 0 + ленза каждой функции (кадр, худшая цепочка,
+# правило 4, доказанность). Числа сверены с отчётом `eatc build` (кадры/
+# стек/доказанность байт-в-байт; глобалы — по именам модулей потока).
+frame({"jsonrpc":"2.0","method":"eat/module","params":{
+    "path":"t/rt1.eat","uri":"file:///t/rt1.eat",
+    "text":"struct RtStr {\n    ln: u32\n}\n"}})
+did_open("file:///t/lens.eat",
+         'func pick(a: [u8; 4], i: u32) -> u8\n{\n    return a[i]\n}\n\n'
+         'func main()\n{\n    let a: [u8; 4] = [7; 4]\n'
+         '    let s: u32 = u32(pick(a, 2))\n    let t: u32 = s + 1\n'
+         '    exit(t - t)\n}\n')
+frame({"jsonrpc":"2.0","method":"eat/order","params":{
+    "uri":"file:///t/lens.eat","paths":["t/rt1.eat"]}})
+frame({"jsonrpc":"2.0","id":50,"method":"textDocument/codeLens","params":{
+    "textDocument":{"uri":"file:///t/lens.eat"}}})
+# одиночный файл без корпуса: в потоке нет Rt (struct RtStr) — эмиссия
+# фазы ir не стартует, честный null (в живом клиенте корпус есть всегда)
+frame({"jsonrpc":"2.0","id":51,"method":"textDocument/codeLens","params":{
+    "textDocument":{"uri":"file:///t/hov.eat"}}})
+# правка lens.eat (полная синхронизация): новый стейтмент в main →
+# ленза обновляется (стмтов больше, кадр main шире)
+frame({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+    "textDocument":{"uri":"file:///t/lens.eat","version":2},
+    "contentChanges":[{"text":
+        'func pick(a: [u8; 4], i: u32) -> u8\n{\n    return a[i]\n}\n\n'
+        'func main()\n{\n    let a: [u8; 4] = [7; 4]\n'
+        '    let s: u32 = u32(pick(a, 2))\n    let t: u32 = s + 1\n'
+        '    let u: u32 = t + 2\n    exit(u - u)\n}\n'}]}})
+frame({"jsonrpc":"2.0","id":52,"method":"textDocument/codeLens","params":{
+    "textDocument":{"uri":"file:///t/lens.eat"}}})
 # didChange ok.eat → внести ошибку (полная синхронизация)
 frame({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
     "textDocument": {"uri": "file:///t/ok.eat", "version": 2},
