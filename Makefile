@@ -108,8 +108,9 @@ HTTP_ROUTER_MAIN = examples/http/Router.eat
 HTTP_API_MAIN = examples/http/Api.eat
 HTTP_TODO_MAIN = examples/http/todo/Todo.eat
 
-# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md, этап 1): JSON-RPC поверх
-# stdio, линкует фазы lex+parse+check как модули для живых диагностик.
+# LSP-сервер на EATLang (docs/plans/LSP_PLAN.md, этапы 1–2): JSON-RPC поверх
+# stdio, линкует фазы lex+parse+check+verify как модули: живые диагностики
+# + inlay-хинты вердиктов верификатора (✓/⚠; CheckFold — ось -O по eat/opt).
 # Клиент VSCode — editor/vscode (запускает интерпретатор/бинарник по stdio).
 #
 # Линковка — ПЛОСКАЯ склейка (модуль 0), а не модульный драйвер: фазы
@@ -123,7 +124,10 @@ HTTP_TODO_MAIN = examples/http/todo/Todo.eat
 LSP_MAIN = editor/lsp/LspMain.eat
 LSP_PHASES = selfhost/lex/Tok.eat selfhost/lex/Lexer.eat selfhost/parse/Ast.eat \
 	selfhost/parse/Parser.eat selfhost/parse/ParserExpr.eat selfhost/check/Check.eat \
-	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat
+	selfhost/check/CheckConst.eat selfhost/check/CheckBody.eat selfhost/check/CheckDump.eat \
+	selfhost/check/CheckFold.eat \
+	selfhost/verify/Verify.eat selfhost/verify/VerifyExpr.eat selfhost/verify/VerifyRel.eat \
+	selfhost/verify/VerifyFlow.eat selfhost/verify/VerifyClamp.eat selfhost/verify/VerifyDump.eat
 LSP_FILES = $(RT) $(LIB_FRONT) build/JsonFlat.eat $(LSP_PHASES) \
 	editor/lsp/Handlers.eat editor/lsp/Transport.eat $(LSP_MAIN)
 

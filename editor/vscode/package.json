@@ -54,6 +54,11 @@
                         "editor/lsp/serve.sh"
                     ],
                     "description": "Аргументы запуска сервера. По умолчанию editor/lsp/serve.sh: линкует фазы плоской склейкой и пересобирает build/JsonFlat.eat в корне репозитория EATLang."
+                },
+                "eatlang.optimize": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Ось -O для inlay-хинтов верификатора: свёртка вызовов перед verify (как eatc ir -O) — доказанных проверок (✓) больше."
                 }
             }
         }

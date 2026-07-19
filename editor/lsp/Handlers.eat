@@ -52,6 +52,8 @@ func reply_initialize(id: i64)
     o.ival(1)
     o.field("definitionProvider")
     o.bval(true)
+    o.field("inlayHintProvider")
+    o.bval(true)
     o.end_obj()
     o.field("serverInfo")
     o.begin_obj()
@@ -112,6 +114,124 @@ func lsp_reply_null(id: i64)
     o.ival(id)
     o.field("result")
     o.word("null")
+    o.end_obj()
+    lsp_send(o)
+}
+
+# Строка диапазона inlayHint из JSON (i64) → u32 без trap-каста:
+# отрицательное → 0, больше 65535 → 65535 (документ ≤ 64 КБ строк не даст).
+func lsp_clamp_line(v: i64) -> u32
+{
+    if v <= 0 {
+        return 0
+    }
+    if v >= 65535 {
+        return 65535
+    }
+    return u32(v)
+}
+
+# Имя вида проверки верификатора (коды ck_k 0..7). Локальная копия
+# Verify.kname: аксессоры Verify — `let self`, из эмиссии с const-данными
+# их не позвать; имена стабильны (формат дампа `eatc verify`).
+func lsp_kname(k: u32) -> str<16>
+{
+    if k == 0 {
+        return "bounds"
+    }
+    if k == 1 {
+        return "overflow"
+    }
+    if k == 2 {
+        return "div"
+    }
+    if k == 3 {
+        return "cast"
+    }
+    if k == 4 {
+        return "shift"
+    }
+    if k == 5 {
+        return "requires"
+    }
+    if k == 6 {
+        return "ensures"
+    }
+    return "assert"
+}
+
+# Один inlay-хинт в билдер (по значению, возврат обновлённого JOut):
+# l/c — 0-based UTF-16 позиция, kv — вид·вердикт (ck_k * 2 + ck_o).
+func lsp_hint(o: JOut, l: u32, c: u32, kv: u32) -> JOut
+{
+    let x: JOut = o
+    const nm: str<16> = lsp_kname(kv / 2)
+    x.begin_obj()
+    x.field("position")
+    x.begin_obj()
+    x.field("line")
+    x.ival(i64(l))
+    x.field("character")
+    x.ival(i64(c))
+    x.end_obj()
+    x.field("label")
+    if kv % 2 == 1 {
+        x.qval("✓")
+        x.field("tooltip")
+        x.qval("{nm}: доказано на компиляции")
+    } else {
+        x.qval("⚠")
+        x.field("tooltip")
+        x.qval("{nm}: останется trap в рантайме")
+    }
+    x.field("paddingRight")
+    x.bval(true)
+    x.end_obj()
+    return x
+}
+
+# Ответ на textDocument/inlayHint из собранных массивов (см. reply_inlay):
+# hl/hc — 0-based UTF-16 позиции, hkv — вид·вердикт, cnt — сколько занято.
+func emit_inlays(id: i64, hl: [u32; 256], hc: [u32; 256], hkv: [u32; 256], cnt: u32)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("result")
+    o.begin_array()
+    for i in 0..256 {
+        if u32(i) >= cnt {
+            break
+        }
+        o = lsp_hint(o, hl[u32(i)], hc[u32(i)], hkv[u32(i)])
+    }
+    o.end_array()
+    o.end_obj()
+    # переполнение JOut — битый JSON недопустим, честный null
+    if o.over {
+        lsp_reply_null(id)
+        return
+    }
+    lsp_send(o)
+}
+
+# Серверный запрос workspace/inlayHint/refresh (этап 2): клиент
+# перезапрашивает inlay-хинты — переключение оси -O (eat/opt) меняет
+# вердикты без правки текста. Ответ клиента (id без method) диспетч
+# игнорирует; id фиксированный — других серверных запросов нет.
+func lsp_refresh_inlays()
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(9001)
+    o.field("method")
+    o.qval("workspace/inlayHint/refresh")
     o.end_obj()
     lsp_send(o)
 }
@@ -373,11 +493,10 @@ struct DocStore {
         }
     }
 
-    # Прогон текста слота через lex+parse+check в транзитный анализ-кадр
-    # (как TypedMain, но источник — буфер слота, а не stdin, и вместо
-    # tdump читаем первую ошибку из полей el/ec/em фазы). fail-fast:
-    # первая же упавшая фаза даёт диагностику (решение пользователя).
-    func analyze(self, di: u32) -> Diag
+    # Лекс текста слота как одиночной программы (без корпуса): источник —
+    # буфер слота, а не stdin. Возврат по значению — токены и позиции
+    # читает вызывающий (анализ, inlay-хинты).
+    func lex_single(self, di: u32) -> Lexer
     {
         let lex: Lexer = lexer_new()
         const n: u32 = self.docs[di].used
@@ -391,6 +510,16 @@ struct DocStore {
         if not lex.failed {
             lex.sublex_pass()
         }
+        return lex
+    }
+
+    # Прогон текста слота через lex+parse+check в транзитный анализ-кадр
+    # (как TypedMain, но источник — буфер слота, а не stdin, и вместо
+    # tdump читаем первую ошибку из полей el/ec/em фазы). fail-fast:
+    # первая же упавшая фаза даёт диагностику (решение пользователя).
+    func analyze(self, di: u32) -> Diag
+    {
+        let lex: Lexer = self.lex_single(di)
         if lex.failed {
             return Diag { found: true, line: lex.el, col: lex.ec, msg: lex.em }
         }
@@ -435,15 +564,12 @@ struct DocStore {
         return found
     }
 
-    # Кросс-файловый анализ модульного файла (этап 1c): синтетический поток
-    # [Rt (order[0], без маркера) + deps (order[1..] за #module-маркерами) +
-    # открытый файл (маркер-заглушка)] лексируется целиком → Check резолвит
-    # границы модулей (реальная типовая диагностика вместо ложной «модуль не
-    # встретился»). Директива #module СБРАСЫВАЕТ счётчик строк на модуль,
-    # поэтому позиция ошибки уже локальна файлу — ремап не нужен. Зависимости
-    # — валидный код (ошибок нет), любая ошибка относится к открытому файлу;
-    # промах корпуса даёт import-ошибку — подавляем (как одиночный анализ).
-    func analyze_module(self, di: u32) -> Diag
+    # Лекс синтетического потока модульного файла (этап 1c): [Rt (order[0],
+    # без маркера) + deps (order[1..] за #module-маркерами) + открытый файл
+    # (маркер-заглушка)] целиком → Check дальше резолвит границы модулей.
+    # Директива #module СБРАСЫВАЕТ счётчик строк на модуль, поэтому позиции
+    # открытого файла уже локальны ему — ремап не нужен (FAULTS 2026-07-18).
+    func lex_module(self, di: u32) -> Lexer
     {
         let lex: Lexer = lexer_new()
         const pre: str<16> = "#module "
@@ -513,6 +639,17 @@ struct DocStore {
         if not lex.failed {
             lex.sublex_pass()
         }
+        return lex
+    }
+
+    # Кросс-файловый анализ модульного файла (этап 1c): поток lex_module →
+    # parse → check (реальная типовая диагностика вместо ложной «модуль не
+    # встретился»). Зависимости — валидный код (ошибок нет), любая ошибка
+    # относится к открытому файлу; промах корпуса даёт import-ошибку —
+    # подавляем (как одиночный анализ).
+    func analyze_module(self, di: u32) -> Diag
+    {
+        let lex: Lexer = self.lex_module(di)
         if lex.failed {
             return Diag { found: true, line: lex.el, col: lex.ec, msg: lex.em }
         }
@@ -536,6 +673,15 @@ struct DocStore {
             return self.analyze_module(di)
         }
         return self.analyze(di)
+    }
+
+    # Лекс потока слота: модульный (есть порядок) или одиночный.
+    func lex_any(self, di: u32) -> Lexer
+    {
+        if self.docs[di].norder > 0 {
+            return self.lex_module(di)
+        }
+        return self.lex_single(di)
     }
 
     # --- конверсия позиций: 1-based байт line:col → 0-based UTF-16 -----
@@ -871,6 +1017,93 @@ struct DocStore {
         o.end_obj()
         o.end_obj()
         lsp_send(o)
+    }
+
+    # Ответ на textDocument/inlayHint (этап 2, флагман): прогон потока слота
+    # через lex+parse+check+verify, чтение таблицы обязательств верификатора
+    # (v.ck_k вид / v.ck_n узел / v.ck_o вердикт) и публикация значков
+    # ✓ «доказано на компиляции» / ⚠ «останется trap в рантайме» на каждой
+    # проверке bounds/overflow/div/cast/shift/requires/ensures/assert в
+    # строках [l0..l1] (0-based, как в запросе). opt — ось -O: свёртка
+    # вызовов (ct_fold_pass) перед verify, конвейер как у `eatc ir -O` —
+    # доказательств больше. Любая упавшая фаза → result: null (диагностику
+    # уже несёт publishDiagnostics). dump() верификатора НЕ зовём — stdout
+    # занят каналом протокола; читаем пулы напрямую (§2 плана).
+    func reply_inlay(self, di: u32, id: i64, l0: u32, l1: u32, opt: bool)
+    {
+        let lex: Lexer = self.lex_any(di)
+        if lex.failed {
+            lsp_reply_null(id)
+            return
+        }
+        let p: Parser = parser_new(lex)
+        p.parse()
+        if p.failed {
+            lsp_reply_null(id)
+            return
+        }
+        let c: Check = check_new(p)
+        c.run_typed()
+        if c.failed {
+            lsp_reply_null(id)
+            return
+        }
+        if opt {
+            c.ct_fold_pass()
+        }
+        let v: Verify = verify_new(c)
+        v.analyze()
+        if v.failed {
+            lsp_reply_null(id)
+            return
+        }
+        # Порог отсечения чужих модулей потока: узлы открытого файла созданы
+        # ПОСЛЕ последней #module-директивы (id узлов растут в порядке
+        # разбора; маркер открытого файла — последний). Позиции обязательств
+        # уже локальны файлу (#module сбрасывает нумерацию строк). Одиночный
+        # поток директив не содержит — порог 0, берём всё.
+        let thr: u32 = 0
+        let d: u32 = v.nfc(0)
+        for _ in 0..131072 {
+            if d == LSP_NONE {
+                break
+            }
+            if v.nk(d) == 51 {
+                thr = d
+            }
+            d = v.nns(d)
+        }
+        # Сбор хинтов в плоские массивы (эмиссия — emit_inlays: аксессоры
+        # Verify объявлены `let self`, через const-параметр их не позвать —
+        # наружу уходят только строка/колонка/вид·вердикт). Потолок 256 на
+        # ответ: JOut ограничен 64 КБ (~180 Б на хинт), диапазон запроса —
+        # видимая область; лишние проверки диапазона режутся честно.
+        let hl: [u32; 256] = [0; 256]
+        let hc: [u32; 256] = [0; 256]
+        let hkv: [u32; 256] = [0; 256]
+        let cnt: u32 = 0
+        for i in 0..16384 {
+            if u32(i) >= v.nck or cnt >= 256 {
+                break
+            }
+            const n: u32 = v.ck_n[u32(i)]
+            const ln: u32 = v.nl(n)
+            # 0-based строка lz: позиции 1-based, страж ln > 0 тотален
+            let lz: u32 = 0
+            let hit: bool = false
+            if (thr == 0 or n > thr) and ln > 0 {
+                lz = ln - 1
+                hit = lz >= l0 and lz <= l1
+            }
+            if hit {
+                const ls: u32 = self.line_start(di, ln)
+                hl[cnt] = lz
+                hc[cnt] = self.u16_upto(di, ls, v.nc(n))
+                hkv[cnt] = v.ck_k[u32(i)] * 2 + v.ck_o[u32(i)]
+                cnt = cnt + 1
+            }
+        }
+        emit_inlays(id, hl, hc, hkv, cnt)
     }
 
     # Уведомление textDocument/publishDiagnostics для слота di. При dg.found

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # tests/lsp/verify.sh — сверка LSP-сервера транскриптом сессии JSON-RPC
-# (docs/plans/LSP_PLAN.md, этап 1). По образцу EAT_NET для HTTP:
+# (docs/plans/LSP_PLAN.md, этапы 1–2). По образцу EAT_NET для HTTP:
 # детерминированная последовательность запрос→ответ по stdio (аксиома
 # read_byte), но с живыми диагностиками — didOpen/didChange/didClose →
 # publishDiagnostics на лексической, синтаксической и типовой ошибке,
-# при чистом разборе и после закрытия.
+# при чистом разборе и после закрытия; плюс inlay-хинты верификатора
+# (textDocument/inlayHint: ✓ доказано / ⚠ trap в рантайме; eat/opt —
+# ось -O, свёртка вызовов перед verify).
 #
 # Вход строится здесь (Python: обрамление Content-Length с CRLF, тела в
 # UTF-8), чтобы в репозитории не жили CR-байты. Выход сервера
@@ -83,6 +85,39 @@ did_open("file:///t/lib.eat",
          'export {\n    g,\n}\n\nfunc g() -> u32\n{\n    let bad: bool = 5\n    return 1\n}\n')
 frame({"jsonrpc":"2.0","method":"eat/order","params":{
     "uri":"file:///t/lib.eat","paths":["rt0"]}})
+# inlayHint (этап 2): вердикты верификатора ✓/⚠ на каждой проверке.
+# half(6): канон видит интервал по типу параметра → a[i] runtime ⚠;
+# div в теле half и литеральный a[2] доказаны ✓.
+did_open("file:///t/inlay.eat",
+         'func half(x: u32) -> u32\n{\n    return x / 2\n}\n\nfunc main()\n{\n'
+         '    let a: [u8; 4] = [1; 4]\n    let i: u32 = half(6)\n'
+         '    print("{a[i]}")\n    print("{a[2]}")\n}\n')
+frame({"jsonrpc":"2.0","id":20,"method":"textDocument/inlayHint","params":{
+    "textDocument":{"uri":"file:///t/inlay.eat"},
+    "range":{"start":{"line":0,"character":0},"end":{"line":30,"character":0}}}})
+# модульный поток: обязательства зависимостей (a[i] в t/dep2.eat — ⚠)
+# отсекаются порогом последней #module-директивы — в ответе только
+# проверки ОТКРЫТОГО файла, позиции локальны ему (#module сбрасывает
+# нумерацию строк).
+frame({"jsonrpc":"2.0","method":"eat/module","params":{
+    "path":"t/dep2.eat","uri":"file:///t/dep2.eat",
+    "text":"export {\n    pick2,\n}\n\nfunc pick2(a: [u8; 8], i: u32) -> u8\n"
+           "{\n    return a[i]\n}\n"}})
+did_open("file:///t/minlay.eat",
+         'import {\n    pick2,\n} from "t/dep2.eat"\n\nfunc main()\n{\n'
+         '    let a: [u8; 8] = [0; 8]\n    print("{pick2(a, 9)}")\n'
+         '    print("{a[5]}")\n}\n')
+frame({"jsonrpc":"2.0","method":"eat/order","params":{
+    "uri":"file:///t/minlay.eat","paths":["rt0","t/dep2.eat"]}})
+frame({"jsonrpc":"2.0","id":21,"method":"textDocument/inlayHint","params":{
+    "textDocument":{"uri":"file:///t/minlay.eat"},
+    "range":{"start":{"line":0,"character":0},"end":{"line":30,"character":0}}}})
+# переключение оси -O (eat/opt): сервер просит refresh, повторный запрос
+# по t/inlay.eat — свёртка half(6)→3 доказывает bounds → ⚠ становится ✓
+frame({"jsonrpc":"2.0","method":"eat/opt","params":{"on":True}})
+frame({"jsonrpc":"2.0","id":22,"method":"textDocument/inlayHint","params":{
+    "textDocument":{"uri":"file:///t/inlay.eat"},
+    "range":{"start":{"line":0,"character":0},"end":{"line":30,"character":0}}}})
 # didChange ok.eat → внести ошибку (полная синхронизация)
 frame({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
     "textDocument": {"uri": "file:///t/ok.eat", "version": 2},

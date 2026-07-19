@@ -167,13 +167,33 @@ function activate(context) {
         clientOptions
     );
 
+    // Ось -O для inlay-хинтов верификатора (этап 2): настройка
+    // eatlang.optimize уходит серверу уведомлением eat/opt (сервер сам
+    // просит workspace/inlayHint/refresh — хинты обновятся без правки).
+    const sendOpt = function () {
+        if (!client) {
+            return;
+        }
+        const on =
+            workspace.getConfiguration("eatlang").get("optimize") === true;
+        client.sendNotification("eat/opt", { on: on }).catch(function () {});
+    };
+
     // После старта — корпус зависимостей для кросс-файлового go-to-def
     // (этап 1b): на открытие/правку .eat считаем замыкание импортов и шлём
     // его серверу (eat/module). Правки дебаунсим (300 мс).
     client.start().then(function () {
+        sendOpt();
         workspace.textDocuments.forEach(sendClosure);
         context.subscriptions.push(
             workspace.onDidOpenTextDocument(sendClosure)
+        );
+        context.subscriptions.push(
+            workspace.onDidChangeConfiguration(function (e) {
+                if (e.affectsConfiguration("eatlang.optimize")) {
+                    sendOpt();
+                }
+            })
         );
         let timer = null;
         context.subscriptions.push(

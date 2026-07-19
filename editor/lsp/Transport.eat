@@ -31,6 +31,7 @@ struct Lsp {
     clen: u32          # Content-Length текущего сообщения или LSP_NONE
     d: JDoc            # весь «heap» JSON-дерева — пул в кадре владельца
     store: DocStore    # реестр открытых документов (bounded, §4)
+    opt: bool          # ось -O для inlay-хинтов (eat/opt, этап 2)
 
     # --- транспорт: чтение сообщения -------------------------------
 
@@ -468,6 +469,52 @@ struct Lsp {
         self.store.reply_def(slot, id, dg)
     }
 
+    # textDocument/inlayHint (запрос, этап 2): диапазон строк открытого
+    # документа → массив хинтов ✓/⚠ по таблице обязательств верификатора
+    # (reply_inlay). Строки клэмпятся к 65535 (документ ≤ 64 КБ) — кривой
+    # диапазон не роняет сервер трапом каста.
+    func on_inlay(let self, root: u32, id: i64)
+    {
+        const params: u32 = self.jget(root, "params")
+        const td: u32 = self.jget(params, "textDocument")
+        const rg: u32 = self.jget(params, "range")
+        if td == LSP_NONE or rg == LSP_NONE {
+            lsp_reply_null(id)
+            return
+        }
+        const uri: str<256> = self.uri_of(td)
+        const slot: u32 = self.store.find(uri)
+        if slot == LSP_NONE {
+            lsp_reply_null(id)
+            return
+        }
+        const l0: u32 = lsp_clamp_line(self.jint(self.jget(rg, "start"), "line"))
+        const l1: u32 = lsp_clamp_line(self.jint(self.jget(rg, "end"), "line"))
+        self.store.reply_inlay(slot, id, l0, l1, self.opt)
+    }
+
+    # eat/opt (уведомление клиента, этап 2): переключение оси -O для
+    # вердиктов инлеев — params.on. После смены сервер просит клиента
+    # перезапросить хинты (workspace/inlayHint/refresh): вердикты
+    # меняются без правки текста.
+    func on_opt(let self, root: u32)
+    {
+        const params: u32 = self.jget(root, "params")
+        if params == LSP_NONE {
+            return
+        }
+        let on: bool = false
+        const oid: u32 = self.jget(params, "on")
+        if oid != LSP_NONE {
+            match self.d.as_bool(oid) {
+                Some(x) { on = x }
+                None {}
+            }
+        }
+        self.opt = on
+        lsp_refresh_inlays()
+    }
+
     # didClose: освободить слот и снять подчёркивания (пустые диагностики)
     func on_close(let self, root: u32)
     {
@@ -563,12 +610,25 @@ struct Lsp {
             self.on_definition(root, id)
             return false
         }
+        if m == "textDocument/inlayHint" {
+            self.on_inlay(root, id)
+            return false
+        }
         if m == "eat/module" {
             self.on_module(root)
             return false
         }
         if m == "eat/order" {
             self.on_order(root)
+            return false
+        }
+        if m == "eat/opt" {
+            self.on_opt(root)
+            return false
+        }
+        # ответ клиента на серверный запрос (id без method,
+        # workspace/inlayHint/refresh) — не ошибка, молчим
+        if m == "" {
             return false
         }
         # прочие запросы (есть id) — method not found; уведомления молчим
@@ -622,6 +682,7 @@ func lsp_new() -> Lsp
         clen: LSP_NONE,
         d: json_doc(),
         store: docstore_new(),
+        opt: false,
     }
 }
 
