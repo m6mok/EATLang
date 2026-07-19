@@ -222,6 +222,13 @@ frame({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
         '    let u: u32 = t + 2\n    exit(u - u)\n}\n'}]}})
 frame({"jsonrpc":"2.0","id":52,"method":"textDocument/codeLens","params":{
     "textDocument":{"uri":"file:///t/lens.eat"}}})
+# кадр больше потолка LSP_MSG_CAP (64 КБ): крупный didOpen (файлы фаз
+# selfhost/ по 60–75 КБ) ДРЕНИРУЕТСЯ и пропускается — сервер не умирает
+# (FAULTS 2026-07-19: тихая смерть валила клиент VSCode рестарт-циклом);
+# файл остаётся без анализа, следующий запрос обслуживается нормально
+did_open("file:///t/huge.eat", "# большой файл\n" * 6000)
+frame({"jsonrpc":"2.0","id":55,"method":"textDocument/codeLens","params":{
+    "textDocument":{"uri":"file:///t/lens.eat"}}})
 # didChange ok.eat → внести ошибку (полная синхронизация)
 frame({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
     "textDocument": {"uri": "file:///t/ok.eat", "version": 2},
