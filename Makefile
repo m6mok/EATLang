@@ -560,11 +560,12 @@ measure_mcu:
 	@bash containers/measure_mcu.sh
 
 measure_selfir:
-	@$(EATC) build $(SELFHOST_LEXER)  -o build/SelfLex   >/dev/null & p1=$$!; \
-	 $(EATC) build $(SELFHOST_PARSER) -o build/SelfParse >/dev/null & p2=$$!; \
-	 $(EATC) build $(SELFHOST_SIG)    -o build/SelfSig   >/dev/null & p3=$$!; \
-	 $(EATC) build $(SELFHOST_TYPED)  -o build/SelfTyped >/dev/null & p4=$$!; \
-	 $(EATC) build $(SELFHOST_IR)     -o build/SelfIr    >/dev/null & p5=$$!; \
+	@mkdir -p build/measure
+	@$(EATC) build $(SELFHOST_LEXER)  -o build/measure/SelfLex   >/dev/null & p1=$$!; \
+	 $(EATC) build $(SELFHOST_PARSER) -o build/measure/SelfParse >/dev/null & p2=$$!; \
+	 $(EATC) build $(SELFHOST_SIG)    -o build/measure/SelfSig   >/dev/null & p3=$$!; \
+	 $(EATC) build $(SELFHOST_TYPED)  -o build/measure/SelfTyped >/dev/null & p4=$$!; \
+	 $(EATC) build $(SELFHOST_IR)     -o build/measure/SelfIr    >/dev/null & p5=$$!; \
 	 wait $$p1 && wait $$p2 && wait $$p3 && wait $$p4 && wait $$p5
 	@cat $(SELFHOST_IR) > /tmp/eat_selfir_src.eat
 	@bash containers/measure_selfir.sh /tmp/eat_selfir_src.eat

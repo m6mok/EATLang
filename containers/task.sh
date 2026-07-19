@@ -19,7 +19,7 @@
 # Пути (переопределяются окружением):
 #   EAT_HUB   — bare-хаб   (по умолчанию ../EATLang-hub.git)
 #   EAT_TASKS — worktree'ы (по умолчанию ../eatlang-tasks/<имя>)
-#   IMAGE     — пиннутый образ (по умолчанию eatlang-dev:etap0)
+#   IMAGE     — пиннутый образ (по умолчанию eatlang-dev:etap1)
 #
 # Гигиена — docs/CONTAINERS.md: podman run всегда --rm, venv в контейнере
 # (UV_PROJECT_ENVIRONMENT), ulimit -s 262144 (256 МиБ = потолок линковки).
@@ -28,7 +28,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 HUB="${EAT_HUB:-$(dirname "$REPO")/EATLang-hub.git}"
 TASKS="${EAT_TASKS:-$(dirname "$REPO")/eatlang-tasks}"
-IMAGE="${IMAGE:-eatlang-dev:etap0}"
+IMAGE="${IMAGE:-eatlang-dev:etap1}"
 
 GATE='make check verify verify_suite verify_selfhost verify_bootstrap \
       verify_trapcodes verify_selfhost_opt verify_sig \

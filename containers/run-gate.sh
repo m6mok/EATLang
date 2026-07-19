@@ -7,7 +7,7 @@
 # одноразовый прогон гейта в образе.
 #
 # Использование:
-#   podman build -f containers/Containerfile -t eatlang-dev:etap0 containers
+#   podman build -f containers/Containerfile -t eatlang-dev:etap1 containers
 #   containers/run-gate.sh [ПУТЬ_К_ДЕРЕВУ]   # по умолчанию — текущий репозиторий
 #
 # ВАЖНО: при живом соседском WIP монтируй ЧИСТЫЙ worktree на HEAD, а не
@@ -16,7 +16,7 @@
 #   containers/run-gate.sh ../EATLang-gate
 set -euo pipefail
 
-IMAGE="${IMAGE:-eatlang-dev:etap0}"
+IMAGE="${IMAGE:-eatlang-dev:etap1}"
 REPO="$(cd "${1:-$PWD}" && pwd)"
 
 GATE='make check verify verify_suite verify_selfhost verify_bootstrap \

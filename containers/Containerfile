@@ -19,7 +19,12 @@
 #                            смонтированного репозитория)
 #
 # Собрать (на macOS — сначала `podman machine start`):
-#   podman build -f containers/Containerfile -t eatlang-dev:etap0 containers
+#   podman build -f containers/Containerfile -t eatlang-dev:etap1 containers
+#
+# История пина: etap0 — тулчейн (clang/go/rust/uv+llvmlite); etap1 — плюс
+# измерительные инструменты счётчика инструкций (qemu-system-arm с insn-
+# плагином, valgrind) для OPTIMIZATIONS §2.3/§4 (решение пользователя
+# 2026-07-19: расширить базовый образ, а не отдельный измерительный).
 #
 # Прогнать полный гейт против репозитория — см. docs/plans/CONTAINERS_PLAN.md
 # и containers/run-gate.sh.
@@ -100,6 +105,38 @@ RUN ln -sf /usr/local/go/bin/go       /usr/local/bin/go \
     && ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt \
     && ln -sf /opt/rust/cargo/bin/rustc /usr/local/bin/rustc \
     && ln -sf /opt/rust/cargo/bin/cargo /usr/local/bin/cargo
+
+# --- инструменты счётчика инструкций (измерения OPTIMIZATIONS §2.3/§4) ----
+# Разблокируют ДВЕ метрики, упиравшиеся в детерминированный счётчик:
+#   §4   — цикловая цена проверок: mos6502 на Cortex-M3 (qemu-system-arm
+#          -M mps2-an385) с верификатором и без, детерминированный счётчик
+#          исполненных инструкций (дополняет .text-метрику);
+#   §2.3 — профиль горячих путей SelfIr ниже пола `sample`: фазовые
+#          бинарники selfhost под valgrind --tool=callgrind, instr-счёт (Ir)
+#          по фазам + пофункциональная атрибуция; эмиссия IR = Ir − Typed.
+# ВАЖНО (FAULTS 2026-07-19): Debian собирает --enable-plugins ТОЛЬКО для
+# qemu-system-*; qemu-user (qemu-aarch64) идёт без плагинов → user-mode
+# insn-плагин недоступен без сборки qemu из исходника. Поэтому §2.3 берёт
+# «инструментированный прогон» (санкция самого §2.3) через callgrind —
+# он и точнее (пофункционально), и дешевле (пакет, не 30-мин сборка).
+# Сам qemu insn-плагин НЕ пакетируется — компилируем из пиннутого upstream-
+# исходника (tag ${QEMU_PLUGIN_TAG} под серию бинаря; ABI плагина стабилен
+# внутри 10.0.x) и грузим в qemu-system-arm.
+ARG QEMU_PLUGIN_TAG=v10.0.0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        qemu-system-arm valgrind gcc libglib2.0-dev pkg-config \
+    && mkdir -p /tmp/qplug \
+    && curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+        "https://gitlab.com/qemu-project/qemu/-/raw/${QEMU_PLUGIN_TAG}/include/qemu/qemu-plugin.h" \
+        -o /tmp/qplug/qemu-plugin.h \
+    && curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+        "https://gitlab.com/qemu-project/qemu/-/raw/${QEMU_PLUGIN_TAG}/tests/tcg/plugins/insn.c" \
+        -o /tmp/qplug/insn.c \
+    && gcc -O2 -shared -fPIC -I/tmp/qplug $(pkg-config --cflags glib-2.0) \
+        /tmp/qplug/insn.c -o /usr/local/lib/libinsn.so \
+        $(pkg-config --libs glib-2.0) \
+    && rm -rf /tmp/qplug /var/lib/apt/lists/*
+ENV EAT_QEMU_INSN=/usr/local/lib/libinsn.so
 
 # Репозиторий монтируется при запуске (bind-mount), в образ не копируется:
 # venv (linux-llvmlite) и build/ создаются в смонтированном дереве.

@@ -218,3 +218,7 @@ src/proto/*.pyi
 EATLang-gate-*/
 # логи прогонов контейнерного гейта
 containers/*.log
+
+# valgrind core-дампы/выхлоп от измерений (containers/measure_selfir.sh)
+vgcore.*
+callgrind.out.*

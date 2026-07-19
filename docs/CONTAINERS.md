@@ -19,9 +19,16 @@
 
   ```sh
   podman machine start                                    # на macOS
-  podman build -f containers/Containerfile -t eatlang-dev:etap0 containers
+  podman build -f containers/Containerfile -t eatlang-dev:etap1 containers
   containers/run-gate.sh <путь-к-дереву>                  # полный гейт в образе
   ```
+
+  История пина: **etap0** — тулчейн (clang/go/rust/uv+llvmlite); **etap1**
+  — плюс измерительные инструменты счётчика инструкций (qemu-system-arm с
+  insn-плагином, valgrind) для OPTIMIZATIONS §2.3/§4 (решение пользователя
+  2026-07-19: расширить базовый образ). Инструменты — **только для профиля**,
+  в гейт готовности не входят; запуск метрик — `containers/run-measure.sh`
+  (`make measure` = `measure_mcu` §4 + `measure_selfir` §2.3).
 
 ## 2. Как запускать (изоляция)
 
