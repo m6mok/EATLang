@@ -1,0 +1,442 @@
+# editor/lsp/Complete.eat — автодополнение (docs/plans/LSP_PLAN.md, этап 4):
+# textDocument/completion. Без точки — общий список (снипеты каркасов func/
+# for/match/test, ключевые слова, встроенные и конструкторы Ok/Err/Some/None;
+# фильтрует по префиксу клиент). После точки — поля и методы структуры
+# приёмника: тип приёмника — из Check.nty (name-узел 37 / self-узел 38 /
+# инициализатор let-узла 13), структура — find_struct, поля — sgs/sgc→gn_*,
+# методы — fown == si (детали — lsp_type_str/lsp_sig_str из Hover.eat).
+#
+# Идёт в плоской склейке ПОСЛЕ фаз и Hover.eat (extend Check сливается с
+# методами рендера) и ПЕРЕД Handlers.eat (struct Cmpl читает DocStore).
+# Правок фаз НЕТ: extend-методы компилируются только в сборке LSP (файла
+# нет в списках SELFHOST_*), паритет src/eatc ↔ selfhost не затронут.
+# Всё прикладное — с префиксом lsp_ (плоский модуль 0, имена глобальны).
+#
+# Никаких новых аксиом/куч/рекурсий: чтение таблиц Check — те же пулы, что
+# у hover; обходы — for со статической границей; строки — str<N> в кадре.
+
+# Контекст completion из сырой строки буфера (до анализа): member — курсор
+# за точкой (поля/методы приёмника); chain — приёмник сам за точкой
+# (a.b. — не поддержано, честный null); slf — приёмник `self`; nm/nn —
+# байты имени приёмника. Заполняет DocStore.cmpl_ctx (Handlers.eat).
+struct Cmpl {
+    member: bool
+    chain: bool
+    slf: bool
+    nm: [u8; 64]
+    nn: u32
+}
+
+# байт идентификатора: A-Z a-z 0-9 _
+func lsp_idb(b: u8) -> bool
+{
+    return ((b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+        or (b >= 48 and b <= 57) or b == 95)
+}
+
+# Ключевое слово i (алфавитно) или "" за концом списка. func/for/match/test
+# не дублируются — их несут снипеты каркасов (lsp_snip_body).
+func lsp_kw(i: u32) -> str<16>
+{
+    if i == 0 { return "and"
+    } elif i == 1 { return "as"
+    } elif i == 2 { return "assert"
+    } elif i == 3 { return "break"
+    } elif i == 4 { return "const"
+    } elif i == 5 { return "constexpr"
+    } elif i == 6 { return "discard"
+    } elif i == 7 { return "elif"
+    } elif i == 8 { return "else"
+    } elif i == 9 { return "ensures"
+    } elif i == 10 { return "enum"
+    } elif i == 11 { return "export"
+    } elif i == 12 { return "extend"
+    } elif i == 13 { return "extern"
+    } elif i == 14 { return "false"
+    } elif i == 15 { return "from"
+    } elif i == 16 { return "if"
+    } elif i == 17 { return "import"
+    } elif i == 18 { return "in"
+    } elif i == 19 { return "let"
+    } elif i == 20 { return "loop"
+    } elif i == 21 { return "not"
+    } elif i == 22 { return "or"
+    } elif i == 23 { return "requires"
+    } elif i == 24 { return "return"
+    } elif i == 25 { return "self"
+    } elif i == 26 { return "struct"
+    } elif i == 27 { return "true"
+    }
+    return ""
+}
+
+# Встроенная функция i (касты, ядро, аксиомы ОС SPEC §7) или "" за концом.
+# Конструкторы Ok/Err/Some/None эмитятся отдельно (kind 4 Constructor).
+func lsp_bi(i: u32) -> str<24>
+{
+    if i == 0 { return "i32"
+    } elif i == 1 { return "u32"
+    } elif i == 2 { return "u8"
+    } elif i == 3 { return "u16"
+    } elif i == 4 { return "u64"
+    } elif i == 5 { return "i64"
+    } elif i == 6 { return "char"
+    } elif i == 7 { return "len"
+    } elif i == 8 { return "print"
+    } elif i == 9 { return "write"
+    } elif i == 10 { return "read_byte"
+    } elif i == 11 { return "write_byte"
+    } elif i == 12 { return "write_span"
+    } elif i == 13 { return "write_err_byte"
+    } elif i == 14 { return "exit"
+    } elif i == 15 { return "arg_count"
+    } elif i == 16 { return "arg_len"
+    } elif i == 17 { return "arg_byte"
+    } elif i == 18 { return "in_avail"
+    } elif i == 19 { return "ticks"
+    } elif i == 20 { return "socket_listen"
+    } elif i == 21 { return "socket_accept"
+    } elif i == 22 { return "socket_avail"
+    } elif i == 23 { return "socket_read_byte"
+    } elif i == 24 { return "socket_write_span"
+    } elif i == 25 { return "socket_close"
+    }
+    return ""
+}
+
+# Тело снипета i (VSCode: ${N} — табстопы, ${N:текст} — заполнители).
+# 0 func (с requires/ensures — контракт напоказ), 1 for … in, 2 match,
+# 3 test. Литеральные скобки в строках языка удваиваются ({{ }}).
+func lsp_snip_body(i: u32) -> str<256>
+{
+    if i == 0 {
+        let s: str<256> = "func ${{1:имя}}(${{2}}) -> ${{3:u32}}\n"
+        s = "{s}    requires ${{4:true}}\n    ensures ${{5:true}}\n"
+        s = "{s}{{\n    ${{0}}\n}}"
+        return s
+    }
+    if i == 1 {
+        return "for ${{1:i}} in 0..${{2:n}} {{\n    ${{0}}\n}}"
+    }
+    if i == 2 {
+        let s: str<256> = "match ${{1:x}} {{\n    Ok(${{2:v}}) {{\n"
+        s = "{s}        ${{0}}\n    }}\n    Err(_) {{\n    }}\n}}"
+        return s
+    }
+    return "test ${{1:имя}} {{\n    assert ${{0}}\n}}"
+}
+
+# один пункт списка completion: label + kind (+ detail при непустом)
+func lsp_item(o: JOut, lb: str<64>, kd: u32, det: str<256>) -> JOut
+{
+    let x: JOut = o
+    x.begin_obj()
+    x.field("label")
+    x.qval(lb)
+    x.field("kind")
+    x.ival(i64(kd))
+    if det != "" {
+        x.field("detail")
+        x.qval(det)
+    }
+    x.end_obj()
+    return x
+}
+
+# снипет-каркас: kind 15 Snippet, insertText в формате 2 (snippet)
+func lsp_snip(o: JOut, lb: str<64>, it: str<256>) -> JOut
+{
+    let x: JOut = o
+    x.begin_obj()
+    x.field("label")
+    x.qval(lb)
+    x.field("kind")
+    x.ival(15)
+    x.field("insertText")
+    x.qval(it)
+    x.field("insertTextFormat")
+    x.ival(2)
+    x.end_obj()
+    return x
+}
+
+# Общий список (курсор не за точкой): снипеты каркасов, ключевые слова
+# (kind 14), встроенные (kind 3) и конструкторы (kind 4). Порядок
+# фиксирован — ранжирует и фильтрует по префиксу клиент.
+func lsp_general(o: JOut) -> JOut
+{
+    let x: JOut = o
+    x = lsp_snip(x, "func", lsp_snip_body(0))
+    x = lsp_snip(x, "for", lsp_snip_body(1))
+    x = lsp_snip(x, "match", lsp_snip_body(2))
+    x = lsp_snip(x, "test", lsp_snip_body(3))
+    for i in 0..32 {
+        const w: str<16> = lsp_kw(u32(i))
+        if w == "" {
+            break
+        }
+        x = lsp_item(x, w, 14, "")
+    }
+    for i in 0..32 {
+        const b: str<24> = lsp_bi(u32(i))
+        if b == "" {
+            break
+        }
+        x = lsp_item(x, b, 3, "")
+    }
+    x = lsp_item(x, "Ok", 4, "")
+    x = lsp_item(x, "Err", 4, "")
+    x = lsp_item(x, "Some", 4, "")
+    x = lsp_item(x, "None", 4, "")
+    return x
+}
+
+# Ответ-конверт общего списка (id + result: [пункты]); переполнение → null.
+func lsp_reply_general(id: i64)
+{
+    let o: JOut = json_out()
+    o.begin_obj()
+    o.field("jsonrpc")
+    o.qval("2.0")
+    o.field("id")
+    o.ival(id)
+    o.field("result")
+    o.begin_array()
+    o = lsp_general(o)
+    o.end_array()
+    o.end_obj()
+    if o.over {
+        lsp_reply_null(id)
+        return
+    }
+    lsp_send(o)
+}
+
+# --- тип приёмника и члены структуры (extend Check: пулы по self) ---------
+
+extend Check {
+    # Порог узлов открытого файла: id последней #module-директивы среди
+    # детей корня (узлы растут в порядке разбора; маркер открытого файла —
+    # последний). 0 — одиночный поток. Как lsp_node_thr (Hover), но в
+    # контексте Check: completion не гоняет верификатор.
+    func lsp_cthr(let self) -> u32
+    {
+        let thr: u32 = 0
+        let d: u32 = self.p.nfc[0][0]
+        for _ in 0..131072 {
+            if d == NONE or d >= 131072 {
+                break
+            }
+            if self.p.nk[d / 65536][d % 65536] == 51 {
+                thr = d
+            }
+            d = self.p.nns[d / 65536][d % 65536]
+        }
+        return thr
+    }
+
+    # первый индекс токена открытого файла (после последнего MODULE=67);
+    # 0 — модулей в потоке нет (копия lsp_tok_start в контексте Check)
+    func lsp_ctok0(let self) -> u32
+    {
+        let thr: u32 = 0
+        let found: bool = false
+        for t in 0..262144 {
+            if u32(t) >= self.p.lex.ntok {
+                break
+            }
+            if self.p.lex.tok_k(u32(t)) == 67 {
+                thr = u32(t)
+                found = true
+            }
+        }
+        if found {
+            return thr + 1
+        }
+        return 0
+    }
+
+    # спан sublex-буфера (a, l) == имя nm (nn байт) из буфера документа?
+    func lsp_nm_eq(let self, a: u32, l: u32, nm: [u8; 64], nn: u32) -> bool
+    {
+        if l != nn or nn > 64 {
+            return false
+        }
+        let eq: bool = true
+        for i in 0..64 {
+            if u32(i) >= nn or not eq {
+                break
+            }
+            if a + u32(i) < 262144 {
+                if self.p.lex.sb_at(a + u32(i)) != nm[u32(i)] {
+                    eq = false
+                }
+            } else {
+                eq = false
+            }
+        }
+        return eq
+    }
+
+    # тип инициализатора let-узла (последний потомок — выражение) или NONE
+    func lsp_let_ty(let self, n: u32) -> u32
+        requires n < 131072
+    {
+        let c: u32 = self.p.nfc[n / 65536][n % 65536]
+        let last: u32 = NONE
+        for _ in 0..8 {
+            if c == NONE or c >= 131072 {
+                break
+            }
+            last = c
+            c = self.p.nns[c / 65536][c % 65536]
+        }
+        if last == NONE {
+            return NONE
+        }
+        return self.nty[last / 65536][last % 65536]
+    }
+
+    # Тип приёмника из nty. slf — приёмник `self` (узлы вида 38, имя не
+    # сверяется); иначе — name-узлы (37) с именем nm и инициализатор
+    # let-узла (13, случай «объявлена, первое использование — под
+    # курсором»). Выбор: последний кандидат со строкой <= cline (ближайший
+    # выше курсора); нет таких — первый любой (параметр, использованный
+    # ниже). NONE — не найден. Узлы чужих модулей потока отсекает порог.
+    func lsp_recv_ty(let self, nm: [u8; 64], nn: u32, cline: u32, slf: bool) -> u32
+    {
+        const nthr: u32 = self.lsp_cthr()
+        let bty: u32 = NONE
+        let bl: u32 = 0
+        let aty: u32 = NONE
+        for n in 0..131072 {
+            if u32(n) >= self.p.nnode {
+                break
+            }
+            if nthr == 0 or u32(n) > nthr {
+                const k: u32 = self.p.nk[u32(n) / 65536][u32(n) % 65536]
+                let ty: u32 = NONE
+                if slf {
+                    if k == 38 {
+                        ty = self.nty[u32(n) / 65536][u32(n) % 65536]
+                    }
+                } elif k == 37 or k == 13 {
+                    const sa: u32 = self.p.nss[u32(n) / 65536][u32(n) % 65536]
+                    const sl: u32 = self.p.nsl[u32(n) / 65536][u32(n) % 65536]
+                    if self.lsp_nm_eq(sa, sl, nm, nn) {
+                        if k == 37 {
+                            ty = self.nty[u32(n) / 65536][u32(n) % 65536]
+                        } else {
+                            ty = self.lsp_let_ty(u32(n))
+                        }
+                    }
+                }
+                if ty != NONE {
+                    const ln: u32 = self.p.nl[u32(n) / 65536][u32(n) % 65536]
+                    if ln <= cline and ln >= bl {
+                        bty = ty
+                        bl = ln
+                    }
+                    if aty == NONE {
+                        aty = ty
+                    }
+                }
+            }
+        }
+        if bty != NONE {
+            return bty
+        }
+        return aty
+    }
+
+    # struct-индекс типа ty (вид 8 — struct) или NONE (не struct)
+    func lsp_ty_struct(let self, ty: u32) -> u32
+    {
+        if ty == NONE or ty >= 512 {
+            return NONE
+        }
+        if self.yk[ty] != 8 {
+            return NONE
+        }
+        return self.find_struct(self.ys[ty], self.yl[ty])
+    }
+
+    # Владелец self лексически: последняя пара STRUCT(8)|EXTEND(68) + IDENT
+    # со строкой <= cline среди токенов открытого файла. Резерв, когда
+    # типизированного узла self нет (тело метода — «прогал» строки курсора).
+    func lsp_self_owner(let self, cline: u32) -> u32
+    {
+        const t0: u32 = self.lsp_ctok0()
+        let a: u32 = NONE
+        let l: u32 = 0
+        for t in 0..262144 {
+            if u32(t) + 1 >= self.p.lex.ntok {
+                break
+            }
+            const k: u32 = self.p.lex.tok_k(u32(t))
+            if (u32(t) >= t0 and (k == 8 or k == 68)
+                    and self.p.lex.tok_k(u32(t) + 1) == 3
+                    and self.p.lex.tok_l(u32(t)) <= cline) {
+                a = self.p.lex.tok_vs(u32(t) + 1)
+                l = self.p.lex.tok_vl(u32(t) + 1)
+            }
+        }
+        if a == NONE {
+            return NONE
+        }
+        return self.find_struct(a, l)
+    }
+
+    # Поля (kind 5 Field, detail — тип) и методы (kind 2 Method, detail —
+    # сигнатура без self) структуры si в порядке объявления.
+    func lsp_members(let self, o: JOut, si: u32) -> JOut
+        requires si < 128
+    {
+        let x: JOut = o
+        const gs: u32 = self.sgs[si]
+        for k in 0..1024 {
+            if u32(k) >= self.sgc[si] {
+                break
+            }
+            const gi: u32 = gs + u32(k)
+            if gi < 1024 {
+                x = lsp_item(x,
+                    self.lsp_span_str(self.gn_s[gi], self.gn_l[gi]), 5,
+                    self.lsp_type_str(self.gty[gi]))
+            }
+        }
+        for f2 in 0..2048 {
+            if u32(f2) >= self.nfun {
+                break
+            }
+            if self.fown[u32(f2)] == si {
+                x = lsp_item(x,
+                    self.lsp_span_str(self.fn_s[u32(f2)], self.fn_l[u32(f2)]),
+                    2, self.lsp_sig_str(u32(f2)))
+            }
+        }
+        return x
+    }
+
+    # Собрать и отправить ответ completion с членами структуры si.
+    func lsp_reply_members(let self, id: i64, si: u32)
+        requires si < 128
+    {
+        let o: JOut = json_out()
+        o.begin_obj()
+        o.field("jsonrpc")
+        o.qval("2.0")
+        o.field("id")
+        o.ival(id)
+        o.field("result")
+        o.begin_array()
+        o = self.lsp_members(o, si)
+        o.end_array()
+        o.end_obj()
+        if o.over {
+            lsp_reply_null(id)
+            return
+        }
+        lsp_send(o)
+    }
+}

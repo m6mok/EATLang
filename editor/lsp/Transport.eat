@@ -518,6 +518,30 @@ struct Lsp {
         self.store.reply_hover(slot, id, u32(line0), u32(ch16), self.opt)
     }
 
+    # textDocument/completion (запрос, этап 4): позиция курсора → пункты
+    # автодополнения. Без точки — общий список (снипеты каркасов, ключевые
+    # слова, встроенные); за точкой — поля/методы структуры приёмника
+    # (тип — из Check.nty). Ответ — массив CompletionItem или null.
+    func on_completion(let self, root: u32, id: i64)
+    {
+        const params: u32 = self.jget(root, "params")
+        const td: u32 = self.jget(params, "textDocument")
+        const pos: u32 = self.jget(params, "position")
+        if td == LSP_NONE or pos == LSP_NONE {
+            lsp_reply_null(id)
+            return
+        }
+        const uri: str<256> = self.uri_of(td)
+        const slot: u32 = self.store.find(uri)
+        if slot == LSP_NONE {
+            lsp_reply_null(id)
+            return
+        }
+        const line0: i64 = self.jint(pos, "line")
+        const ch16: i64 = self.jint(pos, "character")
+        self.store.reply_completion(slot, id, u32(line0), u32(ch16))
+    }
+
     # eat/opt (уведомление клиента, этап 2): переключение оси -O для
     # вердиктов инлеев — params.on. После смены сервер просит клиента
     # перезапросить хинты (workspace/inlayHint/refresh): вердикты
@@ -641,6 +665,10 @@ struct Lsp {
         }
         if m == "textDocument/hover" {
             self.on_hover(root, id)
+            return false
+        }
+        if m == "textDocument/completion" {
+            self.on_completion(root, id)
             return false
         }
         if m == "eat/module" {

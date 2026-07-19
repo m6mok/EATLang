@@ -129,7 +129,8 @@ LSP_PHASES = selfhost/lex/Tok.eat selfhost/lex/Lexer.eat selfhost/parse/Ast.eat 
 	selfhost/verify/Verify.eat selfhost/verify/VerifyExpr.eat selfhost/verify/VerifyRel.eat \
 	selfhost/verify/VerifyFlow.eat selfhost/verify/VerifyClamp.eat selfhost/verify/VerifyDump.eat
 LSP_FILES = $(RT) $(LIB_FRONT) build/JsonFlat.eat $(LSP_PHASES) \
-	editor/lsp/Hover.eat editor/lsp/Handlers.eat editor/lsp/Transport.eat $(LSP_MAIN)
+	editor/lsp/Hover.eat editor/lsp/Complete.eat \
+	editor/lsp/Handlers.eat editor/lsp/Transport.eat $(LSP_MAIN)
 
 # Производный плоский lib/json (снятые import-блоки) для склейки LSP.
 build/JsonFlat.eat: lib/json/Json.eat tools/json_flat.py
@@ -545,6 +546,28 @@ mcu_flash: mcu
 
 mcu_run: mcu
 	$(MCU_QEMU) -kernel $(MCU_DIR)/$(MCU_PROG).elf
+
+# --- Измерения OPTIMIZATIONS §2.3/§4 (детерминированный счётчик инструкций) --
+# ТОЛЬКО в образе eatlang-dev:etap1 (несёт qemu-system-arm с insn-плагином и
+# valgrind; на хосте инструментов нет). НЕ входят в гейт готовности — это
+# профиль, а не сверка. Запуск: containers/run-measure.sh (podman --rm).
+#   §4   measure_mcu    — цикловая цена проверок mos6502 на Cortex-M3;
+#   §2.3 measure_selfir — instr-профиль фаз self-hosted компилятора.
+.PHONY: measure measure_mcu measure_selfir
+measure: measure_mcu measure_selfir
+
+measure_mcu:
+	@bash containers/measure_mcu.sh
+
+measure_selfir:
+	@$(EATC) build $(SELFHOST_LEXER)  -o build/SelfLex   >/dev/null & p1=$$!; \
+	 $(EATC) build $(SELFHOST_PARSER) -o build/SelfParse >/dev/null & p2=$$!; \
+	 $(EATC) build $(SELFHOST_SIG)    -o build/SelfSig   >/dev/null & p3=$$!; \
+	 $(EATC) build $(SELFHOST_TYPED)  -o build/SelfTyped >/dev/null & p4=$$!; \
+	 $(EATC) build $(SELFHOST_IR)     -o build/SelfIr    >/dev/null & p5=$$!; \
+	 wait $$p1 && wait $$p2 && wait $$p3 && wait $$p4 && wait $$p5
+	@cat $(SELFHOST_IR) > /tmp/eat_selfir_src.eat
+	@bash containers/measure_selfir.sh /tmp/eat_selfir_src.eat
 
 # Сверка МК-сборок в QEMU (все платы mcu/boards/ c QEMU-машиной):
 #   mos6502 (без extern) — вывод == интерпретатор; только mps2-an385:

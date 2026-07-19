@@ -1,6 +1,6 @@
-Content-Length: 195
+Content-Length: 244
 
-{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"definitionProvider":true,"inlayHintProvider":true,"hoverProvider":true},"serverInfo":{"name":"eat-lsp","version":"0.0.1"}}}Content-Length: 266
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"definitionProvider":true,"inlayHintProvider":true,"hoverProvider":true,"completionProvider":{"triggerCharacters":["."]}},"serverInfo":{"name":"eat-lsp","version":"0.0.1"}}}Content-Length: 266
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/lex.eat","diagnostics":[{"range":{"start":{"line":1,"character":14},"end":{"line":1,"character":15}},"severity":1,"source":"eatc","message":"незакрытая строка"}]}}Content-Length: 270
 
@@ -58,7 +58,27 @@ Content-Length: 195
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/mh.eat","diagnostics":[]}}Content-Length: 259
 
-{"jsonrpc":"2.0","id":34,"result":{"contents":{"kind":"markdown","value":"```eat\nfunc inc(x: u32) -> u32\n```\n\n_(импортирован — контракт в модуле)_"},"range":{"start":{"line":6,"character":17},"end":{"line":6,"character":20}}}}Content-Length: 331
+{"jsonrpc":"2.0","id":34,"result":{"contents":{"kind":"markdown","value":"```eat\nfunc inc(x: u32) -> u32\n```\n\n_(импортирован — контракт в модуле)_"},"range":{"start":{"line":6,"character":17},"end":{"line":6,"character":20}}}}Content-Length: 2193
+
+{"jsonrpc":"2.0","id":40,"result":[{"label":"func","kind":15,"insertText":"func ${1:имя}(${2}) -> ${3:u32}\n    requires ${4:true}\n    ensures ${5:true}\n{\n    ${0}\n}","insertTextFormat":2},{"label":"for","kind":15,"insertText":"for ${1:i} in 0..${2:n} {\n    ${0}\n}","insertTextFormat":2},{"label":"match","kind":15,"insertText":"match ${1:x} {\n    Ok(${2:v}) {\n        ${0}\n    }\n    Err(_) {\n    }\n}","insertTextFormat":2},{"label":"test","kind":15,"insertText":"test ${1:имя} {\n    assert ${0}\n}","insertTextFormat":2},{"label":"and","kind":14},{"label":"as","kind":14},{"label":"assert","kind":14},{"label":"break","kind":14},{"label":"const","kind":14},{"label":"constexpr","kind":14},{"label":"discard","kind":14},{"label":"elif","kind":14},{"label":"else","kind":14},{"label":"ensures","kind":14},{"label":"enum","kind":14},{"label":"export","kind":14},{"label":"extend","kind":14},{"label":"extern","kind":14},{"label":"false","kind":14},{"label":"from","kind":14},{"label":"if","kind":14},{"label":"import","kind":14},{"label":"in","kind":14},{"label":"let","kind":14},{"label":"loop","kind":14},{"label":"not","kind":14},{"label":"or","kind":14},{"label":"requires","kind":14},{"label":"return","kind":14},{"label":"self","kind":14},{"label":"struct","kind":14},{"label":"true","kind":14},{"label":"i32","kind":3},{"label":"u32","kind":3},{"label":"u8","kind":3},{"label":"u16","kind":3},{"label":"u64","kind":3},{"label":"i64","kind":3},{"label":"char","kind":3},{"label":"len","kind":3},{"label":"print","kind":3},{"label":"write","kind":3},{"label":"read_byte","kind":3},{"label":"write_byte","kind":3},{"label":"write_span","kind":3},{"label":"write_err_byte","kind":3},{"label":"exit","kind":3},{"label":"arg_count","kind":3},{"label":"arg_len","kind":3},{"label":"arg_byte","kind":3},{"label":"in_avail","kind":3},{"label":"ticks","kind":3},{"label":"socket_listen","kind":3},{"label":"socket_accept","kind":3},{"label":"socket_avail","kind":3},{"label":"socket_read_byte","kind":3},{"label":"socket_write_span","kind":3},{"label":"socket_close","kind":3},{"label":"Ok","kind":4},{"label":"Err","kind":4},{"label":"Some","kind":4},{"label":"None","kind":4}]}Content-Length: 287
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/cmp.eat","diagnostics":[{"range":{"start":{"line":14,"character":6},"end":{"line":14,"character":7}},"severity":1,"source":"eatc","message":"ожидалось имя поля или метода"}]}}Content-Length: 158
+
+{"jsonrpc":"2.0","id":41,"result":[{"label":"x","kind":5,"detail":"u32"},{"label":"y","kind":5,"detail":"u32"},{"label":"sum","kind":2,"detail":"() -> u32"}]}Content-Length: 39
+
+{"jsonrpc":"2.0","id":42,"result":null}Content-Length: 287
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/cms.eat","diagnostics":[{"range":{"start":{"line":6,"character":13},"end":{"line":6,"character":14}},"severity":1,"source":"eatc","message":"ожидалось имя поля или метода"}]}}Content-Length: 121
+
+{"jsonrpc":"2.0","id":43,"result":[{"label":"x","kind":5,"detail":"u32"},{"label":"bump","kind":2,"detail":"() -> u32"}]}Content-Length: 114
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/cmv.eat","diagnostics":[]}}Content-Length: 74
+
+{"jsonrpc":"2.0","id":44,"result":[{"label":"a","kind":5,"detail":"u32"}]}Content-Length: 287
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/cmx.eat","diagnostics":[{"range":{"start":{"line":7,"character":13},"end":{"line":7,"character":14}},"severity":1,"source":"eatc","message":"ожидалось имя поля или метода"}]}}Content-Length: 120
+
+{"jsonrpc":"2.0","id":45,"result":[{"label":"b","kind":5,"detail":"u32"},{"label":"inc","kind":2,"detail":"() -> u32"}]}Content-Length: 331
 
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///t/ok.eat","diagnostics":[{"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":19}},"severity":1,"source":"eatc","message":"тип значения не совпадает (неявных преобразований нет)"}]}}Content-Length: 113
 

@@ -6,7 +6,8 @@
 # publishDiagnostics на лексической, синтаксической и типовой ошибке,
 # при чистом разборе и после закрытия; плюс inlay-хинты верификатора
 # (textDocument/inlayHint: ✓ доказано / ⚠ trap в рантайме; eat/opt —
-# ось -O, свёртка вызовов перед verify).
+# ось -O, свёртка вызовов перед verify), hover (этап 3) и completion
+# (этап 4: общий список со снипетами; поля/методы по типу приёмника).
 #
 # Вход строится здесь (Python: обрамление Content-Length с CRLF, тела в
 # UTF-8), чтобы в репозитории не жили CR-байты. Выход сервера
@@ -151,6 +152,43 @@ frame({"jsonrpc":"2.0","method":"eat/order","params":{
     "uri":"file:///t/mh.eat","paths":["rt0","t/dep3.eat"]}})
 frame({"jsonrpc":"2.0","id":34,"method":"textDocument/hover","params":{
     "textDocument":{"uri":"file:///t/mh.eat"},"position":{"line":6,"character":17}}})
+# completion (этап 4). Курсор не за точкой → общий список: снипеты каркасов
+# (func с requires/ensures, for … in, match, test; insertTextFormat 2),
+# ключевые слова, встроенные (касты/ядро/аксиомы) и конструкторы.
+frame({"jsonrpc":"2.0","id":40,"method":"textDocument/completion","params":{
+    "textDocument":{"uri":"file:///t/hov.eat"},"position":{"line":7,"character":4}}})
+# члены структуры: текст со сломанной строкой курсора `p.` анализируется с
+# «прогалом» этой строки; тип приёмника p — из Check.nty (name-узел в print)
+did_open("file:///t/cmp.eat",
+         'struct Pt {\n    x: u32\n    y: u32\n\n    func sum(self) -> u32\n'
+         '    {\n        return self.x + self.y\n    }\n}\n\nfunc main()\n{\n'
+         '    let p: Pt = Pt { x: 1, y: 2 }\n    print("{p.sum()}")\n    p.\n}\n')
+frame({"jsonrpc":"2.0","id":41,"method":"textDocument/completion","params":{
+    "textDocument":{"uri":"file:///t/cmp.eat"},"position":{"line":14,"character":6}}})
+# точка на ДРУГОЙ строке того же сломанного файла: прогал чинит только
+# строку курсора, `p.` остаётся — разбор не восстановился → честный null
+frame({"jsonrpc":"2.0","id":42,"method":"textDocument/completion","params":{
+    "textDocument":{"uri":"file:///t/cmp.eat"},"position":{"line":13,"character":14}}})
+# приёмник self: тип из nty узла self (38) соседней строки тела метода
+did_open("file:///t/cms.eat",
+         'struct Pt3 {\n    x: u32\n\n    func bump(self) -> u32\n    {\n'
+         '        let t: u32 = self.x + 1\n        self.\n        return t\n    }\n}\n\n'
+         'func main()\n{\n    let s: Pt3 = Pt3 { x: 1 }\n    print("{s.bump()}")\n}\n')
+frame({"jsonrpc":"2.0","id":43,"method":"textDocument/completion","params":{
+    "textDocument":{"uri":"file:///t/cms.eat"},"position":{"line":6,"character":13}}})
+# валидный текст (без прогала): поля структуры по nty приёмника v
+did_open("file:///t/cmv.eat",
+         'struct P2 {\n    a: u32\n}\n\nfunc main()\n{\n'
+         '    let v: P2 = P2 { a: 1 }\n    print("{v.a}")\n}\n')
+frame({"jsonrpc":"2.0","id":44,"method":"textDocument/completion","params":{
+    "textDocument":{"uri":"file:///t/cmv.eat"},"position":{"line":7,"character":14}}})
+# extend-блок без main: тел нет (Check падает «нет main» до типизации) —
+# владелец self находится лексически (последний struct|extend выше курсора)
+did_open("file:///t/cmx.eat",
+         'struct P4 {\n    b: u32\n}\n\nextend P4 {\n    func inc(self) -> u32\n    {\n'
+         '        self.\n        return 1\n    }\n}\n')
+frame({"jsonrpc":"2.0","id":45,"method":"textDocument/completion","params":{
+    "textDocument":{"uri":"file:///t/cmx.eat"},"position":{"line":7,"character":13}}})
 # didChange ok.eat → внести ошибку (полная синхронизация)
 frame({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {
     "textDocument": {"uri": "file:///t/ok.eat", "version": 2},

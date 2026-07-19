@@ -56,6 +56,13 @@ func reply_initialize(id: i64)
     o.bval(true)
     o.field("hoverProvider")
     o.bval(true)
+    o.field("completionProvider")
+    o.begin_obj()
+    o.field("triggerCharacters")
+    o.begin_array()
+    o.qval(".")
+    o.end_array()
+    o.end_obj()
     o.end_obj()
     o.field("serverInfo")
     o.begin_obj()
@@ -512,23 +519,40 @@ struct DocStore {
     }
 
     # Лекс текста слота как одиночной программы (без корпуса): источник —
-    # буфер слота, а не stdin. Возврат по значению — токены и позиции
-    # читает вызывающий (анализ, inlay-хинты).
-    func lex_single(self, di: u32) -> Lexer
+    # буфер слота, а не stdin. bl > 0 — строка bl (1-based) заменяется
+    # пробелами («прогал»: completion анализирует документ со сломанной
+    # строкой курсора; прогал сохраняет нумерацию строк). Возврат по
+    # значению — токены и позиции читает вызывающий.
+    func lex_single_b(self, di: u32, bl: u32) -> Lexer
     {
         let lex: Lexer = lexer_new()
         const n: u32 = self.docs[di].used
+        let cur: u32 = 1
         for i in 0..65536 {
             if u32(i) >= n or lex.failed {
                 break
             }
-            lex.step(self.docs[di].buf[u32(i)])
+            const b: u8 = self.docs[di].buf[u32(i)]
+            if b == 10 {
+                lex.step(b)
+                cur = cur + 1
+            } elif cur == bl {
+                lex.step(32)
+            } else {
+                lex.step(b)
+            }
         }
         lex.finish()
         if not lex.failed {
             lex.sublex_pass()
         }
         return lex
+    }
+
+    # одиночный лекс без прогала (анализ, inlay, hover)
+    func lex_single(self, di: u32) -> Lexer
+    {
+        return self.lex_single_b(di, 0)
     }
 
     # Прогон текста слота через lex+parse+check в транзитный анализ-кадр
@@ -587,7 +611,9 @@ struct DocStore {
     # (маркер-заглушка)] целиком → Check дальше резолвит границы модулей.
     # Директива #module СБРАСЫВАЕТ счётчик строк на модуль, поэтому позиции
     # открытого файла уже локальны ему — ремап не нужен (FAULTS 2026-07-18).
-    func lex_module(self, di: u32) -> Lexer
+    # bl > 0 — строка bl ОТКРЫТОГО файла заменяется пробелами (прогал
+    # completion; зависимости не трогаются, их нумерация своя).
+    func lex_module_b(self, di: u32, bl: u32) -> Lexer
     {
         let lex: Lexer = lexer_new()
         const pre: str<16> = "#module "
@@ -636,11 +662,20 @@ struct DocStore {
         lex.step(10)
         const mainless: bool = not self.has_main(di)
         const fn: u32 = self.docs[di].used
+        let cur: u32 = 1
         for k in 0..65536 {
             if u32(k) >= fn or lex.failed {
                 break
             }
-            lex.step(self.docs[di].buf[u32(k)])
+            const b: u8 = self.docs[di].buf[u32(k)]
+            if b == 10 {
+                lex.step(b)
+                cur = cur + 1
+            } elif cur == bl {
+                lex.step(32)
+            } else {
+                lex.step(b)
+            }
         }
         # библиотечный файл (нет main) — дописать пустую точку входа, иначе
         # Check бросит «нет функции main» до проверки тел (тела не проверятся)
@@ -658,6 +693,12 @@ struct DocStore {
             lex.sublex_pass()
         }
         return lex
+    }
+
+    # модульный лекс без прогала (анализ, inlay, hover)
+    func lex_module(self, di: u32) -> Lexer
+    {
+        return self.lex_module_b(di, 0)
     }
 
     # Кросс-файловый анализ модульного файла (этап 1c): поток lex_module →
@@ -700,6 +741,15 @@ struct DocStore {
             return self.lex_module(di)
         }
         return self.lex_single(di)
+    }
+
+    # то же с прогалом строки bl открытого файла (completion, этап 4)
+    func lex_any_b(self, di: u32, bl: u32) -> Lexer
+    {
+        if self.docs[di].norder > 0 {
+            return self.lex_module_b(di, bl)
+        }
+        return self.lex_single_b(di, bl)
     }
 
     # --- конверсия позиций: 1-based байт line:col → 0-based UTF-16 -----
@@ -807,6 +857,39 @@ struct DocStore {
             }
         }
         return cp + 1
+    }
+
+    # Байтовое смещение позиции (1-based кодпойнт col1) на строке от ls:
+    # идём col1-1 кодпойнтов (continuation-байты 0x80..0xBF — часть уже
+    # съеденного), стоп на конце строки/буфера. Для разбора сырой строки
+    # вокруг курсора (completion, этап 4).
+    func byte_at(self, di: u32, ls: u32, col1: u32) -> u32
+    {
+        let need: u32 = 0
+        if col1 > 1 {
+            need = col1 - 1
+        }
+        let off: u32 = 0
+        let cp: u32 = 0
+        let stop: bool = false
+        const n: u32 = self.docs[di].used
+        for _ in 0..65536 {
+            if stop or ls + off >= n {
+                break
+            }
+            const b: u8 = self.docs[di].buf[ls + off]
+            if b == 10 {
+                stop = true
+            } elif b >= 128 and b < 192 {
+                off = off + 1
+            } elif cp >= need {
+                stop = true
+            } else {
+                cp = cp + 1
+                off = off + 1
+            }
+        }
+        return ls + off
     }
 
     # Лекс слота di и поиск объявления под курсором (same-file, этап 1a).
@@ -1290,6 +1373,118 @@ struct DocStore {
             return
         }
         self.emit_hover(di, id, h)
+    }
+
+    # Контекст completion — разбор СЫРОЙ строки буфера вокруг курсора (до
+    # анализа): назад от курсора — префикс идентификатора; перед ним '.'
+    # → член, перед точкой — идентификатор приёмника (или self); приёмник
+    # сам за точкой — цепочка (a.b. не поддержана, честный null).
+    func cmpl_ctx(self, di: u32, line0: u32, ch16: u32) -> Cmpl
+    {
+        const ccol: u32 = self.col_from_u16(di, line0, ch16)
+        const ls: u32 = self.line_start(di, line0 + 1)
+        const pos: u32 = self.byte_at(di, ls, ccol)
+        let c: Cmpl = Cmpl {
+            member: false, chain: false, slf: false, nm: [0; 64], nn: 0
+        }
+        let s: u32 = pos
+        let stop: bool = false
+        for _ in 0..256 {
+            if stop or s <= ls {
+                break
+            }
+            if lsp_idb(self.docs[di].buf[s - 1]) {
+                s = s - 1
+            } else {
+                stop = true
+            }
+        }
+        if s <= ls or self.docs[di].buf[s - 1] != 46 {
+            return c
+        }
+        c.member = true
+        const e: u32 = s - 1
+        let rs: u32 = e
+        stop = false
+        for _ in 0..256 {
+            if stop or rs <= ls {
+                break
+            }
+            if lsp_idb(self.docs[di].buf[rs - 1]) {
+                rs = rs - 1
+            } else {
+                stop = true
+            }
+        }
+        if rs > ls and self.docs[di].buf[rs - 1] == 46 {
+            c.chain = true
+        }
+        let n: u32 = e - rs
+        if n > 64 {
+            n = 64
+        }
+        for i in 0..64 {
+            if u32(i) >= n {
+                break
+            }
+            c.nm[u32(i)] = self.docs[di].buf[rs + u32(i)]
+        }
+        c.nn = n
+        if (n == 4 and c.nm[0] == 115 and c.nm[1] == 101
+                and c.nm[2] == 108 and c.nm[3] == 102) {
+            c.slf = true
+        }
+        return c
+    }
+
+    # Ответ на textDocument/completion (этап 4): без точки — общий список
+    # (снипеты каркасов + ключевые слова + встроенные; фильтрует клиент);
+    # после точки — поля и методы структуры приёмника. Тип приёмника — из
+    # Check.nty (name/self-узел или инициализатор let). Сломанный текст
+    # (обычный случай: строка курсора кончается точкой) анализируется с
+    # «прогалом» этой строки — нумерация остальных строк сохраняется.
+    # Цепочка приёмников / не-struct / не восстановился — честный null.
+    func reply_completion(self, di: u32, id: i64, line0: u32, ch16: u32)
+    {
+        const cx: Cmpl = self.cmpl_ctx(di, line0, ch16)
+        if not cx.member {
+            lsp_reply_general(id)
+            return
+        }
+        if cx.chain or cx.nn == 0 {
+            lsp_reply_null(id)
+            return
+        }
+        const cline: u32 = line0 + 1
+        let lex: Lexer = self.lex_any_b(di, 0)
+        let p: Parser = parser_new(lex)
+        if not lex.failed {
+            p.parse()
+        }
+        if lex.failed or p.failed {
+            lex = self.lex_any_b(di, cline)
+            p = parser_new(lex)
+            if not lex.failed {
+                p.parse()
+            }
+            if lex.failed or p.failed {
+                lsp_reply_null(id)
+                return
+            }
+        }
+        # c.failed допустим: таблицы деклараций полны после разбора, nty
+        # заполнен до точки провала (например «не используется» на прогале)
+        let c: Check = check_new(p)
+        c.run_typed()
+        let si: u32 = c.lsp_ty_struct(c.lsp_recv_ty(cx.nm, cx.nn, cline, cx.slf))
+        if si == NONE and cx.slf {
+            si = c.lsp_self_owner(cline)
+        }
+        if si == NONE or si >= 128 {
+            lsp_reply_null(id)
+            return
+        }
+        c.lsp_reply_members(id, si)
     }
 
     # Уведомление textDocument/publishDiagnostics для слота di. При dg.found
